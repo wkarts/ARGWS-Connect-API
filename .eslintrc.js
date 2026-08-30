@@ -19,6 +19,14 @@ module.exports = {
     jest: true,
   },
   ignorePatterns: ['.eslintrc.js'],
+  overrides: [
+    {
+      files: ['src/config/env.config.ts'],
+      rules: {
+        'prettier/prettier': 'off',
+      },
+    },
+  ],
   rules: {
     '@typescript-eslint/interface-name-prefix': 'off',
     '@typescript-eslint/explicit-function-return-type': 'off',

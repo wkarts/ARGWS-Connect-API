@@ -52,4 +52,11 @@ jobs:
         with:
           submodules: recursive
       - name: Dependency Review
+        id: dependency-review
+        continue-on-error: true
         uses: actions/dependency-review-action@v4
+
+      - name: Dependency Review availability notice
+        if: steps.dependency-review.outcome == 'failure'
+        run: |
+          echo "::warning::GitHub Dependency Review is unavailable for this repository. CodeQL remains enforced; enable Dependency Graph/GitHub Advanced Security to make Dependency Review blocking."

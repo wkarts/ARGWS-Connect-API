@@ -20,12 +20,12 @@ import { BaileysController } from './integrations/channel/whatsapp/baileys.contr
 import { ChatbotController } from './integrations/chatbot/chatbot.controller';
 import { ChatwootController } from './integrations/chatbot/chatwoot/controllers/chatwoot.controller';
 import { ChatwootService } from './integrations/chatbot/chatwoot/services/chatwoot.service';
-import { DifyController } from './integrations/chatbot/dify/controllers/dify.controller';
-import { DifyService } from './integrations/chatbot/dify/services/dify.service';
 import { ConnectAIController } from './integrations/chatbot/connectAI/controllers/connectAI.controller';
 import { ConnectAIService } from './integrations/chatbot/connectAI/services/connectAI.service';
 import { ConnectBotController } from './integrations/chatbot/connectBot/controllers/connectBot.controller';
 import { ConnectBotService } from './integrations/chatbot/connectBot/services/connectBot.service';
+import { DifyController } from './integrations/chatbot/dify/controllers/dify.controller';
+import { DifyService } from './integrations/chatbot/dify/services/dify.service';
 import { FlowiseController } from './integrations/chatbot/flowise/controllers/flowise.controller';
 import { FlowiseService } from './integrations/chatbot/flowise/services/flowise.service';
 import { N8nController } from './integrations/chatbot/n8n/controllers/n8n.controller';

@@ -1,9 +1,9 @@
 import { InstanceDto } from '@api/dto/instance.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import {
-  difyController,
   connectAIController,
   connectBotController,
+  difyController,
   flowiseController,
   n8nController,
   openaiController,

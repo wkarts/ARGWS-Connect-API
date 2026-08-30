@@ -59,11 +59,7 @@ export class ConnectBotController extends BaseChatbotController<ConnectBot, Conn
   }
 
   // Implementation for bot-specific duplicate validation on update
-  protected async validateNoDuplicatesOnUpdate(
-    botId: string,
-    instanceId: string,
-    data: ConnectBotDto,
-  ): Promise<void> {
+  protected async validateNoDuplicatesOnUpdate(botId: string, instanceId: string, data: ConnectBotDto): Promise<void> {
     const checkDuplicate = await this.botRepository.findFirst({
       where: {
         id: {
