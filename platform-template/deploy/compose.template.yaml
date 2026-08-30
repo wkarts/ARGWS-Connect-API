@@ -1,0 +1,47 @@
+name: {{PLATFORM_SLUG}}-control-plane
+services:
+  gateway:
+    image: ghcr.io/wkarts/argws-platform-nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:${CONTROL_PLANE_HOST_PORT:-39100}:80"
+    networks: [internal]
+  api:
+    image: {{PLATFORM_API_IMAGE}}
+    expose: ["8090"]
+    networks: [internal]
+  web:
+    image: {{PLATFORM_WEB_IMAGE}}
+    expose: ["80"]
+    networks: [internal]
+  postgres:
+    image: ghcr.io/wkarts/argws-platform-postgres:17
+    volumes: ["./volumes/postgres:/var/lib/postgresql/data"]
+    networks: [internal]
+  redis:
+    image: ghcr.io/wkarts/argws-platform-redis:8
+    volumes: ["./volumes/redis:/data"]
+    networks: [internal]
+  rabbitmq:
+    image: ghcr.io/wkarts/argws-platform-rabbitmq:4-management
+    volumes: ["./volumes/rabbitmq:/var/lib/rabbitmq"]
+    networks: [internal]
+  nats:
+    image: ghcr.io/wkarts/argws-platform-nats:2.10-alpine
+    command: ["-js", "--store_dir", "/data"]
+    volumes: ["./volumes/nats:/data"]
+    networks: [internal]
+  prometheus:
+    image: ghcr.io/wkarts/argws-platform-prometheus:latest
+    volumes: ["./volumes/prometheus:/prometheus"]
+    networks: [internal]
+  grafana:
+    image: ghcr.io/wkarts/argws-platform-grafana:latest
+    volumes: ["./volumes/grafana:/var/lib/grafana"]
+    networks: [internal]
+  log-agent:
+    image: ghcr.io/wkarts/argws-platform-vector:latest
+    volumes: ["./volumes/logs:/var/log/argws"]
+    networks: [internal]
+networks:
+  internal:
+    driver: bridge

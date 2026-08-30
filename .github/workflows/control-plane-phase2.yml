@@ -2,7 +2,6 @@ name: Control Plane Phase 2
 
 on:
   pull_request:
-    branches: [main]
     paths:
       - "control-plane/**"
       - "platform-template/**"
@@ -42,6 +41,25 @@ jobs:
           node-version: "24"
       - run: npm install
       - run: npm run build
+
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate Control Plane Compose
+        run: |
+          cp control-plane/deploy/env.example control-plane/deploy/.env
+          docker compose -f control-plane/deploy/compose.yaml config >/dev/null
+      - name: Enforce gateway-only published port
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output([
+              'docker','compose','-f','control-plane/deploy/compose.yaml','config','--format','json'
+          ], text=True))
+          published = [name for name,cfg in data['services'].items() if cfg.get('ports')]
+          assert published == ['gateway'], f'Only gateway may publish a host port: {published}'
+          PY
 
   template:
     runs-on: ubuntu-latest
