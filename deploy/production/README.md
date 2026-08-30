@@ -2,6 +2,23 @@
 
 Stack oficial de produção com todos os serviços locais necessários ao runtime principal.
 
+## Arquivos da stack
+
+```text
+production/
+├── compose.yaml
+├── env.example        # fonte canônica de configuração
+├── deploy.sh
+├── update.sh
+├── status.sh
+├── preflight.sh
+├── registry-login.sh
+├── nginx-location.conf.example
+└── volumes/
+```
+
+O arquivo `.env` contém configuração real e segredos e, por isso, **não é versionado**. Crie-o com `cp env.example .env`.
+
 ## Porta pública
 
 Somente a API publica porta no host:
