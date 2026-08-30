@@ -2,6 +2,23 @@
 
 Stack oficial de homologação, isolada da produção por projeto Compose, rede, banco, cache, RabbitMQ, bucket e diretório físico próprios.
 
+## Arquivos da stack
+
+```text
+homologation/
+├── compose.yaml
+├── env.example        # fonte canônica de configuração
+├── deploy.sh
+├── update.sh
+├── status.sh
+├── preflight.sh
+├── registry-login.sh
+├── nginx-location.conf.example
+└── volumes/
+```
+
+O `.env` real não é versionado. Crie-o com `cp env.example .env`.
+
 ## Porta pública
 
 Somente a API publica porta no host:
