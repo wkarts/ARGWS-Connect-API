@@ -8,7 +8,7 @@ x-logging: &default-logging
 
 services:
   api:
-    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:1.0.4}
     pull_policy: always
     restart: unless-stopped
     env_file:
