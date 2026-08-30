@@ -1,0 +1,46 @@
+name: Deployment Integrity
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    name: Compose and Local Volumes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare example environments
+        run: |
+          cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
+          cp deploy/dockge/env.example deploy/dockge/.env
+
+      - name: Validate CloudPanel Compose
+        run: docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+
+      - name: Validate Dockge Compose
+        run: docker compose -f deploy/dockge/compose.yaml config >/dev/null
+
+      - name: Enforce bind-mount persistence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in deploy/cloudpanel/docker-compose.yml deploy/dockge/compose.yaml; do
+            grep -q './volumes/instances' "$file"
+            grep -q './volumes/postgres' "$file"
+            grep -q './volumes/redis' "$file"
+            grep -q './volumes/rabbitmq' "$file"
+            grep -q './volumes/minio' "$file"
+            grep -q '127.0.0.1:8080/health' "$file"
+            if grep -q '^volumes:$' "$file"; then
+              echo "Named volumes are not allowed in $file"
+              exit 1
+            fi
+          done

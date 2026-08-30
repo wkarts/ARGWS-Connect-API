@@ -7,6 +7,10 @@ services:
     container_name: argws_connect_api
     restart: unless-stopped
     env_file: [.env]
+    environment:
+      DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-30}
+      DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
+      LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -15,10 +19,10 @@ services:
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-8080}:8080"
     volumes:
-      - argws_connect_instances:/argws-connect/instances
+      - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
     networks: [argws-connect-net]
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -51,7 +55,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
       TZ: ${TZ:-America/Bahia}
     volumes:
-      - argws_connect_postgres:/var/lib/postgresql/data
+      - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
       argws-connect-net:
         aliases: [argws-connect-postgres]
@@ -71,7 +75,7 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}
     volumes:
-      - argws_connect_redis:/data
+      - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
       argws-connect-net:
         aliases: [argws-connect-redis]
@@ -93,7 +97,7 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-argws_connect}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-CHANGE_ME_RABBITMQ_PASSWORD}
     volumes:
-      - argws_connect_rabbitmq:/var/lib/rabbitmq
+      - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
       argws-connect-net:
         aliases: [argws-connect-rabbitmq]
@@ -109,17 +113,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-argws_connect}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-CHANGE_ME_MINIO_PASSWORD}
     volumes:
-      - argws_connect_minio:/data
+      - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
       argws-connect-net:
         aliases: [argws-connect-minio]
-
-volumes:
-  argws_connect_instances:
-  argws_connect_postgres:
-  argws_connect_redis:
-  argws_connect_rabbitmq:
-  argws_connect_minio:
 
 networks:
   argws-connect-net:

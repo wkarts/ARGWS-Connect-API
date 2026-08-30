@@ -20,6 +20,17 @@ for key in "${required[@]}"; do
   fi
 done
 
+# Persistência fica fisicamente ao lado desta stack.
+mkdir -p \
+  ./volumes/instances \
+  ./volumes/postgres \
+  ./volumes/redis \
+  ./volumes/rabbitmq \
+  ./volumes/minio \
+  ./volumes/logs \
+  ./volumes/backups
+
+docker compose config >/dev/null
 docker compose pull
 docker compose up -d --remove-orphans
 docker compose ps
