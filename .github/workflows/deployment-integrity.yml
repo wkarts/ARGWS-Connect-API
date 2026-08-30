@@ -17,6 +17,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Validate environment examples persistence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            deploy/cloudpanel/.env.example \
+            deploy/cloudpanel/env.example \
+            deploy/dockge/.env.example \
+            deploy/dockge/env.example; do
+            grep -qx 'ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances' "$file"
+            grep -qx 'ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres' "$file"
+            grep -qx 'ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis' "$file"
+            grep -qx 'ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq' "$file"
+            grep -qx 'ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio' "$file"
+            grep -qx 'ARGWS_CONNECT_LOGS_DATA_PATH=./volumes/logs' "$file"
+            grep -qx 'ARGWS_CONNECT_BACKUPS_DATA_PATH=./volumes/backups' "$file"
+          done
+
       - name: Prepare example environments
         run: |
           cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
