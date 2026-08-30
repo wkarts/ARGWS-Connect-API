@@ -1,64 +1,64 @@
 # Deploy — Dockge
 
-Este stack foi preparado para uso no Dockge e consome somente imagens do GHCR.
+Stack canônica do ARGWS Connect API para Dockge.
 
-## Regra de persistência
+## Contrato de rede
 
-A stack usa bind mounts relativos ao diretório onde o `compose.yaml` está armazenado. Assim, os dados físicos acompanham a própria stack:
+Somente `api` possui `ports:`. PostgreSQL, Redis, RabbitMQ, MinIO e serviços opcionais ficam exclusivamente na rede `argws-connect-net`.
+
+O Manager atual está dentro da imagem da API e pode ser aberto em:
 
 ```text
-./volumes/
-├── instances/
-├── postgres/
-├── redis/
-├── rabbitmq/
-├── minio/
-├── logs/
-└── backups/
+http(s)://SEU_HOST/manager
 ```
 
-Não são utilizados named volumes Docker para esses dados.
+Assim, não existe `manager:3000` na stack de produção.
 
-Opcionalmente, os caminhos podem ser sobrescritos no `.env`:
+## Serviços padrão
 
-```env
-ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances
-ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres
-ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis
-ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq
-ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio
+O Deploy/Up normal inicia API, PostgreSQL, Redis, RabbitMQ e MinIO.
+
+Perfis opcionais:
+
+- `nats`;
+- `kafka` (Kafka + Zookeeper);
+- `extended` (NATS + Kafka + Zookeeper);
+- `mysql` (provider alternativo).
+
+No Dockge, configure `COMPOSE_PROFILES` no `.env` somente quando quiser iniciar um desses grupos.
+
+## Persistência
+
+Todos os dados ficam em `./volumes/...` dentro do diretório da própria stack. Não são usados named volumes.
+
+## GHCR
+
+O erro abaixo significa falta de acesso ao registry, e não falha do PostgreSQL/Redis:
+
+```text
+Head "https://ghcr.io/v2/.../manifests/...": denied
 ```
 
-Sem override, o Compose já usa `./volumes/...` como padrão.
-
-## Instalação
-
-1. Crie a stack `argws-connect-api` no Dockge.
-2. Mantenha `compose.yaml`, `.env` e a pasta `volumes/` no mesmo diretório da stack.
-3. Copie as variáveis de `.env.example` para o `.env` e altere todos os valores `CHANGE_ME_*`.
-4. Se o GHCR for privado, autentique o host Docker:
+Se os packages estiverem privados, faça login **no host Docker onde o Dockge roda**:
 
 ```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+export GHCR_USERNAME=wkarts
+export GHCR_TOKEN='PAT_COM_READ_PACKAGES'
+./registry-login.sh
 ```
 
-5. Faça **Pull** e depois **Deploy/Up**.
+O PAT precisa apenas de `read:packages` para pull.
 
-## Portas
+Depois faça Pull e Deploy/Up pelo Dockge.
 
-- API: `127.0.0.1:8080`
-- Manager: `127.0.0.1:3000`
+## Porta
 
-Para exposição direta, altere `ARGWS_CONNECT_BIND_ADDRESS=0.0.0.0`. Com reverse proxy no mesmo host, mantenha `127.0.0.1`.
+Por padrão:
 
-## Perfis opcionais
+```env
+ARGWS_CONNECT_BIND_ADDRESS=127.0.0.1
+ARGWS_CONNECT_API_HOST_PORT=38080
+SERVER_PORT=8080
+```
 
-O stack padrão sobe API, Manager, PostgreSQL e Redis. RabbitMQ e MinIO usam profiles `messaging`, `storage` e `full`.
-
-## Atualização
-
-Use **Pull** e depois **Redeploy**. Não existe build da aplicação no servidor e os dados permanecem em `./volumes`.
-
-## Observabilidade e backup
-
-As pastas `./volumes/logs` e `./volumes/backups` ficam reservadas para os containers padronizados de observabilidade e backup que serão incorporados ao ARGWS Platform Template. Elas não alteram o runtime atual do Connect API.
+`SERVER_PORT` é interno e não deve ser usado para escolher a porta publicada no host.

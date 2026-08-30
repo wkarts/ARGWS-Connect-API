@@ -1,45 +1,48 @@
 # Validação do deployment — ARGWS Connect API
 
-## Contrato atual
+## Contrato obrigatório
 
-- imagens de runtime referenciadas por `ghcr.io/wkarts/argws-connect-*`;
-- nenhuma compilação da aplicação em CloudPanel/Dockge;
-- CloudPanel e Dockge mantêm a mesma arquitetura de serviços;
-- persistência através de bind mounts relativos `./volumes/...`;
-- sem named volumes para Instance, PostgreSQL, Redis, RabbitMQ e MinIO;
+- somente `api` publica porta no host;
+- target interno da API: `8080`;
+- Manager servido em `/manager` pela própria API;
+- PostgreSQL, Redis, RabbitMQ, MinIO, MySQL, NATS, Kafka e Zookeeper não publicam portas;
+- imagens de runtime exclusivamente `ghcr.io/wkarts/argws-connect-*`;
+- bind mounts relativos `./volumes/...`;
+- sem named volumes na stack canônica;
 - API healthcheck em `GET /health`;
-- migrations executadas antes da API com retry configurável;
-- URI do banco não é impressa pelo script de boot;
-- `.env` não é incorporado à imagem final.
+- migrations com retry antes do runtime;
+- Docker log rotation habilitada;
+- CloudPanel, Dockge e root Compose seguem o mesmo contrato.
 
-## Persistência esperada
-
-```text
-./volumes/instances
-./volumes/postgres
-./volumes/redis
-./volumes/rabbitmq
-./volumes/minio
-./volumes/logs
-./volumes/backups
-```
-
-Variáveis opcionais de override:
+## Stack padrão
 
 ```text
-ARGWS_CONNECT_INSTANCES_DATA_PATH
-ARGWS_CONNECT_POSTGRES_DATA_PATH
-ARGWS_CONNECT_REDIS_DATA_PATH
-ARGWS_CONNECT_RABBITMQ_DATA_PATH
-ARGWS_CONNECT_MINIO_DATA_PATH
+api
+postgres
+redis
+rabbitmq
+minio
 ```
+
+Perfis opcionais:
+
+```text
+nats
+kafka + zookeeper
+extended
+mysql
+```
+
+MongoDB não faz parte deste contrato porque não existe suporte MongoDB no código atual.
 
 ## CI
 
-A integridade do banco continua coberta por `database-integrity.yml` para PostgreSQL, MySQL e PgBouncer.
+`deployment-integrity.yml` valida sintaxe do Compose, uma única porta publicada, ausência do Manager separado, bind mounts, imagens GHCR e disponibilidade das imagens core usando autenticação do GitHub Actions.
 
-O deployment é validado separadamente por `deployment-integrity.yml`, que verifica sintaxe/expansão dos dois Compose e o contrato de bind mounts.
+`database-integrity.yml` continua validando PostgreSQL, MySQL e PgBouncer.
 
-## Backup
+## GHCR
 
-A organização física da stack facilita backup e migração. Entretanto, bancos em execução devem ser salvos por ferramentas consistentes do próprio engine; a existência de `./volumes/postgres` não autoriza cópia a quente dos arquivos do PostgreSQL.
+O workflow `ghcr-sync-infrastructure.yml` espelha infraestrutura para o GHCR em execução manual, semanal e também quando mudanças de deployment entram na `main`.
+
+Hosts externos ainda precisam de `docker login ghcr.io` se os packages estiverem privados.

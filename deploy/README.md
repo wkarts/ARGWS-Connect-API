@@ -1,29 +1,75 @@
-# Deployments oficiais
+# Deployments oficiais — ARGWS Connect API
 
-- `cloudpanel/`: Docker Compose + `.env` completo + snippets de reverse proxy para CloudPanel.
-- `dockge/`: stack pronta para Dockge + `.env` completo.
-- `ghcr/`: mapa das imagens e procedimento de bootstrap/publicação no GitHub Container Registry.
+A stack canônica publica **uma única porta no host: a porta da API**. Todos os demais componentes permanecem na rede Docker interna.
 
-Todos os YAMLs de produção/homologação consomem imagens `ghcr.io/wkarts/argws-connect-*`. Não há build da aplicação no host de produção.
-
-## Contrato de persistência
-
-CloudPanel e Dockge seguem o mesmo padrão operacional: **bind mounts relativos à pasta da stack**.
+## Topologia padrão
 
 ```text
-stack/
-├── compose.yaml (ou docker-compose.yml)
-├── .env
-└── volumes/
-    ├── instances/
-    ├── postgres/
-    ├── redis/
-    ├── rabbitmq/
-    ├── minio/
-    ├── logs/
-    └── backups/
+Internet / Cloudflare / CloudPanel
+              │
+              ▼
+     127.0.0.1:38080
+              │
+       ARGWS Connect API
+       ├── /manager
+       ├── /health
+       ├── /metrics
+       ├── WebSocket
+       ├── Webhooks
+       └── demais endpoints
+              │
+   ┌──────────┼──────────┐
+PostgreSQL   Redis   RabbitMQ   MinIO
+   │          │        │         │
+   └──────── rede Docker interna ─┘
 ```
 
-Os serviços usam `./volumes/...` por padrão. Isso mantém configuração e dados físicos associados à mesma instalação e evita depender de named volumes internos do Docker.
+O Manager atual já está empacotado na imagem da API e é servido em `/manager`; não existe motivo para publicar um segundo container/porta apenas para ele.
 
-Os caminhos podem ser sobrescritos pelo `.env` através de `ARGWS_CONNECT_*_DATA_PATH`, sem alterar os YAMLs.
+## Serviços locais
+
+A stack padrão sobe automaticamente:
+
+- API;
+- PostgreSQL;
+- Redis;
+- RabbitMQ;
+- MinIO.
+
+Serviços opcionais presentes no Compose:
+
+- `nats` — profile `nats`;
+- `kafka` + `zookeeper` — profile `kafka`;
+- NATS + Kafka — profile `extended`;
+- MySQL — profile `mysql`, como provider alternativo.
+
+MongoDB **não foi incluído** porque o runtime atual não possui driver, configuração ou repositório MongoDB. Incluir um container sem consumidor só aumentaria consumo e criaria uma falsa indicação de compatibilidade.
+
+## Persistência
+
+Todos os dados usam bind mounts relativos à pasta da stack:
+
+```text
+./volumes/
+├── instances/
+├── postgres/
+├── redis/
+├── rabbitmq/
+├── minio/
+├── mysql/
+├── nats/
+├── kafka/
+├── zookeeper/
+├── logs/
+└── backups/
+```
+
+Não são usados named volumes na stack canônica.
+
+## GHCR
+
+Produção/homologação consomem somente `ghcr.io/wkarts/argws-connect-*`.
+
+Se o Docker retornar `denied` ao consultar um manifest, o package está privado ou o host ainda não está autenticado. Use `registry-login.sh` com um PAT `read:packages`, ou torne os packages de runtime públicos no GHCR.
+
+O workflow `GHCR - Sync Infrastructure Images` também é executado quando mudanças de deployment chegam à `main`, garantindo o espelhamento das imagens de infraestrutura.
