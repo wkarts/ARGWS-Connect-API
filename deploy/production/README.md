@@ -36,6 +36,24 @@ COMPOSE_PROFILES=extended ./deploy.sh
 
 RabbitMQ continua sendo o event bus/fila padrão. NATS é indicado para pub/sub de baixa latência e comunicação entre serviços; Kafka para retenção, replay e alto volume de eventos. Zookeeper existe somente como dependência do Kafka nesta versão.
 
+## Política de imagem
+
+Produção não usa uma imagem `:production` e não acompanha automaticamente `:latest`.
+
+A stack fica presa a uma versão SemVer aprovada, por exemplo:
+
+```text
+ghcr.io/wkarts/argws-connect-api:1.0.4
+```
+
+Fluxo de promoção:
+
+```text
+develop → :latest → homologação → validação → tag SemVer aprovada → produção
+```
+
+Quando uma nova versão for aprovada, altere somente `ARGWS_CONNECT_API_IMAGE` no `.env` de produção para a tag validada e execute `./update.sh`. Não há rebuild específico de produção.
+
 ## Deploy direto
 
 ```bash
