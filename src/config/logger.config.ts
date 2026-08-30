@@ -6,8 +6,11 @@ const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 
 const redactSensitiveText = (value: string) =>
   value
-    .replace(/(bearer\s+)[a-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
-    .replace(/((?:api[-_ ]?key|apikey|authorization|password|secret|token)\s*[:=]\s*)([^\s,;}\]]+)/gi, '$1[REDACTED]');
+    .replace(/(bearer\s+).+?(?=\s|,|;|}|\]|\)|$)/gi, '$1[REDACTED]')
+    .replace(
+      /(\b["']?(?:api[-_ ]?key|apikey|authorization|cookie|credential|password|private[-_ ]?key|secret|set[-_ ]?cookie|token)["']?\s*[:=]\s*["']?).+?(?=["']?(?:,|;|}|\]|\)|$))/gi,
+      '$1[REDACTED]',
+    );
 
 /**
  * Logger boundary used to prevent structured objects from reaching stdout.
