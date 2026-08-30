@@ -8,57 +8,86 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   compose:
-    name: Compose and Local Volumes
+    name: Compose / Single Port / Local Services
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Validate environment examples persistence contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          for file in \
-            deploy/cloudpanel/.env.example \
-            deploy/cloudpanel/env.example \
-            deploy/dockge/.env.example \
-            deploy/dockge/env.example; do
-            grep -qx 'ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances' "$file"
-            grep -qx 'ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres' "$file"
-            grep -qx 'ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis' "$file"
-            grep -qx 'ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq' "$file"
-            grep -qx 'ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio' "$file"
-            grep -qx 'ARGWS_CONNECT_LOGS_DATA_PATH=./volumes/logs' "$file"
-            grep -qx 'ARGWS_CONNECT_BACKUPS_DATA_PATH=./volumes/backups' "$file"
-          done
-
       - name: Prepare example environments
         run: |
+          cp env.example .env
           cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
           cp deploy/dockge/env.example deploy/dockge/.env
 
-      - name: Validate CloudPanel Compose
-        run: docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+      - name: Validate Compose files
+        run: |
+          docker compose -f docker-compose.yaml config >/dev/null
+          docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose -f deploy/dockge/compose.yaml config >/dev/null
 
-      - name: Validate Dockge Compose
-        run: docker compose -f deploy/dockge/compose.yaml config >/dev/null
-
-      - name: Enforce bind-mount persistence contract
+      - name: Enforce single-port deployment contract
         shell: bash
         run: |
           set -euo pipefail
-          for file in deploy/cloudpanel/docker-compose.yml deploy/dockge/compose.yaml; do
-            grep -q './volumes/instances' "$file"
-            grep -q './volumes/postgres' "$file"
-            grep -q './volumes/redis' "$file"
-            grep -q './volumes/rabbitmq' "$file"
-            grep -q './volumes/minio' "$file"
-            grep -q '127.0.0.1:8080/health' "$file"
-            if grep -q '^volumes:$' "$file"; then
-              echo "Named volumes are not allowed in $file"
-              exit 1
-            fi
+          python - <<'PY'
+          import json
+          import subprocess
+
+          compose_files = [
+              "docker-compose.yaml",
+              "deploy/cloudpanel/docker-compose.yml",
+              "deploy/dockge/compose.yaml",
+          ]
+          required = {"api", "postgres", "redis", "rabbitmq", "minio"}
+          optional = {"mysql", "nats", "zookeeper", "kafka"}
+
+          for compose_file in compose_files:
+              raw = subprocess.check_output(
+                  ["docker", "compose", "-f", compose_file, "config", "--format", "json"],
+                  text=True,
+              )
+              data = json.loads(raw)
+              services = data["services"]
+              missing = (required | optional) - set(services)
+              assert not missing, f"{compose_file}: services ausentes: {sorted(missing)}"
+              assert "manager" not in services, f"{compose_file}: manager separado nao e permitido"
+              published = [name for name, cfg in services.items() if cfg.get("ports")]
+              assert published == ["api"], f"{compose_file}: somente api pode publicar porta: {published}"
+              api_ports = services["api"]["ports"]
+              assert len(api_ports) == 1, f"{compose_file}: API deve publicar exatamente uma porta"
+              assert int(api_ports[0]["target"]) == 8080, f"{compose_file}: target interno da API deve ser 8080"
+              for service_name, cfg in services.items():
+                  for mount in cfg.get("volumes", []):
+                      assert mount.get("type") == "bind", f"{compose_file}: {service_name} usa volume nao-bind"
+                  image = cfg.get("image", "")
+                  assert image.startswith("ghcr.io/wkarts/"), f"{compose_file}: imagem fora do GHCR: {image}"
+          print("Deployment contract OK")
+          PY
+
+      - name: Ensure environment parity
+        run: |
+          cmp -s env.example .env.example
+          cmp -s env.example deploy/cloudpanel/env.example
+          cmp -s env.example deploy/cloudpanel/.env.example
+          cmp -s env.example deploy/dockge/env.example
+          cmp -s env.example deploy/dockge/.env.example
+
+      - name: Login GHCR for image availability checks
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Verify core runtime images exist
+        run: |
+          set -euo pipefail
+          for image in \
+            ghcr.io/wkarts/argws-connect-api:latest \
+            ghcr.io/wkarts/argws-connect-postgres:15 \
+            ghcr.io/wkarts/argws-connect-redis:latest \
+            ghcr.io/wkarts/argws-connect-rabbitmq:management \
+            ghcr.io/wkarts/argws-connect-minio:latest; do
+            docker manifest inspect "$image" >/dev/null
           done

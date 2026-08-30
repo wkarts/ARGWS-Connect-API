@@ -2,6 +2,14 @@ name: GHCR - Sync Infrastructure Images
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ghcr-sync-infrastructure.yml"
+      - "deploy/**"
+      - "docker-compose.yaml"
+      - "env.example"
+      - ".env.example"
   schedule:
     - cron: "17 4 * * 0"
 
@@ -40,6 +48,7 @@ jobs:
           sync docker.io/library/rabbitmq:management         ghcr.io/${OWNER}/argws-connect-rabbitmq:management
           sync quay.io/minio/minio:latest                    ghcr.io/${OWNER}/argws-connect-minio:latest
           sync docker.io/percona/percona-server:8.0          ghcr.io/${OWNER}/argws-connect-mysql:8.0
+          sync docker.io/library/nats:2.10-alpine            ghcr.io/${OWNER}/argws-connect-nats:2.10-alpine
           sync docker.io/confluentinc/cp-kafka:7.5.0         ghcr.io/${OWNER}/argws-connect-kafka:7.5.0
           sync docker.io/confluentinc/cp-zookeeper:7.5.0     ghcr.io/${OWNER}/argws-connect-zookeeper:7.5.0
           sync docker.io/dpage/pgadmin4:latest               ghcr.io/${OWNER}/argws-connect-pgadmin:latest
