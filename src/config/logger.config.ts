@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import dayjs from 'dayjs';
 import fs from 'fs';
 
@@ -56,28 +55,29 @@ enum Background {
   VERBOSE = '\x1b[47m',
 }
 
-const hashValue = (value: string | Buffer) => createHash('sha256').update(value).digest('hex').slice(0, 12);
-
-const describeLogValue = (value: unknown): string | number | boolean => {
+/**
+ * Generic log values are intentionally reduced to a static type descriptor.
+ *
+ * Do not derive hashes, lengths, object keys, error properties or any other
+ * representation from the supplied value here. Credentials and API keys can
+ * reach the generic logger through third-party integrations; keeping the
+ * descriptor independent from the value guarantees that sensitive data does
+ * not flow to stdout/stderr, even indirectly.
+ */
+const describeLogValue = (value: unknown): string => {
   if (value === null) return '[NULL]';
   if (value === undefined) return '[UNDEFINED]';
-  if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (typeof value === 'bigint') return `[BIGINT digits=${value.toString().length}]`;
-  if (typeof value === 'string') return `[STRING length=${value.length} sha256=${hashValue(value)}]`;
-  if (Buffer.isBuffer(value)) return `[BUFFER length=${value.length} sha256=${hashValue(value)}]`;
-  if (value instanceof Error) {
-    const errorCode = typeof (value as any).code === 'string' ? (value as any).code : 'unknown';
-    return `[ERROR name=${value.name || 'Error'} code=${errorCode}]`;
-  }
-  if (Array.isArray(value)) return `[ARRAY length=${value.length}]`;
-  if (typeof value === 'object') {
-    const keys = Object.keys(value as Record<string, unknown>)
-      .slice(0, 12)
-      .sort()
-      .join(',');
-    return `[OBJECT keys=${keys || 'none'}]`;
-  }
-  return `[${typeof value}]`;
+  if (typeof value === 'string') return '[STRING REDACTED]';
+  if (Buffer.isBuffer(value)) return '[BUFFER REDACTED]';
+  if (value instanceof Error) return '[ERROR REDACTED]';
+  if (Array.isArray(value)) return '[ARRAY REDACTED]';
+  if (typeof value === 'object') return '[OBJECT REDACTED]';
+  if (typeof value === 'number') return '[NUMBER]';
+  if (typeof value === 'boolean') return '[BOOLEAN]';
+  if (typeof value === 'bigint') return '[BIGINT]';
+  if (typeof value === 'symbol') return '[SYMBOL]';
+  if (typeof value === 'function') return '[FUNCTION]';
+  return '[UNKNOWN]';
 };
 
 export class Logger {
