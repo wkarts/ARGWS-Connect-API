@@ -1,4 +1,4 @@
-name: GHCR - Publish Homologation Images
+name: GHCR - Publish Latest Development Image
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: ghcr-homolog-${{ github.ref }}
+  group: ghcr-latest-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -65,7 +65,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push ${{ matrix.component }} homologation image
+      - name: Build and push ${{ matrix.component }} latest image
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -73,15 +73,13 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:homolog
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:sha-${{ github.sha }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
           labels: |
             org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=homolog-${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=homolog-${{ matrix.component }}
+          cache-from: type=gha,scope=latest-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=latest-${{ matrix.component }}
 
       - name: Print digest
         run: echo "${{ matrix.image }}=${{ steps.build.outputs.digest }}"
