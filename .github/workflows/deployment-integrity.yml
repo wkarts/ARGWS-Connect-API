@@ -38,8 +38,6 @@ jobs:
           docker compose --profile '*' -f docker-compose.yaml config >/dev/null
           docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
           docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
-          docker compose --profile '*' -f deploy/production/compose.yaml config >/dev/null
-          docker compose --profile '*' -f deploy/homologation/compose.yaml config >/dev/null
 
       - name: Enforce single-port deployment contract
         shell: bash
@@ -49,18 +47,21 @@ jobs:
           import json
           import subprocess
 
-          compose_files = [
+          extended_compose_files = [
               "docker-compose.yaml",
               "deploy/cloudpanel/docker-compose.yml",
               "deploy/dockge/compose.yaml",
+          ]
+          canonical_compose_files = [
               "deploy/production/compose.yaml",
               "deploy/homologation/compose.yaml",
           ]
-          required = {"api", "postgres", "redis", "rabbitmq", "minio"}
+          core = {"api", "postgres", "redis", "rabbitmq", "minio"}
           optional = {"mysql", "nats", "zookeeper", "kafka"}
 
           parsed = {}
-          for compose_file in compose_files:
+
+          for compose_file in extended_compose_files:
               raw = subprocess.check_output(
                   ["docker", "compose", "--profile", "*", "-f", compose_file, "config", "--format", "json"],
                   text=True,
@@ -68,8 +69,24 @@ jobs:
               data = json.loads(raw)
               parsed[compose_file] = data
               services = data["services"]
-              missing = (required | optional) - set(services)
+              missing = (core | optional) - set(services)
               assert not missing, f"{compose_file}: services ausentes: {sorted(missing)}"
+
+          for compose_file in canonical_compose_files:
+              raw = subprocess.check_output(
+                  ["docker", "compose", "-f", compose_file, "config", "--format", "json"],
+                  text=True,
+              )
+              data = json.loads(raw)
+              parsed[compose_file] = data
+              services = data["services"]
+              assert set(services) == core, (
+                  f"{compose_file}: stack canonica deve conter somente {sorted(core)}, "
+                  f"encontrado {sorted(services)}"
+              )
+
+          for compose_file, data in parsed.items():
+              services = data["services"]
               assert "manager" not in services, f"{compose_file}: manager separado nao e permitido"
 
               published = [name for name, cfg in services.items() if cfg.get("ports")]
@@ -95,10 +112,9 @@ jobs:
           assert prod_port == 38080, f"producao: porta default deve ser 38080, encontrada {prod_port}"
           assert homolog_port == 38081, f"homologacao: porta default deve ser 38081, encontrada {homolog_port}"
           assert prod_port != homolog_port, "producao e homologacao nao podem publicar a mesma porta"
-
           assert prod.get("name") != homolog.get("name"), "producao e homologacao precisam de project names diferentes"
 
-          for compose_file in ("deploy/production/compose.yaml", "deploy/homologation/compose.yaml"):
+          for compose_file in canonical_compose_files:
               services = parsed[compose_file]["services"]
               fixed_names = [name for name, cfg in services.items() if cfg.get("container_name")]
               assert not fixed_names, f"{compose_file}: container_name fixo impede coexistencia: {fixed_names}"
@@ -152,16 +168,10 @@ jobs:
         run: |
           set -euo pipefail
           for dir in deploy/production deploy/homologation; do
-            test -x "$dir/deploy.sh"
-            test -x "$dir/update.sh"
-            test -x "$dir/status.sh"
-            test -x "$dir/preflight.sh"
-            test -x "$dir/registry-login.sh"
-            bash -n "$dir/deploy.sh"
-            bash -n "$dir/update.sh"
-            bash -n "$dir/status.sh"
-            bash -n "$dir/preflight.sh"
-            bash -n "$dir/registry-login.sh"
+            for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh; do
+              test -x "$dir/$script"
+              bash -n "$dir/$script"
+            done
             test -f "$dir/nginx-location.conf.example"
             test -f "$dir/README.md"
           done
@@ -169,7 +179,7 @@ jobs:
       - name: Login GHCR for image availability checks
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Verify core runtime images exist
+      - name: Verify production core runtime images exist
         run: |
           set -euo pipefail
           for image in \
