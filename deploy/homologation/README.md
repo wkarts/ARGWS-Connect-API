@@ -36,9 +36,17 @@ COMPOSE_PROFILES=extended ./deploy.sh
 
 RabbitMQ continua sendo o event bus/fila padrão. NATS é indicado para pub/sub de baixa latência e comunicação entre serviços; Kafka para retenção, replay e alto volume de eventos. Zookeeper existe somente como dependência do Kafka nesta versão.
 
-## Imagem
+## Política de imagem
 
-A homologação usa `ghcr.io/wkarts/argws-connect-api:homolog`.
+A homologação usa somente:
+
+```text
+ghcr.io/wkarts/argws-connect-api:latest
+```
+
+Não existe imagem/tag específica `:homolog` ou `:production`.
+
+A branch `develop` atualiza `:latest`. Releases da `main` publicam tags SemVer e também `:latest`. A homologação é o ambiente onde a imagem `latest` é validada antes de promover uma versão para produção.
 
 ## Deploy direto
 
