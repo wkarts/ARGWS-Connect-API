@@ -23,6 +23,7 @@ import { Events, wa } from '@api/types/wa.types';
 import { AudioConverter, Chatwoot, ConfigService, Database, Openai, S3, WaBusiness } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import { createJid } from '@utils/createJid';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { status } from '@utils/renderStatus';
 import { sendTelemetry } from '@utils/sendTelemetry';
 import axios from 'axios';
@@ -758,7 +759,7 @@ export class BusinessStartupService extends ChannelStartupService {
               where: {
                 instanceId: this.instanceId,
                 key: {
-                  path: ['id'],
+                  path: prismaJsonPath('id'),
                   equals: key.id,
                 },
               },

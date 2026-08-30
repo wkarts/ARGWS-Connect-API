@@ -84,6 +84,7 @@ import { createJid } from '@utils/createJid';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
 import { makeProxyAgent, makeProxyAgentUndici } from '@utils/makeProxyAgent';
 import { getOnWhatsappCache, saveOnWhatsappCache } from '@utils/onWhatsappCache';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { status } from '@utils/renderStatus';
 import { sendTelemetry } from '@utils/sendTelemetry';
 import useMultiFileAuthStatePrisma from '@utils/use-multi-file-auth-state-prisma';
@@ -402,13 +403,10 @@ export class BaileysStartupService extends ChannelStartupService {
           );
         }
       });
-
-      qrcodeTerminal.generate(qr, { small: true }, (qrcode) =>
-        this.logger.log(
-          `\n{ instance: ${this.instance.name} pairingCode: ${this.instance.qrcode.pairingCode}, qrcodeCount: ${this.instance.qrcode.count} }\n` +
-            qrcode,
-        ),
-      );
+      qrcodeTerminal.generate(qr, { small: true }, (qrcode) => {
+        this.logger.system('WhatsApp QR code generated');
+        this.logger.qr(qrcode);
+      });
 
       await this.prismaRepository.instance.update({
         where: { id: this.instanceId },
@@ -3784,7 +3782,7 @@ export class BaileysStartupService extends ChannelStartupService {
         if (messageId) {
           const isLogicalDeleted = configService.get<Database>('DATABASE').DELETE_DATA.LOGICAL_MESSAGE_DELETE;
           let message = await this.prismaRepository.message.findFirst({
-            where: { key: { path: ['id'], equals: messageId } },
+            where: { key: { path: prismaJsonPath('id'), equals: messageId } },
           });
           if (isLogicalDeleted) {
             if (!message) return response;
@@ -4204,7 +4202,7 @@ export class BaileysStartupService extends ChannelStartupService {
           const messageId = messageSent.message?.protocolMessage?.key?.id;
           if (messageId && this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
             let message = await this.prismaRepository.message.findFirst({
-              where: { key: { path: ['id'], equals: messageId } },
+              where: { key: { path: prismaJsonPath('id'), equals: messageId } },
             });
             if (!message) throw new NotFoundException('Message not found');
 
@@ -5042,13 +5040,19 @@ export class BaileysStartupService extends ChannelStartupService {
         messageType: query?.where?.messageType,
         ...timestampFilter,
         AND: [
-          keyFilters?.id ? { key: { path: ['id'], equals: keyFilters?.id } } : {},
-          keyFilters?.fromMe ? { key: { path: ['fromMe'], equals: keyFilters?.fromMe } } : {},
-          keyFilters?.participant ? { key: { path: ['participant'], equals: keyFilters?.participant } } : {},
+          keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
+          keyFilters?.fromMe ? { key: { path: prismaJsonPath('fromMe'), equals: keyFilters?.fromMe } } : {},
+          keyFilters?.participant
+            ? { key: { path: prismaJsonPath('participant'), equals: keyFilters?.participant } }
+            : {},
           {
             OR: [
-              keyFilters?.remoteJid ? { key: { path: ['remoteJid'], equals: keyFilters?.remoteJid } } : {},
-              keyFilters?.remoteJidAlt ? { key: { path: ['remoteJidAlt'], equals: keyFilters?.remoteJidAlt } } : {},
+              keyFilters?.remoteJid
+                ? { key: { path: prismaJsonPath('remoteJid'), equals: keyFilters?.remoteJid } }
+                : {},
+              keyFilters?.remoteJidAlt
+                ? { key: { path: prismaJsonPath('remoteJidAlt'), equals: keyFilters?.remoteJidAlt } }
+                : {},
             ],
           },
         ],
@@ -5071,13 +5075,19 @@ export class BaileysStartupService extends ChannelStartupService {
         messageType: query?.where?.messageType,
         ...timestampFilter,
         AND: [
-          keyFilters?.id ? { key: { path: ['id'], equals: keyFilters?.id } } : {},
-          keyFilters?.fromMe ? { key: { path: ['fromMe'], equals: keyFilters?.fromMe } } : {},
-          keyFilters?.participant ? { key: { path: ['participant'], equals: keyFilters?.participant } } : {},
+          keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
+          keyFilters?.fromMe ? { key: { path: prismaJsonPath('fromMe'), equals: keyFilters?.fromMe } } : {},
+          keyFilters?.participant
+            ? { key: { path: prismaJsonPath('participant'), equals: keyFilters?.participant } }
+            : {},
           {
             OR: [
-              keyFilters?.remoteJid ? { key: { path: ['remoteJid'], equals: keyFilters?.remoteJid } } : {},
-              keyFilters?.remoteJidAlt ? { key: { path: ['remoteJidAlt'], equals: keyFilters?.remoteJidAlt } } : {},
+              keyFilters?.remoteJid
+                ? { key: { path: prismaJsonPath('remoteJid'), equals: keyFilters?.remoteJid } }
+                : {},
+              keyFilters?.remoteJidAlt
+                ? { key: { path: prismaJsonPath('remoteJidAlt'), equals: keyFilters?.remoteJidAlt } }
+                : {},
             ],
           },
         ],

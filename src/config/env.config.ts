@@ -27,6 +27,7 @@ export type Log = {
   LEVEL: LogLevel[];
   COLOR: boolean;
   BAILEYS: LogBaileys;
+  QRCODE: boolean;
 };
 
 export type ProviderSession = {
@@ -738,6 +739,7 @@ export class ConfigService {
           (['ERROR', 'WARN', 'DEBUG', 'INFO', 'LOG', 'VERBOSE', 'DARK', 'WEBHOOKS', 'WEBSOCKET'] as LogLevel[]),
         COLOR: process.env?.LOG_COLOR === 'true',
         BAILEYS: (process.env?.LOG_BAILEYS as LogBaileys) || 'error',
+        QRCODE: process.env?.LOG_QRCODE !== 'false',
       },
       DEL_INSTANCE: isBooleanString(process.env?.DEL_INSTANCE)
         ? process.env.DEL_INSTANCE === 'true'

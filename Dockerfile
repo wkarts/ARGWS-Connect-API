@@ -49,7 +49,6 @@ COPY --from=builder /argws-connect/dist ./dist
 COPY --from=builder /argws-connect/prisma ./prisma
 COPY --from=builder /argws-connect/manager ./manager
 COPY --from=builder /argws-connect/public ./public
-COPY --from=builder /argws-connect/.env ./.env
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /argws-connect/tsup.config.ts ./tsup.config.ts
@@ -57,6 +56,6 @@ COPY --from=builder /argws-connect/tsup.config.ts ./tsup.config.ts
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
-  CMD curl -fsS http://127.0.0.1:8080/ >/dev/null || exit 1
+  CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
 
 ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ]

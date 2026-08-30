@@ -23,7 +23,6 @@ enum Color {
 enum Command {
   RESET = '\x1b[0m',
   BRIGHT = '\x1b[1m',
-  UNDERSCORE = '\x1b[4m',
 }
 
 enum Level {
@@ -57,23 +56,38 @@ enum Background {
 }
 
 /**
- * Central logging boundary.
+ * Generic log values are intentionally reduced to static type descriptors.
  *
- * Security rule: values supplied by application code never reach stdout.
- * The logger intentionally emits only operational metadata owned by the
- * logger itself. This prevents credentials, tokens, headers, request bodies,
- * integration payloads and other sensitive dynamic values from being written
- * in clear text, regardless of the caller or object shape.
+ * Do not derive hashes, lengths, object keys, error properties or any other
+ * representation from the supplied value here. Credentials and API keys can
+ * reach the generic logger through third-party integrations; keeping each
+ * returned descriptor independent from the supplied content guarantees that
+ * sensitive data does not flow to stdout/stderr, even indirectly.
  */
+const describeLogValue = (value: unknown): string => {
+  if (value === null) return '[NULL]';
+  if (value === undefined) return '[UNDEFINED]';
+  if (typeof value === 'string') return '[STRING REDACTED]';
+  if (Buffer.isBuffer(value)) return '[BUFFER REDACTED]';
+  if (value instanceof Error) return '[ERROR REDACTED]';
+  if (Array.isArray(value)) return '[ARRAY REDACTED]';
+  if (typeof value === 'object') return '[OBJECT REDACTED]';
+  if (typeof value === 'number') return '[NUMBER]';
+  if (typeof value === 'boolean') return '[BOOLEAN]';
+  if (typeof value === 'bigint') return '[BIGINT]';
+  if (typeof value === 'symbol') return '[SYMBOL]';
+  if (typeof value === 'function') return '[FUNCTION]';
+  return '[UNKNOWN]';
+};
+
 export class Logger {
   private readonly configService = configService;
   private context: string;
+  private instance: string | null = null;
 
   constructor(context = 'Logger') {
     this.context = context;
   }
-
-  private instance = null;
 
   public setContext(value: string) {
     this.context = value;
@@ -83,79 +97,80 @@ export class Logger {
     this.instance = value;
   }
 
-  private console(value: any, type: Type) {
-    // Deliberately consume the argument without propagating it to any logging
-    // sink. Dynamic payload content is never written to stdout.
-    void value;
-
+  private console(value: unknown, type: Type) {
     const types: Type[] = [];
     this.configService.get<Log>('LOG').LEVEL.forEach((level) => types.push(Type[level]));
+    if (!types.includes(type)) return;
 
-    if (types.includes(type)) {
-      if (configService.get<Log>('LOG').COLOR) {
-        console.log(
-          /*Command.UNDERSCORE +*/ Command.BRIGHT + Level[type],
-          '[ARGWS Connect API]',
-          Command.BRIGHT + Color[type],
-          this.instance ? `[${this.instance}]` : '',
-          Command.BRIGHT + Color[type],
-          `v${packageJson.version}`,
-          Command.BRIGHT + Color[type],
-          process.pid.toString(),
-          Command.RESET,
-          Command.BRIGHT + Color[type],
-          '-',
-          Command.BRIGHT + Color.VERBOSE,
-          `${formatDateLog(Date.now())}  `,
-          Command.RESET,
-          Color[type] + Background[type] + Command.BRIGHT,
-          `${type} ` + Command.RESET,
-          Color.WARN + Command.BRIGHT,
-          `[${this.context}]` + Command.RESET,
-          Color[type] + Command.BRIGHT,
-          '[VALUE REDACTED]',
-          Command.RESET,
-        );
-      } else {
-        console.log(
-          '[ARGWS Connect API]',
-          this.instance ? `[${this.instance}]` : '',
-          process.pid.toString(),
-          '-',
-          `${formatDateLog(Date.now())}  `,
-          `${type} `,
-          `[${this.context}]`,
-          '[VALUE REDACTED]',
-        );
-      }
+    const descriptor = describeLogValue(value);
+    if (configService.get<Log>('LOG').COLOR) {
+      console.log(
+        Command.BRIGHT + Level[type],
+        '[ARGWS Connect API]',
+        Command.BRIGHT + Color[type],
+        this.instance ? `[${this.instance}]` : '',
+        Command.BRIGHT + Color[type],
+        `v${packageJson.version}`,
+        Command.BRIGHT + Color[type],
+        process.pid.toString(),
+        Command.RESET,
+        Command.BRIGHT + Color[type],
+        '-',
+        Command.BRIGHT + Color.VERBOSE,
+        `${formatDateLog(Date.now())}  `,
+        Command.RESET,
+        Color[type] + Background[type] + Command.BRIGHT,
+        `${type} ` + Command.RESET,
+        Color.WARN + Command.BRIGHT,
+        `[${this.context}]` + Command.RESET,
+        Color[type] + Command.BRIGHT,
+        descriptor,
+        Command.RESET,
+      );
+    } else {
+      console.log(
+        '[ARGWS Connect API]',
+        this.instance ? `[${this.instance}]` : '',
+        process.pid.toString(),
+        '-',
+        `${formatDateLog(Date.now())}  `,
+        `${type} `,
+        `[${this.context}]`,
+        descriptor,
+      );
     }
   }
 
-  public log(value: any) {
+  /** Fixed lifecycle/status messages only; never pass credentials here. */
+  public system(message: string) {
+    console.log('[ARGWS Connect API]', this.instance ? `[${this.instance}]` : '', `[${this.context}]`, message);
+  }
+
+  /** Intentional QR terminal surface; pairing codes must never be passed here. */
+  public qr(value: string) {
+    if (!this.configService.get<Log>('LOG').QRCODE) return;
+    process.stdout.write(`\n${value}\n`);
+  }
+
+  public log(value: unknown) {
     this.console(value, Type.LOG);
   }
-
-  public info(value: any) {
+  public info(value: unknown) {
     this.console(value, Type.INFO);
   }
-
-  public warn(value: any) {
+  public warn(value: unknown) {
     this.console(value, Type.WARN);
   }
-
-  public error(value: any) {
+  public error(value: unknown) {
     this.console(value, Type.ERROR);
   }
-
-  public verbose(value: any) {
+  public verbose(value: unknown) {
     this.console(value, Type.VERBOSE);
   }
-
-  public debug(value: any) {
+  public debug(value: unknown) {
     this.console(value, Type.DEBUG);
   }
-
-  public dark(value: any) {
+  public dark(value: unknown) {
     this.console(value, Type.DARK);
   }
 }
