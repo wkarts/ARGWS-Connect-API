@@ -1,98 +1,77 @@
 # Deploy — CloudPanel
 
-Este diretório contém o deployment oficial do ARGWS Connect API para CloudPanel. O servidor não compila a aplicação: ele consome exclusivamente imagens publicadas no GHCR.
+Deployment oficial do ARGWS Connect API para CloudPanel, sem build no servidor e consumindo somente imagens do GHCR.
 
-## Persistência da stack
+## Uma única porta
 
-O deployment usa **bind mounts relativos à própria pasta da stack**. Os dados não ficam em named volumes escondidos em `/var/lib/docker/volumes`.
-
-Estrutura padrão criada em runtime:
+Somente a API publica porta no host:
 
 ```text
-./volumes/
-├── instances/
-├── postgres/
-├── redis/
-├── rabbitmq/
-├── minio/
-├── logs/
-└── backups/
+127.0.0.1:${ARGWS_CONNECT_API_HOST_PORT:-38080} -> container:8080
 ```
 
-Os caminhos usados pelo Compose podem ser sobrescritos no `.env`, quando necessário:
+O Manager é servido pela própria API em `/manager`. `/metrics`, `/health`, WebSocket, webhooks e demais recursos usam o mesmo upstream.
 
-```env
-ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances
-ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres
-ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis
-ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq
-ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio
+No CloudPanel crie **um único Reverse Proxy** apontando para:
+
+```text
+http://127.0.0.1:38080
 ```
 
-Sem essas variáveis, os caminhos `./volumes/...` acima são usados automaticamente.
+O snippet `nginx/api-location.conf.example` já contém headers de WebSocket e limite de upload compatível com a API.
 
-## Pré-requisitos
+## Serviços padrão
 
-- Docker Engine + Docker Compose v2
-- CloudPanel com dois sites/reverse proxies (recomendado)
-- acesso ao GHCR se os packages estiverem privados
+`docker compose up -d` inicia:
 
-## Preparar e subir
+- API;
+- PostgreSQL;
+- Redis;
+- RabbitMQ;
+- MinIO.
+
+Todos os serviços de infraestrutura usam somente `expose`, nunca `ports`.
+
+Perfis adicionais:
+
+```bash
+COMPOSE_PROFILES=nats docker compose up -d
+COMPOSE_PROFILES=kafka docker compose up -d
+COMPOSE_PROFILES=extended docker compose up -d
+COMPOSE_PROFILES=mysql docker compose up -d
+```
+
+## Persistência
+
+Os dados ficam fisicamente ao lado da stack em `./volumes/...`, incluindo PostgreSQL, Redis, RabbitMQ, MinIO, MySQL, NATS, Kafka e Zookeeper.
+
+## GHCR / erro `denied`
+
+Se o host receber erro de acesso ao `ghcr.io/wkarts/*`, autentique o Docker sem gravar o PAT no `.env` da aplicação:
+
+```bash
+export GHCR_USERNAME=wkarts
+export GHCR_TOKEN='PAT_COM_READ_PACKAGES'
+./registry-login.sh
+```
+
+Depois execute:
 
 ```bash
 cp .env.example .env
 chmod 600 .env
-```
-
-Troque obrigatoriamente `CHANGE_ME_*`, ajuste `SERVER_URL` e configure os domínios. Depois:
-
-```bash
+# edite os CHANGE_ME_*
 ./deploy.sh
 ```
 
-O script valida o Compose antes do pull e cria a árvore `./volumes` automaticamente.
+`deploy.sh` valida secrets, cria as pastas de persistência, testa acesso às imagens GHCR, faz pull e inicia a stack.
 
-### Perfis opcionais
+## Porta interna x porta do host
 
-```bash
-# RabbitMQ
-docker compose --profile messaging up -d
+`SERVER_PORT=8080` é a porta interna da aplicação e é forçada pelo Compose. Para mudar somente a porta usada pelo CloudPanel, altere:
 
-# MinIO
-docker compose --profile storage up -d
-
-# Stack completa
-docker compose --profile full up -d
+```env
+ARGWS_CONNECT_API_HOST_PORT=38080
 ```
 
-## CloudPanel
-
-Crie dois sites Reverse Proxy:
-
-- API -> `http://127.0.0.1:8080`
-- Manager -> `http://127.0.0.1:3000`
-
-Ative SSL/Let's Encrypt pelo CloudPanel. Para WebSocket, preserve os headers `Upgrade` e `Connection`.
-
-## Atualização
-
-```bash
-./update.sh
-docker image prune -f
-```
-
-Os bind mounts permanecem no diretório da stack durante pull/redeploy.
-
-## Backup
-
-A pasta `./volumes` facilita inventário, cópia e migração da instalação, mas o PostgreSQL deve ser copiado com backup consistente (`pg_dump`, `pg_dumpall` ou mecanismo equivalente), nunca copiando os arquivos do banco enquanto o serviço está ativo.
-
-Dados persistentes principais:
-
-- `./volumes/instances`
-- `./volumes/postgres`
-- `./volumes/redis`
-- `./volumes/rabbitmq` (quando habilitado)
-- `./volumes/minio` (quando habilitado)
-
-`./volumes/logs` e `./volumes/backups` ficam reservados para a camada padronizada de observabilidade e backup da plataforma.
+Não altere `SERVER_PORT` no deployment Docker.

@@ -8,57 +8,186 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   compose:
-    name: Compose and Local Volumes
+    name: Compose / Single Port / Local Services
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Validate environment examples persistence contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          for file in \
-            deploy/cloudpanel/.env.example \
-            deploy/cloudpanel/env.example \
-            deploy/dockge/.env.example \
-            deploy/dockge/env.example; do
-            grep -qx 'ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances' "$file"
-            grep -qx 'ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres' "$file"
-            grep -qx 'ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis' "$file"
-            grep -qx 'ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq' "$file"
-            grep -qx 'ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio' "$file"
-            grep -qx 'ARGWS_CONNECT_LOGS_DATA_PATH=./volumes/logs' "$file"
-            grep -qx 'ARGWS_CONNECT_BACKUPS_DATA_PATH=./volumes/backups' "$file"
-          done
-
       - name: Prepare example environments
         run: |
+          cp env.example .env
           cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
           cp deploy/dockge/env.example deploy/dockge/.env
+          cp deploy/production/env.example deploy/production/.env
+          cp deploy/homologation/env.example deploy/homologation/.env
 
-      - name: Validate CloudPanel Compose
-        run: docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+      - name: Validate Compose files
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yaml config >/dev/null
+          docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose -f deploy/production/compose.yaml config >/dev/null
+          docker compose -f deploy/homologation/compose.yaml config >/dev/null
 
-      - name: Validate Dockge Compose
-        run: docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --profile '*' -f docker-compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
 
-      - name: Enforce bind-mount persistence contract
+      - name: Enforce single-port deployment contract
         shell: bash
         run: |
           set -euo pipefail
-          for file in deploy/cloudpanel/docker-compose.yml deploy/dockge/compose.yaml; do
-            grep -q './volumes/instances' "$file"
-            grep -q './volumes/postgres' "$file"
-            grep -q './volumes/redis' "$file"
-            grep -q './volumes/rabbitmq' "$file"
-            grep -q './volumes/minio' "$file"
-            grep -q '127.0.0.1:8080/health' "$file"
-            if grep -q '^volumes:$' "$file"; then
-              echo "Named volumes are not allowed in $file"
-              exit 1
-            fi
+          python - <<'PY'
+          import json
+          import subprocess
+
+          extended_compose_files = [
+              "docker-compose.yaml",
+              "deploy/cloudpanel/docker-compose.yml",
+              "deploy/dockge/compose.yaml",
+          ]
+          canonical_compose_files = [
+              "deploy/production/compose.yaml",
+              "deploy/homologation/compose.yaml",
+          ]
+          core = {"api", "postgres", "redis", "rabbitmq", "minio"}
+          optional = {"mysql", "nats", "zookeeper", "kafka"}
+
+          parsed = {}
+
+          for compose_file in extended_compose_files:
+              raw = subprocess.check_output(
+                  ["docker", "compose", "--profile", "*", "-f", compose_file, "config", "--format", "json"],
+                  text=True,
+              )
+              data = json.loads(raw)
+              parsed[compose_file] = data
+              services = data["services"]
+              missing = (core | optional) - set(services)
+              assert not missing, f"{compose_file}: services ausentes: {sorted(missing)}"
+
+          for compose_file in canonical_compose_files:
+              raw = subprocess.check_output(
+                  ["docker", "compose", "-f", compose_file, "config", "--format", "json"],
+                  text=True,
+              )
+              data = json.loads(raw)
+              parsed[compose_file] = data
+              services = data["services"]
+              assert set(services) == core, (
+                  f"{compose_file}: stack canonica deve conter somente {sorted(core)}, "
+                  f"encontrado {sorted(services)}"
+              )
+
+          for compose_file, data in parsed.items():
+              services = data["services"]
+              assert "manager" not in services, f"{compose_file}: manager separado nao e permitido"
+
+              published = [name for name, cfg in services.items() if cfg.get("ports")]
+              assert published == ["api"], f"{compose_file}: somente api pode publicar porta: {published}"
+              api_ports = services["api"]["ports"]
+              assert len(api_ports) == 1, f"{compose_file}: API deve publicar exatamente uma porta"
+              assert int(api_ports[0]["target"]) == 8080, f"{compose_file}: target interno da API deve ser 8080"
+
+              api_env = services["api"].get("environment", {})
+              assert str(api_env.get("SERVER_PORT")) == "8080", f"{compose_file}: SERVER_PORT interno deve ser 8080"
+
+              for service_name, cfg in services.items():
+                  for mount in cfg.get("volumes", []):
+                      assert mount.get("type") == "bind", f"{compose_file}: {service_name} usa volume nao-bind"
+                  image = cfg.get("image", "")
+                  assert image.startswith("ghcr.io/wkarts/"), f"{compose_file}: imagem fora do GHCR: {image}"
+
+          prod = parsed["deploy/production/compose.yaml"]
+          homolog = parsed["deploy/homologation/compose.yaml"]
+
+          prod_port = int(prod["services"]["api"]["ports"][0]["published"])
+          homolog_port = int(homolog["services"]["api"]["ports"][0]["published"])
+          assert prod_port == 38080, f"producao: porta default deve ser 38080, encontrada {prod_port}"
+          assert homolog_port == 38081, f"homologacao: porta default deve ser 38081, encontrada {homolog_port}"
+          assert prod_port != homolog_port, "producao e homologacao nao podem publicar a mesma porta"
+          assert prod.get("name") != homolog.get("name"), "producao e homologacao precisam de project names diferentes"
+
+          for compose_file in canonical_compose_files:
+              services = parsed[compose_file]["services"]
+              fixed_names = [name for name, cfg in services.items() if cfg.get("container_name")]
+              assert not fixed_names, f"{compose_file}: container_name fixo impede coexistencia: {fixed_names}"
+
+          print("Deployment contract OK")
+          PY
+
+      - name: Validate environment contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmp -s env.example .env.example
+          cmp -s env.example deploy/cloudpanel/env.example
+          cmp -s env.example deploy/cloudpanel/.env.example
+          cmp -s env.example deploy/dockge/env.example
+          cmp -s env.example deploy/dockge/.env.example
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def keys(path: str):
+              result = set()
+              for raw in Path(path).read_text().splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith('#') or '=' not in line:
+                      continue
+                  result.add(line.split('=', 1)[0])
+              return result
+
+          prod = keys('deploy/production/env.example')
+          homolog = keys('deploy/homologation/env.example')
+          assert prod == homolog, (
+              f"env production/homologation divergentes; "
+              f"somente prod={sorted(prod-homolog)}, somente homolog={sorted(homolog-prod)}"
+          )
+
+          required = {
+              'COMPOSE_PROJECT_NAME', 'ARGWS_CONNECT_NETWORK_NAME',
+              'ARGWS_CONNECT_BIND_ADDRESS', 'ARGWS_CONNECT_API_HOST_PORT',
+              'ARGWS_CONNECT_API_IMAGE', 'DATABASE_PROVIDER',
+              'DATABASE_CONNECTION_URI', 'POSTGRES_PASSWORD', 'REDIS_PASSWORD',
+              'RABBITMQ_DEFAULT_PASS', 'MINIO_ROOT_PASSWORD',
+              'AUTHENTICATION_API_KEY', 'SERVER_PORT', 'SERVER_URL',
+          }
+          missing = required - prod
+          assert not missing, f"variaveis obrigatorias ausentes: {sorted(missing)}"
+          print(f"Production/Homologation env parity OK: {len(prod)} keys")
+          PY
+
+      - name: Validate deployment scripts
+        run: |
+          set -euo pipefail
+          for dir in deploy/production deploy/homologation; do
+            for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh; do
+              test -x "$dir/$script"
+              bash -n "$dir/$script"
+            done
+            test -f "$dir/nginx-location.conf.example"
+            test -f "$dir/README.md"
+          done
+
+      - name: Login GHCR for image availability checks
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Verify production core runtime images exist
+        run: |
+          set -euo pipefail
+          for image in \
+            ghcr.io/wkarts/argws-connect-api:latest \
+            ghcr.io/wkarts/argws-connect-postgres:15 \
+            ghcr.io/wkarts/argws-connect-redis:latest \
+            ghcr.io/wkarts/argws-connect-rabbitmq:management \
+            ghcr.io/wkarts/argws-connect-minio:latest; do
+            echo "Checking $image"
+            docker manifest inspect "$image" >/dev/null
           done

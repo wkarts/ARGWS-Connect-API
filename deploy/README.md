@@ -1,29 +1,80 @@
-# Deployments oficiais
+# Deployments oficiais — ARGWS Connect API
 
-- `cloudpanel/`: Docker Compose + `.env` completo + snippets de reverse proxy para CloudPanel.
-- `dockge/`: stack pronta para Dockge + `.env` completo.
-- `ghcr/`: mapa das imagens e procedimento de bootstrap/publicação no GitHub Container Registry.
+A plataforma possui duas stacks oficiais e autocontidas: `deploy/production/` e `deploy/homologation/`.
 
-Todos os YAMLs de produção/homologação consomem imagens `ghcr.io/wkarts/argws-connect-*`. Não há build da aplicação no host de produção.
+Cada ambiente possui projeto Compose, rede, banco, cache, event bus, bucket e persistência física próprios e pode rodar simultaneamente no mesmo host.
 
-## Contrato de persistência
+## Regra de porta única
 
-CloudPanel e Dockge seguem o mesmo padrão operacional: **bind mounts relativos à pasta da stack**.
+Somente a API publica porta no host:
 
-```text
-stack/
-├── compose.yaml (ou docker-compose.yml)
-├── .env
-└── volumes/
-    ├── instances/
-    ├── postgres/
-    ├── redis/
-    ├── rabbitmq/
-    ├── minio/
-    ├── logs/
-    └── backups/
+- Produção: `https://api.connect.argws.com.br` → `127.0.0.1:38080`
+- Homologação: `https://h.api.connect.argws.com.br` → `127.0.0.1:38081`
+
+O mesmo endpoint atende `/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da API.
+
+## Core padrão
+
+Sem nenhum profile adicional, as duas stacks sobem:
+
+- API;
+- PostgreSQL;
+- Redis;
+- RabbitMQ;
+- MinIO.
+
+PostgreSQL é o banco oficial, Redis é cache/estado rápido, RabbitMQ é o event bus/fila padrão e MinIO é o storage S3 local.
+
+## Mensageria opcional
+
+NATS e Kafka permanecem disponíveis por profiles e ficam desligados por padrão. Enquanto desligados, seus containers não são criados e não consomem CPU/RAM do runtime.
+
+- `nats` → sobe NATS com JetStream;
+- `kafka` → sobe Kafka + Zookeeper;
+- `extended` → sobe NATS + Kafka + Zookeeper.
+
+Exemplos:
+
+```bash
+COMPOSE_PROFILES=nats ./deploy.sh
+COMPOSE_PROFILES=kafka ./deploy.sh
+COMPOSE_PROFILES=extended ./deploy.sh
 ```
 
-Os serviços usam `./volumes/...` por padrão. Isso mantém configuração e dados físicos associados à mesma instalação e evita depender de named volumes internos do Docker.
+Eles não substituem Redis. NATS/Kafka sobrepõem parte do papel de mensageria do RabbitMQ, mas atendem cenários diferentes: RabbitMQ continua como padrão; NATS é útil para pub/sub de baixa latência e comunicação entre serviços; Kafka é útil para alto volume, retenção e replay de eventos. Zookeeper é infraestrutura do Kafka usado nessa versão e não é consumido diretamente pela API.
 
-Os caminhos podem ser sobrescritos pelo `.env` através de `ARGWS_CONNECT_*_DATA_PATH`, sem alterar os YAMLs.
+## Manager
+
+O Manager atual é servido em `/manager` pela própria API e não possui service/container separado.
+
+## Deploy sem preencher segredos manualmente
+
+Na primeira execução, `prepare-env.sh` cria `.env` a partir de `env.example`, gera os segredos fortes localmente, aplica `chmod 600` e mantém o arquivo fora do Git.
+
+```bash
+./registry-login.sh   # somente se o GHCR exigir autenticação
+./deploy.sh
+```
+
+## Persistência
+
+Core:
+
+```text
+./volumes/
+├── instances/
+├── postgres/
+├── redis/
+├── rabbitmq/
+├── minio/
+├── logs/
+└── backups/
+```
+
+Profiles opcionais podem usar também `./volumes/nats`, `./volumes/kafka` e `./volumes/zookeeper`. Não são usados named volumes.
+
+## GHCR
+
+Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`. O bootstrap inicial já foi executado com sucesso e o workflow de sincronização mantém core e mensageria opcional espelhados no GHCR.
+
+`production/` e `homologation/` são as referências canônicas para o provisionamento futuro do Control Plane; CloudPanel e Dockge continuam como integrações operacionais.

@@ -1,18 +1,42 @@
 # Validação do deployment — ARGWS Connect API
 
-## Contrato atual
+## Contrato canônico
 
-- imagens de runtime referenciadas por `ghcr.io/wkarts/argws-connect-*`;
-- nenhuma compilação da aplicação em CloudPanel/Dockge;
-- CloudPanel e Dockge mantêm a mesma arquitetura de serviços;
-- persistência através de bind mounts relativos `./volumes/...`;
-- sem named volumes para Instance, PostgreSQL, Redis, RabbitMQ e MinIO;
-- API healthcheck em `GET /health`;
-- migrations executadas antes da API com retry configurável;
-- URI do banco não é impressa pelo script de boot;
-- `.env` não é incorporado à imagem final.
+O deployment oficial possui dois ambientes autocontidos: `deploy/production/` e `deploy/homologation/`.
 
-## Persistência esperada
+## Porta única
+
+Somente `api` publica porta no host.
+
+- API interna: `8080`;
+- produção: `127.0.0.1:38080`;
+- homologação: `127.0.0.1:38081`.
+
+Manager, healthcheck, métricas, WebSocket e webhooks usam esse mesmo endpoint.
+
+## Core obrigatório
+
+Sem profiles adicionais, ambas as stacks contêm exatamente:
+
+- API;
+- PostgreSQL;
+- Redis;
+- RabbitMQ;
+- MinIO.
+
+## Profiles opcionais
+
+As duas stacks também preservam:
+
+- `nats` → NATS + JetStream;
+- `kafka` → Kafka + Zookeeper;
+- `extended` → NATS + Kafka + Zookeeper.
+
+Esses containers não são criados quando o profile não está habilitado. MySQL não faz parte das stacks oficiais; PostgreSQL é o provider canônico de deployment.
+
+## Persistência
+
+Core:
 
 ```text
 ./volumes/instances
@@ -24,22 +48,49 @@
 ./volumes/backups
 ```
 
-Variáveis opcionais de override:
+Profiles opcionais:
 
 ```text
-ARGWS_CONNECT_INSTANCES_DATA_PATH
-ARGWS_CONNECT_POSTGRES_DATA_PATH
-ARGWS_CONNECT_REDIS_DATA_PATH
-ARGWS_CONNECT_RABBITMQ_DATA_PATH
-ARGWS_CONNECT_MINIO_DATA_PATH
+./volumes/nats
+./volumes/kafka
+./volumes/zookeeper/data
+./volumes/zookeeper/log
 ```
+
+Named volumes não pertencem ao contrato canônico.
+
+## Segredos
+
+`env.example` contém placeholders seguros. `prepare-env.sh` cria o `.env` real localmente, gera valores fortes, aplica `chmod 600` e não altera um `.env` já existente.
+
+## Isolamento
+
+Produção e homologação não usam `container_name` fixo e possuem project name, rede, database, cache prefix, RabbitMQ, bucket, porta e diretório físico próprios.
+
+## Domínios
+
+- Produção: `https://api.connect.argws.com.br`
+- Homologação: `https://h.api.connect.argws.com.br`
+
+## GHCR
+
+Core e mensageria opcional são consumidos via `ghcr.io/wkarts/*`. O bootstrap inicial foi executado com sucesso. O workflow de sincronização mantém as imagens necessárias espelhadas.
 
 ## CI
 
-A integridade do banco continua coberta por `database-integrity.yml` para PostgreSQL, MySQL e PgBouncer.
+`deployment-integrity.yml` valida:
 
-O deployment é validado separadamente por `deployment-integrity.yml`, que verifica sintaxe/expansão dos dois Compose e o contrato de bind mounts.
-
-## Backup
-
-A organização física da stack facilita backup e migração. Entretanto, bancos em execução devem ser salvos por ferramentas consistentes do próprio engine; a existência de `./volumes/postgres` não autoriza cópia a quente dos arquivos do PostgreSQL.
+- root Compose, CloudPanel, Dockge, produção e homologação;
+- core padrão sem profiles;
+- NATS/Kafka/Zookeeper com todos os profiles ativados;
+- exatamente uma porta publicada e somente pela API;
+- target interno `8080`;
+- ausência de Manager separado;
+- ausência de MySQL nas stacks canônicas;
+- imagens exclusivamente GHCR;
+- somente bind mounts;
+- ausência de `container_name` fixo;
+- portas distintas entre produção e homologação;
+- paridade de env;
+- scripts executáveis;
+- manifests GHCR do core.
