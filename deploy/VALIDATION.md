@@ -1,45 +1,45 @@
-# Validação do deployment GHCR
+# Validação do deployment — ARGWS Connect API
 
-Revisão preparada para o ARGWS Connect API 1.0.0.
+## Contrato atual
 
-## Escopo
+- imagens de runtime referenciadas por `ghcr.io/wkarts/argws-connect-*`;
+- nenhuma compilação da aplicação em CloudPanel/Dockge;
+- CloudPanel e Dockge mantêm a mesma arquitetura de serviços;
+- persistência através de bind mounts relativos `./volumes/...`;
+- sem named volumes para Instance, PostgreSQL, Redis, RabbitMQ e MinIO;
+- API healthcheck em `GET /health`;
+- migrations executadas antes da API com retry configurável;
+- URI do banco não é impressa pelo script de boot;
+- `.env` não é incorporado à imagem final.
 
-- imagens de runtime referenciadas somente por `ghcr.io/wkarts/argws-connect-*`;
-- Dockerfiles da API e Manager usando bases espelhadas no GHCR;
-- workflow de sincronização das imagens de infraestrutura para o GHCR;
-- workflow de publicação multi-arquitetura da API e do Manager;
-- deployment completo para CloudPanel;
-- stack pronta para Dockge;
-- `.env.example` completo para aplicação + infraestrutura;
-- assets visuais de runtime permanecem dentro das imagens da API/Manager.
+## Persistência esperada
 
-## Compatibilidade preservada
+```text
+./volumes/instances
+./volumes/postgres
+./volumes/redis
+./volumes/rabbitmq
+./volumes/minio
+./volumes/logs
+./volumes/backups
+```
 
-Nesta revisão:
+Variáveis opcionais de override:
 
-- `package.json` não foi alterado;
-- `package-lock.json` não foi alterado;
-- `src/` não foi alterado;
-- `prisma/` não foi alterado;
-- nenhuma dependência foi adicionada, removida ou atualizada;
-- nenhuma migration foi alterada.
+```text
+ARGWS_CONNECT_INSTANCES_DATA_PATH
+ARGWS_CONNECT_POSTGRES_DATA_PATH
+ARGWS_CONNECT_REDIS_DATA_PATH
+ARGWS_CONNECT_RABBITMQ_DATA_PATH
+ARGWS_CONNECT_MINIO_DATA_PATH
+```
 
-## Validações estáticas
+## CI
 
-- YAML: válido;
-- JSON: válido;
-- scripts Bash do CloudPanel: sintaxe válida;
-- variáveis lidas via `process.env` no código: todas contempladas nos envs de deployment;
-- referências de imagem em YAML/Dockerfile de runtime fora do GHCR: zero.
+A integridade do banco continua coberta por `database-integrity.yml` para PostgreSQL, MySQL e PgBouncer.
 
-## Observação sobre bootstrap do GHCR
+O deployment é validado separadamente por `deployment-integrity.yml`, que verifica sintaxe/expansão dos dois Compose e o contrato de bind mounts.
 
-O workflow `ghcr-sync-infrastructure.yml` acessa os registries de origem exclusivamente dentro do GitHub Actions para copiar as imagens ao GHCR. Os hosts de produção/homologação consomem somente as cópias publicadas no GHCR.
+## Backup
 
-## Release automation
-
-- Canonical initial version: `1.0.0`
-- Every successful merge to `main`: automatic SemVer release
-- Default increment: `patch`
-- Optional PR labels: `version:patch`, `version:minor`, `version:major`
-- GitHub Release created only after successful validation and GHCR image publication
+A organização física da stack facilita backup e migração. Entretanto, bancos em execução devem ser salvos por ferramentas consistentes do próprio engine; a existência de `./volumes/postgres` não autoriza cópia a quente dos arquivos do PostgreSQL.
