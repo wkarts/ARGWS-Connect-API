@@ -1,0 +1,67 @@
+name: Deployment Env Patch Once
+
+on:
+  push:
+    branches:
+      - fix/deployment-foundation-1.0.2
+
+permissions:
+  contents: write
+
+jobs:
+  patch-env-examples:
+    if: ${{ !contains(github.event.head_commit.message, '[env-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/deployment-foundation-1.0.2
+
+      - name: Append deployment persistence defaults without changing existing variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            deploy/cloudpanel/.env.example
+            deploy/cloudpanel/env.example
+            deploy/dockge/.env.example
+            deploy/dockge/env.example
+          )
+          for file in "${files[@]}"; do
+            if grep -q '^ARGWS_CONNECT_POSTGRES_DATA_PATH=' "$file"; then
+              continue
+            fi
+            cat >> "$file" <<'EOF'
+
+# ===========================================
+# DEPLOYMENT / PERSISTENCIA LOCAL DA STACK
+# ===========================================
+# Defaults usados pelos Compose de CloudPanel e Dockge.
+# Caminhos relativos ficam fisicamente dentro do diretorio da propria stack.
+DATABASE_MIGRATION_MAX_ATTEMPTS=30
+DATABASE_MIGRATION_RETRY_SECONDS=2
+LOG_QRCODE=true
+ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances
+ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres
+ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis
+ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq
+ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio
+ARGWS_CONNECT_LOGS_DATA_PATH=./volumes/logs
+ARGWS_CONNECT_BACKUPS_DATA_PATH=./volumes/backups
+EOF
+          done
+
+      - name: Commit generated env examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Env examples already contain deployment defaults."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/cloudpanel/.env.example deploy/cloudpanel/env.example deploy/dockge/.env.example deploy/dockge/env.example
+          git commit -m "fix(deploy): adiciona persistencia local aos env examples [env-patched]"
+          git push origin HEAD:fix/deployment-foundation-1.0.2
