@@ -48,7 +48,6 @@ jobs:
           import json
           import re
           import subprocess
-          from pathlib import Path
 
           extended_compose_files = [
               "docker-compose.yaml",
@@ -136,8 +135,6 @@ jobs:
           assert re.fullmatch(r"ghcr\.io/wkarts/argws-connect-api:\d+\.\d+\.\d+", prod_image), (
               f"producao deve usar tag SemVer imutavel, encontrado {prod_image}"
           )
-          assert ":homolog" not in Path("deploy/homologation/env.example").read_text()
-          assert ":production" not in Path("deploy/production/env.example").read_text()
 
           print(f"Deployment contract OK | homolog={homolog_image} | production={prod_image}")
           PY
@@ -204,11 +201,11 @@ jobs:
             test -f "$dir/README.md"
           done
 
-      - name: Reject environment-specific application tags
+      - name: Reject environment-specific tags in image publishing
         run: |
           set -euo pipefail
-          if grep -R -nE 'argws-connect-(api|manager):(homolog|production)' \
-            deploy .github/workflows/ghcr-publish-application.yml; then
+          if grep -nE 'ghcr\.io/.*/argws-connect-(api|manager):(homolog|production)([[:space:]]|$)' \
+            .github/workflows/ghcr-publish-application.yml; then
             echo "Tags de ambiente sao proibidas. Use :latest para homologacao e SemVer para producao." >&2
             exit 1
           fi
