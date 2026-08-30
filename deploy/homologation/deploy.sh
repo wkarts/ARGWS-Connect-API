@@ -10,6 +10,10 @@ mkdir -p \
   ./volumes/redis \
   ./volumes/rabbitmq \
   ./volumes/minio \
+  ./volumes/nats \
+  ./volumes/kafka \
+  ./volumes/zookeeper/data \
+  ./volumes/zookeeper/log \
   ./volumes/logs \
   ./volumes/backups
 
