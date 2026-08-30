@@ -1,84 +1,73 @@
 # ARGWS Connect API — Produção
 
-Stack oficial de produção, pronta para subir somente com os serviços locais necessários ao runtime atual.
+Stack oficial de produção com core enxuto e mensageria avançada opcional.
 
-## Árvore
+## Core padrão
 
-```text
-production/
-├── compose.yaml
-├── env.example
-├── prepare-env.sh
-├── deploy.sh
-├── update.sh
-├── status.sh
-├── preflight.sh
-├── registry-login.sh
-├── nginx-location.conf.example
-└── volumes/
-    ├── instances/
-    ├── postgres/
-    ├── redis/
-    ├── rabbitmq/
-    ├── minio/
-    ├── logs/
-    └── backups/
-```
-
-## Topologia
+Sem profiles adicionais, sobe apenas:
 
 ```text
-https://api.connect.argws.com.br
-             │
-     Cloudflare / CloudPanel
-             │
-       127.0.0.1:38080
-             │
-       ARGWS Connect API
-       ├── /manager
-       ├── /health
-       ├── /metrics
-       ├── WebSocket
-       └── Webhooks / API
-             │
-      rede Docker interna
-       ├── PostgreSQL
-       ├── Redis
-       ├── RabbitMQ
-       └── MinIO
+ARGWS Connect API
+├── PostgreSQL
+├── Redis
+├── RabbitMQ
+└── MinIO
 ```
 
-Somente a API publica uma porta. PostgreSQL, Redis, RabbitMQ e MinIO usam apenas `expose` na rede Docker.
+Somente a API publica `127.0.0.1:38080`; `/manager`, `/health`, `/metrics`, WebSocket e webhooks usam esse mesmo endpoint.
 
-O Manager atual já está incorporado à imagem da API e é servido em `/manager`; não existe container separado.
+## Mensageria opcional
+
+O Compose também contém:
+
+- profile `nats` → NATS + JetStream;
+- profile `kafka` → Kafka + Zookeeper;
+- profile `extended` → NATS + Kafka + Zookeeper.
+
+Enquanto um profile está desligado, seus containers não são criados e não consomem recursos do runtime.
+
+Exemplos:
+
+```bash
+COMPOSE_PROFILES=nats ./deploy.sh
+COMPOSE_PROFILES=kafka ./deploy.sh
+COMPOSE_PROFILES=extended ./deploy.sh
+```
+
+RabbitMQ continua sendo o event bus/fila padrão. NATS é indicado para pub/sub de baixa latência e comunicação entre serviços; Kafka para retenção, replay e alto volume de eventos. Zookeeper existe somente como dependência do Kafka nesta versão.
 
 ## Deploy direto
 
 ```bash
-./registry-login.sh   # necessário apenas se os packages GHCR forem privados
+./registry-login.sh   # somente se os packages GHCR forem privados
 ./deploy.sh
 ```
 
-Na primeira execução, `deploy.sh` chama `prepare-env.sh`, cria o `.env`, gera automaticamente senhas/tokens fortes, aplica `chmod 600`, cria a árvore `./volumes`, valida os manifests GHCR e sobe a stack.
+Na primeira execução, `prepare-env.sh` cria o `.env`, gera os segredos localmente, aplica `chmod 600`, cria `./volumes`, valida o GHCR e sobe a stack.
 
-Não é necessário copiar senha manualmente para PostgreSQL, Redis, RabbitMQ, MinIO, métricas, webhook ou API key.
-
-## Atualização
-
-```bash
-./update.sh
-```
-
-## Status
-
-```bash
-./status.sh
-```
-
-## Reverse proxy
-
-Use `nginx-location.conf.example` no CloudPanel. SSL/TLS termina no CloudPanel/Cloudflare; a API permanece HTTP internamente em `8080`.
+Domínio oficial: `https://api.connect.argws.com.br`.
 
 ## Persistência
 
-Todos os dados persistentes ficam fisicamente dentro da pasta da stack em `./volumes/...`. Não são utilizados named volumes Docker.
+Core:
+
+```text
+./volumes/instances
+./volumes/postgres
+./volumes/redis
+./volumes/rabbitmq
+./volumes/minio
+./volumes/logs
+./volumes/backups
+```
+
+Profiles opcionais podem usar `./volumes/nats`, `./volumes/kafka` e `./volumes/zookeeper`.
+
+## Operação
+
+```bash
+./update.sh
+./status.sh
+```
+
+Use `nginx-location.conf.example` no CloudPanel. SSL/TLS termina no CloudPanel/Cloudflare; internamente a API permanece HTTP em `8080`.
