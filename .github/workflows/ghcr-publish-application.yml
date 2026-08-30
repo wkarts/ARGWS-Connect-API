@@ -1,6 +1,8 @@
 name: GHCR - Publish Development Image
 
 on:
+  push:
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
