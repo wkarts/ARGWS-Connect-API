@@ -2,26 +2,21 @@
 
 ## Contrato canônico
 
-O deployment oficial possui dois ambientes autocontidos:
-
-- `deploy/production/`
-- `deploy/homologation/`
-
-Cada ambiente contém Compose, `env.example`, geração automática de `.env`, scripts de deploy/update/status/preflight, login GHCR, snippet Nginx e árvore local `./volumes`.
+O deployment oficial possui dois ambientes autocontidos: `deploy/production/` e `deploy/homologation/`.
 
 ## Porta única
 
-Em qualquer stack oficial, somente o serviço `api` pode declarar `ports:`.
+Somente `api` publica porta no host.
 
-- porta interna da API: `8080`;
-- produção: host `127.0.0.1:38080`;
-- homologação: host `127.0.0.1:38081`.
+- API interna: `8080`;
+- produção: `127.0.0.1:38080`;
+- homologação: `127.0.0.1:38081`.
 
-Manager, healthcheck, métricas, WebSocket e webhooks são servidos pelo mesmo endpoint HTTP da API.
+Manager, healthcheck, métricas, WebSocket e webhooks usam esse mesmo endpoint.
 
-## Serviços das stacks oficiais
+## Core obrigatório
 
-As stacks canônicas contêm exatamente:
+Sem profiles adicionais, ambas as stacks contêm exatamente:
 
 - API;
 - PostgreSQL;
@@ -29,11 +24,19 @@ As stacks canônicas contêm exatamente:
 - RabbitMQ;
 - MinIO.
 
-Não há container Manager separado. Não há MySQL, NATS, Kafka ou Zookeeper nas stacks canônicas.
+## Profiles opcionais
+
+As duas stacks também preservam:
+
+- `nats` → NATS + JetStream;
+- `kafka` → Kafka + Zookeeper;
+- `extended` → NATS + Kafka + Zookeeper.
+
+Esses containers não são criados quando o profile não está habilitado. MySQL não faz parte das stacks oficiais; PostgreSQL é o provider canônico de deployment.
 
 ## Persistência
 
-Somente bind mounts relativos:
+Core:
 
 ```text
 ./volumes/instances
@@ -45,17 +48,24 @@ Somente bind mounts relativos:
 ./volumes/backups
 ```
 
+Profiles opcionais:
+
+```text
+./volumes/nats
+./volumes/kafka
+./volumes/zookeeper/data
+./volumes/zookeeper/log
+```
+
 Named volumes não pertencem ao contrato canônico.
 
 ## Segredos
 
-`env.example` contém somente placeholders seguros. `prepare-env.sh` cria o `.env` real localmente e gera valores independentes para cada placeholder `CHANGE_ME_*`, incluindo senhas de banco/cache/fila/storage, credencial de métricas, token de webhook e API key.
+`env.example` contém placeholders seguros. `prepare-env.sh` cria o `.env` real localmente, gera valores fortes, aplica `chmod 600` e não altera um `.env` já existente.
 
-O `.env` recebe `chmod 600` e permanece fora do Git.
+## Isolamento
 
-## Isolamento produção/homologação
-
-As stacks canônicas não usam `container_name` fixo. `COMPOSE_PROJECT_NAME`, rede, database, cache prefix, RabbitMQ, bucket, porta e diretório físico possuem valores próprios por ambiente, permitindo coexistência no mesmo host.
+Produção e homologação não usam `container_name` fixo e possuem project name, rede, database, cache prefix, RabbitMQ, bucket, porta e diretório físico próprios.
 
 ## Domínios
 
@@ -64,25 +74,23 @@ As stacks canônicas não usam `container_name` fixo. `COMPOSE_PROJECT_NAME`, re
 
 ## GHCR
 
-Todos os serviços usam `ghcr.io/wkarts/*`. O host deve fazer login com `read:packages` quando os packages forem privados.
-
-O bootstrap inicial das imagens de infraestrutura foi executado com sucesso. O workflow `GHCR - Sync Infrastructure Images` mantém as imagens core espelhadas. O `preflight.sh` verifica os manifests antes do `docker compose pull`.
+Core e mensageria opcional são consumidos via `ghcr.io/wkarts/*`. O bootstrap inicial foi executado com sucesso. O workflow de sincronização mantém as imagens necessárias espelhadas.
 
 ## CI
 
 `deployment-integrity.yml` valida:
 
 - root Compose, CloudPanel, Dockge, produção e homologação;
+- core padrão sem profiles;
+- NATS/Kafka/Zookeeper com todos os profiles ativados;
 - exatamente uma porta publicada e somente pela API;
 - target interno `8080`;
 - ausência de Manager separado;
-- exatamente os cinco services esperados nas stacks canônicas;
+- ausência de MySQL nas stacks canônicas;
 - imagens exclusivamente GHCR;
-- bind mounts;
-- ausência de `container_name` fixo nas stacks production/homologation;
+- somente bind mounts;
+- ausência de `container_name` fixo;
 - portas distintas entre produção e homologação;
-- paridade das chaves de `env.example` de production/homologation;
-- scripts executáveis e sintaticamente válidos;
-- existência dos manifests core no GHCR.
-
-A integridade de PostgreSQL, MySQL e PgBouncer continua coberta separadamente pelo código/CI da aplicação; MySQL não faz parte do deployment canônico atual.
+- paridade de env;
+- scripts executáveis;
+- manifests GHCR do core.
