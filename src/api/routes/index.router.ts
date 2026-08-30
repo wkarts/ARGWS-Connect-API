@@ -175,6 +175,14 @@ router.use(
 router
   .use((req, res, next) => telemetry.collectTelemetry(req, res, next))
 
+  .get('/health', (_req, res) => {
+    res.status(HttpStatus.OK).json({
+      status: 'ok',
+      service: 'ARGWS Connect API',
+      version: packageJson.version,
+      uptime: Math.floor(process.uptime()),
+    });
+  })
   .get('/', async (req, res) => {
     res.status(HttpStatus.OK).json({
       status: HttpStatus.OK,

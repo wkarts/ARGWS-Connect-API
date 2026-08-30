@@ -11,10 +11,10 @@
   - You are about to alter the column `updatedAt` on the `Dify` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
   - You are about to alter the column `createdAt` on the `DifySetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
   - You are about to alter the column `updatedAt` on the `DifySetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
-  - You are about to alter the column `createdAt` on the `Connectai` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
-  - You are about to alter the column `updatedAt` on the `Connectai` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
-  - You are about to alter the column `createdAt` on the `ConnectaiSetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
-  - You are about to alter the column `updatedAt` on the `ConnectaiSetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
+  - You are about to alter the column `createdAt` on the `ConnectAI` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
+  - You are about to alter the column `updatedAt` on the `ConnectAI` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
+  - You are about to alter the column `createdAt` on the `ConnectAISetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
+  - You are about to alter the column `updatedAt` on the `ConnectAISetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
   - You are about to alter the column `createdAt` on the `ConnectBot` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
   - You are about to alter the column `updatedAt` on the `ConnectBot` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
   - You are about to alter the column `createdAt` on the `ConnectBotSetting` table. The data in that column could be lost. The data in that column will be cast from `Timestamp(0)` to `Timestamp`.
@@ -97,12 +97,12 @@ ALTER TABLE `DifySetting` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIME
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable
-ALTER TABLE `Connectai` MODIFY `triggerType` ENUM('all', 'keyword', 'none', 'advanced') NULL,
+ALTER TABLE `ConnectAI` MODIFY `triggerType` ENUM('all', 'keyword', 'none', 'advanced') NULL,
     MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable
-ALTER TABLE `ConnectaiSetting` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER TABLE `ConnectAISetting` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable
@@ -131,8 +131,7 @@ ALTER TABLE `IntegrationSession` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRE
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable
-ALTER TABLE `IsOnWhatsapp` DROP COLUMN `lid`,
-    MODIFY `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER TABLE `IsOnWhatsapp` MODIFY `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable
@@ -195,15 +194,11 @@ ALTER TABLE `Template` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTA
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable
-ALTER TABLE `Typebot` DROP COLUMN `splitMessages`,
-    DROP COLUMN `timePerChar`,
-    MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER TABLE `Typebot` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     MODIFY `updatedAt` TIMESTAMP NULL;
 
 -- AlterTable
-ALTER TABLE `TypebotSetting` DROP COLUMN `splitMessages`,
-    DROP COLUMN `timePerChar`,
-    MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER TABLE `TypebotSetting` MODIFY `createdAt` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     MODIFY `updatedAt` TIMESTAMP NOT NULL;
 
 -- AlterTable

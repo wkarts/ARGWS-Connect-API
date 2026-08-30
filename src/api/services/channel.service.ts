@@ -14,6 +14,7 @@ import { Logger } from '@config/logger.config';
 import { NotFoundException } from '@exceptions';
 import { Contact, Message, Prisma } from '@prisma/client';
 import { createJid } from '@utils/createJid';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { WASocket } from 'baileys';
 import { isArray } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
@@ -623,10 +624,12 @@ export class ChannelStartupService {
         messageType: query?.where?.messageType,
         ...timestampFilter,
         AND: [
-          keyFilters?.id ? { key: { path: ['id'], equals: keyFilters?.id } } : {},
-          keyFilters?.fromMe ? { key: { path: ['fromMe'], equals: keyFilters?.fromMe } } : {},
-          keyFilters?.remoteJid ? { key: { path: ['remoteJid'], equals: keyFilters?.remoteJid } } : {},
-          keyFilters?.participants ? { key: { path: ['participants'], equals: keyFilters?.participants } } : {},
+          keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
+          keyFilters?.fromMe ? { key: { path: prismaJsonPath('fromMe'), equals: keyFilters?.fromMe } } : {},
+          keyFilters?.remoteJid ? { key: { path: prismaJsonPath('remoteJid'), equals: keyFilters?.remoteJid } } : {},
+          keyFilters?.participants
+            ? { key: { path: prismaJsonPath('participants'), equals: keyFilters?.participants } }
+            : {},
         ],
       },
     });
@@ -647,10 +650,12 @@ export class ChannelStartupService {
         messageType: query?.where?.messageType,
         ...timestampFilter,
         AND: [
-          keyFilters?.id ? { key: { path: ['id'], equals: keyFilters?.id } } : {},
-          keyFilters?.fromMe ? { key: { path: ['fromMe'], equals: keyFilters?.fromMe } } : {},
-          keyFilters?.remoteJid ? { key: { path: ['remoteJid'], equals: keyFilters?.remoteJid } } : {},
-          keyFilters?.participants ? { key: { path: ['participants'], equals: keyFilters?.participants } } : {},
+          keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
+          keyFilters?.fromMe ? { key: { path: prismaJsonPath('fromMe'), equals: keyFilters?.fromMe } } : {},
+          keyFilters?.remoteJid ? { key: { path: prismaJsonPath('remoteJid'), equals: keyFilters?.remoteJid } } : {},
+          keyFilters?.participants
+            ? { key: { path: prismaJsonPath('participants'), equals: keyFilters?.participants } }
+            : {},
         ],
       },
       orderBy: {

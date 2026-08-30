@@ -1,32 +1,36 @@
 #!/bin/bash
+set -euo pipefail
 
 source ./Docker/scripts/env_functions.sh
 
-if [ "$DOCKER_ENV" != "true" ]; then
+if [ "${DOCKER_ENV:-false}" != "true" ]; then
     export_env_vars
 fi
 
-if [[ "$DATABASE_PROVIDER" == "postgresql" || "$DATABASE_PROVIDER" == "mysql" || "$DATABASE_PROVIDER" == "psql_bouncer" ]]; then
-    export DATABASE_URL
-    echo "Deploying migrations for $DATABASE_PROVIDER"
-    echo "Database URL: $DATABASE_URL"
-    # rm -rf ./prisma/migrations
-    # cp -r ./prisma/$DATABASE_PROVIDER-migrations ./prisma/migrations
-    npm run db:deploy
-    if [ $? -ne 0 ]; then
-        echo "Migration failed"
+provider="${DATABASE_PROVIDER:-postgresql}"
+case "$provider" in
+    postgresql|mysql|psql_bouncer) ;;
+    *)
+        echo "Error: Database provider '$provider' is invalid."
         exit 1
-    else
-        echo "Migration succeeded"
-    fi
-    npm run db:generate
-    if [ $? -ne 0 ]; then
-        echo "Prisma generate failed"
+        ;;
+esac
+
+max_attempts="${DATABASE_MIGRATION_MAX_ATTEMPTS:-30}"
+retry_seconds="${DATABASE_MIGRATION_RETRY_SECONDS:-2}"
+attempt=1
+
+echo "Deploying ARGWS Connect database migrations for provider: $provider"
+until npm run db:deploy; do
+    if [ "$attempt" -ge "$max_attempts" ]; then
+        echo "Migration failed after $attempt attempts."
         exit 1
-    else
-        echo "Prisma generate succeeded"
     fi
-else
-    echo "Error: Database provider $DATABASE_PROVIDER invalid."
-    exit 1
-fi
+    echo "Database not ready or migration failed (attempt $attempt/$max_attempts); retrying in ${retry_seconds}s..."
+    attempt=$((attempt + 1))
+    sleep "$retry_seconds"
+done
+
+echo "Migration succeeded. Generating Prisma client for provider: $provider"
+npm run db:generate
+echo "Prisma generate succeeded."
