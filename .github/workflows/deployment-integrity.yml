@@ -29,6 +29,9 @@ jobs:
           docker compose -f docker-compose.yaml config >/dev/null
           docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
           docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --profile '*' -f docker-compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
 
       - name: Enforce single-port deployment contract
         shell: bash
@@ -48,7 +51,7 @@ jobs:
 
           for compose_file in compose_files:
               raw = subprocess.check_output(
-                  ["docker", "compose", "-f", compose_file, "config", "--format", "json"],
+                  ["docker", "compose", "--profile", "*", "-f", compose_file, "config", "--format", "json"],
                   text=True,
               )
               data = json.loads(raw)
