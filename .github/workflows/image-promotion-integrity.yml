@@ -1,0 +1,57 @@
+name: Image Promotion Integrity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "deploy/production/**"
+      - "deploy/homologation/**"
+      - ".github/workflows/ghcr-publish-application.yml"
+      - ".github/workflows/auto-version-release.yml"
+      - ".github/workflows/image-promotion-integrity.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/production/**"
+      - "deploy/homologation/**"
+      - ".github/workflows/ghcr-publish-application.yml"
+      - ".github/workflows/auto-version-release.yml"
+      - ".github/workflows/image-promotion-integrity.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate image promotion policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          prod="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
+          homolog="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/homologation/env.example | cut -d= -f2-)"
+
+          [[ "$homolog" == "ghcr.io/wkarts/argws-connect-api:latest" ]]
+          [[ "$prod" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$prod" != *":production" ]]
+          [[ "$homolog" != *":homolog" ]]
+
+          if grep -nE 'argws-connect-(api|manager):(homolog|production)([[:space:]]|$)' \
+            .github/workflows/ghcr-publish-application.yml; then
+            echo "Environment-specific image tags are forbidden." >&2
+            exit 1
+          fi
+
+          grep -q 'argws-connect-api:latest' deploy/homologation/compose.yaml
+          grep -q 'argws-connect-api:1.0.4' deploy/production/compose.yaml
+
+      - name: Validate safe production promotion script
+        run: |
+          set -euo pipefail
+          test -x deploy/production/promote.sh
+          bash -n deploy/production/promote.sh
+          grep -q 'docker manifest inspect' deploy/production/promote.sh
+          grep -q '.env.before-promotion' deploy/production/promote.sh

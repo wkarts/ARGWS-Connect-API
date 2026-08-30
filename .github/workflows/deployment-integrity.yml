@@ -46,6 +46,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json
+          import re
           import subprocess
 
           extended_compose_files = [
@@ -125,7 +126,17 @@ jobs:
               fixed_names = [name for name, cfg in services.items() if cfg.get("container_name")]
               assert not fixed_names, f"{compose_file}: container_name fixo impede coexistencia: {fixed_names}"
 
-          print("Deployment contract OK")
+          # Política de promoção: homologação acompanha latest; produção fica em SemVer promovida.
+          homolog_image = homolog["services"]["api"]["image"]
+          prod_image = prod["services"]["api"]["image"]
+          assert homolog_image == "ghcr.io/wkarts/argws-connect-api:latest", (
+              f"homologacao deve usar :latest, encontrado {homolog_image}"
+          )
+          assert re.fullmatch(r"ghcr\.io/wkarts/argws-connect-api:\d+\.\d+\.\d+", prod_image), (
+              f"producao deve usar tag SemVer imutavel, encontrado {prod_image}"
+          )
+
+          print(f"Deployment contract OK | homolog={homolog_image} | production={prod_image}")
           PY
 
       - name: Validate environment contracts
@@ -141,17 +152,20 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def keys(path: str):
-              result = set()
+          def values(path: str):
+              result = {}
               for raw in Path(path).read_text().splitlines():
                   line = raw.strip()
                   if not line or line.startswith('#') or '=' not in line:
                       continue
-                  result.add(line.split('=', 1)[0])
+                  key, value = line.split('=', 1)
+                  result[key] = value
               return result
 
-          prod = keys('deploy/production/env.example')
-          homolog = keys('deploy/homologation/env.example')
+          prod_values = values('deploy/production/env.example')
+          homolog_values = values('deploy/homologation/env.example')
+          prod = set(prod_values)
+          homolog = set(homolog_values)
           assert prod == homolog, (
               f"env production/homologation divergentes; "
               f"somente prod={sorted(prod-homolog)}, somente homolog={sorted(homolog-prod)}"
@@ -168,6 +182,10 @@ jobs:
           }
           missing = required - prod
           assert not missing, f"variaveis obrigatorias ausentes: {sorted(missing)}"
+          assert homolog_values['ARGWS_CONNECT_API_IMAGE'].endswith(':latest')
+          assert not prod_values['ARGWS_CONNECT_API_IMAGE'].endswith(':latest')
+          assert ':homolog' not in homolog_values['ARGWS_CONNECT_API_IMAGE']
+          assert ':production' not in prod_values['ARGWS_CONNECT_API_IMAGE']
           print(f"Production/Homologation env parity OK: {len(prod)} keys")
           PY
 
@@ -183,14 +201,26 @@ jobs:
             test -f "$dir/README.md"
           done
 
+      - name: Reject environment-specific tags in image publishing
+        run: |
+          set -euo pipefail
+          if grep -nE 'ghcr\.io/.*/argws-connect-(api|manager):(homolog|production)([[:space:]]|$)' \
+            .github/workflows/ghcr-publish-application.yml; then
+            echo "Tags de ambiente sao proibidas. Use :latest para homologacao e SemVer para producao." >&2
+            exit 1
+          fi
+
       - name: Login GHCR for image availability checks
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Verify runtime images exist
+        shell: bash
         run: |
           set -euo pipefail
+          prod_image="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
           for image in \
             ghcr.io/wkarts/argws-connect-api:latest \
+            "$prod_image" \
             ghcr.io/wkarts/argws-connect-postgres:15 \
             ghcr.io/wkarts/argws-connect-redis:latest \
             ghcr.io/wkarts/argws-connect-rabbitmq:management \
