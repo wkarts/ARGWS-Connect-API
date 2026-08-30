@@ -2,13 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [[ ! -f .env ]]; then
-  cp env.example .env
-  chmod 600 .env
-  echo "Arquivo .env criado a partir de env.example."
-  echo "Configure os valores CHANGE_ME_* e execute novamente."
-  exit 1
-fi
+./prepare-env.sh
 
 mkdir -p \
   ./volumes/instances \
@@ -16,11 +10,6 @@ mkdir -p \
   ./volumes/redis \
   ./volumes/rabbitmq \
   ./volumes/minio \
-  ./volumes/mysql \
-  ./volumes/nats \
-  ./volumes/kafka \
-  ./volumes/zookeeper/data \
-  ./volumes/zookeeper/log \
   ./volumes/logs \
   ./volumes/backups
 
@@ -32,6 +21,7 @@ docker compose -f compose.yaml ps
 
 echo
 port="$(grep -E '^ARGWS_CONNECT_API_HOST_PORT=' .env | tail -n1 | cut -d= -f2-)"
-echo "API: http://127.0.0.1:${port:-38080}"
-echo "Manager: http://127.0.0.1:${port:-38080}/manager"
-echo "Health: http://127.0.0.1:${port:-38080}/health"
+echo "API local: http://127.0.0.1:${port:-38080}"
+echo "API publica: https://api.connect.argws.com.br"
+echo "Manager: https://api.connect.argws.com.br/manager"
+echo "Health: https://api.connect.argws.com.br/health"
