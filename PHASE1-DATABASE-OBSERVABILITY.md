@@ -13,8 +13,10 @@ This temporary branch document records the Phase 1 stabilization contract.
 
 ## Observability
 
-- Generic application payloads and credentials must not be written to stdout in clear text.
-- Operational log descriptors remain available for diagnostics.
+- Generic application payloads and credentials must not be written to stdout in clear text or in derived form.
+- Generic dynamic values are reduced to static type descriptors such as `[STRING REDACTED]`, `[BUFFER REDACTED]`, `[ERROR REDACTED]`, `[ARRAY REDACTED]` and `[OBJECT REDACTED]`.
+- The generic logger must not derive hashes, lengths, object keys, error properties or fingerprints from values that may contain credentials or API keys.
+- Fixed lifecycle/status messages remain available through the explicit system log surface.
 - WhatsApp terminal QR rendering is explicitly supported through `LOG_QRCODE` and must not include pairing codes.
 - Prometheus remains independent of the log stream.
 
