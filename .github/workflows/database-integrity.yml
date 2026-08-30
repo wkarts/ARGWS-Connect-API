@@ -1,0 +1,148 @@
+name: Database Integrity
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  postgresql:
+    name: PostgreSQL Fresh Database
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: argws
+          POSTGRES_PASSWORD: argws_test_password
+          POSTGRES_DB: argws_connect_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U argws -d argws_connect_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://argws:argws_test_password@127.0.0.1:55432/argws_connect_test?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate PostgreSQL schema
+        run: npx prisma validate --schema ./prisma/postgresql-schema.prisma
+
+      - name: Apply all migrations to an empty PostgreSQL database
+        run: npm run db:deploy
+
+      - name: Generate PostgreSQL Prisma client
+        run: npm run db:generate
+
+      - name: Type-check application with PostgreSQL client
+        run: npx tsc --noEmit
+
+  mysql:
+    name: MySQL Fresh Database
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: argws_root_test_password
+          MYSQL_DATABASE: argws_connect_test
+          MYSQL_USER: argws
+          MYSQL_PASSWORD: argws_test_password
+        ports:
+          - 53306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u root -pargws_root_test_password"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_PROVIDER: mysql
+      DATABASE_CONNECTION_URI: mysql://argws:argws_test_password@127.0.0.1:53306/argws_connect_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate MySQL schema
+        run: npx prisma validate --schema ./prisma/mysql-schema.prisma
+
+      - name: Apply all migrations to an empty MySQL database
+        run: npm run db:deploy
+
+      - name: Generate MySQL Prisma client
+        run: npm run db:generate
+
+      - name: Type-check application with MySQL client
+        run: npx tsc --noEmit
+
+  pgbouncer-schema:
+    name: PgBouncer Schema Parity
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_CONNECTION_URI: postgresql://argws:argws_test_password@127.0.0.1:5432/argws_connect_test
+      DATABASE_BOUNCER_CONNECTION_URI: postgresql://argws:argws_test_password@127.0.0.1:6432/argws_connect_test?pgbouncer=true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate PgBouncer Prisma schema
+        run: npx prisma validate --schema ./prisma/psql_bouncer-schema.prisma
+
+      - name: Verify PostgreSQL and PgBouncer model parity
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          postgres = Path("prisma/postgresql-schema.prisma").read_text()
+          pgbouncer = Path("prisma/psql_bouncer-schema.prisma").read_text()
+
+          def normalize_datasource(value: str) -> str:
+              return re.sub(
+                  r"datasource db \{.*?\}",
+                  "datasource db { PROVIDER }",
+                  value,
+                  count=1,
+                  flags=re.S,
+              )
+
+          assert normalize_datasource(postgres) == normalize_datasource(pgbouncer), (
+              "PgBouncer schema diverged from PostgreSQL models"
+          )
