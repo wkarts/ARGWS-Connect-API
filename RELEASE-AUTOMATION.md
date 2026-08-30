@@ -1,108 +1,90 @@
-# ARGWS Connect API — Automatic Versioning and Release
+# ARGWS Connect API — Versionamento e Release
 
-## Canonical version line
+## Linha canônica
 
-ARGWS Connect API starts at `1.0.0` and follows Semantic Versioning.
+ARGWS Connect API segue Semantic Versioning a partir de `1.0.0`.
 
-## Automatic release rule
+## Branches permanentes
 
-Every successful merge/push to `main` starts `.github/workflows/auto-version-release.yml`.
+### `develop`
 
-The workflow executes, in order:
+É a linha contínua de desenvolvimento e homologação.
+
+Cada push ou merge em `develop`:
+
+1. executa os gates de qualidade, segurança e banco;
+2. constrói a imagem multi-arquitetura da API;
+3. sobrescreve exclusivamente:
+
+```text
+ghcr.io/wkarts/argws-connect-api:develop
+```
+
+A branch `develop` **não** cria:
+
+- tag SemVer;
+- tag `latest`;
+- tag SHA da aplicação;
+- Git tag;
+- GitHub Release;
+- commit automático de versão.
+
+A homologação consome sempre `:develop`.
+
+### `main`
+
+É a linha estável e versionada.
+
+Quando uma versão em `develop` estiver confiável, abre-se PR:
+
+```text
+develop → main
+```
+
+Após o merge, `.github/workflows/auto-version-release.yml` executa a release automática.
+
+## Fluxo oficial
+
+```text
+feature/*
+   ↓ PR
+ develop
+   ↓ build aprovado
+ :develop
+   ↓
+ homologação
+   ↓ validação funcional
+ PR develop → main
+   ↓ merge
+ main
+   ↓
+ SemVer + Git tag + GitHub Release + imagens versionadas
+   ↓
+ produção
+```
+
+## Release automática da `main`
+
+O workflow executa, em ordem:
 
 1. `npm ci`;
-2. lint validation;
-3. Prisma client generation;
-4. TypeScript/application build;
-5. semantic version calculation;
-6. persistence of the version in `VERSION`, `package.json`, `package-lock.json` and `RELEASE-MANIFEST.json`;
-7. multi-architecture API and Manager Docker builds (`linux/amd64`, `linux/arm64`);
-8. publication to GHCR;
-9. immutable Git tag;
-10. GitHub Release with generated notes and image digests.
+2. lint;
+3. Prisma client;
+4. build;
+5. cálculo da próxima versão;
+6. atualização de `VERSION`, `package.json`, `package-lock.json` e `RELEASE-MANIFEST.json`;
+7. build Docker multi-arquitetura (`linux/amd64`, `linux/arm64`);
+8. publicação no GHCR;
+9. Git tag imutável;
+10. GitHub Release com release notes e digests.
 
-A GitHub Release is **not created** when validation or Docker publication fails.
+A release não é criada se validação ou build falhar.
 
-## Version calculation
+## Cálculo da versão
 
-If no semantic release tag exists, the first successful release is:
+O incremento padrão é `patch`.
 
-```text
-v1.0.0
-```
-
-After that, every merge creates at least a patch release.
-
-Default:
-
-```text
-1.0.0 -> 1.0.1 -> 1.0.2
-```
-
-PR labels can control the next increment:
-
-```text
-version:patch  -> 1.0.1 -> 1.0.2
-version:minor  -> 1.0.2 -> 1.1.0
-version:major  -> 1.1.0 -> 2.0.0
-```
-
-When no version label exists, conventional PR titles are also considered:
-
-```text
-feat: ...      -> minor
-feat(scope):   -> minor
-feat!: ...     -> major
-BREAKING CHANGE -> major
-anything else  -> patch
-```
-
-The default always remains `patch`, guaranteeing a version for every merge.
-
-## GHCR tags
-
-For version `1.4.3`, successful publication creates:
-
-```text
-ghcr.io/wkarts/argws-connect-api:1.4.3
-ghcr.io/wkarts/argws-connect-api:1.4
-ghcr.io/wkarts/argws-connect-api:1
-ghcr.io/wkarts/argws-connect-api:latest
-
-ghcr.io/wkarts/argws-connect-manager:1.4.3
-ghcr.io/wkarts/argws-connect-manager:1.4
-ghcr.io/wkarts/argws-connect-manager:1
-ghcr.io/wkarts/argws-connect-manager:latest
-```
-
-A SHA tag is also published for traceability.
-
-## Develop / homologation
-
-Pushes to `develop` do not create GitHub Releases.
-
-They publish:
-
-```text
-argws-connect-api:homolog
-argws-connect-manager:homolog
-```
-
-plus the commit SHA tag.
-
-## Repository permissions
-
-GitHub Actions requires:
-
-- `contents: write` for the version commit, tag and release;
-- `packages: write` for GHCR;
-- `pull-requests: read` to inspect the merged PR labels/title.
-
-In repository settings, Workflow permissions must allow read/write operations. If `main` has branch protection/rulesets, the GitHub Actions bot must be allowed to create the automated release metadata commit, or an equivalent dedicated release token must be configured.
-
-## Merge labels
-
-Create these repository labels:
+Labels opcionais na PR para `main`:
 
 ```text
 version:patch
@@ -110,4 +92,53 @@ version:minor
 version:major
 ```
 
-They are optional. Without a label, every merge still produces a patch release.
+Sem label, títulos Conventional Commits também são considerados:
+
+```text
+fix: ...       → patch
+feat: ...      → minor
+feat!: ...     → major
+BREAKING CHANGE → major
+```
+
+## Tags estáveis da `main`
+
+Para uma release `1.4.3`, a linha estável pode publicar:
+
+```text
+ghcr.io/wkarts/argws-connect-api:1.4.3
+ghcr.io/wkarts/argws-connect-api:1.4
+ghcr.io/wkarts/argws-connect-api:1
+ghcr.io/wkarts/argws-connect-api:latest
+```
+
+`latest` significa **última release estável**, nunca desenvolvimento.
+
+## Imagem de desenvolvimento
+
+Existe somente uma tag mutável para a branch de desenvolvimento:
+
+```text
+ghcr.io/wkarts/argws-connect-api:develop
+```
+
+Ela é exclusiva de homologação e jamais deve ser usada em produção.
+
+## Produção
+
+Produção permanece fixada em tag SemVer explícita e só muda por promoção controlada:
+
+```bash
+cd deploy/production
+./promote.sh X.Y.Z
+```
+
+## Permissões
+
+GitHub Actions requer:
+
+- `contents: write` para commit/tag/release na `main`;
+- `packages: write` para GHCR;
+- `pull-requests: read` para metadados da PR.
+
+`develop` não precisa de permissão para alterar conteúdo do repositório; apenas `contents: read` e `packages: write`.
