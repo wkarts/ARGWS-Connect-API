@@ -3,9 +3,7 @@ name: GHCR - Sync Infrastructure Images
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - fix/complete-deployment-single-port-1.0.3
+    branches: [main]
     paths:
       - ".github/workflows/ghcr-sync-infrastructure.yml"
       - "deploy/**"
@@ -31,7 +29,7 @@ jobs:
       - name: Login GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Sync all runtime and build images to GHCR
+      - name: Sync core runtime and build images to GHCR
         env:
           OWNER: ${{ github.repository_owner }}
         run: |
@@ -43,14 +41,12 @@ jobs:
             skopeo copy --all "docker://$source" "docker://$target"
           }
 
-          sync docker.io/library/node:24-alpine              ghcr.io/${OWNER}/argws-connect-node:24-alpine
-          sync docker.io/library/nginx:1.27-alpine           ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
-          sync docker.io/library/postgres:15                 ghcr.io/${OWNER}/argws-connect-postgres:15
-          sync docker.io/library/redis:latest                ghcr.io/${OWNER}/argws-connect-redis:latest
-          sync docker.io/library/rabbitmq:management         ghcr.io/${OWNER}/argws-connect-rabbitmq:management
-          sync quay.io/minio/minio:latest                    ghcr.io/${OWNER}/argws-connect-minio:latest
-          sync docker.io/percona/percona-server:8.0          ghcr.io/${OWNER}/argws-connect-mysql:8.0
-          sync docker.io/library/nats:2.10-alpine            ghcr.io/${OWNER}/argws-connect-nats:2.10-alpine
-          sync docker.io/confluentinc/cp-kafka:7.5.0         ghcr.io/${OWNER}/argws-connect-kafka:7.5.0
-          sync docker.io/confluentinc/cp-zookeeper:7.5.0     ghcr.io/${OWNER}/argws-connect-zookeeper:7.5.0
-          sync docker.io/dpage/pgadmin4:latest               ghcr.io/${OWNER}/argws-connect-pgadmin:latest
+          # Build bases used by the application images.
+          sync docker.io/library/node:24-alpine      ghcr.io/${OWNER}/argws-connect-node:24-alpine
+          sync docker.io/library/nginx:1.27-alpine   ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
+
+          # Runtime infrastructure used by production/homologation.
+          sync docker.io/library/postgres:15         ghcr.io/${OWNER}/argws-connect-postgres:15
+          sync docker.io/library/redis:latest        ghcr.io/${OWNER}/argws-connect-redis:latest
+          sync docker.io/library/rabbitmq:management ghcr.io/${OWNER}/argws-connect-rabbitmq:management
+          sync quay.io/minio/minio:latest            ghcr.io/${OWNER}/argws-connect-minio:latest
