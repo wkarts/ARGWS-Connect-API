@@ -19,6 +19,7 @@ This temporary branch document records the Phase 1 stabilization contract.
 - Fixed lifecycle/status messages remain available through the explicit system log surface.
 - WhatsApp terminal QR rendering is explicitly supported through `LOG_QRCODE` and must not include pairing codes.
 - Prometheus remains independent of the log stream.
+- CodeQL must remain green for all logging changes.
 
 ## Docker boot
 
@@ -40,4 +41,4 @@ A Phase 1 change is accepted only when:
 6. MySQL Prisma client type-checks the application.
 7. PgBouncer schema matches PostgreSQL models.
 8. Lint and production build pass.
-9. Security scanning remains enabled.
+9. Security scanning remains enabled and green.
