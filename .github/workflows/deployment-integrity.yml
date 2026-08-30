@@ -23,15 +23,23 @@ jobs:
           cp env.example .env
           cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
           cp deploy/dockge/env.example deploy/dockge/.env
+          cp deploy/production/env.example deploy/production/.env
+          cp deploy/homologation/env.example deploy/homologation/.env
 
       - name: Validate Compose files
         run: |
+          set -euo pipefail
           docker compose -f docker-compose.yaml config >/dev/null
           docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
           docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose -f deploy/production/compose.yaml config >/dev/null
+          docker compose -f deploy/homologation/compose.yaml config >/dev/null
+
           docker compose --profile '*' -f docker-compose.yaml config >/dev/null
           docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
           docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/production/compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/homologation/compose.yaml config >/dev/null
 
       - name: Enforce single-port deployment contract
         shell: bash
@@ -45,40 +53,118 @@ jobs:
               "docker-compose.yaml",
               "deploy/cloudpanel/docker-compose.yml",
               "deploy/dockge/compose.yaml",
+              "deploy/production/compose.yaml",
+              "deploy/homologation/compose.yaml",
           ]
           required = {"api", "postgres", "redis", "rabbitmq", "minio"}
           optional = {"mysql", "nats", "zookeeper", "kafka"}
 
+          parsed = {}
           for compose_file in compose_files:
               raw = subprocess.check_output(
                   ["docker", "compose", "--profile", "*", "-f", compose_file, "config", "--format", "json"],
                   text=True,
               )
               data = json.loads(raw)
+              parsed[compose_file] = data
               services = data["services"]
               missing = (required | optional) - set(services)
               assert not missing, f"{compose_file}: services ausentes: {sorted(missing)}"
               assert "manager" not in services, f"{compose_file}: manager separado nao e permitido"
+
               published = [name for name, cfg in services.items() if cfg.get("ports")]
               assert published == ["api"], f"{compose_file}: somente api pode publicar porta: {published}"
               api_ports = services["api"]["ports"]
               assert len(api_ports) == 1, f"{compose_file}: API deve publicar exatamente uma porta"
               assert int(api_ports[0]["target"]) == 8080, f"{compose_file}: target interno da API deve ser 8080"
+
+              api_env = services["api"].get("environment", {})
+              assert str(api_env.get("SERVER_PORT")) == "8080", f"{compose_file}: SERVER_PORT interno deve ser 8080"
+
               for service_name, cfg in services.items():
                   for mount in cfg.get("volumes", []):
                       assert mount.get("type") == "bind", f"{compose_file}: {service_name} usa volume nao-bind"
                   image = cfg.get("image", "")
                   assert image.startswith("ghcr.io/wkarts/"), f"{compose_file}: imagem fora do GHCR: {image}"
+
+          prod = parsed["deploy/production/compose.yaml"]
+          homolog = parsed["deploy/homologation/compose.yaml"]
+
+          prod_port = int(prod["services"]["api"]["ports"][0]["published"])
+          homolog_port = int(homolog["services"]["api"]["ports"][0]["published"])
+          assert prod_port == 38080, f"producao: porta default deve ser 38080, encontrada {prod_port}"
+          assert homolog_port == 38081, f"homologacao: porta default deve ser 38081, encontrada {homolog_port}"
+          assert prod_port != homolog_port, "producao e homologacao nao podem publicar a mesma porta"
+
+          assert prod.get("name") != homolog.get("name"), "producao e homologacao precisam de project names diferentes"
+
+          for compose_file in ("deploy/production/compose.yaml", "deploy/homologation/compose.yaml"):
+              services = parsed[compose_file]["services"]
+              fixed_names = [name for name, cfg in services.items() if cfg.get("container_name")]
+              assert not fixed_names, f"{compose_file}: container_name fixo impede coexistencia: {fixed_names}"
+
           print("Deployment contract OK")
           PY
 
-      - name: Ensure environment parity
+      - name: Validate environment contracts
+        shell: bash
         run: |
+          set -euo pipefail
           cmp -s env.example .env.example
           cmp -s env.example deploy/cloudpanel/env.example
           cmp -s env.example deploy/cloudpanel/.env.example
           cmp -s env.example deploy/dockge/env.example
           cmp -s env.example deploy/dockge/.env.example
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def keys(path: str):
+              result = set()
+              for raw in Path(path).read_text().splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith('#') or '=' not in line:
+                      continue
+                  result.add(line.split('=', 1)[0])
+              return result
+
+          prod = keys('deploy/production/env.example')
+          homolog = keys('deploy/homologation/env.example')
+          assert prod == homolog, (
+              f"env production/homologation divergentes; "
+              f"somente prod={sorted(prod-homolog)}, somente homolog={sorted(homolog-prod)}"
+          )
+
+          required = {
+              'COMPOSE_PROJECT_NAME', 'ARGWS_CONNECT_NETWORK_NAME',
+              'ARGWS_CONNECT_BIND_ADDRESS', 'ARGWS_CONNECT_API_HOST_PORT',
+              'ARGWS_CONNECT_API_IMAGE', 'DATABASE_PROVIDER',
+              'DATABASE_CONNECTION_URI', 'POSTGRES_PASSWORD', 'REDIS_PASSWORD',
+              'RABBITMQ_DEFAULT_PASS', 'MINIO_ROOT_PASSWORD',
+              'AUTHENTICATION_API_KEY', 'SERVER_PORT', 'SERVER_URL',
+          }
+          missing = required - prod
+          assert not missing, f"variaveis obrigatorias ausentes: {sorted(missing)}"
+          print(f"Production/Homologation env parity OK: {len(prod)} keys")
+          PY
+
+      - name: Validate deployment scripts
+        run: |
+          set -euo pipefail
+          for dir in deploy/production deploy/homologation; do
+            test -x "$dir/deploy.sh"
+            test -x "$dir/update.sh"
+            test -x "$dir/status.sh"
+            test -x "$dir/preflight.sh"
+            test -x "$dir/registry-login.sh"
+            bash -n "$dir/deploy.sh"
+            bash -n "$dir/update.sh"
+            bash -n "$dir/status.sh"
+            bash -n "$dir/preflight.sh"
+            bash -n "$dir/registry-login.sh"
+            test -f "$dir/nginx-location.conf.example"
+            test -f "$dir/README.md"
+          done
 
       - name: Login GHCR for image availability checks
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -92,5 +178,6 @@ jobs:
             ghcr.io/wkarts/argws-connect-redis:latest \
             ghcr.io/wkarts/argws-connect-rabbitmq:management \
             ghcr.io/wkarts/argws-connect-minio:latest; do
+            echo "Checking $image"
             docker manifest inspect "$image" >/dev/null
           done
