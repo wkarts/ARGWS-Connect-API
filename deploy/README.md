@@ -7,6 +7,7 @@ deploy/
 ├── production/
 │   ├── compose.yaml
 │   ├── env.example
+│   ├── prepare-env.sh
 │   ├── deploy.sh
 │   ├── update.sh
 │   ├── status.sh
@@ -18,6 +19,7 @@ deploy/
 └── homologation/
     ├── compose.yaml
     ├── env.example
+    ├── prepare-env.sh
     ├── deploy.sh
     ├── update.sh
     ├── status.sh
@@ -36,6 +38,8 @@ Somente a API publica porta no host.
 Produção:
 
 ```text
+https://api.connect.argws.com.br
+        ↓
 127.0.0.1:38080
 ├── /
 ├── /manager
@@ -48,6 +52,8 @@ Produção:
 Homologação:
 
 ```text
+https://h.api.connect.argws.com.br
+        ↓
 127.0.0.1:38081
 ├── /
 ├── /manager
@@ -57,11 +63,9 @@ Homologação:
 └── Webhooks / API
 ```
 
-PostgreSQL, Redis, RabbitMQ, MinIO e os serviços opcionais usam apenas a rede Docker interna. Nenhum deles publica porta no host.
+## Serviços locais oficiais
 
-## Serviços locais
-
-A stack padrão sobe:
+As duas stacks canônicas sobem somente:
 
 - API;
 - PostgreSQL;
@@ -69,16 +73,24 @@ A stack padrão sobe:
 - RabbitMQ;
 - MinIO.
 
-Perfis opcionais:
+PostgreSQL, Redis, RabbitMQ e MinIO permanecem exclusivamente na rede Docker interna e não publicam portas no host.
 
-- `nats`;
-- `kafka` + `zookeeper`;
-- `extended` (NATS + Kafka + Zookeeper);
-- `mysql` como provider alternativo.
+O Manager atual é servido em `/manager` pela própria API e não possui service/container separado.
+
+NATS, Kafka, Zookeeper e MySQL não fazem parte das stacks oficiais neste momento porque não trazem benefício operacional para o cenário atual: PostgreSQL é o banco oficial e RabbitMQ já cumpre o papel de event bus/fila.
+
+## Deploy sem preencher segredos manualmente
+
+Na primeira execução, `prepare-env.sh` copia `env.example` para `.env` e substitui automaticamente todos os placeholders `CHANGE_ME_*` por valores criptograficamente aleatórios. O `.env` recebe permissão `600` e nunca é versionado.
+
+Fluxo:
+
+```bash
+./registry-login.sh   # apenas quando GHCR exigir autenticacao
+./deploy.sh
+```
 
 ## Persistência
-
-Todos os dados usam bind mounts relativos ao diretório de cada stack:
 
 ```text
 ./volumes/
@@ -87,10 +99,6 @@ Todos os dados usam bind mounts relativos ao diretório de cada stack:
 ├── redis/
 ├── rabbitmq/
 ├── minio/
-├── mysql/
-├── nats/
-├── kafka/
-├── zookeeper/
 ├── logs/
 └── backups/
 ```
@@ -99,18 +107,10 @@ Não são usados named volumes nas stacks oficiais.
 
 ## GHCR
 
-Produção e homologação consomem exclusivamente `ghcr.io/wkarts/argws-connect-*`.
+Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`.
 
-Antes do primeiro deploy em um host com packages privados:
-
-```bash
-./registry-login.sh
-```
-
-Use um PAT com `read:packages`. O token não é salvo no `.env` da aplicação.
-
-O `preflight.sh` diferencia falha de autenticação/disponibilidade antes do `docker compose pull`. O workflow `GHCR - Sync Infrastructure Images` mantém as imagens de infraestrutura espelhadas no registry oficial.
+O bootstrap inicial das imagens de infraestrutura já foi executado com sucesso. O workflow `GHCR - Sync Infrastructure Images` mantém Node/Nginx para build e PostgreSQL/Redis/RabbitMQ/MinIO para runtime espelhados no registry oficial.
 
 ## CloudPanel / Dockge
 
-Os diretórios `cloudpanel/` e `dockge/` continuam disponíveis como integrações operacionais. As árvores `production/` e `homologation/` são a referência canônica de ambiente e devem orientar o provisionamento futuro do Control Plane.
+Os diretórios `cloudpanel/` e `dockge/` continuam disponíveis como integrações operacionais. `production/` e `homologation/` passam a ser as referências canônicas para o provisionamento futuro do Control Plane.
