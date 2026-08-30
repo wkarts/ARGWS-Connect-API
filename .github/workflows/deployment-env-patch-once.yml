@@ -33,22 +33,22 @@ jobs:
             fi
             cat >> "$file" <<'EOF'
 
-# ===========================================
-# DEPLOYMENT / PERSISTENCIA LOCAL DA STACK
-# ===========================================
-# Defaults usados pelos Compose de CloudPanel e Dockge.
-# Caminhos relativos ficam fisicamente dentro do diretorio da propria stack.
-DATABASE_MIGRATION_MAX_ATTEMPTS=30
-DATABASE_MIGRATION_RETRY_SECONDS=2
-LOG_QRCODE=true
-ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances
-ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres
-ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis
-ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq
-ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio
-ARGWS_CONNECT_LOGS_DATA_PATH=./volumes/logs
-ARGWS_CONNECT_BACKUPS_DATA_PATH=./volumes/backups
-EOF
+          # ===========================================
+          # DEPLOYMENT / PERSISTENCIA LOCAL DA STACK
+          # ===========================================
+          # Defaults usados pelos Compose de CloudPanel e Dockge.
+          # Caminhos relativos ficam fisicamente dentro do diretorio da propria stack.
+          DATABASE_MIGRATION_MAX_ATTEMPTS=30
+          DATABASE_MIGRATION_RETRY_SECONDS=2
+          LOG_QRCODE=true
+          ARGWS_CONNECT_INSTANCES_DATA_PATH=./volumes/instances
+          ARGWS_CONNECT_POSTGRES_DATA_PATH=./volumes/postgres
+          ARGWS_CONNECT_REDIS_DATA_PATH=./volumes/redis
+          ARGWS_CONNECT_RABBITMQ_DATA_PATH=./volumes/rabbitmq
+          ARGWS_CONNECT_MINIO_DATA_PATH=./volumes/minio
+          ARGWS_CONNECT_LOGS_DATA_PATH=./volumes/logs
+          ARGWS_CONNECT_BACKUPS_DATA_PATH=./volumes/backups
+          EOF
           done
 
       - name: Commit env examples when changed
