@@ -1,0 +1,154 @@
+name: PR1 Security Autofix
+
+on:
+  push:
+    branches:
+      - feat/argws-connect-api-1.0.0-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  security-autofix:
+    if: ${{ !contains(github.event.head_commit.message, '[security-autofix]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/argws-connect-api-1.0.0-foundation
+          fetch-depth: 0
+
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply security fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f'Expected pattern not found in {path}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'src/api/integrations/channel/meta/meta.router.ts',
+              """      .get(this.routerPath('webhook/meta', false), async (req, res) => {\n        if (req.query['hub.verify_token'] === configService.get<WaBusiness>('WA_BUSINESS').TOKEN_WEBHOOK)\n          res.send(req.query['hub.challenge']);\n        else res.send('Error, wrong validation token');\n      })\n""",
+              """      .get(this.routerPath('webhook/meta', false), async (req, res) => {\n        const verifyToken = req.query['hub.verify_token'];\n        const challenge = req.query['hub.challenge'];\n        const expectedToken = configService.get<WaBusiness>('WA_BUSINESS').TOKEN_WEBHOOK;\n\n        if (verifyToken !== expectedToken) {\n          return res.status(403).type('text/plain').end('Error, wrong validation token');\n        }\n\n        if (typeof challenge !== 'string' || !/^[A-Za-z0-9._-]{1,256}$/.test(challenge)) {\n          return res.status(400).type('text/plain').end('Invalid challenge');\n        }\n\n        res.status(200).type('text/plain').end(challenge);\n      })\n""",
+          )
+
+          for path in [
+              'src/api/integrations/chatbot/typebot/controllers/typebot.controller.ts',
+              'src/api/integrations/chatbot/typebot/services/typebot.service.ts',
+          ]:
+              replace_once(path, "import axios from 'axios';\n", "import axios from 'axios';\nimport { randomInt } from 'crypto';\n")
+              p = Path(path)
+              text = p.read_text()
+              old = 'const id = Math.floor(Math.random() * 10000000000).toString();'
+              new = 'const id = randomInt(0, 10_000_000_000).toString();'
+              if new not in text:
+                  if old not in text:
+                      raise SystemExit(f'Expected random ID pattern not found in {path}')
+                  p.write_text(text.replace(old, new, 1))
+
+          path = 'src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts'
+          replace_once(path, "import { createHash } from 'crypto';", "import { createHash, randomInt } from 'crypto';")
+          replace_once(
+              path,
+              """          const text = response.data;\n          const proxyUrls = text.split('\\r\\n');\n          const rand = Math.floor(Math.random() * Math.floor(proxyUrls.length));\n          const proxyUrl = 'http://' + proxyUrls[rand];\n""",
+              """          const text = response.data;\n          const proxyUrls = String(text)\n            .split(/\\r?\\n/)\n            .map((proxyUrl) => proxyUrl.trim())\n            .filter(Boolean);\n\n          if (proxyUrls.length === 0) {\n            throw new Error('Proxy provider returned an empty proxy list');\n          }\n\n          const rand = randomInt(proxyUrls.length);\n          const proxyUrl = 'http://' + proxyUrls[rand];\n""",
+          )
+
+          path = 'src/api/routes/index.router.ts'
+          replace_once(
+              path,
+              "import { NextFunction, Request, Response, Router } from 'express';",
+              "import express, { NextFunction, Request, Response, Router } from 'express';",
+          )
+          p = Path(path)
+          text = p.read_text().replace("import mimeTypes from 'mime-types';\n", '', 1)
+          p.write_text(text)
+          replace_once(
+              path,
+              """router.get('/assets/*', (req, res) => {\n  const fileName = req.params[0];\n\n  // Security: Reject paths containing traversal patterns\n  if (!fileName || fileName.includes('..') || fileName.includes('\\\\') || path.isAbsolute(fileName)) {\n    return res.status(403).send('Forbidden');\n  }\n\n  const basePath = path.join(process.cwd(), 'manager', 'dist');\n  const assetsPath = path.join(basePath, 'assets');\n  const filePath = path.join(assetsPath, fileName);\n\n  // Security: Ensure the resolved path is within the assets directory\n  const resolvedPath = path.resolve(filePath);\n  const resolvedAssetsPath = path.resolve(assetsPath);\n\n  if (!resolvedPath.startsWith(resolvedAssetsPath + path.sep) && resolvedPath !== resolvedAssetsPath) {\n    return res.status(403).send('Forbidden');\n  }\n\n  if (fs.existsSync(resolvedPath)) {\n    res.set('Content-Type', mimeTypes.lookup(resolvedPath) || 'text/css');\n    res.send(fs.readFileSync(resolvedPath));\n  } else {\n    res.status(404).send('File not found');\n  }\n});\n""",
+              """const managerAssetsPath = path.join(process.cwd(), 'manager', 'dist', 'assets');\nrouter.use(\n  '/assets',\n  express.static(managerAssetsPath, {\n    dotfiles: 'deny',\n    fallthrough: true,\n    index: false,\n    maxAge: '1h',\n  }),\n);\n""",
+          )
+
+          path = 'src/api/routes/view.router.ts'
+          replace_once(path, "import express, { Router } from 'express';\n", "import express, { Router } from 'express';\nimport fs from 'fs';\n")
+          replace_once(
+              path,
+              """    const indexPath = path.join(basePath, 'index.html');\n\n    this.router.use(express.static(basePath));\n\n    this.router.get('*', (req, res) => {\n      res.sendFile(indexPath);\n    });\n""",
+              """    const indexPath = path.join(basePath, 'index.html');\n    const indexHtml = fs.readFileSync(indexPath, 'utf8');\n\n    this.router.use(\n      express.static(basePath, {\n        dotfiles: 'deny',\n        index: false,\n      }),\n    );\n\n    this.router.get('*', (_req, res) => {\n      res.status(200).type('html').send(indexHtml);\n    });\n""",
+          )
+
+          path = 'src/config/logger.config.ts'
+          p = Path(path)
+          text = p.read_text()
+          marker = "const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));\n\n"
+          helper = """const SENSITIVE_LOG_KEYS = [\n  'apikey',\n  'authorization',\n  'cookie',\n  'credential',\n  'password',\n  'privatekey',\n  'secret',\n  'setcookie',\n  'token',\n];\n\nconst isSensitiveLogKey = (key: string) => {\n  const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();\n  return SENSITIVE_LOG_KEYS.some((sensitiveKey) => normalized.includes(sensitiveKey));\n};\n\nconst redactSensitiveText = (value: string) =>\n  value\n    .replace(/(bearer\\s+)[a-z0-9._~+/-]+=*/gi, '$1[REDACTED]')\n    .replace(\n      /((?:api[-_ ]?key|apikey|authorization|password|secret|token)\\s*[:=]\\s*)([^\\s,;}\\]]+)/gi,\n      '$1[REDACTED]',\n    );\n\nconst sanitizeLogValue = (value: any, seen = new WeakSet<object>(), depth = 0): any => {\n  if (value === null || value === undefined) return value;\n  if (typeof value === 'string') return redactSensitiveText(value);\n  if (typeof value !== 'object') return value;\n  if (depth >= 8) return '[MAX_DEPTH]';\n  if (Buffer.isBuffer(value)) return `[Buffer ${value.length} bytes]`;\n  if (value instanceof Error) {\n    return {\n      name: value.name,\n      message: redactSensitiveText(value.message),\n      stack: value.stack ? redactSensitiveText(value.stack) : undefined,\n    };\n  }\n  if (seen.has(value)) return '[CIRCULAR]';\n\n  seen.add(value);\n\n  if (Array.isArray(value)) {\n    const sanitizedArray = value.map((item) => sanitizeLogValue(item, seen, depth + 1));\n    seen.delete(value);\n    return sanitizedArray;\n  }\n\n  const sanitizedObject: Record<string, any> = {};\n  for (const [key, childValue] of Object.entries(value)) {\n    sanitizedObject[key] = isSensitiveLogKey(key) ? '[REDACTED]' : sanitizeLogValue(childValue, seen, depth + 1);\n  }\n\n  seen.delete(value);\n  return sanitizedObject;\n};\n\n"""
+          if helper not in text:
+              if marker not in text:
+                  raise SystemExit('Logger insertion marker not found')
+              text = text.replace(marker, marker + helper, 1)
+          text = text.replace("    const typeValue = typeof value;\n", "    const typeValue = typeof value;\n    const safeValue = sanitizeLogValue(value);\n", 1)
+          text = text.replace("          typeValue !== 'object' ? value : '',", "          typeValue !== 'object' ? safeValue : '',", 1)
+          text = text.replace("        typeValue === 'object' ? console.log(/*Level.DARK,*/ value, '\\n') : '';", "        typeValue === 'object' ? console.log(/*Level.DARK,*/ safeValue, '\\n') : '';", 1)
+          text = text.replace("          value,\n        );\n", "          safeValue,\n        );\n", 1)
+          p.write_text(text)
+          PY
+
+      - name: Format only patched files
+        run: |
+          npx eslint --fix \
+            src/api/integrations/channel/meta/meta.router.ts \
+            src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts \
+            src/api/integrations/chatbot/typebot/controllers/typebot.controller.ts \
+            src/api/integrations/chatbot/typebot/services/typebot.service.ts \
+            src/api/routes/index.router.ts \
+            src/api/routes/view.router.ts \
+            src/config/logger.config.ts
+
+      - name: Validate lint
+        run: npm run lint:check
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Validate build
+        run: npm run build
+
+      - name: Commit security fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            src/api/integrations/channel/meta/meta.router.ts \
+            src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts \
+            src/api/integrations/chatbot/typebot/controllers/typebot.controller.ts \
+            src/api/integrations/chatbot/typebot/services/typebot.service.ts \
+            src/api/routes/index.router.ts \
+            src/api/routes/view.router.ts \
+            src/config/logger.config.ts
+          if git diff --cached --quiet; then
+            echo "No security changes to commit."
+            exit 0
+          fi
+          git commit -m "fix(security): corrige alertas CodeQL de alta severidade [security-autofix]"
+          git push origin HEAD:feat/argws-connect-api-1.0.0-foundation
