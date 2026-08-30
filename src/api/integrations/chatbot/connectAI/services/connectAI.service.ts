@@ -125,6 +125,7 @@ export class ConnectAIService extends BaseChatbotService<ConnectAI, ConnectAISet
         }
       }
 
+      const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
       const payload = {
         jsonrpc: '2.0',
         id: callId,
@@ -144,24 +145,53 @@ export class ConnectAIService extends BaseChatbotService<ConnectAI, ConnectAISet
             pushName: pushName,
             fromMe: msg?.key?.fromMe,
             instanceName: instance.instanceName,
-            serverUrl: this.configService.get<HttpServer>('SERVER').URL,
+            serverUrl,
             apiKey: instance.token,
           },
         },
       };
 
       this.logger.debug(`[ConnectAI] Sending request to: ${endpoint}`);
-      // Redact base64 file bytes from payload log
-      const redactedPayload = JSON.parse(JSON.stringify(payload));
-      if (redactedPayload?.params?.message?.parts) {
-        redactedPayload.params.message.parts = redactedPayload.params.message.parts.map((part) => {
-          if (part.type === 'file' && part.file && part.file.bytes) {
-            return { ...part, file: { ...part.file, bytes: '[base64 omitted]' } };
-          }
-          return part;
-        });
-      }
-      this.logger.debug(`[ConnectAI] Payload: ${JSON.stringify(redactedPayload)}`);
+
+      // Build a diagnostic payload explicitly without credentials or file bytes.
+      const logParts = parts.map((part: any) => {
+        if (part.type === 'file') {
+          return {
+            type: part.type,
+            file: {
+              name: part.file?.name,
+              mimeType: part.file?.mimeType,
+              bytes: '[base64 omitted]',
+            },
+          };
+        }
+        return part;
+      });
+      const logPayload = {
+        jsonrpc: '2.0',
+        id: callId,
+        method: 'message/send',
+        params: {
+          contextId: session.sessionId,
+          message: {
+            role: 'user',
+            parts: logParts,
+            messageId,
+            metadata: {
+              messageKey: msg?.key,
+            },
+          },
+          metadata: {
+            remoteJid,
+            pushName,
+            fromMe: msg?.key?.fromMe,
+            instanceName: instance.instanceName,
+            serverUrl,
+            apiKey: '[REDACTED]',
+          },
+        },
+      };
+      this.logger.debug(`[ConnectAI] Payload: ${JSON.stringify(logPayload)}`);
 
       if (instance.integration === Integration.WHATSAPP_BAILEYS) {
         await instance.client.presenceSubscribe(remoteJid);
@@ -175,7 +205,7 @@ export class ConnectAIService extends BaseChatbotService<ConnectAI, ConnectAISet
         },
       });
 
-      this.logger.debug(`[ConnectAI] Response: ${JSON.stringify(response.data)}`);
+      this.logger.debug(`[ConnectAI] Response received with status: ${response.status}`);
 
       if (instance.integration === Integration.WHATSAPP_BAILEYS)
         await instance.client.sendPresenceUpdate('paused', remoteJid);
@@ -198,9 +228,8 @@ export class ConnectAIService extends BaseChatbotService<ConnectAI, ConnectAISet
         await this.sendMessageWhatsApp(instance, remoteJid, message, settings, true);
       }
     } catch (error) {
-      this.logger.error(
-        `[ConnectAI] Error sending message: ${error?.response?.data ? JSON.stringify(error.response.data) : error}`,
-      );
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      this.logger.error(`[ConnectAI] Request failed${status ? ` with status ${status}` : ''}`);
       return;
     }
   }
