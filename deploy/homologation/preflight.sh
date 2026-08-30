@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 if [[ ! -f .env ]]; then
-  echo "ERRO: .env inexistente. Copie env.example para .env e configure os segredos."
+  echo "ERRO: .env inexistente. Execute ./prepare-env.sh."
   exit 1
 fi
 
@@ -37,6 +37,14 @@ image_vars=(
   ARGWS_CONNECT_MINIO_IMAGE
 )
 
+profiles=",$(get_value COMPOSE_PROFILES),"
+if [[ "$profiles" == *,nats,* || "$profiles" == *,extended,* ]]; then
+  image_vars+=(ARGWS_CONNECT_NATS_IMAGE)
+fi
+if [[ "$profiles" == *,kafka,* || "$profiles" == *,extended,* ]]; then
+  image_vars+=(ARGWS_CONNECT_KAFKA_IMAGE ARGWS_CONNECT_ZOOKEEPER_IMAGE)
+fi
+
 for key in "${image_vars[@]}"; do
   image="$(get_value "$key")"
   if [[ -z "$image" ]]; then
@@ -46,11 +54,12 @@ for key in "${image_vars[@]}"; do
   echo "Verificando ${image}..."
   if ! docker manifest inspect "$image" >/dev/null 2>&1; then
     echo "ERRO: imagem indisponivel ou sem permissao: ${image}"
-    echo "Execute ./registry-login.sh. Se persistir 'manifest unknown', execute o bootstrap GHCR no repositorio."
+    echo "Execute ./registry-login.sh. Se persistir 'manifest unknown', verifique o espelhamento GHCR."
     exit 1
   fi
 done
 
 docker compose -f compose.yaml config >/dev/null
+docker compose --profile '*' -f compose.yaml config >/dev/null
 
-echo "Preflight concluido com sucesso."
+echo "Preflight concluido com sucesso. Profiles: ${COMPOSE_PROFILES:-core}"
