@@ -1,0 +1,3 @@
+[submodule "argws-connect-manager-v2"]
+	path = argws-connect-manager-v2
+	url = https://github.com/wkarts/argws-connect-manager-v2.git

@@ -1,0 +1,22 @@
+services:
+  mysql:
+    container_name: argws_connect_mysql
+    image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
+    pull_policy: always
+    networks: [connect-net]
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_HOST_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
+
+networks:
+  connect-net:
+    name: connect-net
+    driver: bridge

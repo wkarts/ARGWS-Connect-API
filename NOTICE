@@ -1,0 +1,19 @@
+ARGWS Connect API
+Copyright 2026 ARGWS Connect API
+
+This product includes software developed by ARGWS Connect API
+(https://connectapi.argws.com.br).
+
+Trademark notice
+"ARGWS Connect API", "ARGWS Connect" and "ARGWS Connect API" are trademarks of
+ARGWS Connect API. The ARGWS Connect API logo, wordmark, and visual identity
+are governed by the Trademark and Brand Assets Policy included in this
+repository (TRADEMARKS.md).
+
+Third-party attributions
+
+This product includes software derived from CodeChat WhatsApp API
+(https://github.com/code-chat-br/whatsapp-api), originally licensed under MIT.
+The CodeChat project implemented the Baileys library
+(https://github.com/WhiskeySockets/Baileys), which ARGWS Connect API also uses for
+its WhatsApp Web integration.

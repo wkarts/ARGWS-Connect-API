@@ -1,0 +1,22 @@
+services:
+  redis:
+    image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
+    pull_policy: always
+    container_name: argws_connect_redis
+    restart: unless-stopped
+    command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}
+    volumes:
+      - connect_redis:/data
+    ports:
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_HOST_PORT:-6379}:6379"
+    networks: [connect-net]
+
+volumes:
+  connect_redis:
+
+networks:
+  connect-net:
+    name: connect-net
+    driver: bridge

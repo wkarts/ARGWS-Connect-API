@@ -1,0 +1,5 @@
+ARG BASE_IMAGE=ghcr.io/wkarts/argws-connect-api:latest
+FROM ${BASE_IMAGE}
+WORKDIR /argws-connect
+ENV PROMETHEUS_METRICS=true
+EXPOSE 8080
