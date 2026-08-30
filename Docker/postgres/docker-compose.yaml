@@ -1,0 +1,41 @@
+services:
+  postgres:
+    container_name: argws_connect_postgres
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    pull_policy: always
+    networks: [connect-net]
+    command: ["postgres", "-c", "max_connections=1000"]
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pgadmin:
+    container_name: argws_connect_pgadmin
+    image: ${ARGWS_CONNECT_PGADMIN_IMAGE:-ghcr.io/wkarts/argws-connect-pgadmin:latest}
+    pull_policy: always
+    networks: [connect-net]
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-CHANGE_ME_PGADMIN_PASSWORD}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_BIND_ADDRESS:-127.0.0.1}:${PGADMIN_HOST_PORT:-4000}:80"
+    depends_on: [postgres]
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  connect-net:
+    name: connect-net
+    driver: bridge

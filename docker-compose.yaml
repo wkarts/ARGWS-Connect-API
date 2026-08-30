@@ -1,0 +1,102 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}
+
+services:
+  api:
+    container_name: argws_connect_api
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      argws-connect-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-8080}:8080"
+    volumes:
+      - argws_connect_instances:/argws-connect/instances
+    networks:
+      - argws-connect-net
+    env_file:
+      - .env
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  manager:
+    container_name: argws_connect_manager
+    image: ${ARGWS_CONNECT_MANAGER_IMAGE:-ghcr.io/wkarts/argws-connect-manager:latest}
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_MANAGER_HOST_PORT:-3000}:80"
+    networks:
+      - argws-connect-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    container_name: argws_connect_redis
+    image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
+    pull_policy: always
+    restart: unless-stopped
+    command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}"]
+    volumes:
+      - argws_connect_redis:/data
+    networks:
+      argws-connect-net:
+        aliases:
+          - argws-connect-redis
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}' ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}
+
+  argws-connect-postgres:
+    container_name: argws_connect_postgres
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    pull_policy: always
+    restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=1000", "-c", "listen_addresses=*"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - argws-connect-net
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U '${POSTGRES_USERNAME:-argws_connect}' -d '${POSTGRES_DATABASE:-argws_connect_api}'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  argws_connect_instances:
+  argws_connect_redis:
+  postgres_data:
+
+networks:
+  argws-connect-net:
+    name: argws-connect-net
+    driver: bridge

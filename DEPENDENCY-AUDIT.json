@@ -1,0 +1,1104 @@
+{
+  "summary": {
+    "dependencies": {
+      "original_count": 60,
+      "current_count": 60,
+      "removed": [],
+      "added": [],
+      "version_changes": {}
+    },
+    "devDependencies": {
+      "original_count": 27,
+      "current_count": 27,
+      "removed": [],
+      "added": [],
+      "version_changes": {}
+    }
+  },
+  "rows": [
+    {
+      "type": "dependencies",
+      "dependency": "@adiwajshing/keyed-db",
+      "declared": "^0.2.4",
+      "locked": "0.2.4",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Nenhum import direto encontrado no código atual. Pode ser resíduo histórico; confirmar integração WhatsApp/Baileys em testes.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@aws-sdk/client-sqs",
+      "declared": "^3.891.0",
+      "locked": "3.936.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/sqs/sqs.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@ffmpeg-installer/ffmpeg",
+      "declared": "^1.1.0",
+      "locked": "1.1.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@figuro/chatwoot-sdk",
+      "declared": "^1.1.16",
+      "locked": "1.1.17",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/api/integrations/chatbot/chatwoot/utils/chatwoot-import-helper.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@hapi/boom",
+      "declared": "^10.0.1",
+      "locked": "10.0.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@paralleldrive/cuid2",
+      "declared": "^2.2.2",
+      "locked": "2.3.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@prisma/client",
+      "declared": "^6.16.2",
+      "locked": "6.19.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 30 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/chat.controller.ts",
+        "src/api/dto/instance.dto.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/base-chatbot.controller.ts",
+        "src/api/integrations/chatbot/base-chatbot.dto.ts",
+        "src/api/integrations/chatbot/base-chatbot.service.ts",
+        "src/api/integrations/chatbot/chatbot.controller.ts",
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/api/integrations/chatbot/chatwoot/utils/chatwoot-import-helper.ts",
+        "src/api/integrations/chatbot/connectAI/controllers/connectAI.controller.ts",
+        "src/api/integrations/chatbot/connectAI/services/connectAI.service.ts",
+        "src/api/integrations/chatbot/connectBot/controllers/connectBot.controller.ts",
+        "src/api/integrations/chatbot/connectBot/services/connectBot.service.ts",
+        "src/api/integrations/chatbot/dify/controllers/dify.controller.ts",
+        "src/api/integrations/chatbot/dify/dto/dify.dto.ts",
+        "src/api/integrations/chatbot/dify/services/dify.service.ts",
+        "src/api/integrations/chatbot/flowise/controllers/flowise.controller.ts",
+        "src/api/integrations/chatbot/flowise/services/flowise.service.ts",
+        "src/api/integrations/chatbot/n8n/controllers/n8n.controller.ts",
+        "src/api/integrations/chatbot/n8n/services/n8n.service.ts",
+        "src/api/integrations/chatbot/openai/controllers/openai.controller.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts",
+        "src/api/integrations/chatbot/typebot/controllers/typebot.controller.ts",
+        "src/api/integrations/chatbot/typebot/services/typebot.service.ts",
+        "src/api/integrations/event/event.dto.ts",
+        "src/api/repository/repository.service.ts",
+        "src/api/routes/chat.router.ts",
+        "src/api/services/channel.service.ts",
+        "src/api/services/proxy.service.ts",
+        "src/api/types/wa.types.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@sentry/node",
+      "declared": "^10.12.0",
+      "locked": "10.26.0",
+      "decision": "CANDIDATO A REMOÇÃO",
+      "reason": "Sentry foi removido do runtime; manter somente nesta revisão para preservar o conjunto de dependências.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "@types/uuid",
+      "declared": "^10.0.0",
+      "locked": "10.0.0",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Está em dependencies, não possui uso direto e uuid atual já publica tipos. Validar TypeScript antes de retirar.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "amqplib",
+      "declared": "^0.10.5",
+      "locked": "0.10.9",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/rabbitmq/rabbitmq.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "audio-decode",
+      "declared": "^2.2.3",
+      "locked": "2.2.3",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Nenhum import direto encontrado no código atual.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "axios",
+      "declared": "^1.7.9",
+      "locked": "1.13.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 20 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/proxy.controller.ts",
+        "src/api/integrations/channel/connect/connect.channel.service.ts",
+        "src/api/integrations/channel/meta/meta.controller.ts",
+        "src/api/integrations/channel/meta/whatsapp.business.service.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/api/integrations/chatbot/connectAI/services/connectAI.service.ts",
+        "src/api/integrations/chatbot/connectBot/services/connectBot.service.ts",
+        "src/api/integrations/chatbot/dify/services/dify.service.ts",
+        "src/api/integrations/chatbot/flowise/services/flowise.service.ts",
+        "src/api/integrations/chatbot/n8n/services/n8n.service.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts",
+        "src/api/integrations/chatbot/typebot/controllers/typebot.controller.ts",
+        "src/api/integrations/chatbot/typebot/services/typebot.service.ts",
+        "src/api/integrations/event/webhook/webhook.controller.ts",
+        "src/api/provider/sessions.ts",
+        "src/api/services/template.service.ts",
+        "src/main.ts",
+        "src/utils/fetchLatestWaWebVersion.ts",
+        "src/utils/sendTelemetry.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "baileys",
+      "declared": "7.0.0-rc.9",
+      "locked": "7.0.0-rc.9",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 21 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/instance.controller.ts",
+        "src/api/dto/chat.dto.ts",
+        "src/api/dto/instance.dto.ts",
+        "src/api/dto/sendMessage.dto.ts",
+        "src/api/integrations/channel/whatsapp/baileysMessage.processor.ts",
+        "src/api/integrations/channel/whatsapp/voiceCalls/transport.type.ts",
+        "src/api/integrations/channel/whatsapp/voiceCalls/useVoiceCallsBaileys.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/api/integrations/chatbot/chatwoot/utils/chatwoot-import-helper.ts",
+        "src/api/integrations/chatbot/connectAI/services/connectAI.service.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts",
+        "src/api/services/cache.service.ts",
+        "src/api/services/channel.service.ts",
+        "src/api/types/wa.types.ts",
+        "src/cache/localcache.ts",
+        "src/cache/rediscache.ts",
+        "src/utils/fetchLatestWaWebVersion.ts",
+        "src/utils/use-multi-file-auth-state-prisma.ts",
+        "src/utils/use-multi-file-auth-state-provider-files.ts",
+        "src/utils/use-multi-file-auth-state-redis-db.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "class-validator",
+      "declared": "^0.14.1",
+      "locked": "0.14.3",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 14 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/instance.controller.ts",
+        "src/api/controllers/sendMessage.controller.ts",
+        "src/api/integrations/channel/connect/connect.channel.service.ts",
+        "src/api/integrations/channel/meta/whatsapp.business.service.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/controllers/chatwoot.controller.ts",
+        "src/api/integrations/chatbot/connectAI/services/connectAI.service.ts",
+        "src/api/integrations/chatbot/connectBot/services/connectBot.service.ts",
+        "src/api/integrations/chatbot/dify/services/dify.service.ts",
+        "src/api/integrations/chatbot/flowise/services/flowise.service.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts",
+        "src/api/services/channel.service.ts",
+        "src/config/env.config.ts",
+        "src/utils/use-multi-file-auth-state-provider-files.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "compression",
+      "declared": "^1.7.5",
+      "locked": "1.8.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/main.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "cors",
+      "declared": "^2.8.5",
+      "locked": "2.8.5",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/main.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "dayjs",
+      "declared": "^1.11.13",
+      "locked": "1.11.19",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 3 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/config/logger.config.ts",
+        "src/utils/onWhatsappCache.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "dotenv",
+      "declared": "^16.4.7",
+      "locked": "16.6.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "runWithProvider.js",
+        "src/config/env.config.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "emoji-regex",
+      "declared": "^10.4.0",
+      "locked": "10.6.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/sendMessage.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "eventemitter2",
+      "declared": "^6.4.9",
+      "locked": "6.4.9",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 8 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/instance.controller.ts",
+        "src/api/integrations/channel/channel.controller.ts",
+        "src/api/integrations/channel/connect/connect.channel.service.ts",
+        "src/api/integrations/channel/meta/whatsapp.business.service.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/services/channel.service.ts",
+        "src/api/services/monitor.service.ts",
+        "src/config/event.config.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "express",
+      "declared": "^4.21.2",
+      "locked": "4.21.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 41 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/abstract/abstract.router.ts",
+        "src/api/guards/auth.guard.ts",
+        "src/api/guards/instance.guard.ts",
+        "src/api/guards/telemetry.guard.ts",
+        "src/api/integrations/channel/channel.router.ts",
+        "src/api/integrations/channel/connect/connect.router.ts",
+        "src/api/integrations/channel/meta/meta.router.ts",
+        "src/api/integrations/channel/whatsapp/baileys.router.ts",
+        "src/api/integrations/chatbot/chatbot.router.ts",
+        "src/api/integrations/chatbot/chatwoot/routes/chatwoot.router.ts",
+        "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts",
+        "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts",
+        "src/api/integrations/chatbot/dify/routes/dify.router.ts",
+        "src/api/integrations/chatbot/flowise/routes/flowise.router.ts",
+        "src/api/integrations/chatbot/n8n/routes/n8n.router.ts",
+        "src/api/integrations/chatbot/openai/routes/openai.router.ts",
+        "src/api/integrations/chatbot/typebot/routes/typebot.router.ts",
+        "src/api/integrations/event/event.router.ts",
+        "src/api/integrations/event/kafka/kafka.router.ts",
+        "src/api/integrations/event/nats/nats.router.ts",
+        "src/api/integrations/event/pusher/pusher.router.ts",
+        "src/api/integrations/event/rabbitmq/rabbitmq.router.ts",
+        "src/api/integrations/event/sqs/sqs.router.ts",
+        "src/api/integrations/event/webhook/webhook.router.ts",
+        "src/api/integrations/event/websocket/websocket.router.ts",
+        "src/api/integrations/storage/s3/routes/s3.router.ts",
+        "src/api/integrations/storage/storage.router.ts",
+        "src/api/routes/business.router.ts",
+        "src/api/routes/call.router.ts",
+        "src/api/routes/chat.router.ts",
+        "src/api/routes/group.router.ts",
+        "src/api/routes/index.router.ts",
+        "src/api/routes/instance.router.ts",
+        "src/api/routes/label.router.ts",
+        "src/api/routes/proxy.router.ts",
+        "src/api/routes/sendMessage.router.ts",
+        "src/api/routes/settings.router.ts",
+        "src/api/routes/template.router.ts",
+        "src/api/routes/view.router.ts",
+        "src/main.ts",
+        "src/utils/server-up.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "express-async-errors",
+      "declared": "^3.1.1",
+      "locked": "3.1.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/abstract/abstract.router.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "fluent-ffmpeg",
+      "declared": "^2.1.3",
+      "locked": "2.1.3",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "form-data",
+      "declared": "^4.0.1",
+      "locked": "4.0.5",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 5 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/connect/connect.channel.service.ts",
+        "src/api/integrations/channel/meta/whatsapp.business.service.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "https-proxy-agent",
+      "declared": "^7.0.6",
+      "locked": "7.0.6",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/utils/makeProxyAgent.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "fetch-socks",
+      "declared": "^1.3.2",
+      "locked": "1.3.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/utils/makeProxyAgent.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "i18next",
+      "declared": "^23.7.19",
+      "locked": "23.16.8",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/utils/i18n.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "jimp",
+      "declared": "^1.6.0",
+      "locked": "1.6.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "json-schema",
+      "declared": "^0.4.0",
+      "locked": "0.4.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 25 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/abstract/abstract.router.ts",
+        "src/api/integrations/chatbot/chatwoot/validate/chatwoot.schema.ts",
+        "src/api/integrations/chatbot/connectAI/validate/connectAI.schema.ts",
+        "src/api/integrations/chatbot/connectBot/validate/connectBot.schema.ts",
+        "src/api/integrations/chatbot/dify/validate/dify.schema.ts",
+        "src/api/integrations/chatbot/flowise/validate/flowise.schema.ts",
+        "src/api/integrations/chatbot/n8n/validate/n8n.schema.ts",
+        "src/api/integrations/chatbot/openai/validate/openai.schema.ts",
+        "src/api/integrations/chatbot/typebot/validate/typebot.schema.ts",
+        "src/api/integrations/event/event.schema.ts",
+        "src/api/integrations/event/kafka/kafka.schema.ts",
+        "src/api/integrations/event/pusher/pusher.schema.ts",
+        "src/api/integrations/event/webhook/webhook.schema.ts",
+        "src/api/integrations/storage/s3/validate/s3.schema.ts",
+        "src/validate/business.schema.ts",
+        "src/validate/chat.schema.ts",
+        "src/validate/group.schema.ts",
+        "src/validate/instance.schema.ts",
+        "src/validate/label.schema.ts",
+        "src/validate/message.schema.ts",
+        "src/validate/proxy.schema.ts",
+        "src/validate/settings.schema.ts",
+        "src/validate/template.schema.ts",
+        "src/validate/templateDelete.schema.ts",
+        "src/validate/templateEdit.schema.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "jsonschema",
+      "declared": "^1.4.1",
+      "locked": "1.5.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/abstract/abstract.router.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "jsonwebtoken",
+      "declared": "^9.0.2",
+      "locked": "9.0.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/webhook/webhook.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "kafkajs",
+      "declared": "^2.2.4",
+      "locked": "2.2.4",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/kafka/kafka.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "libphonenumber-js",
+      "declared": "^1.12.25",
+      "locked": "1.12.29",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "link-preview-js",
+      "declared": "^3.0.13",
+      "locked": "3.2.0",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Nenhum import direto encontrado no código atual.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "long",
+      "declared": "^5.2.3",
+      "locked": "5.3.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "mediainfo.js",
+      "declared": "^0.3.4",
+      "locked": "0.3.6",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "mime",
+      "declared": "^4.0.0",
+      "locked": "4.1.0",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Nenhum import direto encontrado; o código ativo usa mime-types.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "mime-types",
+      "declared": "^2.1.35",
+      "locked": "2.1.35",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 5 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/connect/connect.channel.service.ts",
+        "src/api/integrations/channel/meta/whatsapp.business.service.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/services/chatwoot.service.ts",
+        "src/api/routes/index.router.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "minio",
+      "declared": "^8.0.3",
+      "locked": "8.0.6",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/storage/s3/libs/minio.server.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "multer",
+      "declared": "^2.0.2",
+      "locked": "2.0.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/@types/express.d.ts",
+        "src/api/routes/sendMessage.router.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "nats",
+      "declared": "^2.29.1",
+      "locked": "2.29.3",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/nats/nats.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "node-cache",
+      "declared": "^5.1.2",
+      "locked": "5.1.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/cache/localcache.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "node-cron",
+      "declared": "^3.0.3",
+      "locked": "3.0.3",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "openai",
+      "declared": "^4.77.3",
+      "locked": "4.104.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/chatbot/openai/controllers/openai.controller.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "pg",
+      "declared": "^8.13.1",
+      "locked": "8.16.3",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/chatbot/chatwoot/libs/postgres.client.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "pino",
+      "declared": "^9.10.0",
+      "locked": "9.14.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/openai/services/openai.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "prisma",
+      "declared": "^6.1.0",
+      "locked": "6.19.0",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "pusher",
+      "declared": "^5.2.0",
+      "locked": "5.2.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/pusher/pusher.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "qrcode",
+      "declared": "^1.5.4",
+      "locked": "1.5.4",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "qrcode-terminal",
+      "declared": "^0.12.0",
+      "locked": "0.12.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "redis",
+      "declared": "^4.7.0",
+      "locked": "4.7.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 2 arquivo(s) ativo(s).",
+      "imports": [
+        "src/cache/rediscache.client.ts",
+        "src/cache/rediscache.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "rxjs",
+      "declared": "^7.8.2",
+      "locked": "7.8.2",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/baileysMessage.processor.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "sharp",
+      "declared": "^0.34.2",
+      "locked": "0.34.5",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "socket.io",
+      "declared": "^4.8.1",
+      "locked": "4.8.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/event/websocket/websocket.controller.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "socket.io-client",
+      "declared": "^4.8.1",
+      "locked": "4.8.1",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/integrations/channel/whatsapp/voiceCalls/useVoiceCallsBaileys.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "socks-proxy-agent",
+      "declared": "^8.0.5",
+      "locked": "8.0.5",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/utils/makeProxyAgent.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "swagger-ui-express",
+      "declared": "^5.0.1",
+      "locked": "5.0.1",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Nenhum import direto encontrado; a documentação atual não instancia Swagger UI.",
+      "imports": []
+    },
+    {
+      "type": "dependencies",
+      "dependency": "tsup",
+      "declared": "^8.3.5",
+      "locked": "8.5.1",
+      "decision": "MIGRAR PARA devDependencies",
+      "reason": "Usado no build (tsup.config.ts / npm run build), não como dependência de runtime da API.",
+      "imports": [
+        "tsup.config.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "undici",
+      "declared": "^7.16.0",
+      "locked": "7.16.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 1 arquivo(s) ativo(s).",
+      "imports": [
+        "src/utils/makeProxyAgent.ts"
+      ]
+    },
+    {
+      "type": "dependencies",
+      "dependency": "uuid",
+      "declared": "^13.0.0",
+      "locked": "13.0.0",
+      "decision": "MANTER",
+      "reason": "Importado diretamente em 28 arquivo(s) ativo(s).",
+      "imports": [
+        "src/api/controllers/instance.controller.ts",
+        "src/api/integrations/channel/connect/connect.channel.service.ts",
+        "src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts",
+        "src/api/integrations/chatbot/chatwoot/validate/chatwoot.schema.ts",
+        "src/api/integrations/chatbot/connectAI/services/connectAI.service.ts",
+        "src/api/integrations/chatbot/connectAI/validate/connectAI.schema.ts",
+        "src/api/integrations/chatbot/connectBot/validate/connectBot.schema.ts",
+        "src/api/integrations/chatbot/dify/validate/dify.schema.ts",
+        "src/api/integrations/chatbot/flowise/validate/flowise.schema.ts",
+        "src/api/integrations/chatbot/n8n/validate/n8n.schema.ts",
+        "src/api/integrations/chatbot/openai/validate/openai.schema.ts",
+        "src/api/integrations/chatbot/typebot/validate/typebot.schema.ts",
+        "src/api/integrations/event/event.schema.ts",
+        "src/api/integrations/event/kafka/kafka.schema.ts",
+        "src/api/integrations/event/pusher/pusher.schema.ts",
+        "src/api/integrations/event/webhook/webhook.schema.ts",
+        "src/api/integrations/storage/s3/validate/s3.schema.ts",
+        "src/api/services/channel.service.ts",
+        "src/validate/chat.schema.ts",
+        "src/validate/group.schema.ts",
+        "src/validate/instance.schema.ts",
+        "src/validate/label.schema.ts",
+        "src/validate/message.schema.ts",
+        "src/validate/proxy.schema.ts",
+        "src/validate/settings.schema.ts",
+        "src/validate/template.schema.ts",
+        "src/validate/templateDelete.schema.ts",
+        "src/validate/templateEdit.schema.ts"
+      ]
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@commitlint/cli",
+      "declared": "^19.8.1",
+      "locked": "19.8.1",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@commitlint/config-conventional",
+      "declared": "^19.8.1",
+      "locked": "19.8.1",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/compression",
+      "declared": "^1.7.5",
+      "locked": "1.8.1",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/cors",
+      "declared": "^2.8.17",
+      "locked": "2.8.19",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/express",
+      "declared": "^4.17.18",
+      "locked": "4.17.25",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/json-schema",
+      "declared": "^7.0.15",
+      "locked": "7.0.15",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/mime",
+      "declared": "^4.0.0",
+      "locked": "4.0.0",
+      "decision": "REVISAR JUNTO COM mime",
+      "reason": "Só faz sentido enquanto o pacote mime/tipos forem necessários; o runtime ativo usa mime-types.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/mime-types",
+      "declared": "^2.1.4",
+      "locked": "2.1.4",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/node",
+      "declared": "^24.5.2",
+      "locked": "24.10.1",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/node-cron",
+      "declared": "^3.0.11",
+      "locked": "3.0.11",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/qrcode",
+      "declared": "^1.5.5",
+      "locked": "1.5.6",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@types/qrcode-terminal",
+      "declared": "^0.12.2",
+      "locked": "0.12.2",
+      "decision": "MANTER",
+      "reason": "Pacote de tipos TypeScript; import direto não é esperado.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@typescript-eslint/eslint-plugin",
+      "declared": "^8.44.0",
+      "locked": "8.47.0",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "@typescript-eslint/parser",
+      "declared": "^8.44.0",
+      "locked": "8.47.0",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "commitizen",
+      "declared": "^4.3.1",
+      "locked": "4.3.1",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "cz-conventional-changelog",
+      "declared": "^3.3.0",
+      "locked": "3.3.0",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "eslint",
+      "declared": "^8.45.0",
+      "locked": "8.57.1",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "eslint-config-prettier",
+      "declared": "^10.1.8",
+      "locked": "10.1.8",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "eslint-plugin-import",
+      "declared": "^2.31.0",
+      "locked": "2.32.0",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "eslint-plugin-prettier",
+      "declared": "^5.2.1",
+      "locked": "5.5.4",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "eslint-plugin-simple-import-sort",
+      "declared": "^12.1.1",
+      "locked": "12.1.1",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "husky",
+      "declared": "^9.1.7",
+      "locked": "9.1.7",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "lint-staged",
+      "declared": "^16.1.6",
+      "locked": "16.2.7",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "prettier",
+      "declared": "^3.4.2",
+      "locked": "3.6.2",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "tsconfig-paths",
+      "declared": "^4.2.0",
+      "locked": "4.2.0",
+      "decision": "REVISAR PARA REMOÇÃO",
+      "reason": "Nenhum carregamento explícito encontrado nos scripts atuais; tsx/tsup já tratam paths. Confirmar build antes de remover.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "tsx",
+      "declared": "^4.20.5",
+      "locked": "4.20.6",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    },
+    {
+      "type": "devDependencies",
+      "dependency": "typescript",
+      "declared": "^5.7.2",
+      "locked": "5.9.3",
+      "decision": "MANTER",
+      "reason": "Ferramenta de build, qualidade ou fluxo de desenvolvimento.",
+      "imports": []
+    }
+  ]
+}

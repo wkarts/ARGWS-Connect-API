@@ -1,0 +1,127 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}
+
+services:
+  api:
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
+    pull_policy: always
+    container_name: argws_connect_api
+    restart: unless-stopped
+    env_file: [.env]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-8080}:8080"
+    volumes:
+      - argws_connect_instances:/argws-connect/instances
+    networks: [argws-connect-net]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  manager:
+    image: ${ARGWS_CONNECT_MANAGER_IMAGE:-ghcr.io/wkarts/argws-connect-manager:latest}
+    pull_policy: always
+    container_name: argws_connect_manager
+    restart: unless-stopped
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_MANAGER_HOST_PORT:-3000}:80"
+    networks: [argws-connect-net]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    pull_policy: always
+    container_name: argws_connect_postgres
+    restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=1000", "-c", "listen_addresses=*"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    volumes:
+      - argws_connect_postgres:/var/lib/postgresql/data
+    networks:
+      argws-connect-net:
+        aliases: [argws-connect-postgres]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U '${POSTGRES_USERNAME:-argws_connect}' -d '${POSTGRES_DATABASE:-argws_connect_api}'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
+    pull_policy: always
+    container_name: argws_connect_redis
+    restart: unless-stopped
+    command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}
+    volumes:
+      - argws_connect_redis:/data
+    networks:
+      argws-connect-net:
+        aliases: [argws-connect-redis]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  rabbitmq:
+    profiles: [messaging, full]
+    image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
+    pull_policy: always
+    container_name: argws_connect_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-argws_connect}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-argws_connect}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-CHANGE_ME_RABBITMQ_PASSWORD}
+    volumes:
+      - argws_connect_rabbitmq:/var/lib/rabbitmq
+    networks:
+      argws-connect-net:
+        aliases: [argws-connect-rabbitmq]
+
+  minio:
+    profiles: [storage, full]
+    image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
+    pull_policy: always
+    container_name: argws_connect_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-argws_connect}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-CHANGE_ME_MINIO_PASSWORD}
+    volumes:
+      - argws_connect_minio:/data
+    networks:
+      argws-connect-net:
+        aliases: [argws-connect-minio]
+
+volumes:
+  argws_connect_instances:
+  argws_connect_postgres:
+  argws_connect_redis:
+  argws_connect_rabbitmq:
+  argws_connect_minio:
+
+networks:
+  argws-connect-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-net}
+    driver: bridge

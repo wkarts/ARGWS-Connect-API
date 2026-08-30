@@ -1,0 +1,73 @@
+{
+  "product": "ARGWS Connect API",
+  "package": "argws-connect-api",
+  "version": "2.3.7",
+  "revision_date": "2026-08-30",
+  "source_files_excluding_node_modules": 425,
+  "typescript_files_in_src": 186,
+  "distribution": {
+    "registry": "ghcr.io",
+    "owner": "wkarts",
+    "runtime_policy": "GHCR-only for production and homologation",
+    "application_images": [
+      "ghcr.io/wkarts/argws-connect-api",
+      "ghcr.io/wkarts/argws-connect-manager"
+    ],
+    "infrastructure_images": [
+      "ghcr.io/wkarts/argws-connect-node:24-alpine",
+      "ghcr.io/wkarts/argws-connect-nginx:1.27-alpine",
+      "ghcr.io/wkarts/argws-connect-postgres:15",
+      "ghcr.io/wkarts/argws-connect-redis:latest",
+      "ghcr.io/wkarts/argws-connect-rabbitmq:management",
+      "ghcr.io/wkarts/argws-connect-minio:latest",
+      "ghcr.io/wkarts/argws-connect-mysql:8.0",
+      "ghcr.io/wkarts/argws-connect-kafka:7.5.0",
+      "ghcr.io/wkarts/argws-connect-zookeeper:7.5.0",
+      "ghcr.io/wkarts/argws-connect-pgadmin:latest"
+    ],
+    "deployments": [
+      "CloudPanel",
+      "Dockge",
+      "Docker Compose",
+      "Docker Swarm"
+    ],
+    "runtime_branding_embedded_in_images": true
+  },
+  "dependency_policy": {
+    "runtime": 60,
+    "development": 27,
+    "removed": 0,
+    "added": 0,
+    "declared_versions_changed": 0
+  },
+  "telemetry": {
+    "provider": "ARGWS LICENSYS",
+    "enabled_by_default": false,
+    "modes": [
+      "agent",
+      "direct"
+    ]
+  },
+  "branding": {
+    "name": "ARGWS Connect API",
+    "runtime_assets_paths": [
+      "manager/dist",
+      "public"
+    ]
+  },
+  "deployment_env": {
+    "unique_variables": 363,
+    "cloudpanel": "deploy/cloudpanel/.env.example",
+    "dockge": "deploy/dockge/.env.example"
+  },
+  "validation": {
+    "yaml_errors": 0,
+    "json_errors": 0,
+    "runtime_non_ghcr_image_references": 0,
+    "missing_runtime_env_variables": 0,
+    "application_source_changed": false,
+    "prisma_changed": false,
+    "package_manifest_changed": false,
+    "package_lock_changed": false
+  }
+}

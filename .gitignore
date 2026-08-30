@@ -1,34 +1,48 @@
-# Sistema
-.DS_Store
-Thumbs.db
-desktop.ini
+# Repo
+Baileys
+# compiled output
+/dist
+/node_modules
+
+/Docker/.env
 
 # Logs
+logs/**.json
 *.log
-logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
 
-# Ambiente
-.env
-.env.*
-!.env.example
+/docker-compose-data
+/docker-data
 
-# Node/PHP/Python/Rust comuns
-node_modules/
-vendor/
-__pycache__/
-target/
-dist/
-build/
-coverage/
+# Package
+/yarn.lock
+/pnpm-lock.yaml
 
-# IDE
-.vscode/
-.idea/
+# IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.nova/*
+.idea/*
 
-# Docker local
-docker-compose.override.yml
+# Project related
+/instances/*
+!/instances/.gitkeep
+/test/
+/src/env.yml
+/store
+*.env
 
-# Temporarios
-tmp/
-temp/
-*.tmp
+/temp/*
+
+.DS_Store
+*.DS_Store
+.tool-versions
+
+/prisma/migrations/*
