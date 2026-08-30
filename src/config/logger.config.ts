@@ -4,58 +4,34 @@ import fs from 'fs';
 import { configService, Log } from './env.config';
 const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 
-const SENSITIVE_LOG_KEYS = [
-  'apikey',
-  'authorization',
-  'cookie',
-  'credential',
-  'password',
-  'privatekey',
-  'secret',
-  'setcookie',
-  'token',
-];
-
-const isSensitiveLogKey = (key: string) => {
-  const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  return SENSITIVE_LOG_KEYS.some((sensitiveKey) => normalized.includes(sensitiveKey));
-};
-
 const redactSensitiveText = (value: string) =>
   value
     .replace(/(bearer\s+)[a-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
     .replace(/((?:api[-_ ]?key|apikey|authorization|password|secret|token)\s*[:=]\s*)([^\s,;}\]]+)/gi, '$1[REDACTED]');
 
-const sanitizeLogValue = (value: any, seen = new WeakSet<object>(), depth = 0): any => {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return redactSensitiveText(value);
-  if (typeof value !== 'object') return value;
-  if (depth >= 8) return '[MAX_DEPTH]';
-  if (Buffer.isBuffer(value)) return `[Buffer ${value.length} bytes]`;
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: redactSensitiveText(value.message),
-      stack: value.stack ? redactSensitiveText(value.stack) : undefined,
-    };
-  }
-  if (seen.has(value)) return '[CIRCULAR]';
+/**
+ * Logger boundary used to prevent structured objects from reaching stdout.
+ *
+ * Object-shaped values are intentionally represented only by structural
+ * metadata. Secrets frequently live in nested request/configuration objects
+ * (headers, apiKey, token, password, cookies, etc.) and must never be
+ * serialized by the central logger. Callers that need diagnostic context
+ * should log an explicit, safe string instead of a raw object.
+ */
+const toSafeLogValue = (value: any): string | number | boolean => {
+  if (value === null) return '[NULL]';
+  if (value === undefined) return '[UNDEFINED]';
 
-  seen.add(value);
+  const type = typeof value;
+  if (type === 'string') return redactSensitiveText(value);
+  if (type === 'number' || type === 'boolean') return value;
+  if (type === 'bigint') return value.toString();
+  if (Buffer.isBuffer(value)) return `[BUFFER length=${value.length}]`;
+  if (value instanceof Error) return `[ERROR name=${value.name || 'Error'}]`;
+  if (Array.isArray(value)) return `[ARRAY length=${value.length}]`;
+  if (type === 'object') return '[OBJECT redacted]';
 
-  if (Array.isArray(value)) {
-    const sanitizedArray = value.map((item) => sanitizeLogValue(item, seen, depth + 1));
-    seen.delete(value);
-    return sanitizedArray;
-  }
-
-  const sanitizedObject: Record<string, any> = {};
-  for (const [key, childValue] of Object.entries(value)) {
-    sanitizedObject[key] = isSensitiveLogKey(key) ? '[REDACTED]' : sanitizeLogValue(childValue, seen, depth + 1);
-  }
-
-  seen.delete(value);
-  return sanitizedObject;
+  return `[${type.toUpperCase()}]`;
 };
 
 const formatDateLog = (timestamp: number) =>
@@ -134,7 +110,7 @@ export class Logger {
     this.configService.get<Log>('LOG').LEVEL.forEach((level) => types.push(Type[level]));
 
     const typeValue = typeof value;
-    const safeValue = sanitizeLogValue(value);
+    const safeValue = toSafeLogValue(value);
     if (types.includes(type)) {
       if (configService.get<Log>('LOG').COLOR) {
         console.log(
@@ -159,10 +135,9 @@ export class Logger {
           Color[type] + Command.BRIGHT,
           `[${typeValue}]` + Command.RESET,
           Color[type],
-          typeValue !== 'object' ? safeValue : '',
+          safeValue,
           Command.RESET,
         );
-        typeValue === 'object' ? console.log(/*Level.DARK,*/ safeValue, '\n') : '';
       } else {
         console.log(
           '[ARGWS Connect API]',
