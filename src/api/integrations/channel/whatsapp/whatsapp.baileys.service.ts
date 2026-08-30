@@ -135,7 +135,7 @@ import { Label } from 'baileys/lib/Types/Label';
 import { LabelAssociation } from 'baileys/lib/Types/LabelAssociation';
 import { spawn } from 'child_process';
 import { isArray, isBase64, isURL } from 'class-validator';
-import { createHash } from 'crypto';
+import { createHash, randomInt } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 import ffmpeg from 'fluent-ffmpeg';
 import FormData from 'form-data';
@@ -608,8 +608,16 @@ export class BaileysStartupService extends ChannelStartupService {
         try {
           const response = await axios.get(this.localProxy?.host);
           const text = response.data;
-          const proxyUrls = text.split('\r\n');
-          const rand = Math.floor(Math.random() * Math.floor(proxyUrls.length));
+          const proxyUrls = String(text)
+            .split(/\r?\n/)
+            .map((proxyUrl) => proxyUrl.trim())
+            .filter(Boolean);
+
+          if (proxyUrls.length === 0) {
+            throw new Error('Proxy provider returned an empty proxy list');
+          }
+
+          const rand = randomInt(proxyUrls.length);
           const proxyUrl = 'http://' + proxyUrls[rand];
           options = { agent: makeProxyAgent(proxyUrl), fetchAgent: makeProxyAgentUndici(proxyUrl) };
         } catch {

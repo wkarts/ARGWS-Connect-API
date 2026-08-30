@@ -1,5 +1,6 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import express, { Router } from 'express';
+import fs from 'fs';
 import path from 'path';
 
 export class ViewsRouter extends RouterBroker {
@@ -11,11 +12,17 @@ export class ViewsRouter extends RouterBroker {
 
     const basePath = path.join(process.cwd(), 'manager', 'dist');
     const indexPath = path.join(basePath, 'index.html');
+    const indexHtml = fs.readFileSync(indexPath, 'utf8');
 
-    this.router.use(express.static(basePath));
+    this.router.use(
+      express.static(basePath, {
+        dotfiles: 'deny',
+        index: false,
+      }),
+    );
 
-    this.router.get('*', (req, res) => {
-      res.sendFile(indexPath);
+    this.router.get('*', (_req, res) => {
+      res.status(200).type('html').send(indexHtml);
     });
   }
 }

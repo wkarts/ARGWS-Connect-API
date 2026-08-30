@@ -9,6 +9,7 @@ import { Logger } from '@config/logger.config';
 import { BadRequestException } from '@exceptions';
 import { IntegrationSession, Typebot as TypebotModel } from '@prisma/client';
 import axios from 'axios';
+import { randomInt } from 'crypto';
 
 import { BaseChatbotController } from '../../base-chatbot.controller';
 
@@ -248,7 +249,7 @@ export class TypebotController extends BaseChatbotController<TypebotModel, Typeb
         prefilledVariables,
       );
     } else {
-      const id = Math.floor(Math.random() * 10000000000).toString();
+      const id = randomInt(0, 10_000_000_000).toString();
 
       try {
         const version = configService.get<Typebot>('TYPEBOT').API_VERSION;

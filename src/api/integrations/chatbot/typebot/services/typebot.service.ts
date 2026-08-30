@@ -6,6 +6,7 @@ import { Instance, IntegrationSession, Message, Typebot as TypebotModel } from '
 import { getConversationMessage } from '@utils/getConversationMessage';
 import { sendTelemetry } from '@utils/sendTelemetry';
 import axios from 'axios';
+import { randomInt } from 'crypto';
 
 import { BaseChatbotService } from '../../base-chatbot.service';
 import { OpenaiService } from '../../openai/services/openai.service';
@@ -84,7 +85,7 @@ export class TypebotService extends BaseChatbotService<TypebotModel, any> {
    */
   public async createNewSession(instance: Instance, data: any) {
     if (data.remoteJid === 'status@broadcast') return;
-    const id = Math.floor(Math.random() * 10000000000).toString();
+    const id = randomInt(0, 10_000_000_000).toString();
 
     try {
       const version = this.configService.get<Typebot>('TYPEBOT').API_VERSION;

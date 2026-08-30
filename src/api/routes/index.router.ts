@@ -8,9 +8,8 @@ import { StorageRouter } from '@api/integrations/storage/storage.router';
 import { waMonitor } from '@api/server.module';
 import { configService, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
-import { NextFunction, Request, Response, Router } from 'express';
+import express, { NextFunction, Request, Response, Router } from 'express';
 import fs from 'fs';
-import mimeTypes from 'mime-types';
 import path from 'path';
 
 import { BusinessRouter } from './business.router';
@@ -162,33 +161,16 @@ if (metricsConfig.ENABLED) {
 
 if (!serverConfig.DISABLE_MANAGER) router.use('/manager', new ViewsRouter().router);
 
-router.get('/assets/*', (req, res) => {
-  const fileName = req.params[0];
-
-  // Security: Reject paths containing traversal patterns
-  if (!fileName || fileName.includes('..') || fileName.includes('\\') || path.isAbsolute(fileName)) {
-    return res.status(403).send('Forbidden');
-  }
-
-  const basePath = path.join(process.cwd(), 'manager', 'dist');
-  const assetsPath = path.join(basePath, 'assets');
-  const filePath = path.join(assetsPath, fileName);
-
-  // Security: Ensure the resolved path is within the assets directory
-  const resolvedPath = path.resolve(filePath);
-  const resolvedAssetsPath = path.resolve(assetsPath);
-
-  if (!resolvedPath.startsWith(resolvedAssetsPath + path.sep) && resolvedPath !== resolvedAssetsPath) {
-    return res.status(403).send('Forbidden');
-  }
-
-  if (fs.existsSync(resolvedPath)) {
-    res.set('Content-Type', mimeTypes.lookup(resolvedPath) || 'text/css');
-    res.send(fs.readFileSync(resolvedPath));
-  } else {
-    res.status(404).send('File not found');
-  }
-});
+const managerAssetsPath = path.join(process.cwd(), 'manager', 'dist', 'assets');
+router.use(
+  '/assets',
+  express.static(managerAssetsPath, {
+    dotfiles: 'deny',
+    fallthrough: true,
+    index: false,
+    maxAge: '1h',
+  }),
+);
 
 router
   .use((req, res, next) => telemetry.collectTelemetry(req, res, next))

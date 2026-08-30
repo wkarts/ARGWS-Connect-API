@@ -4,6 +4,60 @@ import fs from 'fs';
 import { configService, Log } from './env.config';
 const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 
+const SENSITIVE_LOG_KEYS = [
+  'apikey',
+  'authorization',
+  'cookie',
+  'credential',
+  'password',
+  'privatekey',
+  'secret',
+  'setcookie',
+  'token',
+];
+
+const isSensitiveLogKey = (key: string) => {
+  const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return SENSITIVE_LOG_KEYS.some((sensitiveKey) => normalized.includes(sensitiveKey));
+};
+
+const redactSensitiveText = (value: string) =>
+  value
+    .replace(/(bearer\s+)[a-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
+    .replace(/((?:api[-_ ]?key|apikey|authorization|password|secret|token)\s*[:=]\s*)([^\s,;}\]]+)/gi, '$1[REDACTED]');
+
+const sanitizeLogValue = (value: any, seen = new WeakSet<object>(), depth = 0): any => {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return redactSensitiveText(value);
+  if (typeof value !== 'object') return value;
+  if (depth >= 8) return '[MAX_DEPTH]';
+  if (Buffer.isBuffer(value)) return `[Buffer ${value.length} bytes]`;
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactSensitiveText(value.message),
+      stack: value.stack ? redactSensitiveText(value.stack) : undefined,
+    };
+  }
+  if (seen.has(value)) return '[CIRCULAR]';
+
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    const sanitizedArray = value.map((item) => sanitizeLogValue(item, seen, depth + 1));
+    seen.delete(value);
+    return sanitizedArray;
+  }
+
+  const sanitizedObject: Record<string, any> = {};
+  for (const [key, childValue] of Object.entries(value)) {
+    sanitizedObject[key] = isSensitiveLogKey(key) ? '[REDACTED]' : sanitizeLogValue(childValue, seen, depth + 1);
+  }
+
+  seen.delete(value);
+  return sanitizedObject;
+};
+
 const formatDateLog = (timestamp: number) =>
   dayjs(timestamp)
     .toDate()
@@ -80,6 +134,7 @@ export class Logger {
     this.configService.get<Log>('LOG').LEVEL.forEach((level) => types.push(Type[level]));
 
     const typeValue = typeof value;
+    const safeValue = sanitizeLogValue(value);
     if (types.includes(type)) {
       if (configService.get<Log>('LOG').COLOR) {
         console.log(
@@ -104,10 +159,10 @@ export class Logger {
           Color[type] + Command.BRIGHT,
           `[${typeValue}]` + Command.RESET,
           Color[type],
-          typeValue !== 'object' ? value : '',
+          typeValue !== 'object' ? safeValue : '',
           Command.RESET,
         );
-        typeValue === 'object' ? console.log(/*Level.DARK,*/ value, '\n') : '';
+        typeValue === 'object' ? console.log(/*Level.DARK,*/ safeValue, '\n') : '';
       } else {
         console.log(
           '[ARGWS Connect API]',
@@ -118,7 +173,7 @@ export class Logger {
           `${type} `,
           `[${this.context}]`,
           `[${typeValue}]`,
-          value,
+          safeValue,
         );
       }
     }
