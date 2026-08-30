@@ -56,13 +56,13 @@ enum Background {
 }
 
 /**
- * Generic log values are intentionally reduced to a static type descriptor.
+ * Generic log values are intentionally reduced to static type descriptors.
  *
  * Do not derive hashes, lengths, object keys, error properties or any other
  * representation from the supplied value here. Credentials and API keys can
- * reach the generic logger through third-party integrations; keeping the
- * descriptor independent from the value guarantees that sensitive data does
- * not flow to stdout/stderr, even indirectly.
+ * reach the generic logger through third-party integrations; keeping each
+ * returned descriptor independent from the supplied content guarantees that
+ * sensitive data does not flow to stdout/stderr, even indirectly.
  */
 const describeLogValue = (value: unknown): string => {
   if (value === null) return '[NULL]';
