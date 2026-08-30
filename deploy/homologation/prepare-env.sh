@@ -12,8 +12,8 @@ if [[ ! -f env.example ]]; then
   exit 1
 fi
 
-command -v openssl >/dev/null 2>&1 || {
-  echo "ERRO: openssl e obrigatorio para gerar os segredos."
+command -v python3 >/dev/null 2>&1 || {
+  echo "ERRO: python3 e obrigatorio para gerar os segredos."
   exit 1
 }
 
