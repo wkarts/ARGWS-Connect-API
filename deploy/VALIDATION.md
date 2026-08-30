@@ -1,48 +1,88 @@
 # Validação do deployment — ARGWS Connect API
 
-## Contrato obrigatório
+## Contrato canônico
 
-- somente `api` publica porta no host;
-- target interno da API: `8080`;
-- Manager servido em `/manager` pela própria API;
-- PostgreSQL, Redis, RabbitMQ, MinIO, MySQL, NATS, Kafka e Zookeeper não publicam portas;
-- imagens de runtime exclusivamente `ghcr.io/wkarts/argws-connect-*`;
-- bind mounts relativos `./volumes/...`;
-- sem named volumes na stack canônica;
-- API healthcheck em `GET /health`;
-- migrations com retry antes do runtime;
-- Docker log rotation habilitada;
-- CloudPanel, Dockge e root Compose seguem o mesmo contrato.
+O deployment oficial possui dois ambientes autocontidos:
 
-## Stack padrão
+- `deploy/production/`
+- `deploy/homologation/`
+
+Cada ambiente contém Compose, `env.example`, scripts de deploy/update/status/preflight, login GHCR, snippet Nginx e árvore local `./volumes`.
+
+## Porta única
+
+Em qualquer stack oficial, somente o serviço `api` pode declarar `ports:`.
+
+- porta interna da API: `8080`;
+- produção: host `127.0.0.1:38080` por padrão;
+- homologação: host `127.0.0.1:38081` por padrão.
+
+Manager, healthcheck, métricas, WebSocket e webhooks são servidos pelo mesmo endpoint HTTP da API.
+
+## Serviços
+
+Core obrigatório:
+
+- API;
+- PostgreSQL;
+- Redis;
+- RabbitMQ;
+- MinIO.
+
+Opcionais via profiles:
+
+- MySQL;
+- NATS;
+- Kafka;
+- Zookeeper.
+
+## Persistência
+
+Somente bind mounts relativos:
 
 ```text
-api
-postgres
-redis
-rabbitmq
-minio
+./volumes/instances
+./volumes/postgres
+./volumes/redis
+./volumes/rabbitmq
+./volumes/minio
+./volumes/mysql
+./volumes/nats
+./volumes/kafka
+./volumes/zookeeper/data
+./volumes/zookeeper/log
+./volumes/logs
+./volumes/backups
 ```
 
-Perfis opcionais:
+Named volumes não pertencem ao contrato canônico.
 
-```text
-nats
-kafka + zookeeper
-extended
-mysql
-```
+## Isolamento produção/homologação
 
-MongoDB não faz parte deste contrato porque não existe suporte MongoDB no código atual.
-
-## CI
-
-`deployment-integrity.yml` valida sintaxe do Compose, uma única porta publicada, ausência do Manager separado, bind mounts, imagens GHCR e disponibilidade das imagens core usando autenticação do GitHub Actions.
-
-`database-integrity.yml` continua validando PostgreSQL, MySQL e PgBouncer.
+As stacks canônicas não usam `container_name` fixo. `COMPOSE_PROJECT_NAME`, rede, database, cache prefix, RabbitMQ e bucket possuem nomes próprios por ambiente, permitindo coexistência no mesmo host.
 
 ## GHCR
 
-O workflow `ghcr-sync-infrastructure.yml` espelha infraestrutura para o GHCR em execução manual, semanal e também quando mudanças de deployment entram na `main`.
+Todos os serviços usam `ghcr.io/wkarts/*`. O host deve fazer login com `read:packages` quando os packages forem privados.
 
-Hosts externos ainda precisam de `docker login ghcr.io` se os packages estiverem privados.
+O workflow `GHCR - Sync Infrastructure Images` espelha as imagens de infraestrutura. O `preflight.sh` verifica manifests antes do `docker compose pull` para produzir erro claro quando um package/tag não existe ou não está acessível.
+
+## CI
+
+`deployment-integrity.yml` valida:
+
+- root Compose, CloudPanel, Dockge, produção e homologação;
+- sintaxe normal e com todos os profiles;
+- exatamente uma porta publicada e somente pela API;
+- target interno `8080`;
+- ausência de Manager separado;
+- serviços core e opcionais esperados;
+- imagens exclusivamente GHCR;
+- bind mounts;
+- ausência de `container_name` fixo nas stacks production/homologation;
+- portas distintas entre produção e homologação;
+- paridade das chaves de `env.example` de production/homologation;
+- scripts executáveis e sintaticamente válidos;
+- existência dos manifests core no GHCR.
+
+A integridade de PostgreSQL, MySQL e PgBouncer continua coberta separadamente por `database-integrity.yml`.
