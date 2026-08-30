@@ -4,40 +4,6 @@ import fs from 'fs';
 import { configService, Log } from './env.config';
 const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 
-/**
- * Logger boundary used to prevent structured objects and raw strings from
- * reaching stdout.
- *
- * String values are masked through a global dot-based String.replace call.
- * Besides preventing credentials from being written in clear text at runtime,
- * this matches the masking barrier recognized by CodeQL's
- * CleartextLogging::MaskingReplacer model.
- *
- * The logger still preserves operational metadata (level, context, instance,
- * process, timestamp and original value type), while the dynamic payload is
- * reduced to safe structural information only.
- */
-const toSafeLogValue = (value: any): string | number | boolean => {
-  if (value === null) return '[NULL]';
-  if (value === undefined) return '[UNDEFINED]';
-
-  const type = typeof value;
-
-  if (type === 'string') {
-    const maskedValue = value.replace(/./g, '*');
-    return `[STRING redacted length=${maskedValue.length}]`;
-  }
-
-  if (type === 'number' || type === 'boolean') return value;
-  if (type === 'bigint') return value.toString();
-  if (Buffer.isBuffer(value)) return `[BUFFER length=${value.length}]`;
-  if (value instanceof Error) return `[ERROR name=${value.name || 'Error'}]`;
-  if (Array.isArray(value)) return `[ARRAY length=${value.length}]`;
-  if (type === 'object') return '[OBJECT redacted]';
-
-  return `[${type.toUpperCase()}]`;
-};
-
 const formatDateLog = (timestamp: number) =>
   dayjs(timestamp)
     .toDate()
@@ -90,6 +56,15 @@ enum Background {
   VERBOSE = '\x1b[47m',
 }
 
+/**
+ * Central logging boundary.
+ *
+ * Security rule: values supplied by application code never reach stdout.
+ * The logger intentionally emits only operational metadata owned by the
+ * logger itself. This prevents credentials, tokens, headers, request bodies,
+ * integration payloads and other sensitive dynamic values from being written
+ * in clear text, regardless of the caller or object shape.
+ */
 export class Logger {
   private readonly configService = configService;
   private context: string;
@@ -109,12 +84,13 @@ export class Logger {
   }
 
   private console(value: any, type: Type) {
-    const types: Type[] = [];
+    // Deliberately consume the argument without propagating it to any logging
+    // sink. Dynamic payload content is never written to stdout.
+    void value;
 
+    const types: Type[] = [];
     this.configService.get<Log>('LOG').LEVEL.forEach((level) => types.push(Type[level]));
 
-    const typeValue = typeof value;
-    const safeValue = toSafeLogValue(value);
     if (types.includes(type)) {
       if (configService.get<Log>('LOG').COLOR) {
         console.log(
@@ -137,9 +113,7 @@ export class Logger {
           Color.WARN + Command.BRIGHT,
           `[${this.context}]` + Command.RESET,
           Color[type] + Command.BRIGHT,
-          `[${typeValue}]` + Command.RESET,
-          Color[type],
-          safeValue,
+          '[VALUE REDACTED]',
           Command.RESET,
         );
       } else {
@@ -151,8 +125,7 @@ export class Logger {
           `${formatDateLog(Date.now())}  `,
           `${type} `,
           `[${this.context}]`,
-          `[${typeValue}]`,
-          safeValue,
+          '[VALUE REDACTED]',
         );
       }
     }
