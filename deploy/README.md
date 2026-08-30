@@ -1,34 +1,67 @@
 # Deployments oficiais — ARGWS Connect API
 
-A stack canônica publica **uma única porta no host: a porta da API**. Todos os demais componentes permanecem na rede Docker interna.
-
-## Topologia padrão
+A plataforma possui duas stacks oficiais e autocontidas:
 
 ```text
-Internet / Cloudflare / CloudPanel
-              │
-              ▼
-     127.0.0.1:38080
-              │
-       ARGWS Connect API
-       ├── /manager
-       ├── /health
-       ├── /metrics
-       ├── WebSocket
-       ├── Webhooks
-       └── demais endpoints
-              │
-   ┌──────────┼──────────┐
-PostgreSQL   Redis   RabbitMQ   MinIO
-   │          │        │         │
-   └──────── rede Docker interna ─┘
+deploy/
+├── production/
+│   ├── compose.yaml
+│   ├── env.example
+│   ├── deploy.sh
+│   ├── update.sh
+│   ├── status.sh
+│   ├── preflight.sh
+│   ├── registry-login.sh
+│   ├── nginx-location.conf.example
+│   └── volumes/
+│
+└── homologation/
+    ├── compose.yaml
+    ├── env.example
+    ├── deploy.sh
+    ├── update.sh
+    ├── status.sh
+    ├── preflight.sh
+    ├── registry-login.sh
+    ├── nginx-location.conf.example
+    └── volumes/
 ```
 
-O Manager atual já está empacotado na imagem da API e é servido em `/manager`; não existe motivo para publicar um segundo container/porta apenas para ele.
+Cada ambiente possui projeto Compose, rede, banco, cache, event bus, bucket e persistência física próprios. Produção e homologação podem rodar simultaneamente no mesmo host.
+
+## Regra de porta única
+
+Somente a API publica porta no host.
+
+Produção:
+
+```text
+127.0.0.1:38080
+├── /
+├── /manager
+├── /health
+├── /metrics
+├── WebSocket
+└── Webhooks / API
+```
+
+Homologação:
+
+```text
+127.0.0.1:38081
+├── /
+├── /manager
+├── /health
+├── /metrics
+├── WebSocket
+└── Webhooks / API
+```
+
+PostgreSQL, Redis, RabbitMQ, MinIO e os serviços opcionais usam apenas a rede Docker interna. Nenhum deles publica porta no host.
 
 ## Serviços locais
 
-A stack padrão sobe automaticamente:
+A stack padrão sobe:
 
 - API;
 - PostgreSQL;
@@ -36,18 +69,16 @@ A stack padrão sobe automaticamente:
 - RabbitMQ;
 - MinIO.
 
-Serviços opcionais presentes no Compose:
+Perfis opcionais:
 
-- `nats` — profile `nats`;
-- `kafka` + `zookeeper` — profile `kafka`;
-- NATS + Kafka — profile `extended`;
-- MySQL — profile `mysql`, como provider alternativo.
-
-MongoDB **não foi incluído** porque o runtime atual não possui driver, configuração ou repositório MongoDB. Incluir um container sem consumidor só aumentaria consumo e criaria uma falsa indicação de compatibilidade.
+- `nats`;
+- `kafka` + `zookeeper`;
+- `extended` (NATS + Kafka + Zookeeper);
+- `mysql` como provider alternativo.
 
 ## Persistência
 
-Todos os dados usam bind mounts relativos à pasta da stack:
+Todos os dados usam bind mounts relativos ao diretório de cada stack:
 
 ```text
 ./volumes/
@@ -64,12 +95,22 @@ Todos os dados usam bind mounts relativos à pasta da stack:
 └── backups/
 ```
 
-Não são usados named volumes na stack canônica.
+Não são usados named volumes nas stacks oficiais.
 
 ## GHCR
 
-Produção/homologação consomem somente `ghcr.io/wkarts/argws-connect-*`.
+Produção e homologação consomem exclusivamente `ghcr.io/wkarts/argws-connect-*`.
 
-Se o Docker retornar `denied` ao consultar um manifest, o package está privado ou o host ainda não está autenticado. Use `registry-login.sh` com um PAT `read:packages`, ou torne os packages de runtime públicos no GHCR.
+Antes do primeiro deploy em um host com packages privados:
 
-O workflow `GHCR - Sync Infrastructure Images` também é executado quando mudanças de deployment chegam à `main`, garantindo o espelhamento das imagens de infraestrutura.
+```bash
+./registry-login.sh
+```
+
+Use um PAT com `read:packages`. O token não é salvo no `.env` da aplicação.
+
+O `preflight.sh` diferencia falha de autenticação/disponibilidade antes do `docker compose pull`. O workflow `GHCR - Sync Infrastructure Images` mantém as imagens de infraestrutura espelhadas no registry oficial.
+
+## CloudPanel / Dockge
+
+Os diretórios `cloudpanel/` e `dockge/` continuam disponíveis como integrações operacionais. As árvores `production/` e `homologation/` são a referência canônica de ambiente e devem orientar o provisionamento futuro do Control Plane.
