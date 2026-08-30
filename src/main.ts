@@ -71,7 +71,7 @@ async function bootstrap() {
           const globalApiKey = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
           const serverUrl = configService.get<HttpServer>('SERVER').URL;
 
-          const errorData = {
+          const errorLogData = {
             event: 'error',
             data: {
               error: err['error'] || 'Internal Server Error',
@@ -82,11 +82,15 @@ async function bootstrap() {
               },
             },
             date_time: now,
-            api_key: globalApiKey,
             server_url: serverUrl,
           };
 
-          logger.error(errorData);
+          logger.error(errorLogData);
+
+          const errorData = {
+            ...errorLogData,
+            api_key: globalApiKey,
+          };
 
           const baseURL = webhook.EVENTS.ERRORS_WEBHOOK;
           const httpService = axios.create({ baseURL });
