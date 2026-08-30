@@ -52,7 +52,13 @@ Fluxo de promoção:
 develop → :latest → homologação → validação → tag SemVer aprovada → produção
 ```
 
-Quando uma nova versão for aprovada, altere somente `ARGWS_CONNECT_API_IMAGE` no `.env` de produção para a tag validada e execute `./update.sh`. Não há rebuild específico de produção.
+Depois de validar a versão na homologação, promova exatamente a mesma imagem para produção:
+
+```bash
+./promote.sh 1.0.5
+```
+
+O script valida a existência da tag no GHCR, preserva o `.env` anterior, altera apenas `ARGWS_CONNECT_API_IMAGE`, executa o update da stack e restaura a versão anterior se a atualização falhar. Não há rebuild específico para produção.
 
 ## Deploy direto
 
@@ -86,6 +92,7 @@ Profiles opcionais podem usar `./volumes/nats`, `./volumes/kafka` e `./volumes/z
 ```bash
 ./update.sh
 ./status.sh
+./promote.sh X.Y.Z
 ```
 
 Use `nginx-location.conf.example` no CloudPanel. SSL/TLS termina no CloudPanel/Cloudflare; internamente a API permanece HTTP em `8080`.
