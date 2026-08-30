@@ -1,13 +1,14 @@
 # ARGWS Connect API — Homologação
 
-Stack oficial de homologação, isolada da produção por projeto Compose, rede, banco, cache, RabbitMQ, bucket e diretório físico próprios.
+Stack oficial de homologação, isolada da produção e pronta para subir com os serviços locais necessários ao runtime atual.
 
-## Arquivos da stack
+## Árvore
 
 ```text
 homologation/
 ├── compose.yaml
-├── env.example        # fonte canônica de configuração
+├── env.example
+├── prepare-env.sh
 ├── deploy.sh
 ├── update.sh
 ├── status.sh
@@ -15,76 +16,73 @@ homologation/
 ├── registry-login.sh
 ├── nginx-location.conf.example
 └── volumes/
+    ├── instances/
+    ├── postgres/
+    ├── redis/
+    ├── rabbitmq/
+    ├── minio/
+    ├── logs/
+    └── backups/
 ```
 
-O `.env` real não é versionado. Crie-o com `cp env.example .env`.
+## Topologia
 
-## Porta pública
+```text
+https://h.api.connect.argws.com.br
+               │
+       Cloudflare / CloudPanel
+               │
+         127.0.0.1:38081
+               │
+         ARGWS Connect API
+         ├── /manager
+         ├── /health
+         ├── /metrics
+         ├── WebSocket
+         └── Webhooks / API
+               │
+        rede Docker interna
+         ├── PostgreSQL
+         ├── Redis
+         ├── RabbitMQ
+         └── MinIO
+```
 
-Somente a API publica porta no host:
+Somente a API publica uma porta. PostgreSQL, Redis, RabbitMQ e MinIO usam apenas `expose` na rede Docker.
 
-- `127.0.0.1:38081` → API
-- `/manager` → Manager embutido na API
-- `/health` → healthcheck
-- `/metrics` → métricas quando habilitadas
-- WebSocket e webhooks usam o mesmo endpoint da API
+O Manager atual está incorporado à imagem da API e é servido em `/manager`; não existe container separado.
 
-PostgreSQL, Redis, RabbitMQ, MinIO e serviços opcionais ficam exclusivamente na rede Docker.
+## Imagem
 
-## Imagem da API
+A homologação usa `ghcr.io/wkarts/argws-connect-api:homolog`, permitindo testar a linha de homologação sem alterar a produção.
 
-O exemplo usa `ghcr.io/wkarts/argws-connect-api:homolog`. A tag deve ser publicada pelo pipeline de homologação antes do primeiro deploy.
-
-## Serviços padrão
-
-`docker compose up -d` sobe API, PostgreSQL, Redis, RabbitMQ e MinIO.
-
-Perfis opcionais:
-
-- `nats`
-- `kafka` (Kafka + Zookeeper)
-- `extended` (NATS + Kafka + Zookeeper)
-- `mysql` (provider alternativo)
-
-## Instalação
+## Deploy direto
 
 ```bash
-cp env.example .env
-chmod 600 .env
-./registry-login.sh
+./registry-login.sh   # necessário apenas se os packages GHCR forem privados
 ./deploy.sh
 ```
 
-O PAT usado em `registry-login.sh` precisa de `read:packages` quando os packages GHCR forem privados. O token não é salvo no `.env` da aplicação.
+Na primeira execução, `deploy.sh` chama `prepare-env.sh`, cria o `.env`, gera automaticamente senhas/tokens fortes, aplica `chmod 600`, cria a árvore `./volumes`, valida os manifests GHCR e sobe a stack.
 
-## Persistência
+Produção e homologação possuem senhas, banco, Redis, RabbitMQ, bucket, rede, porta e diretório físico independentes.
 
-```text
-./volumes/
-├── instances/
-├── postgres/
-├── redis/
-├── rabbitmq/
-├── minio/
-├── mysql/
-├── nats/
-├── kafka/
-├── zookeeper/
-├── logs/
-└── backups/
-```
-
-Produção e homologação podem residir no mesmo host sem compartilhar esses diretórios, desde que cada stack permaneça em sua própria pasta.
-
-## CloudPanel / Nginx
-
-Use `nginx-location.conf.example` no reverse proxy de `h.api.connect.argws.com.br`. SSL/TLS termina no CloudPanel/Cloudflare; internamente a API permanece HTTP em `8080`.
-
-## Atualização e status
+## Atualização
 
 ```bash
 ./update.sh
+```
+
+## Status
+
+```bash
 ./status.sh
 ```
 
-O `preflight.sh` impede o deploy quando existem segredos `CHANGE_ME_*`, YAML inválido ou imagens core ausentes/inacessíveis no GHCR.
+## Reverse proxy
+
+Use `nginx-location.conf.example` no CloudPanel para `h.api.connect.argws.com.br`. SSL/TLS termina no CloudPanel/Cloudflare; a API permanece HTTP internamente em `8080`.
+
+## Persistência
+
+Todos os dados persistentes ficam em `./volumes/...` dentro da pasta da própria stack. Não são utilizados named volumes Docker.
