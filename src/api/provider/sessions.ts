@@ -34,7 +34,8 @@ export class ProviderFiles {
 
         await axios.post(`${url}/session`, { group: this.config.PREFIX }, { headers: { apikey: this.globalApiToken } });
       } catch (error) {
-        this.logger.error(['Failed to connect to the file server', error?.message, error?.stack]);
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        this.logger.error(`Failed to connect to the file server${status ? ` (HTTP ${status})` : ''}`);
         const pid = process.pid;
         execFileSync('kill', ['-9', `${pid}`]);
       }
