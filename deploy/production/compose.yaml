@@ -51,7 +51,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
       POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: ${TZ:-America/Bahia}
     expose: ["5432"]
     volumes:
@@ -71,9 +71,9 @@ services:
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
     restart: unless-stopped
-    command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}"]
+    command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     expose: ["6379"]
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
@@ -95,7 +95,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-argws_connect}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-argws_connect}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-CHANGE_ME_RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     expose: ["5672", "15672"]
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
@@ -117,7 +117,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-argws_connect}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-CHANGE_ME_MINIO_PASSWORD}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     expose: ["9000", "9001"]
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
@@ -130,85 +130,6 @@ services:
       timeout: 5s
       retries: 15
       start_period: 30s
-    logging: *default-logging
-
-  nats:
-    profiles: ["nats", "extended"]
-    image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
-    pull_policy: always
-    restart: unless-stopped
-    command: ["-js", "-m", "8222", "--store_dir", "/data"]
-    expose: ["4222", "8222"]
-    volumes:
-      - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
-    networks:
-      argws-connect-net:
-        aliases: [argws-connect-nats]
-    logging: *default-logging
-
-  zookeeper:
-    profiles: ["kafka", "extended"]
-    image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
-    pull_policy: always
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    expose: ["2181"]
-    volumes:
-      - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
-      - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
-    networks:
-      argws-connect-net:
-        aliases: [argws-connect-zookeeper]
-    logging: *default-logging
-
-  kafka:
-    profiles: ["kafka", "extended"]
-    image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
-    pull_policy: always
-    restart: unless-stopped
-    depends_on: [zookeeper]
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: argws-connect-zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://argws-connect-kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-    expose: ["9092"]
-    volumes:
-      - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
-    networks:
-      argws-connect-net:
-        aliases: [argws-connect-kafka]
-    logging: *default-logging
-
-  mysql:
-    profiles: ["mysql"]
-    image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
-    pull_policy: always
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
-      MYSQL_USER: ${MYSQL_USERNAME:-argws_connect}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-CHANGE_ME_MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}
-      TZ: ${TZ:-America/Bahia}
-    expose: ["3306"]
-    volumes:
-      - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/var/lib/mysql
-    networks:
-      argws-connect-net:
-        aliases: [argws-connect-mysql]
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p'$${MYSQL_ROOT_PASSWORD}' --silent"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 40s
     logging: *default-logging
 
 networks:
