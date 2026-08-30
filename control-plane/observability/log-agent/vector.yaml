@@ -1,0 +1,17 @@
+sources:
+  docker:
+    type: docker_logs
+transforms:
+  normalize:
+    type: remap
+    inputs: [docker]
+    source: |
+      .platform = "argws-connect"
+      .observed_at = now()
+sinks:
+  local_json:
+    type: file
+    inputs: [normalize]
+    path: /var/log/argws/containers-%Y-%m-%d.json
+    encoding:
+      codec: json

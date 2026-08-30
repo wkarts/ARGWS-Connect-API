@@ -1,0 +1,37 @@
+name: GHCR - Sync Platform Infrastructure
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/platform-infrastructure-sync.yml"
+      - "control-plane/deploy/**"
+  schedule:
+    - cron: "31 4 * * 0"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt-get update && sudo apt-get install -y skopeo
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          sync() { skopeo copy --all "docker://$1" "docker://$2"; }
+          sync docker.io/library/python:3.13-slim        ghcr.io/${OWNER}/argws-platform-python:3.13-slim
+          sync docker.io/library/node:24-alpine         ghcr.io/${OWNER}/argws-platform-node:24-alpine
+          sync docker.io/library/nginx:1.27-alpine      ghcr.io/${OWNER}/argws-platform-nginx:1.27-alpine
+          sync docker.io/library/postgres:17            ghcr.io/${OWNER}/argws-platform-postgres:17
+          sync docker.io/library/redis:8                ghcr.io/${OWNER}/argws-platform-redis:8
+          sync docker.io/library/rabbitmq:4-management ghcr.io/${OWNER}/argws-platform-rabbitmq:4-management
+          sync docker.io/library/nats:2.10-alpine       ghcr.io/${OWNER}/argws-platform-nats:2.10-alpine
+          sync docker.io/prom/prometheus:latest         ghcr.io/${OWNER}/argws-platform-prometheus:latest
+          sync docker.io/grafana/grafana:latest         ghcr.io/${OWNER}/argws-platform-grafana:latest
+          sync docker.io/timberio/vector:latest-alpine  ghcr.io/${OWNER}/argws-platform-vector:latest

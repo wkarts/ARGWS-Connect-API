@@ -1,0 +1,9 @@
+{
+  "schema": "argws.platform.template/v1",
+  "version": "0.1.0",
+  "white_label": true,
+  "planes": ["control", "partner", "tenant"],
+  "capabilities": ["provisioning", "domains", "nodes", "observability"],
+  "infrastructure": ["postgresql", "redis", "rabbitmq", "nats", "prometheus", "grafana", "log-agent"],
+  "excluded_product_domains": ["whatsapp", "connectai", "sessions", "messages"]
+}

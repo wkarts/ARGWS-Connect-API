@@ -1,0 +1,86 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-control-plane}
+services:
+  gateway:
+    image: ${PLATFORM_GATEWAY_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "${CONTROL_PLANE_BIND_ADDRESS:-127.0.0.1}:${CONTROL_PLANE_HOST_PORT:-39100}:80"
+    volumes:
+      - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [web, api, grafana]
+    networks: [internal]
+  api:
+    image: ${CONTROL_PLANE_API_IMAGE}
+    restart: unless-stopped
+    env_file: [.env]
+    expose: ["8090"]
+    depends_on: [postgres, redis, rabbitmq, nats]
+    networks: [internal]
+  web:
+    image: ${CONTROL_PLANE_WEB_IMAGE}
+    restart: unless-stopped
+    expose: ["80"]
+    networks: [internal]
+  postgres:
+    image: ${PLATFORM_POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+    networks: [internal]
+  redis:
+    image: ${PLATFORM_REDIS_IMAGE}
+    restart: unless-stopped
+    volumes:
+      - ./volumes/redis:/data
+    networks: [internal]
+  rabbitmq:
+    image: ${PLATFORM_RABBITMQ_IMAGE}
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - ./volumes/rabbitmq:/var/lib/rabbitmq
+    networks: [internal]
+  nats:
+    image: ${PLATFORM_NATS_IMAGE}
+    restart: unless-stopped
+    command: ["-js", "-m", "8222", "--store_dir", "/data"]
+    volumes:
+      - ./volumes/nats:/data
+    networks: [internal]
+  prometheus:
+    image: ${PLATFORM_PROMETHEUS_IMAGE}
+    restart: unless-stopped
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./volumes/prometheus:/prometheus
+    networks: [internal]
+  grafana:
+    image: ${PLATFORM_GRAFANA_IMAGE}
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./volumes/grafana:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks: [internal]
+  log-agent:
+    image: ${PLATFORM_LOG_AGENT_IMAGE}
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../observability/log-agent/vector.yaml:/etc/vector/vector.yaml:ro
+      - ./volumes/logs:/var/log/argws
+    networks: [internal]
+networks:
+  internal:
+    driver: bridge

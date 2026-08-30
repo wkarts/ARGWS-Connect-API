@@ -1,0 +1,58 @@
+name: Control Plane Phase 2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "control-plane/**"
+      - "platform-template/**"
+      - "scripts/export-platform-template.py"
+      - ".github/workflows/control-plane-phase2.yml"
+  push:
+    branches: [main]
+    paths:
+      - "control-plane/**"
+      - "platform-template/**"
+      - "scripts/export-platform-template.py"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane/backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip
+      - run: pip install .
+      - run: python -m compileall app
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane/frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm install
+      - run: npm run build
+
+  template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python scripts/export-platform-template.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARGWS-Platform-Template
+          path: dist/ARGWS-Platform-Template.zip
+          if-no-files-found: error
