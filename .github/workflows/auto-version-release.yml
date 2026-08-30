@@ -1,0 +1,338 @@
+name: Release - Auto Version, Build and Publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_bump:
+        description: "Optional bump override for manual execution"
+        required: false
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+        default: auto
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: read
+
+concurrency:
+  group: argws-connect-release-main
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  validate:
+    name: Validate source
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip release]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint:check
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Build application
+        run: npm run build
+
+  plan-version:
+    name: Plan semantic version
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      bump: ${{ steps.plan.outputs.bump }}
+      previous: ${{ steps.plan.outputs.previous }}
+      pr_number: ${{ steps.pr.outputs.number }}
+      pr_title: ${{ steps.pr.outputs.title }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve merged PR metadata
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_json="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" 2>/dev/null || echo '[]')"
+          number="$(jq -r '.[0].number // empty' <<<"$pr_json")"
+          title="$(jq -r '.[0].title // empty' <<<"$pr_json")"
+          labels="$(jq -r '[.[0].labels[]?.name] | join(",")' <<<"$pr_json")"
+          {
+            echo "number=$number"
+            echo "title=$title"
+            echo "labels=$labels"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: plan
+        env:
+          LABELS: ${{ steps.pr.outputs.labels }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          FORCE_BUMP: ${{ inputs.force_bump || 'auto' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+
+          labels="$LABELS"
+          if [[ "$FORCE_BUMP" != "auto" && -n "$FORCE_BUMP" ]]; then
+            labels="version:$FORCE_BUMP"
+          fi
+
+          plan="$(node .github/scripts/compute-next-version.mjs "$latest" "$labels" "$PR_TITLE")"
+          version="$(jq -r '.version' <<<"$plan")"
+          bump="$(jq -r '.bump' <<<"$plan")"
+          previous="$(jq -r '.previous // ""' <<<"$plan")"
+
+          if git rev-parse "v${version}" >/dev/null 2>&1; then
+            echo "Tag v${version} already exists; refusing duplicate release." >&2
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "bump=$bump"
+            echo "previous=$previous"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Planned ARGWS Connect API v${version} (${bump})"
+
+  version-source:
+    name: Persist version metadata
+    needs: plan-version
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.commit.outputs.release_sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Ensure main still points to validated commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          if [[ "$current" != "$GITHUB_SHA" ]]; then
+            echo "main moved while release was being prepared ($current != $GITHUB_SHA)." >&2
+            echo "A newer merge will create the next release; aborting this run to avoid version/source mismatch." >&2
+            exit 1
+          fi
+
+      - name: Apply version
+        run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
+
+      - name: Commit version metadata
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION package.json package-lock.json RELEASE-MANIFEST.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
+            git push origin HEAD:main
+          fi
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  prepare-build-bases:
+    name: Prepare GHCR build bases
+    needs: version-source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+      - name: Login GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Ensure build images exist in GHCR
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          skopeo copy --all docker://docker.io/library/node:24-alpine docker://ghcr.io/${OWNER}/argws-connect-node:24-alpine
+          skopeo copy --all docker://docker.io/library/nginx:1.27-alpine docker://ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
+
+  publish-images:
+    name: Build and publish ${{ matrix.component }}
+    needs: [plan-version, version-source, prepare-build-bases]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            context: .
+            dockerfile: ./Dockerfile
+            image: argws-connect-api
+          - component: manager
+            context: ./manager
+            dockerfile: ./manager/Dockerfile
+            image: argws-connect-manager
+    steps:
+      - name: Checkout versioned source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-source.outputs.release_sha }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.plan-version.outputs.version }}"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          repo="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
+          {
+            echo 'tags<<EOF'
+            echo "${repo}:${version}"
+            echo "${repo}:${major}.${minor}"
+            echo "${repo}:${major}"
+            echo "${repo}:latest"
+            echo "${repo}:sha-${{ needs.version-source.outputs.release_sha }}"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push release image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            APP_VERSION=${{ needs.plan-version.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
+            org.opencontainers.image.version=${{ needs.plan-version.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.version-source.outputs.release_sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=release-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
+
+      - name: Save digest artifact
+        shell: bash
+        run: |
+          mkdir -p release-digests
+          printf '%s\n' "${{ steps.build.outputs.digest }}" > "release-digests/${{ matrix.image }}.digest"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}
+          path: release-digests/${{ matrix.image }}.digest
+          retention-days: 30
+
+  release:
+    name: Tag and publish GitHub Release
+    needs: [plan-version, version-source, publish-images]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout versioned source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-source.outputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Download image digests
+        uses: actions/download-artifact@v5
+        with:
+          pattern: digest-*
+          path: release-digests
+          merge-multiple: true
+
+      - name: Create immutable tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.plan-version.outputs.tag }}" "${{ needs.version-source.outputs.release_sha }}" \
+            -m "ARGWS Connect API ${{ needs.plan-version.outputs.tag }}"
+          git push origin "${{ needs.plan-version.outputs.tag }}"
+
+      - name: Build image digest manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ needs.plan-version.outputs.version }}"
+          {
+            echo "ARGWS Connect API ${version}"
+            echo
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
+            echo
+            echo "Image digests:"
+            for f in release-digests/*.digest; do
+              name="$(basename "$f" .digest)"
+              digest="$(cat "$f")"
+              echo "${name}=${digest}"
+            done
+          } > IMAGE-DIGESTS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt \
+            --target "${{ needs.version-source.outputs.release_sha }}" \
+            --title "ARGWS Connect API ${{ needs.plan-version.outputs.tag }}" \
+            --generate-notes

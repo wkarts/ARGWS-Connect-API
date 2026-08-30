@@ -165,3 +165,11 @@ Deployments prontos:
 - `.github/workflows/ghcr-publish-application.yml`
 
 Consulte `deploy/README.md` para os detalhes.
+
+## Versionamento e releases automáticos
+
+A linha canônica do ARGWS Connect API inicia em `1.0.0`.
+
+Cada merge bem-sucedido em `main` executa validação, calcula a próxima versão SemVer, publica as imagens API/Manager no GHCR e somente depois cria a tag e a GitHub Release. O incremento padrão é `patch`; labels `version:minor` e `version:major` permitem promover a próxima versão sem edição manual de arquivos.
+
+Consulte [`RELEASE-AUTOMATION.md`](RELEASE-AUTOMATION.md) para o fluxo completo.

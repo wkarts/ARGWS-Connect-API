@@ -30,6 +30,9 @@ RUN npm run build
 
 FROM ${NODE_IMAGE} AS final
 
+ARG APP_VERSION=1.0.0
+LABEL org.opencontainers.image.version="${APP_VERSION}"
+
 RUN apk update && \
     apk add --no-cache tzdata ffmpeg bash openssl curl
 

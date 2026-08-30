@@ -1,9 +1,9 @@
 {
   "product": "ARGWS Connect API",
   "package": "argws-connect-api",
-  "version": "2.3.7",
+  "version": "1.0.0",
   "revision_date": "2026-08-30",
-  "source_files_excluding_node_modules": 425,
+  "source_files_excluding_node_modules": 430,
   "typescript_files_in_src": 186,
   "distribution": {
     "registry": "ghcr.io",
@@ -67,7 +67,36 @@
     "missing_runtime_env_variables": 0,
     "application_source_changed": false,
     "prisma_changed": false,
-    "package_manifest_changed": false,
-    "package_lock_changed": false
+    "package_manifest_changed": true,
+    "package_lock_changed": true,
+    "automatic_release_workflow_yaml_valid": true,
+    "release_scripts_smoke_tested": true
+  },
+  "release_automation": {
+    "enabled": true,
+    "branch": "main",
+    "initial_version": "1.0.0",
+    "default_increment": "patch",
+    "labels": {
+      "version:patch": "patch",
+      "version:minor": "minor",
+      "version:major": "major"
+    },
+    "release_requires_successful_validation_and_container_build": true,
+    "workflow": ".github/workflows/auto-version-release.yml",
+    "homologation_workflow": ".github/workflows/ghcr-publish-application.yml",
+    "version_files": [
+      "VERSION",
+      "package.json",
+      "package-lock.json",
+      "RELEASE-MANIFEST.json"
+    ],
+    "ghcr_release_tags": [
+      "X.Y.Z",
+      "X.Y",
+      "X",
+      "latest",
+      "sha-<commit>"
+    ]
   }
 }

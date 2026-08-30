@@ -1,6 +1,6 @@
 # Validação do deployment GHCR
 
-Revisão preparada para o ARGWS Connect API 2.3.7.
+Revisão preparada para o ARGWS Connect API 1.0.0.
 
 ## Escopo
 
@@ -35,3 +35,11 @@ Nesta revisão:
 ## Observação sobre bootstrap do GHCR
 
 O workflow `ghcr-sync-infrastructure.yml` acessa os registries de origem exclusivamente dentro do GitHub Actions para copiar as imagens ao GHCR. Os hosts de produção/homologação consomem somente as cópias publicadas no GHCR.
+
+## Release automation
+
+- Canonical initial version: `1.0.0`
+- Every successful merge to `main`: automatic SemVer release
+- Default increment: `patch`
+- Optional PR labels: `version:patch`, `version:minor`, `version:major`
+- GitHub Release created only after successful validation and GHCR image publication
