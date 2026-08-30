@@ -3,7 +3,9 @@ name: GHCR - Sync Infrastructure Images
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
+      - fix/complete-deployment-single-port-1.0.3
     paths:
       - ".github/workflows/ghcr-sync-infrastructure.yml"
       - "deploy/**"
