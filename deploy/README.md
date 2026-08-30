@@ -1,71 +1,21 @@
 # Deployments oficiais — ARGWS Connect API
 
-A plataforma possui duas stacks oficiais e autocontidas:
+A plataforma possui duas stacks oficiais e autocontidas: `deploy/production/` e `deploy/homologation/`.
 
-```text
-deploy/
-├── production/
-│   ├── compose.yaml
-│   ├── env.example
-│   ├── prepare-env.sh
-│   ├── deploy.sh
-│   ├── update.sh
-│   ├── status.sh
-│   ├── preflight.sh
-│   ├── registry-login.sh
-│   ├── nginx-location.conf.example
-│   └── volumes/
-│
-└── homologation/
-    ├── compose.yaml
-    ├── env.example
-    ├── prepare-env.sh
-    ├── deploy.sh
-    ├── update.sh
-    ├── status.sh
-    ├── preflight.sh
-    ├── registry-login.sh
-    ├── nginx-location.conf.example
-    └── volumes/
-```
-
-Cada ambiente possui projeto Compose, rede, banco, cache, event bus, bucket e persistência física próprios. Produção e homologação podem rodar simultaneamente no mesmo host.
+Cada ambiente possui projeto Compose, rede, banco, cache, event bus, bucket e persistência física próprios e pode rodar simultaneamente no mesmo host.
 
 ## Regra de porta única
 
-Somente a API publica porta no host.
+Somente a API publica porta no host:
 
-Produção:
+- Produção: `https://api.connect.argws.com.br` → `127.0.0.1:38080`
+- Homologação: `https://h.api.connect.argws.com.br` → `127.0.0.1:38081`
 
-```text
-https://api.connect.argws.com.br
-        ↓
-127.0.0.1:38080
-├── /
-├── /manager
-├── /health
-├── /metrics
-├── WebSocket
-└── Webhooks / API
-```
+O mesmo endpoint atende `/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da API.
 
-Homologação:
+## Core padrão
 
-```text
-https://h.api.connect.argws.com.br
-        ↓
-127.0.0.1:38081
-├── /
-├── /manager
-├── /health
-├── /metrics
-├── WebSocket
-└── Webhooks / API
-```
-
-## Serviços locais oficiais
-
-As duas stacks canônicas sobem somente:
+Sem nenhum profile adicional, as duas stacks sobem:
 
 - API;
 - PostgreSQL;
@@ -73,24 +23,42 @@ As duas stacks canônicas sobem somente:
 - RabbitMQ;
 - MinIO.
 
-PostgreSQL, Redis, RabbitMQ e MinIO permanecem exclusivamente na rede Docker interna e não publicam portas no host.
+PostgreSQL é o banco oficial, Redis é cache/estado rápido, RabbitMQ é o event bus/fila padrão e MinIO é o storage S3 local.
+
+## Mensageria opcional
+
+NATS e Kafka permanecem disponíveis por profiles e ficam desligados por padrão. Enquanto desligados, seus containers não são criados e não consomem CPU/RAM do runtime.
+
+- `nats` → sobe NATS com JetStream;
+- `kafka` → sobe Kafka + Zookeeper;
+- `extended` → sobe NATS + Kafka + Zookeeper.
+
+Exemplos:
+
+```bash
+COMPOSE_PROFILES=nats ./deploy.sh
+COMPOSE_PROFILES=kafka ./deploy.sh
+COMPOSE_PROFILES=extended ./deploy.sh
+```
+
+Eles não substituem Redis. NATS/Kafka sobrepõem parte do papel de mensageria do RabbitMQ, mas atendem cenários diferentes: RabbitMQ continua como padrão; NATS é útil para pub/sub de baixa latência e comunicação entre serviços; Kafka é útil para alto volume, retenção e replay de eventos. Zookeeper é infraestrutura do Kafka usado nessa versão e não é consumido diretamente pela API.
+
+## Manager
 
 O Manager atual é servido em `/manager` pela própria API e não possui service/container separado.
 
-NATS, Kafka, Zookeeper e MySQL não fazem parte das stacks oficiais neste momento porque não trazem benefício operacional para o cenário atual: PostgreSQL é o banco oficial e RabbitMQ já cumpre o papel de event bus/fila.
-
 ## Deploy sem preencher segredos manualmente
 
-Na primeira execução, `prepare-env.sh` copia `env.example` para `.env` e substitui automaticamente todos os placeholders `CHANGE_ME_*` por valores criptograficamente aleatórios. O `.env` recebe permissão `600` e nunca é versionado.
-
-Fluxo:
+Na primeira execução, `prepare-env.sh` cria `.env` a partir de `env.example`, gera os segredos fortes localmente, aplica `chmod 600` e mantém o arquivo fora do Git.
 
 ```bash
-./registry-login.sh   # apenas quando GHCR exigir autenticacao
+./registry-login.sh   # somente se o GHCR exigir autenticação
 ./deploy.sh
 ```
 
 ## Persistência
+
+Core:
 
 ```text
 ./volumes/
@@ -103,14 +71,10 @@ Fluxo:
 └── backups/
 ```
 
-Não são usados named volumes nas stacks oficiais.
+Profiles opcionais podem usar também `./volumes/nats`, `./volumes/kafka` e `./volumes/zookeeper`. Não são usados named volumes.
 
 ## GHCR
 
-Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`.
+Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`. O bootstrap inicial já foi executado com sucesso e o workflow de sincronização mantém core e mensageria opcional espelhados no GHCR.
 
-O bootstrap inicial das imagens de infraestrutura já foi executado com sucesso. O workflow `GHCR - Sync Infrastructure Images` mantém Node/Nginx para build e PostgreSQL/Redis/RabbitMQ/MinIO para runtime espelhados no registry oficial.
-
-## CloudPanel / Dockge
-
-Os diretórios `cloudpanel/` e `dockge/` continuam disponíveis como integrações operacionais. `production/` e `homologation/` passam a ser as referências canônicas para o provisionamento futuro do Control Plane.
+`production/` e `homologation/` são as referências canônicas para o provisionamento futuro do Control Plane; CloudPanel e Dockge continuam como integrações operacionais.
