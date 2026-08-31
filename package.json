@@ -1,6 +1,6 @@
 {
   "name": "argws-connect-api",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "ARGWS Connect API — Communication & Integration Platform",
   "main": "./dist/main.js",
   "type": "commonjs",
