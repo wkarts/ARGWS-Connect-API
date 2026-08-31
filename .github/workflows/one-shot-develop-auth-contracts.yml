@@ -33,6 +33,26 @@ jobs:
       - name: Apply contracts
         run: node scripts/apply-develop-auth-contracts.mjs
 
+      - name: Narrow Baileys provider type
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/api/controllers/instance.controller.ts')
+          content = path.read_text(encoding='utf-8')
+          needle = 'await instance.prepareQrConnection();'
+          replacement = """if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
+              throw new BadRequestException('QR connection is only available for the Baileys provider');
+            }
+            await instance.prepareQrConnection();"""
+          count = content.count(needle)
+          if count == 0:
+              raise SystemExit('prepareQrConnection call not found for provider narrowing')
+          path.write_text(content.replace(needle, replacement), encoding='utf-8')
+          print(f'Narrowed {count} Baileys QR call(s).')
+          PY
+
       - name: Generate Prisma client
         env:
           DATABASE_PROVIDER: postgresql
