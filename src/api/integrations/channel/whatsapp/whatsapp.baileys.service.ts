@@ -375,7 +375,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
       if (this.phoneNumber) {
         await delay(1000);
-        this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
+        try {
+          this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
+        } catch (error) {
+          this.instance.qrcode.pairingCode = null;
+          this.logger.error(`Pairing code generation failed: ${error?.message || error}`);
+        }
       } else {
         this.instance.qrcode.pairingCode = null;
       }
@@ -576,18 +581,16 @@ export class BaileysStartupService extends ChannelStartupService {
 
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
 
-    let browserOptions = {};
+    const browser: WABrowserDescription = [session.CLIENT, session.NAME, release()];
+    const browserOptions = { browser };
+    const normalizedPhoneNumber = number?.replace(/\D/g, '') || this.phoneNumber;
 
-    if (number || this.phoneNumber) {
-      this.phoneNumber = number;
-
-      this.logger.info(`Phone number: ${number}`);
-    } else {
-      const browser: WABrowserDescription = [session.CLIENT, session.NAME, release()];
-      browserOptions = { browser };
-
-      this.logger.info(`Browser: ${browser}`);
+    if (normalizedPhoneNumber) {
+      this.phoneNumber = normalizedPhoneNumber;
+      this.logger.info('Pairing-code phone number configured');
     }
+
+    this.logger.info(`Browser: ${browser}`);
 
     const baileysVersion = await fetchLatestWaWebVersion({});
     const version = baileysVersion.version;
@@ -721,7 +724,7 @@ export class BaileysStartupService extends ChannelStartupService {
       this.sendDataWebhook(Events.CALL, payload, true, ['websocket']);
     });
 
-    this.phoneNumber = number;
+    this.phoneNumber = normalizedPhoneNumber;
 
     return this.client;
   }

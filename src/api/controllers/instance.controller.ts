@@ -34,6 +34,39 @@ export class InstanceController {
 
   private readonly logger = new Logger('InstanceController');
 
+  private normalizePairingPhoneNumber(number?: string | null): string | undefined {
+    if (!number) return undefined;
+
+    const normalized = String(number).replace(/\D/g, '');
+    if (normalized.length < 8 || normalized.length > 15) {
+      throw new BadRequestException('Invalid phone number for pairing code. Use country code + area code + number.');
+    }
+
+    return normalized;
+  }
+
+  private async waitForQrCode(instance: any, pairingCodeRequested: boolean): Promise<wa.QrCode> {
+    const timeoutMs = pairingCodeRequested ? 10000 : 5000;
+    const startedAt = Date.now();
+
+    do {
+      const qrCode = instance.qrCode;
+      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code) {
+        return qrCode;
+      }
+      await delay(250);
+    } while (Date.now() - startedAt < timeoutMs);
+
+    const qrCode = instance.qrCode;
+    if (pairingCodeRequested && !qrCode?.pairingCode) {
+      throw new BadRequestException(
+        'Unable to generate pairing code. Confirm the international phone number and try again.',
+      );
+    }
+
+    return qrCode;
+  }
+
   public async createInstance(instanceData: InstanceDto) {
     try {
       const instance = channelController.init(instanceData, {
@@ -151,9 +184,9 @@ export class InstanceController {
         let getQrcode: wa.QrCode;
 
         if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
-          await instance.connectToWhatsapp(instanceData.number);
-          await delay(5000);
-          getQrcode = instance.qrCode;
+          const pairingNumber = this.normalizePairingPhoneNumber(instanceData.number);
+          await instance.connectToWhatsapp(pairingNumber);
+          getQrcode = await this.waitForQrCode(instance, !!pairingNumber);
         }
 
         const result = {
@@ -320,14 +353,18 @@ export class InstanceController {
       }
 
       if (state == 'connecting') {
+        const pairingNumber = this.normalizePairingPhoneNumber(number);
+        if (pairingNumber && !instance.qrCode?.pairingCode) {
+          const pairingCode = await instance.client.requestPairingCode(pairingNumber);
+          return { ...instance.qrCode, pairingCode };
+        }
         return instance.qrCode;
       }
 
       if (state == 'close') {
-        await instance.connectToWhatsapp(number);
-
-        await delay(2000);
-        return instance.qrCode;
+        const pairingNumber = this.normalizePairingPhoneNumber(number);
+        await instance.connectToWhatsapp(pairingNumber);
+        return await this.waitForQrCode(instance, !!pairingNumber);
       }
 
       return {

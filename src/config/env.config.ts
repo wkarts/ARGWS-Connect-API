@@ -388,7 +388,6 @@ export type Facebook = {
   USER_TOKEN?: string;
 };
 
-
 export type EventEmitter = {
   MAX_LISTENERS: number;
 };
@@ -801,7 +800,7 @@ export class ConfigService {
         },
       },
       CONFIG_SESSION_PHONE: {
-        CLIENT: process.env?.CONFIG_SESSION_PHONE_CLIENT || 'ARGWS Connect API',
+        CLIENT: process.env?.CONFIG_SESSION_PHONE_CLIENT || '🅰🆁🅶🆆🆂 ​ 🅲🅾🅽🅽🅴🅲🆃 ​ 🅰🅿🅸',
         NAME: process.env?.CONFIG_SESSION_PHONE_NAME || 'Chrome',
       },
       QRCODE: {
