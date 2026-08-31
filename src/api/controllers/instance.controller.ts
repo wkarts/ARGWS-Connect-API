@@ -34,6 +34,59 @@ export class InstanceController {
 
   private readonly logger = new Logger('InstanceController');
 
+  private normalizePairingPhoneNumber(number?: string | null): string | undefined {
+    if (!number) return undefined;
+
+    const normalized = String(number).replace(/\D/g, '');
+    if (normalized.length < 8 || normalized.length > 15) {
+      throw new BadRequestException('Invalid phone number for pairing code. Use country code + area code + number.');
+    }
+
+    return normalized;
+  }
+
+  private async waitForQrCode(instance: any, pairingCodeRequested: boolean): Promise<wa.QrCode> {
+    const timeoutMs = pairingCodeRequested ? 10000 : 5000;
+    const startedAt = Date.now();
+
+    do {
+      const qrCode = instance.qrCode;
+      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code) {
+        return qrCode;
+      }
+      await delay(250);
+    } while (Date.now() - startedAt < timeoutMs);
+
+    const qrCode = instance.qrCode;
+    if (pairingCodeRequested && !qrCode?.pairingCode) {
+      throw new BadRequestException(
+        'Unable to generate pairing code. Confirm the international phone number and try again.',
+      );
+    }
+
+    return qrCode;
+  }
+
+  private async requestExplicitPairingCode(instance: any, number: string): Promise<wa.QrCode> {
+    if (instance.client?.authState?.creds?.registered) {
+      throw new BadRequestException('This WhatsApp session is already registered.');
+    }
+
+    const qrCode = await this.waitForQrCode(instance, false);
+    const pairingCode = await instance.client.requestPairingCode(number);
+
+    if (!pairingCode) {
+      throw new BadRequestException(
+        'Unable to generate pairing code. Confirm the international phone number and try again.',
+      );
+    }
+
+    const maskedNumber = `${'*'.repeat(Math.max(0, number.length - 4))}${number.slice(-4)}`;
+    this.logger.info(`Explicit pairing code generated for ${maskedNumber}`);
+
+    return { ...qrCode, pairingCode };
+  }
+
   public async createInstance(instanceData: InstanceDto) {
     try {
       const instance = channelController.init(instanceData, {
@@ -151,9 +204,17 @@ export class InstanceController {
         let getQrcode: wa.QrCode;
 
         if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
-          await instance.connectToWhatsapp(instanceData.number);
-          await delay(5000);
-          getQrcode = instance.qrCode;
+          const pairingNumber = this.normalizePairingPhoneNumber(instanceData.number);
+
+          // QR and pairing-code are independent authentication modes.
+          // Never pass the phone number into the QR lifecycle because that would
+          // regenerate requestPairingCode() whenever Baileys rotates the QR.
+          instance.phoneNumber = undefined;
+          await instance.connectToWhatsapp();
+
+          getQrcode = pairingNumber
+            ? await this.requestExplicitPairingCode(instance, pairingNumber)
+            : await this.waitForQrCode(instance, false);
         }
 
         const result = {
@@ -320,14 +381,25 @@ export class InstanceController {
       }
 
       if (state == 'connecting') {
+        const pairingNumber = this.normalizePairingPhoneNumber(number);
+        if (pairingNumber) {
+          // Explicit request means a fresh code for the informed phone number.
+          // Do not reuse instance.qrCode.pairingCode from an earlier request.
+          instance.phoneNumber = undefined;
+          return await this.requestExplicitPairingCode(instance, pairingNumber);
+        }
         return instance.qrCode;
       }
 
       if (state == 'close') {
-        await instance.connectToWhatsapp(number);
+        const pairingNumber = this.normalizePairingPhoneNumber(number);
 
-        await delay(2000);
-        return instance.qrCode;
+        instance.phoneNumber = undefined;
+        await instance.connectToWhatsapp();
+
+        return pairingNumber
+          ? await this.requestExplicitPairingCode(instance, pairingNumber)
+          : await this.waitForQrCode(instance, false);
       }
 
       return {

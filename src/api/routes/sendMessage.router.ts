@@ -1,4 +1,5 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
+import { normalizeMessagePayload } from '@api/compat/message-payload.compat';
 import {
   SendAudioDto,
   SendButtonsDto,
@@ -30,18 +31,23 @@ import {
   templateMessageSchema,
   textMessageSchema,
 } from '@validate/validate.schema';
-import { RequestHandler, Router } from 'express';
+import { Request, RequestHandler, Router } from 'express';
 import multer from 'multer';
 
 import { HttpStatus } from './index.router';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+function normalizeRequestBody(req: Request) {
+  req.body = normalizeMessagePayload(req.body);
+}
+
 export class MessageRouter extends RouterBroker {
   constructor(...guards: RequestHandler[]) {
     super();
     this.router
       .post(this.routerPath('sendTemplate'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendTemplateDto>({
           request: req,
           schema: templateMessageSchema,
@@ -52,6 +58,7 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendText'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendTextDto>({
           request: req,
           schema: textMessageSchema,
@@ -62,67 +69,63 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendMedia'), ...guards, upload.single('file'), async (req, res) => {
-        const bodyData = req.body;
-
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendMediaDto>({
           request: req,
           schema: mediaMessageSchema,
           ClassRef: SendMediaDto,
-          execute: (instance) => sendMessageController.sendMedia(instance, bodyData, req.file as any),
+          execute: (instance, data) => sendMessageController.sendMedia(instance, data, req.file as any),
         });
 
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendPtv'), ...guards, upload.single('file'), async (req, res) => {
-        const bodyData = req.body;
-
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendPtvDto>({
           request: req,
           schema: ptvMessageSchema,
           ClassRef: SendPtvDto,
-          execute: (instance) => sendMessageController.sendPtv(instance, bodyData, req.file as any),
+          execute: (instance, data) => sendMessageController.sendPtv(instance, data, req.file as any),
         });
 
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendWhatsAppAudio'), ...guards, upload.single('file'), async (req, res) => {
-        const bodyData = req.body;
-
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendAudioDto>({
           request: req,
           schema: audioMessageSchema,
-          ClassRef: SendMediaDto,
-          execute: (instance) => sendMessageController.sendWhatsAppAudio(instance, bodyData, req.file as any),
+          ClassRef: SendAudioDto,
+          execute: (instance, data) => sendMessageController.sendWhatsAppAudio(instance, data, req.file as any),
         });
 
         return res.status(HttpStatus.CREATED).json(response);
       })
       // TODO: Revisar funcionamento do envio de Status
       .post(this.routerPath('sendStatus'), ...guards, upload.single('file'), async (req, res) => {
-        const bodyData = req.body;
-
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendStatusDto>({
           request: req,
           schema: statusMessageSchema,
           ClassRef: SendStatusDto,
-          execute: (instance) => sendMessageController.sendStatus(instance, bodyData, req.file as any),
+          execute: (instance, data) => sendMessageController.sendStatus(instance, data, req.file as any),
         });
 
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendSticker'), ...guards, upload.single('file'), async (req, res) => {
-        const bodyData = req.body;
-
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendStickerDto>({
           request: req,
           schema: stickerMessageSchema,
           ClassRef: SendStickerDto,
-          execute: (instance) => sendMessageController.sendSticker(instance, bodyData, req.file as any),
+          execute: (instance, data) => sendMessageController.sendSticker(instance, data, req.file as any),
         });
 
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendLocation'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendLocationDto>({
           request: req,
           schema: locationMessageSchema,
@@ -133,6 +136,7 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendContact'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendContactDto>({
           request: req,
           schema: contactMessageSchema,
@@ -143,6 +147,7 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendReaction'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendReactionDto>({
           request: req,
           schema: reactionMessageSchema,
@@ -153,6 +158,7 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendPoll'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendPollDto>({
           request: req,
           schema: pollMessageSchema,
@@ -163,6 +169,7 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendList'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendListDto>({
           request: req,
           schema: listMessageSchema,
@@ -173,6 +180,7 @@ export class MessageRouter extends RouterBroker {
         return res.status(HttpStatus.CREATED).json(response);
       })
       .post(this.routerPath('sendButtons'), ...guards, async (req, res) => {
+        normalizeRequestBody(req);
         const response = await this.dataValidate<SendButtonsDto>({
           request: req,
           schema: buttonsMessageSchema,

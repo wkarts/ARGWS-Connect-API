@@ -1,6 +1,6 @@
 {
   "name": "argws-connect-api",
-  "version": "1.0.6",
+  "version": "1.0.16",
   "description": "ARGWS Connect API — Communication & Integration Platform",
   "main": "./dist/main.js",
   "type": "commonjs",
@@ -10,6 +10,7 @@
     "start:prod": "node dist/main",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
+    "test:compat": "tsx ./test/message-payload.compat.test.ts",
     "lint": "eslint --fix --ext .ts src",
     "lint:check": "eslint --ext .ts src",
     "commit": "cz",

@@ -16,6 +16,14 @@ function writeJson(file, data) {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
+function replaceRequired(file, pattern, replacement) {
+  const current = fs.readFileSync(file, 'utf8');
+  if (!pattern.test(current)) {
+    throw new Error(`Expected version pattern not found in ${file}`);
+  }
+  fs.writeFileSync(file, current.replace(pattern, replacement));
+}
+
 const pkg = readJson('package.json');
 pkg.version = version;
 writeJson('package.json', pkg);
@@ -33,5 +41,18 @@ if (fs.existsSync('RELEASE-MANIFEST.json')) {
 }
 
 fs.writeFileSync('VERSION', `${version}\n`);
+
+const canonicalImage = `ghcr.io/wkarts/argws-connect-api:${version}`;
+replaceRequired(
+  'deploy/canonical/env.example',
+  /^ARGWS_CONNECT_API_IMAGE=ghcr\.io\/wkarts\/argws-connect-api:\d+\.\d+\.\d+$/m,
+  `ARGWS_CONNECT_API_IMAGE=${canonicalImage}`,
+);
+replaceRequired(
+  'deploy/canonical/compose.yaml',
+  /ghcr\.io\/wkarts\/argws-connect-api:\d+\.\d+\.\d+/,
+  canonicalImage,
+);
+
 console.log(`ARGWS Connect API version set to ${version}`);
-console.log('Production remains on :latest; canonical resolves the stable pin from VERSION.');
+console.log(`Production tracks :latest. Canonical pinned to ${canonicalImage}.`);

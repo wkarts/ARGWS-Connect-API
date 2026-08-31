@@ -12,7 +12,7 @@ for key in "${required[@]}"; do
 done
 
 api_image="$(get_value ARGWS_CONNECT_API_IMAGE)"
-[[ "$api_image" == "ghcr.io/wkarts/argws-connect-api:latest" ]] || { echo "ERRO: production deve usar :latest."; exit 1; }
+[[ "$api_image" == "ghcr.io/wkarts/argws-connect-api:develop" ]] || { echo "ERRO: develop deve usar :develop."; exit 1; }
 
 if command -v sysctl >/dev/null 2>&1; then
   overcommit="$(sysctl -n vm.overcommit_memory 2>/dev/null || true)"
@@ -35,4 +35,4 @@ done
 
 docker compose --env-file .env -f compose.yaml config >/dev/null
 docker compose --env-file .env --profile '*' -f compose.yaml config >/dev/null
-echo "Preflight production concluido. Imagem: ${api_image}."
+echo "Preflight develop concluido. Imagem: ${api_image}."

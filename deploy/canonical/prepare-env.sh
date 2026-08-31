@@ -2,8 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-STACK_NAME="production"
-IMAGE_POLICY="ghcr.io/wkarts/argws-connect-api:latest"
+STACK_NAME="canonical"
+IMAGE_POLICY="ghcr.io/wkarts/argws-connect-api:1.0.7"
 
 if [[ ! -f env.example ]]; then
   echo "ERRO: env.example nao encontrado."
@@ -33,7 +33,7 @@ fi
 python3 - <<'PYENV'
 from pathlib import Path
 import re
-stack = 'production'
+stack = 'canonical'
 path = Path('.env')
 text = path.read_text()
 resources = ('postgres','redis','rabbitmq','minio','nats','kafka','zookeeper')
@@ -42,7 +42,7 @@ for resource in resources:
     text = re.sub(rf'{resource}-argws-connect-(production|develop|canonical)(?![-a-z0-9])', f'{resource}-argws-connect-{stack}', text)
 text = re.sub(r'^COMPOSE_PROJECT_NAME=.*$', f'COMPOSE_PROJECT_NAME=argws-connect-{stack}', text, flags=re.M)
 text = re.sub(r'^ARGWS_CONNECT_NETWORK_NAME=.*$', f'ARGWS_CONNECT_NETWORK_NAME=argws-connect-{stack}-net', text, flags=re.M)
-text = re.sub(r'^ARGWS_CONNECT_API_IMAGE=.*$', 'ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:latest', text, flags=re.M)
+text = re.sub(r'^ARGWS_CONNECT_API_IMAGE=.*$', 'ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:1.0.7', text, flags=re.M)
 path.write_text(text)
 PYENV
 chmod 600 .env

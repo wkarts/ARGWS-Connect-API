@@ -144,7 +144,6 @@ import Long from 'long';
 import mimeTypes from 'mime-types';
 import NodeCache from 'node-cache';
 import cron from 'node-cron';
-import { release } from 'os';
 import { join } from 'path';
 import P from 'pino';
 import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
@@ -373,12 +372,10 @@ export class BaileysStartupService extends ChannelStartupService {
         color: { light: '#ffffff', dark: color },
       };
 
-      if (this.phoneNumber) {
-        await delay(1000);
-        this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
-      } else {
-        this.instance.qrcode.pairingCode = null;
-      }
+      // Pairing code is an explicit authentication operation and must not
+      // be regenerated every time WhatsApp rotates the QR code. Repeated calls
+      // invalidate the code that the user is currently typing on the phone.
+      this.instance.qrcode.pairingCode = null;
 
       qrcode.toDataURL(qr, optsQrcode, (error, base64) => {
         if (error) {
@@ -576,18 +573,20 @@ export class BaileysStartupService extends ChannelStartupService {
 
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
 
-    let browserOptions = {};
+    // Pairing-code authentication is validated more strictly by WhatsApp than QR pairing.
+    // Keep ARGWS branding separate from the protocol fingerprint and use a canonical
+    // browser tuple known to be accepted by the companion registration flow.
+    const browser: WABrowserDescription = ['Ubuntu', 'Chrome', '20.0.04'];
+    const browserOptions = { browser };
+    const normalizedPhoneNumber = number?.replace(/\D/g, '') || this.phoneNumber;
 
-    if (number || this.phoneNumber) {
-      this.phoneNumber = number;
-
-      this.logger.info(`Phone number: ${number}`);
-    } else {
-      const browser: WABrowserDescription = [session.CLIENT, session.NAME, release()];
-      browserOptions = { browser };
-
-      this.logger.info(`Browser: ${browser}`);
+    if (normalizedPhoneNumber) {
+      this.phoneNumber = normalizedPhoneNumber;
+      this.logger.info('Pairing-code phone number configured');
     }
+
+    this.logger.info(`Session client: ${session.CLIENT}`);
+    this.logger.info(`WhatsApp protocol browser: ${browser.join(' / ')}`);
 
     const baileysVersion = await fetchLatestWaWebVersion({});
     const version = baileysVersion.version;
@@ -721,7 +720,7 @@ export class BaileysStartupService extends ChannelStartupService {
       this.sendDataWebhook(Events.CALL, payload, true, ['websocket']);
     });
 
-    this.phoneNumber = number;
+    this.phoneNumber = normalizedPhoneNumber;
 
     return this.client;
   }

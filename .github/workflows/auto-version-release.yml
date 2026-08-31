@@ -9,11 +9,7 @@ on:
         description: "Optional bump override for manual execution"
         required: false
         type: choice
-        options:
-          - auto
-          - patch
-          - minor
-          - major
+        options: [auto, patch, minor, major]
         default: auto
 
 permissions:
@@ -40,24 +36,15 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
       - name: Install Node
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint:check
-
-      - name: Generate Prisma client
-        run: npm run db:generate
-
-      - name: Build application
-        run: npm run build
+      - run: npm ci
+      - run: npm run lint:check
+      - run: npm run db:generate
+      - run: npm run build
 
   plan-version:
     name: Plan semantic version
@@ -68,14 +55,10 @@ jobs:
       tag: ${{ steps.plan.outputs.tag }}
       bump: ${{ steps.plan.outputs.bump }}
       previous: ${{ steps.plan.outputs.previous }}
-      pr_number: ${{ steps.pr.outputs.number }}
-      pr_title: ${{ steps.pr.outputs.title }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
       - name: Resolve merged PR metadata
         id: pr
         env:
@@ -84,15 +67,12 @@ jobs:
         run: |
           set -euo pipefail
           pr_json="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" 2>/dev/null || echo '[]')"
-          number="$(jq -r '.[0].number // empty' <<<"$pr_json")"
           title="$(jq -r '.[0].title // empty' <<<"$pr_json")"
           labels="$(jq -r '[.[0].labels[]?.name] | join(",")' <<<"$pr_json")"
           {
-            echo "number=$number"
             echo "title=$title"
             echo "labels=$labels"
           } >> "$GITHUB_OUTPUT"
-
       - name: Compute next version
         id: plan
         env:
@@ -104,82 +84,29 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
-
           labels="$LABELS"
           if [[ "$FORCE_BUMP" != "auto" && -n "$FORCE_BUMP" ]]; then
             labels="version:$FORCE_BUMP"
           fi
-
           plan="$(node .github/scripts/compute-next-version.mjs "$latest" "$labels" "$PR_TITLE")"
           version="$(jq -r '.version' <<<"$plan")"
           bump="$(jq -r '.bump' <<<"$plan")"
           previous="$(jq -r '.previous // ""' <<<"$plan")"
-
           if git rev-parse "v${version}" >/dev/null 2>&1; then
             echo "Tag v${version} already exists; refusing duplicate release." >&2
             exit 1
           fi
-
           {
             echo "version=$version"
             echo "tag=v$version"
             echo "bump=$bump"
             echo "previous=$previous"
           } >> "$GITHUB_OUTPUT"
-
           echo "Planned ARGWS Connect API v${version} (${bump})"
-
-  version-source:
-    name: Persist version metadata
-    needs: plan-version
-    runs-on: ubuntu-latest
-    outputs:
-      release_sha: ${{ steps.commit.outputs.release_sha }}
-    steps:
-      - name: Checkout main
-        uses: actions/checkout@v5
-        with:
-          ref: main
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Ensure main still points to validated commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          current="$(git rev-parse HEAD)"
-          if [[ "$current" != "$GITHUB_SHA" ]]; then
-            echo "main moved while release was being prepared ($current != $GITHUB_SHA)." >&2
-            echo "A newer merge will create the next release; aborting this run to avoid version/source mismatch." >&2
-            exit 1
-          fi
-
-      - name: Apply version
-        run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
-
-      - name: Commit version metadata and production deployment pin
-        id: commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            VERSION \
-            package.json \
-            package-lock.json \
-            RELEASE-MANIFEST.json \
-            deploy/production/env.example \
-            deploy/production/compose.yaml
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
-            git push origin HEAD:main
-          fi
-          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   prepare-build-bases:
     name: Prepare GHCR build bases
-    needs: version-source
+    needs: plan-version
     runs-on: ubuntu-latest
     steps:
       - name: Install skopeo
@@ -196,14 +123,21 @@ jobs:
           skopeo copy --all docker://docker.io/library/node:24-alpine docker://ghcr.io/${OWNER}/argws-connect-node:24-alpine
           skopeo copy --all docker://docker.io/library/nginx:1.27-alpine docker://ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
 
-  publish-images:
-    name: Build and publish ${{ matrix.component }}
-    needs: [plan-version, version-source, prepare-build-bases]
-    runs-on: ubuntu-latest
+  build-native:
+    name: Build ${{ matrix.component }} / ${{ matrix.arch }}
+    needs: [plan-version, prepare-build-bases]
     strategy:
       fail-fast: false
       matrix:
+        component: [api, manager]
+        arch: [amd64, arm64]
         include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
           - component: api
             context: .
             dockerfile: ./Dockerfile
@@ -212,29 +146,122 @@ jobs:
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout versioned source
+      - name: Checkout validated source
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.version-source.outputs.release_sha }}
+          ref: ${{ github.sha }}
           submodules: recursive
           fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
+      - name: Materialize planned version in build context
+        run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Login GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build native image and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            APP_VERSION=${{ needs.plan-version.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
+            org.opencontainers.image.version=${{ needs.plan-version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=release-${{ matrix.component }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}-${{ matrix.arch }}
+      - name: Export digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.component }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Prepare image tags
-        id: tags
+  version-source:
+    name: Persist version metadata
+    needs: [plan-version, build-native]
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.commit.outputs.release_sha }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+      - name: Ensure main still points to validated commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          if [[ "$current" != "$GITHUB_SHA" ]]; then
+            echo "main moved while release was being prepared ($current != $GITHUB_SHA)." >&2
+            exit 1
+          fi
+      - name: Apply version
+        run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
+      - name: Commit version metadata
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION package.json package-lock.json RELEASE-MANIFEST.json \
+            deploy/canonical/env.example deploy/canonical/compose.yaml
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
+            git push origin HEAD:main
+          fi
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  publish-manifests:
+    name: Publish multi-arch ${{ matrix.component }}
+    needs: [plan-version, version-source, build-native]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - component: api
+            image: argws-connect-api
+          - component: manager
+            image: argws-connect-manager
+    steps:
+      - name: Download native digests
+        uses: actions/download-artifact@v5
+        with:
+          pattern: digest-${{ matrix.component }}-*
+          path: /tmp/digests
+          merge-multiple: true
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create release manifest and tags
         shell: bash
         run: |
           set -euo pipefail
@@ -243,51 +270,36 @@ jobs:
           rest="${version#*.}"
           minor="${rest%%.*}"
           repo="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
-          {
-            echo 'tags<<EOF'
-            echo "${repo}:${version}"
-            echo "${repo}:${major}.${minor}"
-            echo "${repo}:${major}"
-            echo "${repo}:latest"
-            echo "${repo}:sha-${{ needs.version-source.outputs.release_sha }}"
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build and push release image
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            APP_VERSION=${{ needs.plan-version.outputs.version }}
-          labels: |
-            org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
-            org.opencontainers.image.version=${{ needs.plan-version.outputs.version }}
-            org.opencontainers.image.revision=${{ needs.version-source.outputs.release_sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=release-${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}
-
-      - name: Save digest artifact
+          sources=()
+          for digest_file in /tmp/digests/*; do
+            sources+=("${repo}@sha256:$(basename "$digest_file")")
+          done
+          test "${#sources[@]}" -eq 2
+          docker buildx imagetools create \
+            -t "${repo}:${version}" \
+            -t "${repo}:${major}.${minor}" \
+            -t "${repo}:${major}" \
+            -t "${repo}:latest" \
+            -t "${repo}:sha-${{ needs.version-source.outputs.release_sha }}" \
+            "${sources[@]}"
+          docker buildx imagetools inspect "${repo}:${version}"
+      - name: Save manifest digest
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p release-digests
-          printf '%s\n' "${{ steps.build.outputs.digest }}" > "release-digests/${{ matrix.image }}.digest"
-
-      - name: Upload digest
+          repo="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
+          docker buildx imagetools inspect "${repo}:${{ needs.plan-version.outputs.version }}" > "release-digests/${{ matrix.image }}.txt"
+      - name: Upload manifest report
         uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.image }}
-          path: release-digests/${{ matrix.image }}.digest
+          name: manifest-${{ matrix.image }}
+          path: release-digests/${{ matrix.image }}.txt
           retention-days: 30
 
   release:
     name: Tag and publish GitHub Release
-    needs: [plan-version, version-source, publish-images]
+    needs: [plan-version, version-source, publish-manifests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout versioned source
@@ -295,14 +307,12 @@ jobs:
         with:
           ref: ${{ needs.version-source.outputs.release_sha }}
           fetch-depth: 0
-
-      - name: Download image digests
+      - name: Download manifest reports
         uses: actions/download-artifact@v5
         with:
-          pattern: digest-*
+          pattern: manifest-*
           path: release-digests
           merge-multiple: true
-
       - name: Create immutable tag
         shell: bash
         run: |
@@ -312,8 +322,7 @@ jobs:
           git tag -a "${{ needs.plan-version.outputs.tag }}" "${{ needs.version-source.outputs.release_sha }}" \
             -m "ARGWS Connect API ${{ needs.plan-version.outputs.tag }}"
           git push origin "${{ needs.plan-version.outputs.tag }}"
-
-      - name: Build image digest manifest
+      - name: Build image manifest report
         shell: bash
         run: |
           set -euo pipefail
@@ -324,14 +333,12 @@ jobs:
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
             echo
-            echo "Image digests:"
-            for f in release-digests/*.digest; do
-              name="$(basename "$f" .digest)"
-              digest="$(cat "$f")"
-              echo "${name}=${digest}"
+            for f in release-digests/*.txt; do
+              echo "===== $(basename "$f") ====="
+              cat "$f"
+              echo
             done
           } > IMAGE-DIGESTS.txt
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-canonical}
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}
 
 x-logging: &default-logging
   driver: json-file
@@ -7,10 +7,10 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  api-argws-connect-canonical:
-    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:1.0.16}
+  api-argws-connect-develop:
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
     pull_policy: always
-    container_name: api-argws-connect-canonical
+    container_name: api-argws-connect-develop
     restart: unless-stopped
     env_file: [.env]
     environment:
@@ -21,19 +21,19 @@ services:
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
-      postgres-argws-connect-canonical:
+      postgres-argws-connect-develop:
         condition: service_healthy
-      redis-argws-connect-canonical:
+      redis-argws-connect-develop:
         condition: service_healthy
-      rabbitmq-argws-connect-canonical:
+      rabbitmq-argws-connect-develop:
         condition: service_healthy
-      minio-argws-connect-canonical:
+      minio-argws-connect-develop:
         condition: service_healthy
     ports:
-      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38083}:8080"
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38082}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
-    networks: [argws-connect-canonical-net]
+    networks: [argws-connect-develop-net]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -42,10 +42,10 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  postgres-argws-connect-canonical:
+  postgres-argws-connect-develop:
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
-    container_name: postgres-argws-connect-canonical
+    container_name: postgres-argws-connect-develop
     restart: unless-stopped
     env_file: [.env]
     command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "listen_addresses=*"]
@@ -57,8 +57,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
-      argws-connect-canonical-net:
-        aliases: [postgres-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [postgres-argws-connect-develop]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -67,10 +67,10 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  redis-argws-connect-canonical:
+  redis-argws-connect-develop:
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
-    container_name: redis-argws-connect-canonical
+    container_name: redis-argws-connect-develop
     restart: unless-stopped
     env_file: [.env]
     command: ["sh", "-c", "exec redis-server --port 6379 --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
@@ -78,8 +78,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
-      argws-connect-canonical-net:
-        aliases: [redis-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [redis-argws-connect-develop]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s
@@ -88,18 +88,18 @@ services:
       start_period: 15s
     logging: *default-logging
 
-  rabbitmq-argws-connect-canonical:
+  rabbitmq-argws-connect-develop:
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
-    container_name: rabbitmq-argws-connect-canonical
+    container_name: rabbitmq-argws-connect-develop
     restart: unless-stopped
     env_file: [.env]
     expose: ["5672", "15672", "15692"]
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
-      argws-connect-canonical-net:
-        aliases: [rabbitmq-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [rabbitmq-argws-connect-develop]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 15s
@@ -108,10 +108,10 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  minio-argws-connect-canonical:
+  minio-argws-connect-develop:
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
-    container_name: minio-argws-connect-canonical
+    container_name: minio-argws-connect-develop
     restart: unless-stopped
     env_file: [.env]
     command: server /data --console-address ":9001"
@@ -119,8 +119,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
-      argws-connect-canonical-net:
-        aliases: [minio-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [minio-argws-connect-develop]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
       interval: 15s
@@ -129,26 +129,26 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  nats-argws-connect-canonical:
+  nats-argws-connect-develop:
     profiles: ["nats", "extended"]
     image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
     pull_policy: always
-    container_name: nats-argws-connect-canonical
+    container_name: nats-argws-connect-develop
     restart: unless-stopped
     command: ["-js", "-m", "8222", "--store_dir", "/data"]
     expose: ["4222", "8222"]
     volumes:
       - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
     networks:
-      argws-connect-canonical-net:
-        aliases: [nats-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [nats-argws-connect-develop]
     logging: *default-logging
 
-  zookeeper-argws-connect-canonical:
+  zookeeper-argws-connect-develop:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
-    container_name: zookeeper-argws-connect-canonical
+    container_name: zookeeper-argws-connect-develop
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -158,22 +158,22 @@ services:
       - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
       - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
     networks:
-      argws-connect-canonical-net:
-        aliases: [zookeeper-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [zookeeper-argws-connect-develop]
     logging: *default-logging
 
-  kafka-argws-connect-canonical:
+  kafka-argws-connect-develop:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
     pull_policy: always
-    container_name: kafka-argws-connect-canonical
+    container_name: kafka-argws-connect-develop
     restart: unless-stopped
-    depends_on: [zookeeper-argws-connect-canonical]
+    depends_on: [zookeeper-argws-connect-develop]
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper-argws-connect-canonical:2181
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-argws-connect-develop:2181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-argws-connect-canonical:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-argws-connect-develop:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -182,11 +182,11 @@ services:
     volumes:
       - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
     networks:
-      argws-connect-canonical-net:
-        aliases: [kafka-argws-connect-canonical]
+      argws-connect-develop-net:
+        aliases: [kafka-argws-connect-develop]
     logging: *default-logging
 
 networks:
-  argws-connect-canonical-net:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-canonical-net}
+  argws-connect-develop-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-develop-net}
     driver: bridge

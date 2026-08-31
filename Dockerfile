@@ -1,5 +1,7 @@
 ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:24-alpine
+ARG APP_VERSION=1.0.0
 FROM ${NODE_IMAGE} AS builder
+ARG APP_VERSION
 
 RUN apk update && \
     apk add --no-cache git ffmpeg wget curl bash openssl
@@ -14,6 +16,8 @@ COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
 
+# A versão do package.json é materializada pelo pipeline antes do docker build.
+# O Dockerfile não tenta versionar novamente: apenas instala exatamente o lockfile.
 RUN npm ci --silent
 
 COPY ./src ./src

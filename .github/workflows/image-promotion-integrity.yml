@@ -5,26 +5,24 @@ on:
     branches: [main, develop]
     paths:
       - "deploy/production/**"
-      - "deploy/homologation/**"
+      - "deploy/develop/**"
       - "deploy/canonical/**"
       - ".github/workflows/ghcr-publish-application.yml"
       - ".github/workflows/auto-version-release.yml"
       - ".github/workflows/image-promotion-integrity.yml"
       - "RELEASE-AUTOMATION.md"
       - "DEVELOPMENT-FLOW.md"
-      - "VERSION"
   push:
     branches: [main, develop]
     paths:
       - "deploy/production/**"
-      - "deploy/homologation/**"
+      - "deploy/develop/**"
       - "deploy/canonical/**"
       - ".github/workflows/ghcr-publish-application.yml"
       - ".github/workflows/auto-version-release.yml"
       - ".github/workflows/image-promotion-integrity.yml"
       - "RELEASE-AUTOMATION.md"
       - "DEVELOPMENT-FLOW.md"
-      - "VERSION"
 
 permissions:
   contents: read
@@ -41,44 +39,43 @@ jobs:
           set -euo pipefail
 
           prod="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
-          homolog="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/homologation/env.example | cut -d= -f2-)"
-          stable="$(tr -d '[:space:]' < VERSION)"
+          develop="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/develop/env.example | cut -d= -f2-)"
+          canonical="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
 
-          [[ "$homolog" == "ghcr.io/wkarts/argws-connect-api:develop" ]]
           [[ "$prod" == "ghcr.io/wkarts/argws-connect-api:latest" ]]
-          [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-
-          grep -q 'ARGWS_CONNECT_API_IMAGE:?ARGWS_CONNECT_API_IMAGE canonical' deploy/canonical/compose.yaml
-          grep -q '../../VERSION' deploy/canonical/deploy.sh
-          grep -q 'ghcr.io/wkarts/argws-connect-api:${version}' deploy/canonical/deploy.sh
-
-          [[ "$prod" != *":develop" ]]
-          [[ "$homolog" != *":latest" ]]
-          [[ "$prod" != *":production" ]]
-          [[ "$homolog" != *":homolog" ]]
+          [[ "$develop" == "ghcr.io/wkarts/argws-connect-api:develop" ]]
+          [[ "$canonical" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
-          grep -q 'argws-connect-api:develop' .github/workflows/ghcr-publish-application.yml
+          grep -q 'runner: ubuntu-24.04$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'runner: ubuntu-24.04-arm$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'platform: linux/amd64$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'platform: linux/arm64$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'docker buildx imagetools create -t "${repo}:develop"' .github/workflows/ghcr-publish-application.yml
+
+          if grep -q 'setup-qemu' .github/workflows/ghcr-publish-application.yml; then
+            echo "Develop must use native amd64/arm64 runners, not QEMU." >&2
+            exit 1
+          fi
 
           if grep -nE 'argws-connect-api:(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' \
             .github/workflows/ghcr-publish-application.yml; then
-            echo "The develop workflow may publish only argws-connect-api:develop." >&2
+            echo "The develop workflow may publish only the :develop channel." >&2
             exit 1
           fi
 
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
-          grep -q 'argws-connect-api:develop' deploy/homologation/compose.yaml
           grep -q 'argws-connect-api:latest' deploy/production/compose.yaml
+          grep -q 'argws-connect-api:develop' deploy/develop/compose.yaml
+          grep -Eq 'argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+' deploy/canonical/compose.yaml
 
-          echo "Channels OK: homolog=:develop production=:latest canonical=:${stable}"
-
-      - name: Validate canonical stable overlay
+      - name: Validate independent stack identities
+        shell: bash
         run: |
           set -euo pipefail
-          bash -n deploy/canonical/deploy.sh
-          bash -n deploy/canonical/preflight.sh
-          bash -n deploy/canonical/update.sh
-          bash -n deploy/canonical/status.sh
-          grep -q 'docker manifest inspect' deploy/canonical/preflight.sh
-          grep -q '../production/compose.yaml' deploy/canonical/deploy.sh
-          grep -q 'exec bash ../canonical/deploy.sh' deploy/production/promote.sh
+          grep -q '^COMPOSE_PROJECT_NAME=argws-connect-production$' deploy/production/env.example
+          grep -q '^COMPOSE_PROJECT_NAME=argws-connect-develop$' deploy/develop/env.example
+          grep -q '^COMPOSE_PROJECT_NAME=argws-connect-canonical$' deploy/canonical/env.example
+          grep -q '^ARGWS_CONNECT_API_HOST_PORT=38080$' deploy/production/env.example
+          grep -q '^ARGWS_CONNECT_API_HOST_PORT=38082$' deploy/develop/env.example
+          grep -q '^ARGWS_CONNECT_API_HOST_PORT=38083$' deploy/canonical/env.example
