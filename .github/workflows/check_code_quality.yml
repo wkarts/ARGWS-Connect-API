@@ -35,6 +35,9 @@ jobs:
     - name: Check linting
       run: npm run lint:check
 
+    - name: Check legacy message compatibility
+      run: npm run test:compat
+
     - name: Generate Prisma client
       run: npm run db:generate
 
