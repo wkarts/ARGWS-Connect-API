@@ -373,17 +373,10 @@ export class BaileysStartupService extends ChannelStartupService {
         color: { light: '#ffffff', dark: color },
       };
 
-      if (this.phoneNumber) {
-        await delay(1000);
-        try {
-          this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
-        } catch (error) {
-          this.instance.qrcode.pairingCode = null;
-          this.logger.error(`Pairing code generation failed: ${error?.message || error}`);
-        }
-      } else {
-        this.instance.qrcode.pairingCode = null;
-      }
+      // Pairing code is an explicit authentication operation and must not
+      // be regenerated every time WhatsApp rotates the QR code. Repeated calls
+      // invalidate the code that the user is currently typing on the phone.
+      this.instance.qrcode.pairingCode = null;
 
       qrcode.toDataURL(qr, optsQrcode, (error, base64) => {
         if (error) {
