@@ -66,6 +66,8 @@ O workflow executa, em ordem:
 
 A imagem precisa reportar em runtime a mesma versão SemVer publicada no GHCR. A release não é criada se validação ou build falhar.
 
+Antes de uma promoção estável, a baseline da `main` deve estar verde nos gates de **Image Promotion**, **Deployment Integrity**, **Database Integrity**, **Code Quality** e **Security/CodeQL**. Commits de preparação usam `[skip release]`; somente o commit explícito de promoção dispara a próxima SemVer.
+
 ## Cálculo da versão
 
 O incremento padrão é `patch`.
