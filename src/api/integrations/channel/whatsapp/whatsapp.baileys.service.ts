@@ -576,7 +576,7 @@ export class BaileysStartupService extends ChannelStartupService {
     // Pairing-code authentication is validated more strictly by WhatsApp than QR pairing.
     // Keep ARGWS branding separate from the protocol fingerprint and use a canonical
     // browser tuple known to be accepted by the companion registration flow.
-    const browser: WABrowserDescription = ['Ubuntu', 'Chrome', '20.0.04'];
+    const browser: WABrowserDescription = ['🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸', 'Chrome', '20.0.04'];
     const browserOptions = { browser };
     const normalizedPhoneNumber = number?.replace(/\D/g, '') || this.phoneNumber;
 
