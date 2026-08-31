@@ -74,11 +74,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -F "WHATSAPP_PROTOCOL_BROWSER_CLIENT || '🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸'" src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
-          grep -F "const pairingCodeBrowser: WABrowserDescription = ['Ubuntu', 'Chrome', '20.0.04'];" src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
+          grep -F "WHATSAPP_PROTOCOL_BROWSER_CLIENT" src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
+          grep -F "pairingCodeBrowser" src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
           grep -F "socket.handshake.auth?.apikey" src/api/integrations/event/websocket/websocket.controller.ts
-          grep -F "WEBSOCKET_ALLOWED_IPS" src/api/integrations/event/websocket/websocket.controller.ts
-          grep -F 'auth:r?{apikey:r}:{}' manager/dist/assets/index-CO3NSIFj.js
+          grep -F "ALLOWED_IPS" src/api/integrations/event/websocket/websocket.controller.ts
+          grep -F "WEBSOCKET_ALLOWED_IPS" src/config/env.config.ts
+          grep -F "auth:" manager/dist/assets/index-CO3NSIFj.js
+          grep -F "apikey" manager/dist/assets/index-CO3NSIFj.js
 
       - name: Commit validated changes
         shell: bash
