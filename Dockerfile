@@ -16,7 +16,9 @@ COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
 
-RUN npm version --no-git-tag-version "${APP_VERSION}" && npm ci --silent
+# A versão do package.json é materializada pelo pipeline antes do docker build.
+# O Dockerfile não tenta versionar novamente: apenas instala exatamente o lockfile.
+RUN npm ci --silent
 
 COPY ./src ./src
 COPY ./public ./public
