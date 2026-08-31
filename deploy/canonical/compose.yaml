@@ -1,0 +1,6 @@
+# Overlay canônico do deployment de produção.
+# Use sempre junto de ../production/compose.yaml.
+# Nenhuma porta, rede, volume ou serviço é alterado aqui.
+services:
+  api:
+    image: ${ARGWS_CONNECT_API_IMAGE:?ARGWS_CONNECT_API_IMAGE canonical deve ser definida}
