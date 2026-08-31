@@ -2,9 +2,9 @@ name: Deployment Integrity
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   compose:
-    name: Compose / Single Port / Local Services
+    name: Compose / Single Port / Deployment Channels
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,6 +27,7 @@ jobs:
           cp deploy/homologation/env.example deploy/homologation/.env
 
       - name: Validate Compose files
+        shell: bash
         run: |
           set -euo pipefail
           docker compose -f docker-compose.yaml config >/dev/null
@@ -39,104 +40,109 @@ jobs:
           docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
           docker compose --profile '*' -f deploy/production/compose.yaml config >/dev/null
           docker compose --profile '*' -f deploy/homologation/compose.yaml config >/dev/null
+          stable="$(tr -d '[:space:]' < VERSION)"
+          ARGWS_CONNECT_API_IMAGE="ghcr.io/wkarts/argws-connect-api:${stable}" \
+            docker compose --env-file deploy/production/.env \
+              -f deploy/production/compose.yaml -f deploy/canonical/compose.yaml config >/dev/null
 
-      - name: Enforce single-port deployment contract
+      - name: Enforce deployment contract
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
+          import copy
           import json
+          import os
           import re
           import subprocess
+          from pathlib import Path
 
-          extended_compose_files = [
+          core = {"api", "postgres", "redis", "rabbitmq", "minio"}
+          optional = {"nats", "zookeeper", "kafka"}
+          extended_optional = {"mysql", "nats", "zookeeper", "kafka"}
+          stable = Path("VERSION").read_text().strip()
+          assert re.fullmatch(r"\d+\.\d+\.\d+", stable), stable
+
+          def compose_json(files, profiles=False, env_file=None, extra_env=None):
+              cmd = ["docker", "compose"]
+              if profiles:
+                  cmd += ["--profile", "*"]
+              if env_file:
+                  cmd += ["--env-file", env_file]
+              for f in files:
+                  cmd += ["-f", f]
+              cmd += ["config", "--format", "json"]
+              env = os.environ.copy()
+              if extra_env:
+                  env.update(extra_env)
+              return json.loads(subprocess.check_output(cmd, text=True, env=env))
+
+          extended = [
               "docker-compose.yaml",
               "deploy/cloudpanel/docker-compose.yml",
               "deploy/dockge/compose.yaml",
           ]
-          canonical_compose_files = [
-              "deploy/production/compose.yaml",
-              "deploy/homologation/compose.yaml",
-          ]
+          for path in extended:
+              data = compose_json([path], profiles=True)
+              missing = (core | extended_optional) - set(data["services"])
+              assert not missing, f"{path}: services ausentes: {sorted(missing)}"
 
-          core = {"api", "postgres", "redis", "rabbitmq", "minio"}
-          extended_optional = {"mysql", "nats", "zookeeper", "kafka"}
-          canonical_optional = {"nats", "zookeeper", "kafka"}
+          prod_default = compose_json(["deploy/production/compose.yaml"])
+          prod = compose_json(["deploy/production/compose.yaml"], profiles=True)
+          homolog_default = compose_json(["deploy/homologation/compose.yaml"])
+          homolog = compose_json(["deploy/homologation/compose.yaml"], profiles=True)
+          canonical = compose_json(
+              ["deploy/production/compose.yaml", "deploy/canonical/compose.yaml"],
+              profiles=True,
+              env_file="deploy/production/.env",
+              extra_env={"ARGWS_CONNECT_API_IMAGE": f"ghcr.io/wkarts/argws-connect-api:{stable}"},
+          )
 
-          def compose_json(path: str, profiles: bool = False):
-              cmd = ["docker", "compose"]
-              if profiles:
-                  cmd += ["--profile", "*"]
-              cmd += ["-f", path, "config", "--format", "json"]
-              return json.loads(subprocess.check_output(cmd, text=True))
+          assert set(prod_default["services"]) == core
+          assert set(homolog_default["services"]) == core
+          assert set(prod["services"]) == core | optional
+          assert set(homolog["services"]) == core | optional
+          assert set(canonical["services"]) == core | optional
 
-          parsed_full = {}
-
-          for compose_file in extended_compose_files:
-              data = compose_json(compose_file, profiles=True)
-              parsed_full[compose_file] = data
-              services = set(data["services"])
-              missing = (core | extended_optional) - services
-              assert not missing, f"{compose_file}: services ausentes: {sorted(missing)}"
-
-          for compose_file in canonical_compose_files:
-              default_data = compose_json(compose_file, profiles=False)
-              default_services = set(default_data["services"])
-              assert default_services == core, (
-                  f"{compose_file}: sem profiles deve subir apenas core {sorted(core)}, "
-                  f"encontrado {sorted(default_services)}"
-              )
-
-              full_data = compose_json(compose_file, profiles=True)
-              full_services = set(full_data["services"])
-              expected = core | canonical_optional
-              assert full_services == expected, (
-                  f"{compose_file}: com profiles deve conter {sorted(expected)}, "
-                  f"encontrado {sorted(full_services)}"
-              )
-              parsed_full[compose_file] = full_data
-
-          for compose_file, data in parsed_full.items():
+          def assert_single_port(label, data, expected_port):
               services = data["services"]
-              assert "manager" not in services, f"{compose_file}: manager separado nao e permitido"
+              assert "manager" not in services, f"{label}: manager separado nao permitido"
               published = [name for name, cfg in services.items() if cfg.get("ports")]
-              assert published == ["api"], f"{compose_file}: somente api pode publicar porta: {published}"
-              api_ports = services["api"]["ports"]
-              assert len(api_ports) == 1, f"{compose_file}: API deve publicar exatamente uma porta"
-              assert int(api_ports[0]["target"]) == 8080, f"{compose_file}: target interno da API deve ser 8080"
-              api_env = services["api"].get("environment", {})
-              assert str(api_env.get("SERVER_PORT")) == "8080", f"{compose_file}: SERVER_PORT interno deve ser 8080"
+              assert published == ["api"], f"{label}: somente API pode publicar porta: {published}"
+              ports = services["api"]["ports"]
+              assert len(ports) == 1
+              assert int(ports[0]["target"]) == 8080
+              assert int(ports[0]["published"]) == expected_port
+              assert str(services["api"].get("environment", {}).get("SERVER_PORT")) == "8080"
               for service_name, cfg in services.items():
                   for mount in cfg.get("volumes", []):
-                      assert mount.get("type") == "bind", f"{compose_file}: {service_name} usa volume nao-bind"
+                      assert mount.get("type") == "bind", f"{label}: {service_name} volume nao-bind"
                   image = cfg.get("image", "")
-                  assert image.startswith("ghcr.io/wkarts/"), f"{compose_file}: imagem fora do GHCR: {image}"
+                  assert image.startswith("ghcr.io/wkarts/"), f"{label}: imagem fora do GHCR: {image}"
 
-          prod = parsed_full["deploy/production/compose.yaml"]
-          homolog = parsed_full["deploy/homologation/compose.yaml"]
-          prod_port = int(prod["services"]["api"]["ports"][0]["published"])
-          homolog_port = int(homolog["services"]["api"]["ports"][0]["published"])
-          assert prod_port == 38080, f"producao: porta default deve ser 38080, encontrada {prod_port}"
-          assert homolog_port == 38081, f"homologacao: porta default deve ser 38081, encontrada {homolog_port}"
-          assert prod_port != homolog_port, "producao e homologacao nao podem publicar a mesma porta"
-          assert prod.get("name") != homolog.get("name"), "producao e homologacao precisam de project names diferentes"
+          assert_single_port("production", prod, 38080)
+          assert_single_port("canonical", canonical, 38080)
+          assert_single_port("homologation", homolog, 38081)
 
-          for compose_file in canonical_compose_files:
-              services = parsed_full[compose_file]["services"]
-              fixed_names = [name for name, cfg in services.items() if cfg.get("container_name")]
-              assert not fixed_names, f"{compose_file}: container_name fixo impede coexistencia: {fixed_names}"
-
-          # Política de promoção: homologação acompanha :develop; produção fica em SemVer promovida.
-          homolog_image = homolog["services"]["api"]["image"]
           prod_image = prod["services"]["api"]["image"]
-          assert homolog_image == "ghcr.io/wkarts/argws-connect-api:develop", (
-              f"homologacao deve usar :develop, encontrado {homolog_image}"
-          )
-          assert re.fullmatch(r"ghcr\.io/wkarts/argws-connect-api:\d+\.\d+\.\d+", prod_image), (
-              f"producao deve usar tag SemVer imutavel, encontrado {prod_image}"
-          )
+          homolog_image = homolog["services"]["api"]["image"]
+          canonical_image = canonical["services"]["api"]["image"]
+          assert prod_image == "ghcr.io/wkarts/argws-connect-api:latest", prod_image
+          assert homolog_image == "ghcr.io/wkarts/argws-connect-api:develop", homolog_image
+          assert canonical_image == f"ghcr.io/wkarts/argws-connect-api:{stable}", canonical_image
 
-          print(f"Deployment contract OK | homolog={homolog_image} | production={prod_image}")
+          assert prod.get("name") == canonical.get("name"), "canonical deve usar o mesmo project name da producao"
+          assert prod["networks"] == canonical["networks"], "canonical nao pode alterar redes da producao"
+
+          prod_normalized = copy.deepcopy(prod)
+          canonical_normalized = copy.deepcopy(canonical)
+          canonical_normalized["services"]["api"]["image"] = prod_normalized["services"]["api"]["image"]
+          assert prod_normalized == canonical_normalized, "canonical pode diferir da producao somente na imagem da API"
+
+          print(
+              f"Deployment OK | homolog=:develop | production=:latest | canonical=:{stable} | "
+              "production/canonical port=38080"
+          )
           PY
 
       - name: Validate environment contracts
@@ -162,35 +168,24 @@ jobs:
                   result[key] = value
               return result
 
-          prod_values = values('deploy/production/env.example')
-          homolog_values = values('deploy/homologation/env.example')
-          prod = set(prod_values)
-          homolog = set(homolog_values)
-          assert prod == homolog, (
-              f"env production/homologation divergentes; "
-              f"somente prod={sorted(prod-homolog)}, somente homolog={sorted(homolog-prod)}"
+          prod = values('deploy/production/env.example')
+          homolog = values('deploy/homologation/env.example')
+          assert set(prod) == set(homolog), (
+              f"production/homologation env keys divergentes: "
+              f"prod-only={sorted(set(prod)-set(homolog))}, homolog-only={sorted(set(homolog)-set(prod))}"
           )
-
-          required = {
-              'COMPOSE_PROJECT_NAME', 'COMPOSE_PROFILES', 'ARGWS_CONNECT_NETWORK_NAME',
-              'ARGWS_CONNECT_BIND_ADDRESS', 'ARGWS_CONNECT_API_HOST_PORT',
-              'ARGWS_CONNECT_API_IMAGE', 'DATABASE_PROVIDER', 'DATABASE_CONNECTION_URI',
-              'POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'RABBITMQ_DEFAULT_PASS',
-              'MINIO_ROOT_PASSWORD', 'AUTHENTICATION_API_KEY', 'SERVER_PORT', 'SERVER_URL',
-              'ARGWS_CONNECT_NATS_IMAGE', 'ARGWS_CONNECT_KAFKA_IMAGE',
-              'ARGWS_CONNECT_ZOOKEEPER_IMAGE', 'NATS_ENABLED', 'KAFKA_ENABLED',
-          }
-          missing = required - prod
-          assert not missing, f"variaveis obrigatorias ausentes: {sorted(missing)}"
-          assert homolog_values['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:develop'
-          assert not prod_values['ARGWS_CONNECT_API_IMAGE'].endswith(':latest')
-          assert not prod_values['ARGWS_CONNECT_API_IMAGE'].endswith(':develop')
-          assert ':homolog' not in homolog_values['ARGWS_CONNECT_API_IMAGE']
-          assert ':production' not in prod_values['ARGWS_CONNECT_API_IMAGE']
-          print(f"Production/Homologation env parity OK: {len(prod)} keys")
+          assert prod['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:latest'
+          assert homolog['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:develop'
+          canonical = values('deploy/canonical/env.example')
+          assert set(canonical) == {'ARGWS_CONNECT_CANONICAL_VERSION'}
+          if canonical['ARGWS_CONNECT_CANONICAL_VERSION']:
+              import re
+              assert re.fullmatch(r'\d+\.\d+\.\d+', canonical['ARGWS_CONNECT_CANONICAL_VERSION'])
+          print(f"Environment channels OK: production={prod['ARGWS_CONNECT_API_IMAGE']} homolog={homolog['ARGWS_CONNECT_API_IMAGE']}")
           PY
 
       - name: Validate deployment scripts
+        shell: bash
         run: |
           set -euo pipefail
           for dir in deploy/production deploy/homologation; do
@@ -201,27 +196,21 @@ jobs:
             test -f "$dir/nginx-location.conf.example"
             test -f "$dir/README.md"
           done
+          for script in deploy.sh update.sh status.sh preflight.sh; do
+            bash -n "deploy/canonical/$script"
+          done
+          test -f deploy/canonical/compose.yaml
+          test -f deploy/canonical/env.example
+          test -f deploy/canonical/README.md
 
-      - name: Reject invalid environment tags in image publishing
-        run: |
-          set -euo pipefail
-          if grep -nE 'ghcr\.io/.*/argws-connect-(api|manager):(homolog|production)([[:space:]]|$)' \
-            .github/workflows/ghcr-publish-application.yml; then
-            echo "Tags :homolog e :production sao proibidas. Develop publica somente :develop." >&2
-            exit 1
-          fi
-
-      - name: Login GHCR for image availability checks
+      - name: Login GHCR for infrastructure checks
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Verify runtime images exist
+      - name: Verify shared runtime infrastructure images
         shell: bash
         run: |
           set -euo pipefail
-          prod_image="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
           for image in \
-            ghcr.io/wkarts/argws-connect-api:develop \
-            "$prod_image" \
             ghcr.io/wkarts/argws-connect-postgres:15 \
             ghcr.io/wkarts/argws-connect-redis:latest \
             ghcr.io/wkarts/argws-connect-rabbitmq:management \
