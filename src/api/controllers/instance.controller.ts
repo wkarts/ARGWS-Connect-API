@@ -72,6 +72,7 @@ export class InstanceController {
       throw new BadRequestException('This WhatsApp session is already registered.');
     }
 
+    await instance.preparePairingConnection(number);
     const qrCode = await this.waitForQrCode(instance, false);
     const pairingCode = await instance.client.requestPairingCode(number);
 
@@ -207,14 +208,16 @@ export class InstanceController {
           const pairingNumber = this.normalizePairingPhoneNumber(instanceData.number);
 
           // QR and pairing-code are independent authentication modes.
-          // Never pass the phone number into the QR lifecycle because that would
-          // regenerate requestPairingCode() whenever Baileys rotates the QR.
-          instance.phoneNumber = undefined;
-          await instance.connectToWhatsapp();
-
-          getQrcode = pairingNumber
-            ? await this.requestExplicitPairingCode(instance, pairingNumber)
-            : await this.waitForQrCode(instance, false);
+          // QR uses the configurable Connect|API fingerprint; pairing uses Ubuntu.
+          if (pairingNumber) {
+            getQrcode = await this.requestExplicitPairingCode(instance, pairingNumber);
+          } else {
+            if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
+              throw new BadRequestException('QR connection is only available for the Baileys provider');
+            }
+            await instance.prepareQrConnection();
+            getQrcode = await this.waitForQrCode(instance, false);
+          }
         }
 
         const result = {
@@ -385,21 +388,28 @@ export class InstanceController {
         if (pairingNumber) {
           // Explicit request means a fresh code for the informed phone number.
           // Do not reuse instance.qrCode.pairingCode from an earlier request.
-          instance.phoneNumber = undefined;
           return await this.requestExplicitPairingCode(instance, pairingNumber);
         }
-        return instance.qrCode;
+
+        if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
+          throw new BadRequestException('QR connection is only available for the Baileys provider');
+        }
+        await instance.prepareQrConnection();
+        return await this.waitForQrCode(instance, false);
       }
 
       if (state == 'close') {
         const pairingNumber = this.normalizePairingPhoneNumber(number);
 
-        instance.phoneNumber = undefined;
-        await instance.connectToWhatsapp();
+        if (pairingNumber) {
+          return await this.requestExplicitPairingCode(instance, pairingNumber);
+        }
 
-        return pairingNumber
-          ? await this.requestExplicitPairingCode(instance, pairingNumber)
-          : await this.waitForQrCode(instance, false);
+        if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
+          throw new BadRequestException('QR connection is only available for the Baileys provider');
+        }
+        await instance.prepareQrConnection();
+        return await this.waitForQrCode(instance, false);
       }
 
       return {

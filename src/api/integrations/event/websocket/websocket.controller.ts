@@ -18,6 +18,38 @@ export class WebsocketController extends EventController implements EventControl
     this.cors = configService.get<Cors>('CORS').ORIGIN;
   }
 
+  private normalizeRemoteAddress(address?: string): string {
+    const raw = String(address || '').trim();
+    return raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+  }
+
+  private matchesAllowedAddress(address: string, pattern: string): boolean {
+    const normalizedAddress = this.normalizeRemoteAddress(address);
+    const normalizedPattern = this.normalizeRemoteAddress(pattern);
+
+    if (!normalizedPattern) return false;
+    if (normalizedPattern === '*') return true;
+    if (normalizedPattern.endsWith('*')) {
+      return normalizedAddress.startsWith(normalizedPattern.slice(0, -1));
+    }
+
+    return normalizedAddress === normalizedPattern;
+  }
+
+  private isAllowedNetworkAddress(address?: string): boolean {
+    const websocketConfig = configService.get<Websocket>('WEBSOCKET');
+    const allowedAddresses =
+      websocketConfig.ALLOWED_IPS ||
+      websocketConfig.ALLOWED_HOSTS ||
+      '127.0.0.1,::1,::ffff:127.0.0.1,172.*,10.*,192.168.*';
+
+    return allowedAddresses
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .some((pattern) => this.matchesAllowedAddress(address || '', pattern));
+  }
+
   public init(httpServer: Server): void {
     if (!this.status) {
       return;
@@ -25,57 +57,61 @@ export class WebsocketController extends EventController implements EventControl
 
     this.socket = new SocketIO(httpServer, {
       cors: { origin: this.cors },
-      allowRequest: async (req, callback) => {
+      allowRequest: (req, callback) => {
         try {
-          const url = new URL(req.url || '', 'http://localhost');
-          const params = new URLSearchParams(url.search);
+          const remoteAddress = req.socket.remoteAddress;
 
-          const { remoteAddress } = req.socket;
-          const websocketConfig = configService.get<Websocket>('WEBSOCKET');
-          const allowedHosts = websocketConfig.ALLOWED_HOSTS || '127.0.0.1,::1,::ffff:127.0.0.1';
-          const allowAllHosts = allowedHosts.trim() === '*';
-          const isAllowedHost =
-            allowAllHosts ||
-            allowedHosts
-              .split(',')
-              .map((h) => h.trim())
-              .includes(remoteAddress);
-
-          if (params.has('EIO') && isAllowedHost) {
-            return callback(null, true);
+          if (!this.isAllowedNetworkAddress(remoteAddress)) {
+            this.logger.error(`Connection rejected: network address not allowed (${remoteAddress || 'unknown'})`);
+            return callback('Network address not allowed', false);
           }
 
-          const apiKey = params.get('apikey') || (req.headers.apikey as string);
-
-          if (!apiKey) {
-            this.logger.error('Connection rejected: apiKey not provided');
-            return callback('apiKey is required', false);
-          }
-
-          const instance = await this.prismaRepository.instance.findFirst({ where: { token: apiKey } });
-
-          if (!instance) {
-            const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
-            if (apiKey !== globalToken) {
-              this.logger.error('Connection rejected: invalid global token');
-              return callback('Invalid global token', false);
-            }
-          }
-
-          callback(null, true);
+          // Network validation is only the first security layer. Authentication
+          // is mandatory for every Socket.IO connection in the middleware below.
+          return callback(null, true);
         } catch (error) {
-          this.logger.error('Authentication error:');
+          this.logger.error('Network validation error:');
           this.logger.error(error);
-          callback('Authentication error', false);
+          return callback('Network validation error', false);
         }
       },
     });
 
-    this.socket.on('connection', (socket) => {
-      this.logger.info('User connected');
+    this.socket.use(async (socket, next) => {
+      try {
+        const apiKey =
+          (socket.handshake.auth?.apikey as string) ||
+          (socket.handshake.query?.apikey as string) ||
+          (socket.handshake.headers?.apikey as string);
 
-      socket.on('disconnect', () => {
-        this.logger.info('User disconnected');
+        if (!apiKey) {
+          this.logger.error('Connection rejected: apiKey not provided');
+          return next(new Error('apiKey is required'));
+        }
+
+        const instance = await this.prismaRepository.instance.findFirst({ where: { token: apiKey } });
+
+        if (!instance) {
+          const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+          if (apiKey !== globalToken) {
+            this.logger.error('Connection rejected: invalid token');
+            return next(new Error('Invalid apiKey'));
+          }
+        }
+
+        return next();
+      } catch (error) {
+        this.logger.error('Authentication error:');
+        this.logger.error(error);
+        return next(new Error('Authentication error'));
+      }
+    });
+
+    this.socket.on('connection', (socket) => {
+      this.logger.info(`Authenticated user connected: ${socket.id}`);
+
+      socket.on('disconnect', (reason) => {
+        this.logger.info(`User disconnected: ${socket.id} - ${reason}`);
       });
 
       socket.on('sendNode', async (data) => {
@@ -89,7 +125,7 @@ export class WebsocketController extends EventController implements EventControl
       });
     });
 
-    this.logger.info('Socket.io initialized');
+    this.logger.info('Socket.io initialized with network allowlist and mandatory API-key authentication');
   }
 
   private set cors(cors: Array<any>) {

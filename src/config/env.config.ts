@@ -185,6 +185,7 @@ export type Kafka = {
 export type Websocket = {
   ENABLED: boolean;
   GLOBAL_EVENTS: boolean;
+  ALLOWED_IPS?: string;
   ALLOWED_HOSTS?: string;
 };
 
@@ -683,6 +684,7 @@ export class ConfigService {
       WEBSOCKET: {
         ENABLED: process.env?.WEBSOCKET_ENABLED === 'true',
         GLOBAL_EVENTS: process.env?.WEBSOCKET_GLOBAL_EVENTS === 'true',
+        ALLOWED_IPS: process.env?.WEBSOCKET_ALLOWED_IPS,
         ALLOWED_HOSTS: process.env?.WEBSOCKET_ALLOWED_HOSTS,
       },
       PUSHER: {

@@ -249,6 +249,8 @@ export class BaileysStartupService extends ChannelStartupService {
   private readonly msgRetryCounterCache: CacheStore = new NodeCache();
   private readonly userDevicesCache: CacheStore = new NodeCache({ stdTTL: 300000, useClones: false });
   private endSession = false;
+  private protocolAuthMode: 'qrcode' | 'pairing-code' = 'qrcode';
+  private suppressNextReconnect = false;
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
 
@@ -258,7 +260,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public stateConnection: wa.StateConnection = { state: 'close' };
 
-  public phoneNumber: string;
+  public phoneNumber?: string;
 
   public get connectionStatus() {
     return this.stateConnection;
@@ -419,11 +421,16 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (connection === 'close') {
+      if (this.suppressNextReconnect) {
+        this.suppressNextReconnect = false;
+        return;
+      }
+
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const codesToNotReconnect = [DisconnectReason.loggedOut, DisconnectReason.forbidden, 402, 406];
       const shouldReconnect = !codesToNotReconnect.includes(statusCode);
       if (shouldReconnect) {
-        await this.connectToWhatsapp(this.phoneNumber);
+        await this.connectToWhatsapp(this.phoneNumber, this.protocolAuthMode);
       } else {
         this.sendDataWebhook(Events.STATUS_INSTANCE, {
           instance: this.instance.name,
@@ -568,24 +575,36 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
-  private async createClient(number?: string): Promise<WASocket> {
+  private async createClient(
+    number?: string,
+    authMode: 'qrcode' | 'pairing-code' = number ? 'pairing-code' : 'qrcode',
+  ): Promise<WASocket> {
     this.instance.authState = await this.defineAuthState();
 
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
-
-    // Pairing-code authentication is validated more strictly by WhatsApp than QR pairing.
-    // Keep ARGWS branding separate from the protocol fingerprint and use a canonical
-    // browser tuple known to be accepted by the companion registration flow.
-    const browser: WABrowserDescription = ['Ubuntu', 'Chrome', '20.0.04'];
-    const browserOptions = { browser };
     const normalizedPhoneNumber = number?.replace(/\D/g, '') || this.phoneNumber;
 
-    if (normalizedPhoneNumber) {
+    const qrCodeBrowser: WABrowserDescription = [
+      process.env.WHATSAPP_PROTOCOL_BROWSER_CLIENT || '🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸',
+      process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || 'Chrome',
+      process.env.WHATSAPP_PROTOCOL_BROWSER_VERSION || '20.0.04',
+    ];
+
+    // WhatsApp validates pairing-code companion registration more strictly than QR.
+    // Keep this canonical fingerprint fixed: changing Ubuntu breaks pairing even when QR works.
+    const pairingCodeBrowser: WABrowserDescription = ['Ubuntu', 'Chrome', '20.0.04'];
+
+    const browser: WABrowserDescription = authMode === 'pairing-code' ? pairingCodeBrowser : qrCodeBrowser;
+    const browserOptions = { browser };
+    this.protocolAuthMode = authMode;
+
+    if (normalizedPhoneNumber && authMode === 'pairing-code') {
       this.phoneNumber = normalizedPhoneNumber;
       this.logger.info('Pairing-code phone number configured');
     }
 
     this.logger.info(`Session client: ${session.CLIENT}`);
+    this.logger.info(`WhatsApp authentication mode: ${authMode}`);
     this.logger.info(`WhatsApp protocol browser: ${browser.join(' / ')}`);
 
     const baileysVersion = await fetchLatestWaWebVersion({});
@@ -725,7 +744,46 @@ export class BaileysStartupService extends ChannelStartupService {
     return this.client;
   }
 
-  public async connectToWhatsapp(number?: string): Promise<WASocket> {
+  private async switchAuthenticationMode(mode: 'qrcode' | 'pairing-code', number?: string): Promise<WASocket> {
+    const normalizedPhoneNumber = number?.replace(/\D/g, '');
+
+    if (mode === 'pairing-code' && !normalizedPhoneNumber) {
+      throw new BadRequestException('Pairing-code phone number is required');
+    }
+
+    if (
+      this.client &&
+      this.protocolAuthMode === mode &&
+      (mode === 'qrcode' || this.phoneNumber === normalizedPhoneNumber)
+    ) {
+      return this.client;
+    }
+
+    const previousClient = this.client;
+    if (previousClient?.ws) {
+      this.suppressNextReconnect = true;
+      previousClient.ws.close();
+      await delay(250);
+    }
+
+    this.instance.qrcode = { count: 0 };
+    this.phoneNumber = mode === 'pairing-code' ? normalizedPhoneNumber : undefined;
+
+    return await this.connectToWhatsapp(this.phoneNumber, mode);
+  }
+
+  public async preparePairingConnection(number: string): Promise<WASocket> {
+    return await this.switchAuthenticationMode('pairing-code', number);
+  }
+
+  public async prepareQrConnection(): Promise<WASocket> {
+    return await this.switchAuthenticationMode('qrcode');
+  }
+
+  public async connectToWhatsapp(
+    number?: string,
+    authMode: 'qrcode' | 'pairing-code' = number ? 'pairing-code' : 'qrcode',
+  ): Promise<WASocket> {
     try {
       this.loadChatwoot();
       this.loadSettings();
@@ -737,7 +795,7 @@ export class BaileysStartupService extends ChannelStartupService {
         onMessageReceive: this.messageHandle['messages.upsert'].bind(this),
       });
 
-      return await this.createClient(number);
+      return await this.createClient(number, authMode);
     } catch (error) {
       this.logger.error(error);
       throw new InternalServerErrorException(error?.toString());
@@ -746,7 +804,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async reloadConnection(): Promise<WASocket> {
     try {
-      return await this.createClient(this.phoneNumber);
+      return await this.createClient(this.phoneNumber, this.protocolAuthMode);
     } catch (error) {
       this.logger.error(error);
       throw new InternalServerErrorException(error?.toString());
