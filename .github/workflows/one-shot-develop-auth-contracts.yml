@@ -38,7 +38,10 @@ jobs:
           DATABASE_PROVIDER: postgresql
         run: npm run db:generate
 
-      - name: Lint
+      - name: Format generated TypeScript
+        run: npm run lint
+
+      - name: Verify lint
         run: npm run lint:check
 
       - name: Compatibility tests
