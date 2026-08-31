@@ -59,7 +59,9 @@ export class InstanceController {
 
     const qrCode = instance.qrCode;
     if (pairingCodeRequested && !qrCode?.pairingCode) {
-      throw new BadRequestException('Unable to generate pairing code. Confirm the international phone number and try again.');
+      throw new BadRequestException(
+        'Unable to generate pairing code. Confirm the international phone number and try again.',
+      );
     }
 
     return qrCode;

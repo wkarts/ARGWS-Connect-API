@@ -388,7 +388,6 @@ export type Facebook = {
   USER_TOKEN?: string;
 };
 
-
 export type EventEmitter = {
   MAX_LISTENERS: number;
 };
