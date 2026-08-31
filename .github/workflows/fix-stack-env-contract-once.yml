@@ -1,0 +1,177 @@
+name: Fix Stack Env Contract Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-stack-env-contract-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Correct infrastructure images and safe env migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          infrastructure_images = {
+              'ARGWS_CONNECT_POSTGRES_IMAGE': 'ghcr.io/wkarts/argws-connect-postgres:15',
+              'ARGWS_CONNECT_REDIS_IMAGE': 'ghcr.io/wkarts/argws-connect-redis:latest',
+              'ARGWS_CONNECT_RABBITMQ_IMAGE': 'ghcr.io/wkarts/argws-connect-rabbitmq:management',
+              'ARGWS_CONNECT_MINIO_IMAGE': 'ghcr.io/wkarts/argws-connect-minio:latest',
+              'ARGWS_CONNECT_MYSQL_IMAGE': 'ghcr.io/wkarts/argws-connect-mysql:8.0',
+              'ARGWS_CONNECT_NATS_IMAGE': 'ghcr.io/wkarts/argws-connect-nats:2.10-alpine',
+              'ARGWS_CONNECT_KAFKA_IMAGE': 'ghcr.io/wkarts/argws-connect-kafka:7.5.0',
+              'ARGWS_CONNECT_ZOOKEEPER_IMAGE': 'ghcr.io/wkarts/argws-connect-zookeeper:7.5.0',
+          }
+          api_images = {
+              'production': 'ghcr.io/wkarts/argws-connect-api:latest',
+              'develop': 'ghcr.io/wkarts/argws-connect-api:develop',
+              'canonical': 'ghcr.io/wkarts/argws-connect-api:1.0.7',
+          }
+
+          for stack in ('production', 'develop', 'canonical'):
+              env_path = Path(f'deploy/{stack}/env.example')
+              text = env_path.read_text()
+              for key, value in infrastructure_images.items():
+                  text = re.sub(rf'^{re.escape(key)}=.*$', f'{key}={value}', text, flags=re.M)
+              text = re.sub(r'^ARGWS_CONNECT_API_IMAGE=.*$', f'ARGWS_CONNECT_API_IMAGE={api_images[stack]}', text, flags=re.M)
+              env_path.write_text(text)
+
+              script = f'''#!/usr/bin/env bash
+          set -euo pipefail
+          cd "$(dirname "$0")"
+
+          STACK_NAME="{stack}"
+          API_IMAGE="{api_images[stack]}"
+
+          if [[ ! -f env.example ]]; then
+            echo "ERRO: env.example nao encontrado."
+            exit 1
+          fi
+
+          if [[ ! -f .env ]]; then
+            cp env.example .env
+            chmod 600 .env
+            python3 - <<'PYENV'
+          from pathlib import Path
+          import re
+          import secrets
+          path = Path('.env')
+          text = path.read_text()
+          placeholders = sorted(set(re.findall(r'CHANGE_ME_[A-Z0-9_]+', text)))
+          for placeholder in placeholders:
+              size = 48 if 'API_KEY' in placeholder else 40 if 'TOKEN' in placeholder else 32
+              text = text.replace(placeholder, secrets.token_hex(size))
+          path.write_text(text)
+          print(f'.env criado com {{len(placeholders)}} segredos fortes.')
+          PYENV
+          else
+            echo ".env existente preservado; apenas configuracoes de deployment serao normalizadas."
+          fi
+
+          python3 - <<'PYENV'
+          from pathlib import Path
+          import re
+
+          stack = '{stack}'
+          api_image = '{api_images[stack]}'
+          path = Path('.env')
+          text = path.read_text()
+
+          def set_value(key, value):
+              global text
+              pattern = rf'^{{re.escape(key)}}=.*$'
+              if re.search(pattern, text, flags=re.M):
+                  text = re.sub(pattern, f'{{key}}={{value}}', text, flags=re.M)
+              else:
+                  text += f'\\n{{key}}={{value}}\\n'
+
+          set_value('COMPOSE_PROJECT_NAME', f'argws-connect-{{stack}}')
+          set_value('ARGWS_CONNECT_NETWORK_NAME', f'argws-connect-{{stack}}-net')
+          set_value('ARGWS_CONNECT_API_IMAGE', api_image)
+
+          # As imagens de infraestrutura sao globais e nunca recebem o sufixo da stack.
+          image_values = {{
+              'ARGWS_CONNECT_POSTGRES_IMAGE': 'ghcr.io/wkarts/argws-connect-postgres:15',
+              'ARGWS_CONNECT_REDIS_IMAGE': 'ghcr.io/wkarts/argws-connect-redis:latest',
+              'ARGWS_CONNECT_RABBITMQ_IMAGE': 'ghcr.io/wkarts/argws-connect-rabbitmq:management',
+              'ARGWS_CONNECT_MINIO_IMAGE': 'ghcr.io/wkarts/argws-connect-minio:latest',
+              'ARGWS_CONNECT_MYSQL_IMAGE': 'ghcr.io/wkarts/argws-connect-mysql:8.0',
+              'ARGWS_CONNECT_NATS_IMAGE': 'ghcr.io/wkarts/argws-connect-nats:2.10-alpine',
+              'ARGWS_CONNECT_KAFKA_IMAGE': 'ghcr.io/wkarts/argws-connect-kafka:7.5.0',
+              'ARGWS_CONNECT_ZOOKEEPER_IMAGE': 'ghcr.io/wkarts/argws-connect-zookeeper:7.5.0',
+          }}
+          for key, value in image_values.items():
+              set_value(key, value)
+
+          postgres = f'postgres-argws-connect-{{stack}}'
+          redis = f'redis-argws-connect-{{stack}}'
+          rabbitmq = f'rabbitmq-argws-connect-{{stack}}'
+          minio = f'minio-argws-connect-{{stack}}'
+          nats = f'nats-argws-connect-{{stack}}'
+          kafka = f'kafka-argws-connect-{{stack}}'
+
+          # Normaliza somente campos de conexao. Nunca faz replace global no arquivo.
+          def replace_host_in_value(key, hostname):
+              global text
+              match = re.search(rf'^{{re.escape(key)}}=(.*)$', text, flags=re.M)
+              if not match:
+                  return
+              value = match.group(1)
+              if key == 'DATABASE_CONNECTION_URI':
+                  value = re.sub(r'@[^/:?]+:5432', f'@{{hostname}}:5432', value)
+              elif key == 'CACHE_REDIS_URI':
+                  value = re.sub(r'@[^/:?]+:6379', f'@{{hostname}}:6379', value)
+              elif key == 'RABBITMQ_URI':
+                  value = re.sub(r'@[^/:?]+:5672', f'@{{hostname}}:5672', value)
+              elif key == 'S3_ENDPOINT':
+                  value = hostname
+              elif key == 'NATS_URI':
+                  value = re.sub(r'//[^/:?]+:4222', f'//{{hostname}}:4222', value)
+              elif key == 'KAFKA_BROKERS':
+                  value = f'{{hostname}}:9092'
+              set_value(key, value)
+
+          replace_host_in_value('DATABASE_CONNECTION_URI', postgres)
+          replace_host_in_value('CACHE_REDIS_URI', redis)
+          replace_host_in_value('RABBITMQ_URI', rabbitmq)
+          replace_host_in_value('S3_ENDPOINT', minio)
+          replace_host_in_value('NATS_URI', nats)
+          replace_host_in_value('KAFKA_BROKERS', kafka)
+
+          path.write_text(text)
+          PYENV
+
+          chmod 600 .env
+          echo "Stack ${{STACK_NAME}} preparada com services isolados e imagens GHCR canonicas."
+          '''
+              path = Path(f'deploy/{stack}/prepare-env.sh')
+              path.write_text(script)
+              path.chmod(0o755)
+          PY
+
+      - name: Commit fixes and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-stack-env-contract-once.yml
+          git add deploy/production/env.example deploy/production/prepare-env.sh \
+                  deploy/develop/env.example deploy/develop/prepare-env.sh \
+                  deploy/canonical/env.example deploy/canonical/prepare-env.sh
+          git commit -m "fix(deploy): preserva imagens GHCR globais por stack [skip release]"
+          git push origin HEAD:main
