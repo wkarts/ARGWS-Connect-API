@@ -16,19 +16,6 @@ function writeJson(file, data) {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
 
-function replaceRequired(file, pattern, replacement, description) {
-  if (!fs.existsSync(file)) {
-    throw new Error(`Required file not found: ${file}`);
-  }
-
-  const current = fs.readFileSync(file, 'utf8');
-  if (!pattern.test(current)) {
-    throw new Error(`Could not update ${description} in ${file}`);
-  }
-
-  fs.writeFileSync(file, current.replace(pattern, replacement));
-}
-
 const pkg = readJson('package.json');
 pkg.version = version;
 writeJson('package.json', pkg);
@@ -46,20 +33,5 @@ if (fs.existsSync('RELEASE-MANIFEST.json')) {
 }
 
 fs.writeFileSync('VERSION', `${version}\n`);
-
-const releaseImage = `ghcr.io/wkarts/argws-connect-api:${version}`;
-replaceRequired(
-  'deploy/production/env.example',
-  /^ARGWS_CONNECT_API_IMAGE=ghcr\.io\/wkarts\/argws-connect-api:\d+\.\d+\.\d+$/m,
-  `ARGWS_CONNECT_API_IMAGE=${releaseImage}`,
-  'production image version',
-);
-replaceRequired(
-  'deploy/production/compose.yaml',
-  /ghcr\.io\/wkarts\/argws-connect-api:\d+\.\d+\.\d+/,
-  releaseImage,
-  'production Compose default image version',
-);
-
 console.log(`ARGWS Connect API version set to ${version}`);
-console.log(`Production deployment pinned to ${releaseImage}`);
+console.log('Production remains on :latest; canonical resolves the stable pin from VERSION.');
