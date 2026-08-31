@@ -29,6 +29,13 @@ for key in "${required[@]}"; do
   fi
 done
 
+api_image="$(get_value ARGWS_CONNECT_API_IMAGE)"
+if [[ "$api_image" != "ghcr.io/wkarts/argws-connect-api:develop" ]]; then
+  echo "ERRO: homologacao deve usar exclusivamente ghcr.io/wkarts/argws-connect-api:develop"
+  echo "Imagem atual: ${api_image:-<vazia>}"
+  exit 1
+fi
+
 image_vars=(
   ARGWS_CONNECT_API_IMAGE
   ARGWS_CONNECT_POSTGRES_IMAGE
@@ -62,4 +69,4 @@ done
 docker compose -f compose.yaml config >/dev/null
 docker compose --profile '*' -f compose.yaml config >/dev/null
 
-echo "Preflight concluido com sucesso. Profiles: ${COMPOSE_PROFILES:-core}"
+echo "Preflight de homologacao concluido. Imagem: ${api_image}. Profiles: ${COMPOSE_PROFILES:-core}"
