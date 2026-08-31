@@ -6,21 +6,25 @@ on:
     paths:
       - "deploy/production/**"
       - "deploy/homologation/**"
+      - "deploy/canonical/**"
       - ".github/workflows/ghcr-publish-application.yml"
       - ".github/workflows/auto-version-release.yml"
       - ".github/workflows/image-promotion-integrity.yml"
       - "RELEASE-AUTOMATION.md"
       - "DEVELOPMENT-FLOW.md"
+      - "VERSION"
   push:
     branches: [main, develop]
     paths:
       - "deploy/production/**"
       - "deploy/homologation/**"
+      - "deploy/canonical/**"
       - ".github/workflows/ghcr-publish-application.yml"
       - ".github/workflows/auto-version-release.yml"
       - ".github/workflows/image-promotion-integrity.yml"
       - "RELEASE-AUTOMATION.md"
       - "DEVELOPMENT-FLOW.md"
+      - "VERSION"
 
 permissions:
   contents: read
@@ -38,13 +42,20 @@ jobs:
 
           prod="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
           homolog="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/homologation/env.example | cut -d= -f2-)"
+          stable="$(tr -d '[:space:]' < VERSION)"
 
           [[ "$homolog" == "ghcr.io/wkarts/argws-connect-api:develop" ]]
-          [[ "$prod" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$prod" == "ghcr.io/wkarts/argws-connect-api:latest" ]]
+          [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
+          grep -q 'ARGWS_CONNECT_API_IMAGE:?ARGWS_CONNECT_API_IMAGE canonical' deploy/canonical/compose.yaml
+          grep -q '../../VERSION' deploy/canonical/deploy.sh
+          grep -q 'ghcr.io/wkarts/argws-connect-api:${version}' deploy/canonical/deploy.sh
+
+          [[ "$prod" != *":develop" ]]
+          [[ "$homolog" != *":latest" ]]
           [[ "$prod" != *":production" ]]
           [[ "$homolog" != *":homolog" ]]
-          [[ "$homolog" != *":latest" ]]
 
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
           grep -q 'argws-connect-api:develop' .github/workflows/ghcr-publish-application.yml
@@ -57,11 +68,17 @@ jobs:
 
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
           grep -q 'argws-connect-api:develop' deploy/homologation/compose.yaml
+          grep -q 'argws-connect-api:latest' deploy/production/compose.yaml
 
-      - name: Validate safe production promotion script
+          echo "Channels OK: homolog=:develop production=:latest canonical=:${stable}"
+
+      - name: Validate canonical stable overlay
         run: |
           set -euo pipefail
-          test -x deploy/production/promote.sh
-          bash -n deploy/production/promote.sh
-          grep -q 'docker manifest inspect' deploy/production/promote.sh
-          grep -q '.env.before-promotion' deploy/production/promote.sh
+          bash -n deploy/canonical/deploy.sh
+          bash -n deploy/canonical/preflight.sh
+          bash -n deploy/canonical/update.sh
+          bash -n deploy/canonical/status.sh
+          grep -q 'docker manifest inspect' deploy/canonical/preflight.sh
+          grep -q '../production/compose.yaml' deploy/canonical/deploy.sh
+          grep -q 'exec bash ../canonical/deploy.sh' deploy/production/promote.sh
