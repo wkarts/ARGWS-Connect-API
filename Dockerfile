@@ -1,5 +1,7 @@
 ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:24-alpine
+ARG APP_VERSION=1.0.0
 FROM ${NODE_IMAGE} AS builder
+ARG APP_VERSION
 
 RUN apk update && \
     apk add --no-cache git ffmpeg wget curl bash openssl
@@ -14,7 +16,7 @@ COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
 
-RUN npm ci --silent
+RUN npm version --no-git-tag-version "${APP_VERSION}" && npm ci --silent
 
 COPY ./src ./src
 COPY ./public ./public
