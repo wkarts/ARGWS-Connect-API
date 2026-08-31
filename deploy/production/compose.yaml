@@ -7,12 +7,12 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  api:
-    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:1.0.7}
+  api-argws-connect-production:
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
     pull_policy: always
+    container_name: api-argws-connect-production
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: [.env]
     environment:
       SERVER_TYPE: http
       SERVER_PORT: "8080"
@@ -21,20 +21,19 @@ services:
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
-      postgres:
+      postgres-argws-connect-production:
         condition: service_healthy
-      redis:
+      redis-argws-connect-production:
         condition: service_healthy
-      rabbitmq:
+      rabbitmq-argws-connect-production:
         condition: service_healthy
-      minio:
+      minio-argws-connect-production:
         condition: service_healthy
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
-    networks:
-      - argws-connect-net
+    networks: [argws-connect-production-net]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -43,65 +42,64 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  postgres:
+  postgres-argws-connect-production:
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
+    container_name: postgres-argws-connect-production
     restart: unless-stopped
+    env_file: [.env]
     command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "listen_addresses=*"]
     environment:
       POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
       POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: ${TZ:-America/Bahia}
     expose: ["5432"]
     volumes:
       - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-postgres]
+      argws-connect-production-net:
+        aliases: [postgres-argws-connect-production]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U '${POSTGRES_USERNAME:-argws_connect}' -d '${POSTGRES_DATABASE:-argws_connect_api}'"]
+      test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
       interval: 10s
       timeout: 5s
       retries: 15
       start_period: 20s
     logging: *default-logging
 
-  redis:
+  redis-argws-connect-production:
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
+    container_name: redis-argws-connect-production
     restart: unless-stopped
-    command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    env_file: [.env]
+    command: ["sh", "-c", "exec redis-server --port 6379 --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
     expose: ["6379"]
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-redis]
+      argws-connect-production-net:
+        aliases: [redis-argws-connect-production]
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 15
-      start_period: 10s
+      start_period: 15s
     logging: *default-logging
 
-  rabbitmq:
+  rabbitmq-argws-connect-production:
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
+    container_name: rabbitmq-argws-connect-production
     restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-argws_connect}
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-argws_connect}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-    expose: ["5672", "15672"]
+    env_file: [.env]
+    expose: ["5672", "15672", "15692"]
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-rabbitmq]
+      argws-connect-production-net:
+        aliases: [rabbitmq-argws-connect-production]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 15s
@@ -110,20 +108,19 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  minio:
+  minio-argws-connect-production:
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
+    container_name: minio-argws-connect-production
     restart: unless-stopped
+    env_file: [.env]
     command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-argws_connect}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     expose: ["9000", "9001"]
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-minio]
+      argws-connect-production-net:
+        aliases: [minio-argws-connect-production]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
       interval: 15s
@@ -132,24 +129,26 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  nats:
+  nats-argws-connect-production:
     profiles: ["nats", "extended"]
     image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
     pull_policy: always
+    container_name: nats-argws-connect-production
     restart: unless-stopped
     command: ["-js", "-m", "8222", "--store_dir", "/data"]
     expose: ["4222", "8222"]
     volumes:
       - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-nats]
+      argws-connect-production-net:
+        aliases: [nats-argws-connect-production]
     logging: *default-logging
 
-  zookeeper:
+  zookeeper-argws-connect-production:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
+    container_name: zookeeper-argws-connect-production
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -159,21 +158,22 @@ services:
       - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
       - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-zookeeper]
+      argws-connect-production-net:
+        aliases: [zookeeper-argws-connect-production]
     logging: *default-logging
 
-  kafka:
+  kafka-argws-connect-production:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
     pull_policy: always
+    container_name: kafka-argws-connect-production
     restart: unless-stopped
-    depends_on: [zookeeper]
+    depends_on: [zookeeper-argws-connect-production]
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: argws-connect-zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-argws-connect-production:2181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://argws-connect-kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-argws-connect-production:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -182,11 +182,11 @@ services:
     volumes:
       - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
     networks:
-      argws-connect-net:
-        aliases: [argws-connect-kafka]
+      argws-connect-production-net:
+        aliases: [kafka-argws-connect-production]
     logging: *default-logging
 
 networks:
-  argws-connect-net:
+  argws-connect-production-net:
     name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-production-net}
     driver: bridge
