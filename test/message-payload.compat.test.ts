@@ -41,6 +41,18 @@ assert.equal(text.textMessage, undefined);
 assert.equal(text.options, undefined);
 expectValid(text, textMessageSchema);
 
+const serializedText = normalize({
+  number: '5575988449231',
+  options: '{"delay":321,"linkPreview":false}',
+  textMessage: '{"text":"MULTIPART"}',
+  mentions: '{"everyOne":false,"mentioned":["5575000000000"]}',
+});
+assert.equal(serializedText.text, 'MULTIPART');
+assert.equal(serializedText.delay, 321);
+assert.equal(serializedText.linkPreview, false);
+assert.deepEqual(serializedText.mentioned, ['5575000000000']);
+expectValid(serializedText, textMessageSchema);
+
 const rootMentions = normalize({
   number: '5575988449231',
   textMessage: { text: 'MENCAO' },
@@ -76,6 +88,17 @@ assert.equal(media.caption, 'Foto');
 assert.equal(media.delay, 1200);
 expectValid(media, mediaMessageSchema);
 
+const serializedMedia = normalize({
+  number: '5575988449231',
+  options: '{"delay":1500}',
+  mediaMessage:
+    '{"mediaType":"document","filename":"legado.pdf","mimetype":"application/pdf","media":"https://example.com/legado.pdf"}',
+});
+assert.equal(serializedMedia.mediatype, 'document');
+assert.equal(serializedMedia.fileName, 'legado.pdf');
+assert.equal(serializedMedia.delay, 1500);
+expectValid(serializedMedia, mediaMessageSchema);
+
 const legacyMediaAliases = normalize({
   number: '5575988449231',
   mediaMessage: {
@@ -103,6 +126,14 @@ assert.equal(list.title, 'Menu');
 assert.equal(list.buttonText, 'Abrir');
 assert.equal(list.sections[0].rows[0].rowId, 'item-1');
 expectValid(list, listMessageSchema);
+
+const serializedList = normalize({
+  number: '5575988449231',
+  listMessage:
+    '{"title":"Menu serializado","description":"Escolha","buttonText":"Abrir","footerText":"Rodape","sections":[{"title":"Secao","rows":[{"title":"Item","description":"Descricao","rowId":"item-2"}]}]}',
+});
+assert.equal(serializedList.title, 'Menu serializado');
+expectValid(serializedList, listMessageSchema);
 
 const buttons = normalize({
   number: '5575988449231',
@@ -138,6 +169,10 @@ assert.deepEqual(contact.contact, contacts);
 expectValid(contact, contactMessageSchema);
 assert.deepEqual(normalize({ number: '5575988449231', contactMessage: { contacts } }).contact, contacts);
 assert.deepEqual(normalize({ number: '5575988449231', contactMessage: contacts }).contact, contacts);
+assert.deepEqual(
+  normalize({ number: '5575988449231', contactMessage: JSON.stringify({ contacts }) }).contact,
+  contacts,
+);
 
 const audio = normalize({ number: '1', audioMessage: { audio: 'https://example.com/a.ogg' } });
 assert.equal(audio.audio, 'https://example.com/a.ogg');
