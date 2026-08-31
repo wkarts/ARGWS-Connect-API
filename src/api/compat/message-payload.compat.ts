@@ -39,22 +39,30 @@ function copyMissing(target: JsonRecord, source: JsonRecord) {
   }
 }
 
-function normalizeMentions(target: JsonRecord, options: JsonRecord) {
-  const mentions = options.mentions;
-
+function applyMentions(target: JsonRecord, mentions: unknown) {
   if (Array.isArray(mentions) && target.mentioned === undefined) {
     target.mentioned = mentions;
-  } else if (isRecord(mentions)) {
-    if (target.mentioned === undefined && Array.isArray(mentions.mentioned)) {
-      target.mentioned = mentions.mentioned;
-    }
-    if (target.mentionsEveryOne === undefined && typeof mentions.everyOne === 'boolean') {
-      target.mentionsEveryOne = mentions.everyOne;
-    }
-    if (target.mentionsEveryOne === undefined && typeof mentions.mentionsEveryOne === 'boolean') {
-      target.mentionsEveryOne = mentions.mentionsEveryOne;
-    }
+    return;
   }
+
+  if (!isRecord(mentions)) {
+    return;
+  }
+
+  if (target.mentioned === undefined && Array.isArray(mentions.mentioned)) {
+    target.mentioned = mentions.mentioned;
+  }
+  if (target.mentionsEveryOne === undefined && typeof mentions.everyOne === 'boolean') {
+    target.mentionsEveryOne = mentions.everyOne;
+  }
+  if (target.mentionsEveryOne === undefined && typeof mentions.mentionsEveryOne === 'boolean') {
+    target.mentionsEveryOne = mentions.mentionsEveryOne;
+  }
+}
+
+function normalizeMentions(target: JsonRecord, input: JsonRecord, options: JsonRecord) {
+  applyMentions(target, options.mentions);
+  applyMentions(target, input.mentions);
 
   if (target.mentioned === undefined && Array.isArray(options.mentioned)) {
     target.mentioned = options.mentioned;
@@ -103,7 +111,7 @@ export function normalizeMessagePayload(input: unknown): unknown {
     }
   }
 
-  normalizeMentions(normalized, options);
+  normalizeMentions(normalized, input, options);
 
   for (const wrapperName of LEGACY_MESSAGE_WRAPPERS) {
     const wrapped = input[wrapperName];
@@ -135,6 +143,7 @@ export function normalizeMessagePayload(input: unknown): unknown {
 
   // O contrato interno não depende dos envelopes legados depois da normalização.
   delete normalized.options;
+  delete normalized.mentions;
   for (const wrapperName of LEGACY_MESSAGE_WRAPPERS) {
     delete normalized[wrapperName];
   }
