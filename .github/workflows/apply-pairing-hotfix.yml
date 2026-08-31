@@ -1,0 +1,251 @@
+name: Apply pairing code hotfix
+
+on:
+  push:
+    branches:
+      - fix/pairing-code-phone-client-1.0.10
+    paths:
+      - .github/workflows/apply-pairing-hotfix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/pairing-code-phone-client-1.0.10
+          fetch-depth: 0
+
+      - name: Apply pairing code and client identity corrections
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          SESSION_CLIENT = '🅰🆁🅶🆆🆂 ​ 🅲🅾🅽🅽🅴🅲🆃 ​ 🅰🅿🅸'
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected block not found in {path}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # 1) Baileys: keep the configured browser/client identity for QR and pairing-code modes,
+          # normalize the pairing number, and avoid leaking it to logs.
+          service = 'src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts'
+          replace_once(
+              service,
+              """    let browserOptions = {};
+
+    if (number || this.phoneNumber) {
+      this.phoneNumber = number;
+
+      this.logger.info(`Phone number: ${number}`);
+    } else {
+      const browser: WABrowserDescription = [session.CLIENT, session.NAME, release()];
+      browserOptions = { browser };
+
+      this.logger.info(`Browser: ${browser}`);
+    }
+""",
+              """    const browser: WABrowserDescription = [session.CLIENT, session.NAME, release()];
+    const browserOptions = { browser };
+    const normalizedPhoneNumber = number?.replace(/\\D/g, '') || this.phoneNumber;
+
+    if (normalizedPhoneNumber) {
+      this.phoneNumber = normalizedPhoneNumber;
+      this.logger.info('Pairing-code phone number configured');
+    }
+
+    this.logger.info(`Browser: ${browser}`);
+""",
+          )
+          replace_once(
+              service,
+              """      if (this.phoneNumber) {
+        await delay(1000);
+        this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
+      } else {
+        this.instance.qrcode.pairingCode = null;
+      }
+""",
+              """      if (this.phoneNumber) {
+        await delay(1000);
+        try {
+          this.instance.qrcode.pairingCode = await this.client.requestPairingCode(this.phoneNumber);
+        } catch (error) {
+          this.instance.qrcode.pairingCode = null;
+          this.logger.error(`Pairing code generation failed: ${error?.message || error}`);
+        }
+      } else {
+        this.instance.qrcode.pairingCode = null;
+      }
+""",
+          )
+          replace_once(
+              service,
+              """    this.phoneNumber = number;
+
+    return this.client;
+""",
+              """    this.phoneNumber = normalizedPhoneNumber;
+
+    return this.client;
+""",
+          )
+
+          # 2) Controller: normalize E.164-like digits and wait for the real pairing code instead
+          # of relying on a fixed 2-second race. Also allow switching an already-connecting QR flow.
+          controller = 'src/api/controllers/instance.controller.ts'
+          replace_once(
+              controller,
+              """  private readonly logger = new Logger('InstanceController');
+
+  public async createInstance(instanceData: InstanceDto) {
+""",
+              """  private readonly logger = new Logger('InstanceController');
+
+  private normalizePairingPhoneNumber(number?: string | null): string | undefined {
+    if (!number) return undefined;
+
+    const normalized = String(number).replace(/\\D/g, '');
+    if (normalized.length < 8 || normalized.length > 15) {
+      throw new BadRequestException('Invalid phone number for pairing code. Use country code + area code + number.');
+    }
+
+    return normalized;
+  }
+
+  private async waitForQrCode(instance: any, pairingCodeRequested: boolean): Promise<wa.QrCode> {
+    const timeoutMs = pairingCodeRequested ? 10000 : 5000;
+    const startedAt = Date.now();
+
+    do {
+      const qrCode = instance.qrCode;
+      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code) {
+        return qrCode;
+      }
+      await delay(250);
+    } while (Date.now() - startedAt < timeoutMs);
+
+    const qrCode = instance.qrCode;
+    if (pairingCodeRequested && !qrCode?.pairingCode) {
+      throw new BadRequestException('Unable to generate pairing code. Confirm the international phone number and try again.');
+    }
+
+    return qrCode;
+  }
+
+  public async createInstance(instanceData: InstanceDto) {
+""",
+          )
+          replace_once(
+              controller,
+              """        if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
+          await instance.connectToWhatsapp(instanceData.number);
+          await delay(5000);
+          getQrcode = instance.qrCode;
+        }
+""",
+              """        if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
+          const pairingNumber = this.normalizePairingPhoneNumber(instanceData.number);
+          await instance.connectToWhatsapp(pairingNumber);
+          getQrcode = await this.waitForQrCode(instance, !!pairingNumber);
+        }
+""",
+          )
+          replace_once(
+              controller,
+              """      if (state == 'connecting') {
+        return instance.qrCode;
+      }
+
+      if (state == 'close') {
+        await instance.connectToWhatsapp(number);
+
+        await delay(2000);
+        return instance.qrCode;
+      }
+""",
+              """      if (state == 'connecting') {
+        const pairingNumber = this.normalizePairingPhoneNumber(number);
+        if (pairingNumber && !instance.qrCode?.pairingCode) {
+          const pairingCode = await instance.client.requestPairingCode(pairingNumber);
+          return { ...instance.qrCode, pairingCode };
+        }
+        return instance.qrCode;
+      }
+
+      if (state == 'close') {
+        const pairingNumber = this.normalizePairingPhoneNumber(number);
+        await instance.connectToWhatsapp(pairingNumber);
+        return await this.waitForQrCode(instance, !!pairingNumber);
+      }
+""",
+          )
+
+          # 3) Manager identity: the public clientName is the configured WhatsApp session client,
+          # not the database connection label.
+          index_route = 'src/api/routes/index.router.ts'
+          replace_once(
+              index_route,
+              "import { configService, Database, Facebook } from '@config/env.config';",
+              "import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';",
+          )
+          replace_once(
+              index_route,
+              "      clientName: databaseConfig.CONNECTION.CLIENT_NAME,",
+              "      clientName: configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE').CLIENT,",
+          )
+
+          # 4) Canonical runtime fallback.
+          env_config = 'src/config/env.config.ts'
+          replace_once(
+              env_config,
+              "        CLIENT: process.env?.CONFIG_SESSION_PHONE_CLIENT || 'ARGWS Connect API',",
+              f"        CLIENT: process.env?.CONFIG_SESSION_PHONE_CLIENT || '{SESSION_CLIENT}',",
+          )
+
+          # 5) Every tracked env template receives the same public session client value.
+          env_files = []
+          for p in Path('.').rglob('*'):
+              if not p.is_file():
+                  continue
+              if p.name not in {'env.example', '.env.example'}:
+                  continue
+              if any(part in {'.git', 'node_modules'} for part in p.parts):
+                  continue
+              env_files.append(p)
+
+          if not env_files:
+              raise SystemExit('No env templates found')
+
+          for p in env_files:
+              text = p.read_text(encoding='utf-8')
+              updated, count = re.subn(
+                  r'(?m)^CONFIG_SESSION_PHONE_CLIENT=.*$',
+                  f'CONFIG_SESSION_PHONE_CLIENT={SESSION_CLIENT}',
+                  text,
+              )
+              if count == 0:
+                  raise SystemExit(f'CONFIG_SESSION_PHONE_CLIENT missing in {p}')
+              p.write_text(updated, encoding='utf-8')
+
+          # Remove this one-shot workflow from the resulting branch commit.
+          Path('.github/workflows/apply-pairing-hotfix.yml').unlink()
+          PY
+
+      - name: Commit corrections
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(pairing): corrige código de pareamento e identidade da sessão"
+          git push origin HEAD:fix/pairing-code-phone-client-1.0.10
