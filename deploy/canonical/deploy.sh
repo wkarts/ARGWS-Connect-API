@@ -7,6 +7,6 @@ mkdir -p ./volumes/{instances,postgres,redis,rabbitmq,minio,nats,kafka,zookeeper
 docker compose --env-file .env -f compose.yaml pull
 docker compose --env-file .env -f compose.yaml up -d --remove-orphans
 docker compose --env-file .env -f compose.yaml ps
-echo "API: https://api.connect.argws.com.br"
-echo "Manager: https://api.connect.argws.com.br/manager"
-echo "Health: https://api.connect.argws.com.br/health"
+echo "API: https://c.api.connect.argws.com.br"
+echo "Manager: https://c.api.connect.argws.com.br/manager"
+echo "Health: https://c.api.connect.argws.com.br/health"

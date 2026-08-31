@@ -1,0 +1,192 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+    max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+
+services:
+  api-argws-connect-develop:
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
+    pull_policy: always
+    container_name: api-argws-connect-develop
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: "8080"
+      DOCKER_ENV: "true"
+      DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
+      DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
+      LOG_QRCODE: ${LOG_QRCODE:-true}
+    depends_on:
+      postgres-argws-connect-develop:
+        condition: service_healthy
+      redis-argws-connect-develop:
+        condition: service_healthy
+      rabbitmq-argws-connect-develop:
+        condition: service_healthy
+      minio-argws-connect-develop:
+        condition: service_healthy
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38082}:8080"
+    volumes:
+      - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
+    networks: [argws-connect-develop-net]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *default-logging
+
+  postgres-argws-connect-develop:
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    pull_policy: always
+    container_name: postgres-argws-connect-develop
+    restart: unless-stopped
+    env_file: [.env]
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "listen_addresses=*"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      TZ: ${TZ:-America/Bahia}
+    expose: ["5432"]
+    volumes:
+      - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
+    networks:
+      argws-connect-develop-net:
+        aliases: [postgres-argws-connect-develop]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    logging: *default-logging
+
+  redis-argws-connect-develop:
+    image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
+    pull_policy: always
+    container_name: redis-argws-connect-develop
+    restart: unless-stopped
+    env_file: [.env]
+    command: ["sh", "-c", "exec redis-server --port 6379 --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    expose: ["6379"]
+    volumes:
+      - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
+    networks:
+      argws-connect-develop-net:
+        aliases: [redis-argws-connect-develop]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+    logging: *default-logging
+
+  rabbitmq-argws-connect-develop:
+    image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
+    pull_policy: always
+    container_name: rabbitmq-argws-connect-develop
+    restart: unless-stopped
+    env_file: [.env]
+    expose: ["5672", "15672", "15692"]
+    volumes:
+      - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
+    networks:
+      argws-connect-develop-net:
+        aliases: [rabbitmq-argws-connect-develop]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    logging: *default-logging
+
+  minio-argws-connect-develop:
+    image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
+    pull_policy: always
+    container_name: minio-argws-connect-develop
+    restart: unless-stopped
+    env_file: [.env]
+    command: server /data --console-address ":9001"
+    expose: ["9000", "9001"]
+    volumes:
+      - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
+    networks:
+      argws-connect-develop-net:
+        aliases: [minio-argws-connect-develop]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    logging: *default-logging
+
+  nats-argws-connect-develop:
+    profiles: ["nats", "extended"]
+    image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
+    pull_policy: always
+    container_name: nats-argws-connect-develop
+    restart: unless-stopped
+    command: ["-js", "-m", "8222", "--store_dir", "/data"]
+    expose: ["4222", "8222"]
+    volumes:
+      - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
+    networks:
+      argws-connect-develop-net:
+        aliases: [nats-argws-connect-develop]
+    logging: *default-logging
+
+  zookeeper-argws-connect-develop:
+    profiles: ["kafka", "extended"]
+    image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
+    pull_policy: always
+    container_name: zookeeper-argws-connect-develop
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    expose: ["2181"]
+    volumes:
+      - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
+      - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
+    networks:
+      argws-connect-develop-net:
+        aliases: [zookeeper-argws-connect-develop]
+    logging: *default-logging
+
+  kafka-argws-connect-develop:
+    profiles: ["kafka", "extended"]
+    image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
+    pull_policy: always
+    container_name: kafka-argws-connect-develop
+    restart: unless-stopped
+    depends_on: [zookeeper-argws-connect-develop]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-argws-connect-develop:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-argws-connect-develop:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    expose: ["9092"]
+    volumes:
+      - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
+    networks:
+      argws-connect-develop-net:
+        aliases: [kafka-argws-connect-develop]
+    logging: *default-logging
+
+networks:
+  argws-connect-develop-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-develop-net}
+    driver: bridge
