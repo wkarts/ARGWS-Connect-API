@@ -46,16 +46,21 @@ jobs:
           [[ "$develop" == "ghcr.io/wkarts/argws-connect-api:develop" ]]
           [[ "$canonical" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
-          [[ "$prod" != *":production" ]]
-          [[ "$develop" != *":homolog" ]]
-          [[ "$develop" != *":latest" ]]
-
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
-          grep -q 'argws-connect-api:develop' .github/workflows/ghcr-publish-application.yml
+          grep -q 'runner: ubuntu-24.04$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'runner: ubuntu-24.04-arm$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'platform: linux/amd64$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'platform: linux/arm64$' .github/workflows/ghcr-publish-application.yml
+          grep -q 'docker buildx imagetools create -t "${repo}:develop"' .github/workflows/ghcr-publish-application.yml
+
+          if grep -q 'setup-qemu' .github/workflows/ghcr-publish-application.yml; then
+            echo "Develop must use native amd64/arm64 runners, not QEMU." >&2
+            exit 1
+          fi
 
           if grep -nE 'argws-connect-api:(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' \
             .github/workflows/ghcr-publish-application.yml; then
-            echo "The develop workflow may publish only argws-connect-api:develop." >&2
+            echo "The develop workflow may publish only the :develop channel." >&2
             exit 1
           fi
 
