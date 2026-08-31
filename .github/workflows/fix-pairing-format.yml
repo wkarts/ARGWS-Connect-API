@@ -31,4 +31,4 @@ jobs:
           git add -A
           git diff --cached --check
           HUSKY=0 git commit -m "style(pairing): aplica formatação do hotfix"
-          git push origin HEAD:fix/pairing-code-phone-client-1.0.10
+          HUSKY=0 git push origin HEAD:fix/pairing-code-phone-client-1.0.10
