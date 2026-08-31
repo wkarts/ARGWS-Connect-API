@@ -30,9 +30,10 @@ for key in "${required[@]}"; do
 done
 
 api_image="$(get_value ARGWS_CONNECT_API_IMAGE)"
-if [[ ! "$api_image" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "ERRO: producao aceita somente uma tag SemVer explicita (X.Y.Z)."
+if [[ "$api_image" != "ghcr.io/wkarts/argws-connect-api:latest" ]]; then
+  echo "ERRO: o deployment normal de producao deve usar exclusivamente :latest."
   echo "Imagem atual: ${api_image:-<vazia>}"
+  echo "Para uma versao pinada use deploy/canonical."
   exit 1
 fi
 
@@ -69,4 +70,4 @@ done
 docker compose -f compose.yaml config >/dev/null
 docker compose --profile '*' -f compose.yaml config >/dev/null
 
-echo "Preflight de producao concluido. Imagem: ${api_image}. Profiles: ${COMPOSE_PROFILES:-core}"
+echo "Preflight de producao concluido. Canal: latest. Profiles: ${COMPOSE_PROFILES:-core}"
