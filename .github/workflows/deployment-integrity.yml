@@ -126,11 +126,11 @@ jobs:
               fixed_names = [name for name, cfg in services.items() if cfg.get("container_name")]
               assert not fixed_names, f"{compose_file}: container_name fixo impede coexistencia: {fixed_names}"
 
-          # Política de promoção: homologação acompanha latest; produção fica em SemVer promovida.
+          # Política de promoção: homologação acompanha :develop; produção fica em SemVer promovida.
           homolog_image = homolog["services"]["api"]["image"]
           prod_image = prod["services"]["api"]["image"]
-          assert homolog_image == "ghcr.io/wkarts/argws-connect-api:latest", (
-              f"homologacao deve usar :latest, encontrado {homolog_image}"
+          assert homolog_image == "ghcr.io/wkarts/argws-connect-api:develop", (
+              f"homologacao deve usar :develop, encontrado {homolog_image}"
           )
           assert re.fullmatch(r"ghcr\.io/wkarts/argws-connect-api:\d+\.\d+\.\d+", prod_image), (
               f"producao deve usar tag SemVer imutavel, encontrado {prod_image}"
@@ -182,8 +182,9 @@ jobs:
           }
           missing = required - prod
           assert not missing, f"variaveis obrigatorias ausentes: {sorted(missing)}"
-          assert homolog_values['ARGWS_CONNECT_API_IMAGE'].endswith(':latest')
+          assert homolog_values['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:develop'
           assert not prod_values['ARGWS_CONNECT_API_IMAGE'].endswith(':latest')
+          assert not prod_values['ARGWS_CONNECT_API_IMAGE'].endswith(':develop')
           assert ':homolog' not in homolog_values['ARGWS_CONNECT_API_IMAGE']
           assert ':production' not in prod_values['ARGWS_CONNECT_API_IMAGE']
           print(f"Production/Homologation env parity OK: {len(prod)} keys")
@@ -201,12 +202,12 @@ jobs:
             test -f "$dir/README.md"
           done
 
-      - name: Reject environment-specific tags in image publishing
+      - name: Reject invalid environment tags in image publishing
         run: |
           set -euo pipefail
           if grep -nE 'ghcr\.io/.*/argws-connect-(api|manager):(homolog|production)([[:space:]]|$)' \
             .github/workflows/ghcr-publish-application.yml; then
-            echo "Tags de ambiente sao proibidas. Use :latest para homologacao e SemVer para producao." >&2
+            echo "Tags :homolog e :production sao proibidas. Develop publica somente :develop." >&2
             exit 1
           fi
 
@@ -219,7 +220,7 @@ jobs:
           set -euo pipefail
           prod_image="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
           for image in \
-            ghcr.io/wkarts/argws-connect-api:latest \
+            ghcr.io/wkarts/argws-connect-api:develop \
             "$prod_image" \
             ghcr.io/wkarts/argws-connect-postgres:15 \
             ghcr.io/wkarts/argws-connect-redis:latest \

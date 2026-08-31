@@ -38,15 +38,21 @@ RabbitMQ continua sendo o event bus/fila padrão. NATS é indicado para pub/sub 
 
 ## Política de imagem
 
-A homologação usa somente:
+A homologação usa exclusivamente a imagem contínua da branch `develop`:
 
 ```text
-ghcr.io/wkarts/argws-connect-api:latest
+ghcr.io/wkarts/argws-connect-api:develop
 ```
 
-Não existe imagem/tag específica `:homolog` ou `:production`.
+A branch `develop` nunca publica `:latest`, tag SemVer ou GitHub Release. Cada push/merge em `develop` substitui a mesma tag `:develop`.
 
-A branch `develop` atualiza `:latest`. Releases da `main` publicam tags SemVer e também `:latest`. A homologação é o ambiente onde a imagem `latest` é validada antes de promover uma versão para produção.
+Quando a versão em homologação estiver confiável, o fluxo é:
+
+```text
+develop → PR para main → merge → versão SemVer → GitHub Release
+```
+
+A `main` continua sendo a linha estável/versionada. A produção permanece presa a uma tag SemVer aprovada.
 
 ## Deploy direto
 

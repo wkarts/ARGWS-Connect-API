@@ -2,33 +2,25 @@ name: ${COMPOSE_PROJECT_NAME:-argws-connect-api-dev}
 
 services:
   api:
-    container_name: argws_connect_api_dev
-    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:homolog}
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
     pull_policy: always
     restart: unless-stopped
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-8080}:8080"
     volumes:
-      - argws_connect_instances_dev:/argws-connect/instances
+      - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
     networks:
       - argws-connect-dev-net
     env_file:
       - .env
-
-  manager:
-    container_name: argws_connect_manager_dev
-    image: ${ARGWS_CONNECT_MANAGER_IMAGE:-ghcr.io/wkarts/argws-connect-manager:homolog}
-    pull_policy: always
-    restart: unless-stopped
-    ports:
-      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_MANAGER_HOST_PORT:-3000}:80"
-    networks:
-      - argws-connect-dev-net
-
-volumes:
-  argws_connect_instances_dev:
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
 networks:
   argws-connect-dev-net:
-    name: argws-connect-dev-net
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-dev-net}
     driver: bridge

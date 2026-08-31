@@ -26,36 +26,40 @@ O Compose também contém:
 
 Enquanto um profile está desligado, seus containers não são criados e não consomem recursos do runtime.
 
-Exemplos:
-
-```bash
-COMPOSE_PROFILES=nats ./deploy.sh
-COMPOSE_PROFILES=kafka ./deploy.sh
-COMPOSE_PROFILES=extended ./deploy.sh
-```
-
-RabbitMQ continua sendo o event bus/fila padrão. NATS é indicado para pub/sub de baixa latência e comunicação entre serviços; Kafka para retenção, replay e alto volume de eventos. Zookeeper existe somente como dependência do Kafka nesta versão.
-
 ## Política de imagem
 
-Produção não usa uma imagem `:production` e não acompanha automaticamente `:latest`.
+Produção não usa imagem `:production`, `:homolog` ou `:develop`.
 
 A stack fica presa a uma versão SemVer aprovada, por exemplo:
 
 ```text
-ghcr.io/wkarts/argws-connect-api:1.0.4
+ghcr.io/wkarts/argws-connect-api:1.0.5
 ```
 
-Fluxo de promoção:
+Fluxo oficial:
 
 ```text
-develop → :latest → homologação → validação → tag SemVer aprovada → produção
+feature/*
+   ↓ PR
+ develop
+   ↓
+ :develop
+   ↓
+ homologação
+   ↓ testes aprovados
+ PR develop → main
+   ↓
+ main
+   ↓
+ versão SemVer + Git tag + GitHub Release
+   ↓
+ produção
 ```
 
-Depois de validar a versão na homologação, promova exatamente a mesma imagem para produção:
+Depois que a `main` gerar a nova versão, promova explicitamente essa tag para produção:
 
 ```bash
-./promote.sh 1.0.5
+./promote.sh 1.0.6
 ```
 
 O script valida a existência da tag no GHCR, preserva o `.env` anterior, altera apenas `ARGWS_CONNECT_API_IMAGE`, executa o update da stack e restaura a versão anterior se a atualização falhar. Não há rebuild específico para produção.

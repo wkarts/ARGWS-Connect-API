@@ -157,14 +157,20 @@ jobs:
       - name: Apply version
         run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
 
-      - name: Commit version metadata
+      - name: Commit version metadata and production deployment pin
         id: commit
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION package.json package-lock.json RELEASE-MANIFEST.json
+          git add \
+            VERSION \
+            package.json \
+            package-lock.json \
+            RELEASE-MANIFEST.json \
+            deploy/production/env.example \
+            deploy/production/compose.yaml
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
             git push origin HEAD:main
