@@ -1,10 +1,8 @@
 # ARGWS Connect API — Produção
 
-Stack oficial de produção com core enxuto e mensageria avançada opcional.
+Stack oficial de produção. Somente a API publica `127.0.0.1:38080`; `/manager`, `/health`, `/metrics`, WebSocket e webhooks usam o mesmo endpoint.
 
 ## Core padrão
-
-Sem profiles adicionais, sobe apenas:
 
 ```text
 ARGWS Connect API
@@ -14,57 +12,33 @@ ARGWS Connect API
 └── MinIO
 ```
 
-Somente a API publica `127.0.0.1:38080`; `/manager`, `/health`, `/metrics`, WebSocket e webhooks usam esse mesmo endpoint.
+Profiles opcionais disponíveis:
 
-## Mensageria opcional
+- `nats` → NATS + JetStream;
+- `kafka` → Kafka + Zookeeper;
+- `extended` → NATS + Kafka + Zookeeper.
 
-O Compose também contém:
-
-- profile `nats` → NATS + JetStream;
-- profile `kafka` → Kafka + Zookeeper;
-- profile `extended` → NATS + Kafka + Zookeeper.
-
-Enquanto um profile está desligado, seus containers não são criados e não consomem recursos do runtime.
+Enquanto um profile está desligado, seus containers não são criados.
 
 ## Política de imagem
 
-Produção não usa imagem `:production`, `:homolog` ou `:develop`.
-
-A stack fica presa a uma versão SemVer aprovada, por exemplo:
+O deployment normal de produção acompanha sempre:
 
 ```text
-ghcr.io/wkarts/argws-connect-api:1.0.5
+ghcr.io/wkarts/argws-connect-api:latest
 ```
 
-Fluxo oficial:
+`latest` é publicado exclusivamente pela release estável da `main`.
+
+Para instalação reproduzível/pinada use `../canonical`, que aplica uma tag SemVer aprovada sobre **a mesma stack de produção**, sem alterar porta, domínio, rede ou volumes.
 
 ```text
-feature/*
-   ↓ PR
- develop
-   ↓
- :develop
-   ↓
- homologação
-   ↓ testes aprovados
- PR develop → main
-   ↓
- main
-   ↓
- versão SemVer + Git tag + GitHub Release
-   ↓
- produção
+Production  -> :latest
+Canonical   -> :X.Y.Z
+Homologação -> :develop
 ```
 
-Depois que a `main` gerar a nova versão, promova explicitamente essa tag para produção:
-
-```bash
-./promote.sh 1.0.6
-```
-
-O script valida a existência da tag no GHCR, preserva o `.env` anterior, altera apenas `ARGWS_CONNECT_API_IMAGE`, executa o update da stack e restaura a versão anterior se a atualização falhar. Não há rebuild específico para produção.
-
-## Deploy direto
+## Deploy
 
 ```bash
 ./registry-login.sh   # somente se os packages GHCR forem privados
@@ -75,9 +49,23 @@ Na primeira execução, `prepare-env.sh` cria o `.env`, gera os segredos localme
 
 Domínio oficial: `https://api.connect.argws.com.br`.
 
-## Persistência
+## Atualização
 
-Core:
+```bash
+./update.sh
+```
+
+Isso mantém a produção no canal `latest`.
+
+Se precisar fixar uma release específica na mesma stack:
+
+```bash
+./promote.sh 1.0.6
+```
+
+Esse comando delega ao deployment canonical e não cria um segundo ambiente.
+
+## Persistência
 
 ```text
 ./volumes/instances
@@ -89,14 +77,6 @@ Core:
 ./volumes/backups
 ```
 
-Profiles opcionais podem usar `./volumes/nats`, `./volumes/kafka` e `./volumes/zookeeper`.
-
-## Operação
-
-```bash
-./update.sh
-./status.sh
-./promote.sh X.Y.Z
-```
+Profiles opcionais usam `./volumes/nats`, `./volumes/kafka` e `./volumes/zookeeper`.
 
 Use `nginx-location.conf.example` no CloudPanel. SSL/TLS termina no CloudPanel/Cloudflare; internamente a API permanece HTTP em `8080`.
