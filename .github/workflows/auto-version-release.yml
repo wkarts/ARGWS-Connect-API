@@ -227,7 +227,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION package.json package-lock.json RELEASE-MANIFEST.json
+          git add VERSION package.json package-lock.json RELEASE-MANIFEST.json \
+            deploy/canonical/env.example deploy/canonical/compose.yaml
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
             git push origin HEAD:main
@@ -282,7 +283,7 @@ jobs:
             -t "${repo}:sha-${{ needs.version-source.outputs.release_sha }}" \
             "${sources[@]}"
           docker buildx imagetools inspect "${repo}:${version}"
-      - name: Save manifest report
+      - name: Save manifest digest
         shell: bash
         run: |
           set -euo pipefail
