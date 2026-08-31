@@ -6,6 +6,8 @@ O ARGWS Connect API mantém compatibilidade de entrada com integrações constru
 
 A compatibilidade é implementada na borda HTTP, antes da validação e antes do motor de canal. Internamente, a aplicação continua trabalhando com um único contrato normalizado.
 
+A partir da linha `1.0.9`, esta compatibilidade faz parte do contrato oficial de regressão do produto.
+
 ## Regra de precedência
 
 Quando o mesmo campo existir no formato atual e no envelope legado, o campo atual no nível raiz tem precedência.
@@ -169,6 +171,12 @@ webhookUrl
 notConvertSticker
 mentions / mentioned
 ```
+
+## Multipart / form-data legado
+
+Integrações antigas podem enviar `options`, `textMessage`, `mediaMessage`, `listMessage` e os demais envelopes conhecidos como strings JSON dentro de `multipart/form-data`.
+
+Esses campos conhecidos são desserializados antes da normalização e depois passam pela mesma validação dos payloads JSON atuais. O parsing não é aplicado genericamente a campos desconhecidos.
 
 ## Contatos
 
