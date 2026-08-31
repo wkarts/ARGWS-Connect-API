@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: ${{ !contains(github.event.head_commit.message, '[pairing-patched]') }}
+    if: "${{ !contains(github.event.head_commit.message, '[pairing-patched]') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -24,7 +24,7 @@ jobs:
           cache: npm
 
       - name: Apply pairing-code protocol fix
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
 
@@ -75,7 +75,6 @@ jobs:
               raise SystemExit('Pairing generation anchor not found')
           service = service.replace(old_pairing, new_pairing, 1)
 
-          # release() was used only to construct the custom browser tuple. Keep the import clean.
           service = service.replace("import { release } from 'os';\n", '')
           service_path.write_text(service, encoding='utf-8')
 
