@@ -31,6 +31,28 @@ function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Em multipart/form-data, objetos legados costumam chegar serializados como
+ * strings JSON. O parse é deliberadamente usado apenas em campos conhecidos
+ * pela camada de compatibilidade, nunca de forma genérica sobre o payload.
+ */
+function parseKnownJson(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
 function copyMissing(target: JsonRecord, source: JsonRecord) {
   for (const [key, value] of Object.entries(source)) {
     if (target[key] === undefined) {
@@ -40,23 +62,25 @@ function copyMissing(target: JsonRecord, source: JsonRecord) {
 }
 
 function applyMentions(target: JsonRecord, mentions: unknown) {
-  if (Array.isArray(mentions) && target.mentioned === undefined) {
-    target.mentioned = mentions;
+  const parsedMentions = parseKnownJson(mentions);
+
+  if (Array.isArray(parsedMentions) && target.mentioned === undefined) {
+    target.mentioned = parsedMentions;
     return;
   }
 
-  if (!isRecord(mentions)) {
+  if (!isRecord(parsedMentions)) {
     return;
   }
 
-  if (target.mentioned === undefined && Array.isArray(mentions.mentioned)) {
-    target.mentioned = mentions.mentioned;
+  if (target.mentioned === undefined && Array.isArray(parsedMentions.mentioned)) {
+    target.mentioned = parsedMentions.mentioned;
   }
-  if (target.mentionsEveryOne === undefined && typeof mentions.everyOne === 'boolean') {
-    target.mentionsEveryOne = mentions.everyOne;
+  if (target.mentionsEveryOne === undefined && typeof parsedMentions.everyOne === 'boolean') {
+    target.mentionsEveryOne = parsedMentions.everyOne;
   }
-  if (target.mentionsEveryOne === undefined && typeof mentions.mentionsEveryOne === 'boolean') {
-    target.mentionsEveryOne = mentions.mentionsEveryOne;
+  if (target.mentionsEveryOne === undefined && typeof parsedMentions.mentionsEveryOne === 'boolean') {
+    target.mentionsEveryOne = parsedMentions.mentionsEveryOne;
   }
 }
 
@@ -64,8 +88,9 @@ function normalizeMentions(target: JsonRecord, input: JsonRecord, options: JsonR
   applyMentions(target, options.mentions);
   applyMentions(target, input.mentions);
 
-  if (target.mentioned === undefined && Array.isArray(options.mentioned)) {
-    target.mentioned = options.mentioned;
+  const optionMentioned = parseKnownJson(options.mentioned);
+  if (target.mentioned === undefined && Array.isArray(optionMentioned)) {
+    target.mentioned = optionMentioned;
   }
 
   if (target.mentionsEveryOne === undefined && typeof options.everyOne === 'boolean') {
@@ -92,6 +117,7 @@ function normalizeMentions(target: JsonRecord, input: JsonRecord, options: JsonR
  * Compatibilidade preservada:
  * - formato atual, com campos no nível raiz;
  * - formato legado, com `options` + `<tipo>Message`;
+ * - envelopes legados serializados em multipart/form-data;
  * - formatos híbridos durante migrações graduais.
  *
  * Quando os dois formatos informam o mesmo campo, o valor do nível raiz tem
@@ -103,7 +129,8 @@ export function normalizeMessagePayload(input: unknown): unknown {
   }
 
   const normalized: JsonRecord = { ...input };
-  const options = isRecord(input.options) ? input.options : {};
+  const parsedOptions = parseKnownJson(input.options);
+  const options = isRecord(parsedOptions) ? parsedOptions : {};
 
   for (const field of OPTION_FIELDS) {
     if (normalized[field] === undefined && options[field] !== undefined) {
@@ -114,7 +141,7 @@ export function normalizeMessagePayload(input: unknown): unknown {
   normalizeMentions(normalized, input, options);
 
   for (const wrapperName of LEGACY_MESSAGE_WRAPPERS) {
-    const wrapped = input[wrapperName];
+    const wrapped = parseKnownJson(input[wrapperName]);
 
     if (isRecord(wrapped)) {
       copyMissing(normalized, wrapped);
@@ -126,8 +153,9 @@ export function normalizeMessagePayload(input: unknown): unknown {
   }
 
   // Alguns clientes 1.x enviavam contato como { contactMessage: { contacts: [...] } }.
-  if (normalized.contact === undefined && isRecord(input.contactMessage)) {
-    const legacyContacts = input.contactMessage.contacts;
+  const parsedContactMessage = parseKnownJson(input.contactMessage);
+  if (normalized.contact === undefined && isRecord(parsedContactMessage)) {
+    const legacyContacts = parseKnownJson(parsedContactMessage.contacts);
     if (Array.isArray(legacyContacts)) {
       normalized.contact = legacyContacts;
     }
