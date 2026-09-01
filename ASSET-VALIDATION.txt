@@ -1,0 +1,14 @@
+Connect|API runtime asset validation
+
+OK  76288ef6d61fc9210225cdbce89bfbe77e91d31621d13c088a760d6ee2b34834  manager/dist/favicon.ico
+OK  92689821f9dbf7eda8e5872dd91ec512e297cd24dfd1a9ee6c0c98623bcd9366  manager/dist/favicon.svg
+OK  2660596df8f7d53ade2d9da31ece3b698b6bef614eeb50420bf44d1b413e5439  manager/dist/apple-touch-icon.png
+OK  19424c93fa0fbb253dbb15c74b1cd1c11653370503e013f927671e269c7f8ad5  manager/dist/icons/icon-192x192.png
+OK  bfaeba125c4d8f3ae9593075200c0ee368ab6daf0b388609e8ce91c751f76c94  manager/dist/icons/icon-512x512.png
+OK  19424c93fa0fbb253dbb15c74b1cd1c11653370503e013f927671e269c7f8ad5  manager/dist/icons/icon-maskable-192x192.png
+OK  bfaeba125c4d8f3ae9593075200c0ee368ab6daf0b388609e8ce91c751f76c94  manager/dist/icons/icon-maskable-512x512.png
+OK  1e8669480dd11c4eda8b920ca75529fb89c3016307d9f44d4f532a81d3a7b403  manager/dist/assets/images/argws-connect-compact-symbol.png
+OK  c82cd0500b730c5cdb474744acba51327168f6cc8ddc83b13eb6b9cb9ed5a52b  manager/dist/assets/images/argws-connect-logo-horizontal.svg
+OK  a1bbea14d4228eef06f8b048a185943cb9fc031772cdd42459af559f43af8b50  manager/dist/assets/images/argws-connect-logo-dark.svg
+
+UI title/manifest checks: OK
