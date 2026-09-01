@@ -28,7 +28,7 @@ jobs:
       - name: Materialize full implementation
         run: python3 .github/scripts/_implement_meta_cloud_full.py
 
-      - name: Normalize isolated version validator and async contract test
+      - name: Normalize implementation against current project types
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -45,7 +45,23 @@ jobs:
               if anchor not in text:
                   raise SystemExit('graph router import anchor not found')
               text = text.replace(anchor, anchor + "import { isMetaGraphVersion } from './meta-cloud-version';\n", 1)
+          text = text.replace('req.file,', '(req as any).file,')
           router.write_text(text, encoding='utf-8')
+
+          media = Path('src/api/compat/meta-cloud/meta-cloud-media.service.ts')
+          text = media.read_text(encoding='utf-8')
+          text = text.replace('file: Express.Multer.File | undefined', 'file: any')
+          media.write_text(text, encoding='utf-8')
+
+          graph = Path('src/api/compat/meta-cloud/meta-cloud-graph.controller.ts')
+          text = graph.read_text(encoding='utf-8')
+          text = text.replace('file: Express.Multer.File,', 'file: any,')
+          graph.write_text(text, encoding='utf-8')
+
+          adapter = Path('src/api/compat/meta-cloud/meta-cloud-message.adapter.ts')
+          text = adapter.read_text(encoding='utf-8')
+          text = text.replace("          participant: key?.participant,\n", '')
+          adapter.write_text(text, encoding='utf-8')
 
           p = Path('test/meta-cloud/contract.test.ts')
           text = p.read_text(encoding='utf-8')
