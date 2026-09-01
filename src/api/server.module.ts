@@ -3,6 +3,9 @@ import { Chatwoot, configService, ProviderSession } from '@config/env.config';
 import { eventEmitter } from '@config/event.config';
 import { Logger } from '@config/logger.config';
 
+import { MetaCloudController } from './compat/meta-cloud/meta-cloud.controller';
+import { MetaCloudAuthService } from './compat/meta-cloud/meta-cloud-auth.service';
+import { MetaCloudIdentityResolver } from './compat/meta-cloud/meta-cloud-identity.resolver';
 import { BusinessController } from './controllers/business.controller';
 import { CallController } from './controllers/call.controller';
 import { ChatController } from './controllers/chat.controller';
@@ -61,6 +64,9 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 }
 
 export const prismaRepository = new PrismaRepository(configService);
+export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
+export const metaCloudAuthService = new MetaCloudAuthService();
+export const metaCloudController = new MetaCloudController(prismaRepository, metaCloudIdentityResolver);
 
 export const waMonitor = new WAMonitoringService(
   eventEmitter,
