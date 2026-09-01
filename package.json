@@ -10,7 +10,7 @@
     "start:prod": "node dist/main",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
-    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts",
+    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts",
     "lint": "eslint --fix --ext .ts src",
     "lint:check": "eslint --ext .ts src",
     "commit": "cz",

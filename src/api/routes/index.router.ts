@@ -1,5 +1,6 @@
 import { metaCloudMetrics } from '@api/compat/meta-cloud/meta-cloud.metrics';
 import { MetaCloudAdminRouter } from '@api/compat/meta-cloud/meta-cloud.router';
+import { MetaCloudGraphRouter } from '@api/compat/meta-cloud/meta-cloud-graph.router';
 import { authGuard } from '@api/guards/auth.guard';
 import { instanceExistsGuard, instanceLoggedGuard } from '@api/guards/instance.guard';
 import Telemetry from '@api/guards/telemetry.guard';
@@ -207,6 +208,7 @@ router
       facebookUserToken: facebookConfig.USER_TOKEN,
     });
   })
+  .use('/graph', new MetaCloudGraphRouter().router)
   .use('/compat/meta', new MetaCloudAdminRouter().router)
   .use('/instance', new InstanceRouter(configService, ...guards).router)
   .use('/message', new MessageRouter(...guards).router)

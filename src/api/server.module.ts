@@ -5,7 +5,15 @@ import { Logger } from '@config/logger.config';
 
 import { MetaCloudController } from './compat/meta-cloud/meta-cloud.controller';
 import { MetaCloudAuthService } from './compat/meta-cloud/meta-cloud-auth.service';
+import { MetaCloudGraphController } from './compat/meta-cloud/meta-cloud-graph.controller';
 import { MetaCloudIdentityResolver } from './compat/meta-cloud/meta-cloud-identity.resolver';
+import { MetaCloudMediaService } from './compat/meta-cloud/meta-cloud-media.service';
+import { MetaCloudMessageAdapter } from './compat/meta-cloud/meta-cloud-message.adapter';
+import { MetaCloudResponseSerializer } from './compat/meta-cloud/meta-cloud-response.serializer';
+import { MetaCloudStatusMapper } from './compat/meta-cloud/meta-cloud-status.mapper';
+import { MetaCloudTemplateService } from './compat/meta-cloud/meta-cloud-template.service';
+import { MetaCloudWebhookDispatcher } from './compat/meta-cloud/meta-cloud-webhook.dispatcher';
+import { MetaCloudWebhookSerializer } from './compat/meta-cloud/meta-cloud-webhook.serializer';
 import { BusinessController } from './controllers/business.controller';
 import { CallController } from './controllers/call.controller';
 import { ChatController } from './controllers/chat.controller';
@@ -113,7 +121,39 @@ export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
 export const labelController = new LabelController(waMonitor);
 
+export const metaCloudMediaService = new MetaCloudMediaService(prismaRepository, cache);
+export const metaCloudResponseSerializer = new MetaCloudResponseSerializer();
+export const metaCloudStatusMapper = new MetaCloudStatusMapper();
+export const metaCloudMessageAdapter = new MetaCloudMessageAdapter(
+  sendMessageController,
+  chatController,
+  prismaRepository,
+  waMonitor,
+  metaCloudMediaService,
+  metaCloudResponseSerializer,
+);
+export const metaCloudTemplateService = new MetaCloudTemplateService(templateController);
+export const metaCloudGraphController = new MetaCloudGraphController(
+  prismaRepository,
+  metaCloudIdentityResolver,
+  metaCloudAuthService,
+  metaCloudMessageAdapter,
+  metaCloudMediaService,
+  metaCloudTemplateService,
+);
+export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
+  metaCloudIdentityResolver,
+  metaCloudStatusMapper,
+);
+
 export const eventManager = new EventManager(prismaRepository, waMonitor);
+export const metaCloudWebhookDispatcher = new MetaCloudWebhookDispatcher(
+  prismaRepository,
+  metaCloudIdentityResolver,
+  metaCloudWebhookSerializer,
+  eventManager.rabbitmq,
+);
+eventManager.setMetaCloudDispatcher(metaCloudWebhookDispatcher);
 export const chatbotController = new ChatbotController(prismaRepository, waMonitor);
 export const channelController = new ChannelController(prismaRepository, waMonitor);
 
