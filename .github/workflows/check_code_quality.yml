@@ -35,6 +35,9 @@ jobs:
     - name: Check linting
       run: npm run lint:check
 
+    - name: Check Manager runtime fixes syntax
+      run: node --check manager/dist/assets/argws-runtime-fixes.js
+
     - name: Check legacy message compatibility
       run: npm run test:compat
 
