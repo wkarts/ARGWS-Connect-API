@@ -30,7 +30,7 @@ manifest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encod
 
 rt = runtime.read_text(encoding='utf-8')
 rt = rt.replace("const VERSION = '2026.09.01.2';", "const VERSION = '2026.09.01.3';")
-marker = "  const isObject = (value) => value !== null && typeof value === 'object';\n"
+marker = "  const getUrl = (value) => {\n"
 branding = """  const PUBLIC_BRAND = 'Connect|API';
 
   const enforcePublicBrand = () => {
