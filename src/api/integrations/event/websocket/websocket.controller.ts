@@ -46,7 +46,9 @@ export class WebsocketController extends EventController implements EventControl
   private isAllowedNetworkAddress(address?: string): boolean {
     const websocketConfig = configService.get<Websocket>('WEBSOCKET');
     const defaults = '127.0.0.1,::1,::ffff:127.0.0.1,172.*,10.*,192.168.*';
-    const allowedAddresses = [defaults, websocketConfig.ALLOWED_IPS].filter(Boolean).join(',');
+    const allowedAddresses = [defaults, websocketConfig.ALLOWED_IPS]
+      .filter(Boolean)
+      .join(',');
 
     return allowedAddresses
       .split(',')
@@ -111,9 +113,7 @@ export class WebsocketController extends EventController implements EventControl
     if (forwardedHost) candidates.push(forwardedHost.split(',')[0]);
     if (host) candidates.push(host);
 
-    return candidates.some((candidate) =>
-      allowedHosts.some((pattern) => this.matchesAllowedHost(candidate, pattern)),
-    );
+    return candidates.some((candidate) => allowedHosts.some((pattern) => this.matchesAllowedHost(candidate, pattern)));
   }
 
   public init(httpServer: Server): void {
