@@ -37,7 +37,10 @@ jobs:
       - name: Compatibility tests
         run: npm run test:compat
 
-      - name: Lint
+      - name: Apply repository lint autofix
+        run: npm run lint
+
+      - name: Lint check
         run: npm run lint:check
 
       - name: Build
