@@ -1,26 +1,18 @@
-# Commit sugerido — Connect|API Branding
+# Commit sugerido
 
 ## Título
 
-`feat(branding): aplica identidade visual oficial Connect|API`
+feat(branding): consolida identidade visual Connect|API em todo o projeto
 
 ## Descrição
 
-Aplica a identidade visual oficial do **Connect|API** no Manager, preservando integralmente os nomes técnicos consolidados e os contratos existentes da aplicação.
+Consolida a identidade visual oficial Connect|API em todos os assets de runtime e públicos do projeto, preservando paths técnicos legados apenas como aliases de compatibilidade.
 
-### Alterações
+- substitui logos e símbolos antigos em `public/`, `public/images/` e `manager/dist/`;
+- atualiza PNG, SVG, ICO e derivados PWA para o conceito Connect|API;
+- adiciona biblioteca canônica de assets `core`, `docs`, `pbx` e `voip`;
+- adiciona variantes PNG, SVG e JPEG light/dark para uso futuro;
+- mantém arquivos não relacionados ao branding, como PicPay e capa de vídeo;
+- não altera services Docker, GHCR, banco, tabelas, migrations, providers, enums ou rotas.
 
-- altera o nome público exibido para `Connect|API`;
-- corrige a title bar para exibir somente `Connect|API`;
-- aplica os logos oficiais light e dark fornecidos;
-- atualiza favicon ICO/SVG com o símbolo oficial;
-- atualiza ícones PWA 192/512 e variantes maskable;
-- atualiza Apple Touch Icon e símbolo compacto;
-- atualiza o manifesto PWA;
-- remove assets antigos de branding sem uso em runtime;
-- remove textos visuais antigos `ARGWS Connect API` e `Connect Manager` do Manager compilado;
-- preserva Docker services, containers, imagens GHCR, banco, tabelas, migrations, providers, enums, rotas e contratos nativos.
-
-### Escopo
-
-Mudança visual/aditiva, sem alteração funcional da API ou de infraestrutura consolidada.
+Mudança visual e de organização de assets, sem alteração funcional da API.
