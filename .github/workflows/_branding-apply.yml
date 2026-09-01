@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply-and-validate:
-    if: ${{ !contains(github.event.head_commit.message, '[branding-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branding branch
@@ -32,7 +31,6 @@ jobs:
           index = root / 'manager/dist/index.html'
           manifest = root / 'manager/dist/manifest.webmanifest'
 
-          # Static UI strings in the prebuilt Manager. Technical identifiers are untouched.
           text = bundle.read_text(encoding='utf-8')
           replacements = [
               ('ARGWS Connect API - Connect|API', 'Connect|API'),
@@ -48,19 +46,16 @@ jobs:
           bundle.write_text(text, encoding='utf-8')
           print('bundle replacements:', counts)
 
-          # PWA/public application identity.
           data = json.loads(manifest.read_text(encoding='utf-8'))
           data['name'] = 'Connect|API'
           data['short_name'] = 'Connect|API'
           data['description'] = 'Connect|API — Communication & Integration Platform'
           manifest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
-          # Keep the browser title canonical even if the legacy compiled app tries to rewrite it.
           rt = runtime.read_text(encoding='utf-8')
           rt = rt.replace("const VERSION = '2026.09.01.2';", "const VERSION = '2026.09.01.3';")
           marker = "  const isObject = (value) => value !== null && typeof value === 'object';\n"
-          branding = r'''
-  const PUBLIC_BRAND = 'Connect|API';
+          branding = """  const PUBLIC_BRAND = 'Connect|API';
 
   const enforcePublicBrand = () => {
     let title = document.querySelector('title');
@@ -84,7 +79,7 @@ jobs:
     startBrandGuard();
   }
 
-'''
+"""
           if 'const PUBLIC_BRAND' not in rt:
               if marker not in rt:
                   raise SystemExit('runtime branding insertion marker not found')
@@ -96,36 +91,26 @@ jobs:
           html = re.sub(r'<title>.*?</title>', '<title>Connect|API</title>', html, count=1, flags=re.S)
           index.write_text(html, encoding='utf-8')
 
-          # The full branding package in dist was never referenced by runtime. Keep only active runtime assets.
           branding_dir = root / 'manager/dist/assets/branding'
           textual = []
           for p in (root / 'manager/dist').rglob('*'):
               if not p.is_file() or branding_dir in p.parents:
                   continue
               if p.suffix.lower() in {'.html', '.js', '.css', '.json', '.webmanifest', '.svg', '.txt'}:
-                  try:
-                      textual.append((p, p.read_text(encoding='utf-8', errors='ignore')))
-                  except Exception:
-                      pass
-          refs = [(str(p), s) for p, s in textual if '/assets/branding/' in s or 'assets/branding/' in s]
+                  textual.append((p, p.read_text(encoding='utf-8', errors='ignore')))
+          refs = [str(p) for p, s in textual if '/assets/branding/' in s or 'assets/branding/' in s]
           if refs:
-              raise SystemExit('branding package is still referenced by runtime: ' + ', '.join(p for p, _ in refs))
+              raise SystemExit('branding package is still referenced by runtime: ' + ', '.join(refs))
           if branding_dir.exists():
               shutil.rmtree(branding_dir)
 
-          # Remove duplicate legacy-named raster lockups only when they are not referenced anywhere.
           for candidate in [
               root / 'manager/dist/assets/images/ARGWS_CONNECT_API_logo_primary_transparent.png',
               root / 'manager/dist/assets/images/argws-connect-logo.png',
           ]:
-              if not candidate.exists():
-                  continue
-              name = candidate.name
-              referenced = any(name in s for p, s in textual if p != candidate)
-              if not referenced:
+              if candidate.exists() and not any(candidate.name in s for _, s in textual):
                   candidate.unlink()
 
-          # Temporary audit/apply workflows must never remain in the product diff.
           for tmp in [
               root / '.github/workflows/_branding-audit.yml',
               root / '.github/workflows/_branding-apply.yml',
@@ -139,8 +124,8 @@ jobs:
         run: |
           node --check manager/dist/assets/argws-runtime-fixes.js
           python3 -m json.tool manager/dist/manifest.webmanifest >/dev/null
-          grep -q '<title>Connect|API</title>' manager/dist/index.html
-          grep -q 'Connect|API' manager/dist/manifest.webmanifest
+          grep -Fq '<title>Connect|API</title>' manager/dist/index.html
+          grep -Fq 'Connect|API' manager/dist/manifest.webmanifest
           test -f manager/dist/favicon.svg
           test -f manager/dist/apple-touch-icon.png
           test -f manager/dist/icons/icon-192x192.png
@@ -148,19 +133,11 @@ jobs:
           test -f manager/dist/assets/images/argws-connect-logo-horizontal.svg
           test -f manager/dist/assets/images/argws-connect-logo-dark.svg
           test -f manager/dist/assets/images/argws-connect-compact-symbol.png
-
-          if grep -E -n 'ARGWS Connect API|ARGWS Connect|Connect Manager' \
-              manager/dist/index.html \
-              manager/dist/manifest.webmanifest \
-              manager/dist/assets/index-CO3NSIFj.js; then
+          if grep -E -n 'ARGWS Connect API|ARGWS Connect|Connect Manager' manager/dist/index.html manager/dist/manifest.webmanifest manager/dist/assets/index-CO3NSIFj.js; then
             echo 'Legacy public branding remains in loaded Manager files.' >&2
             exit 1
           fi
-
-          if test -d manager/dist/assets/branding; then
-            echo 'Unused branding package remains in runtime dist.' >&2
-            exit 1
-          fi
+          test ! -d manager/dist/assets/branding
 
       - name: Commit validated branding
         shell: bash
@@ -169,9 +146,5 @@ jobs:
           git config user.email "57051272+wkarts@users.noreply.github.com"
           git add -A
           git status --short
-          if git diff --cached --quiet; then
-            echo 'No branding changes to commit.'
-            exit 0
-          fi
           git commit -m 'feat(branding): aplica identidade pública Connect|API [branding-applied]'
           git push origin HEAD:feat/connect-api-branding
