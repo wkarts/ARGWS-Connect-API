@@ -1,0 +1,57 @@
+name: Export Connect API Package
+
+on:
+  push:
+    branches:
+      - feat/connect-api-branding
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/connect-api-branding
+          fetch-depth: 0
+
+      - name: Add commit instructions
+        shell: bash
+        run: |
+          cat > COMMIT-MESSAGE.md <<'EOF'
+          # Commit sugerido
+
+          ## Título
+          feat(branding): aplica identidade visual oficial Connect|API
+
+          ## Descrição
+          Aplica a nova identidade visual pública do Connect|API no Manager, preservando todos os nomes técnicos consolidados e contratos existentes.
+
+          - substitui logos light/dark pelos assets oficiais Connect|API;
+          - atualiza title bar, manifesto PWA e textos visuais;
+          - atualiza ícones PWA, maskable, Apple Touch e símbolo compacto;
+          - remove assets de branding antigos e não utilizados;
+          - preserva services Docker, GHCR, banco, tabelas, migrations, providers, enums e rotas;
+          - não altera comportamento funcional da API nem contratos existentes.
+          EOF
+
+      - name: Package project
+        shell: bash
+        run: |
+          rm -rf /tmp/connect-api-package
+          mkdir -p /tmp/connect-api-package/Connect-API
+          rsync -a --exclude='.git' --exclude='.github/workflows/_export-connect-api-package.yml' ./ /tmp/connect-api-package/Connect-API/
+          cd /tmp/connect-api-package
+          zip -qr /tmp/Connect-API-Branding-Ready.zip Connect-API
+          ls -lh /tmp/Connect-API-Branding-Ready.zip
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect-API-Branding-Ready
+          path: /tmp/Connect-API-Branding-Ready.zip
+          if-no-files-found: error
+          retention-days: 7
