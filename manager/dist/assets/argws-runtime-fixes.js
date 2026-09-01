@@ -11,8 +11,9 @@
   if (window.__ARGWS_RUNTIME_FIXES_LOADED__) return;
   window.__ARGWS_RUNTIME_FIXES_LOADED__ = true;
 
-  const VERSION = '2026.09.01.1';
+  const VERSION = '2026.09.01.2';
   const WEBHOOK_DISABLED_SENTINEL = 'https://disabled.invalid/';
+  const nativeJsonParse = JSON.parse.bind(JSON);
   const runtimeState = {
     apiKey: null,
     instanceName: null,
@@ -38,42 +39,6 @@
       runtimeState.instanceName = decodeURIComponent(match[1]);
     } catch {
       runtimeState.instanceName = match[1];
-    }
-  };
-
-  const rewriteJsonRequestBody = (url, body) => {
-    if (typeof body !== 'string' || !body.trim()) return body;
-
-    const isSendMedia = /\/message\/sendMedia\//i.test(url);
-    const isWebhookSet = /\/webhook\/set\//i.test(url);
-    if (!isSendMedia && !isWebhookSet) return body;
-
-    try {
-      const data = JSON.parse(body);
-      let changed = false;
-
-      if (isSendMedia) {
-        const media = data?.mediaMessage && typeof data.mediaMessage === 'object' ? data.mediaMessage : data;
-        const mimeType = String(media?.mimetype || '').toLowerCase();
-        const mediaType = String(media?.mediatype || '').toLowerCase();
-
-        if (mediaType === 'text' || mimeType.startsWith('text/')) {
-          media.mediatype = 'document';
-          changed = true;
-        }
-      }
-
-      if (isWebhookSet) {
-        const webhook = data?.webhook && typeof data.webhook === 'object' ? data.webhook : data;
-        if (webhook?.url === WEBHOOK_DISABLED_SENTINEL) {
-          webhook.url = '';
-          changed = true;
-        }
-      }
-
-      return changed ? JSON.stringify(data) : body;
-    } catch {
-      return body;
     }
   };
 
@@ -134,11 +99,63 @@
     return node;
   };
 
+  const patchJsonParse = () => {
+    JSON.parse = function argwsJsonParse(text, reviver) {
+      const parsed = nativeJsonParse(text, reviver);
+
+      if (typeof text === 'string' && text.includes('interactiveMessage')) {
+        try {
+          normalizeInteractiveMessages(parsed);
+        } catch (error) {
+          console.warn('[ARGWS Manager] Falha ao normalizar interactiveMessage em tempo real:', error);
+        }
+      }
+
+      return parsed;
+    };
+  };
+
+  const rewriteJsonRequestBody = (url, body) => {
+    if (typeof body !== 'string' || !body.trim()) return body;
+
+    const isSendMedia = /\/message\/sendMedia\//i.test(url);
+    const isWebhookSet = /\/webhook\/set\//i.test(url);
+    if (!isSendMedia && !isWebhookSet) return body;
+
+    try {
+      const data = nativeJsonParse(body);
+      let changed = false;
+
+      if (isSendMedia) {
+        const media = data?.mediaMessage && typeof data.mediaMessage === 'object' ? data.mediaMessage : data;
+        const mimeType = String(media?.mimetype || '').toLowerCase();
+        const mediaType = String(media?.mediatype || '').toLowerCase();
+
+        if (mediaType === 'text' || mimeType.startsWith('text/')) {
+          media.mediatype = 'document';
+          changed = true;
+        }
+      }
+
+      if (isWebhookSet) {
+        const webhook = data?.webhook && typeof data.webhook === 'object' ? data.webhook : data;
+        if (webhook?.url === WEBHOOK_DISABLED_SENTINEL) {
+          webhook.url = '';
+          changed = true;
+        }
+      }
+
+      return changed ? JSON.stringify(data) : body;
+    } catch {
+      return body;
+    }
+  };
+
   const normalizeMessagesResponseText = (url, text) => {
     if (!/\/chat\/findMessages\//i.test(url) || typeof text !== 'string' || !text.trim()) return text;
 
     try {
-      const parsed = JSON.parse(text);
+      const parsed = nativeJsonParse(text);
       normalizeInteractiveMessages(parsed);
       return JSON.stringify(parsed);
     } catch {
@@ -525,7 +542,9 @@
       if (!filtered.length) {
         const empty = document.createElement('div');
         empty.className = 'argws-contact-status';
-        empty.textContent = query ? 'Nenhum contato encontrado. Você ainda pode abrir pelo número/JID.' : 'Nenhum contato sincronizado encontrado.';
+        empty.textContent = query
+          ? 'Nenhum contato encontrado. Você ainda pode abrir pelo número/JID.'
+          : 'Nenhum contato sincronizado encontrado.';
         list.appendChild(empty);
         return;
       }
@@ -625,6 +644,7 @@
     }
   };
 
+  patchJsonParse();
   injectStyles();
   patchXmlHttpRequest();
   patchFetch();
