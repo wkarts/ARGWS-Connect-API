@@ -1,0 +1,61 @@
+name: Meta Cloud Compatibility Foundation Bootstrap
+
+on:
+  push:
+    branches:
+      - feature/meta-cloud-compatible-v1
+
+permissions:
+  contents: write
+
+jobs:
+  materialize-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[meta-generated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature
+        uses: actions/checkout@v5
+        with:
+          ref: feature/meta-cloud-compatible-v1
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Materialize foundation
+        run: python3 .github/scripts/_implement_meta_cloud_foundation.py
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Compatibility tests
+        run: npm run test:compat
+
+      - name: Lint
+        run: npm run lint:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Remove bootstrap implementation files
+        run: |
+          rm -f .github/scripts/_implement_meta_cloud_foundation.py
+          rm -f .github/workflows/_meta-cloud-foundation-bootstrap.yml
+
+      - name: Commit validated foundation
+        run: |
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat(meta-compat): adiciona fundação Meta Cloud Compatible [meta-generated]"
+          git push origin HEAD:feature/meta-cloud-compatible-v1
