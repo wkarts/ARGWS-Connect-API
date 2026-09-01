@@ -36,18 +36,84 @@ export class WebsocketController extends EventController implements EventControl
     return normalizedAddress === normalizedPattern;
   }
 
+  /**
+   * A lista de IPs é deliberadamente separada da lista de hosts.
+   *
+   * Em produção o Engine.IO normalmente enxerga o IP do reverse proxy Docker
+   * (172.x/10.x/192.168.x), e não o hostname público. Por isso os intervalos
+   * privados padrão nunca podem ser substituídos por WEBSOCKET_ALLOWED_HOSTS.
+   */
   private isAllowedNetworkAddress(address?: string): boolean {
     const websocketConfig = configService.get<Websocket>('WEBSOCKET');
-    const allowedAddresses =
-      websocketConfig.ALLOWED_IPS ||
-      websocketConfig.ALLOWED_HOSTS ||
-      '127.0.0.1,::1,::ffff:127.0.0.1,172.*,10.*,192.168.*';
+    const defaults = '127.0.0.1,::1,::ffff:127.0.0.1,172.*,10.*,192.168.*';
+    const allowedAddresses = [defaults, websocketConfig.ALLOWED_IPS].filter(Boolean).join(',');
 
     return allowedAddresses
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean)
       .some((pattern) => this.matchesAllowedAddress(address || '', pattern));
+  }
+
+  private normalizeHost(value?: string): string {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+
+    try {
+      if (/^https?:\/\//i.test(raw) || /^wss?:\/\//i.test(raw)) {
+        return new URL(raw).hostname.toLowerCase();
+      }
+    } catch {
+      return '';
+    }
+
+    // Host header may include a port. Preserve IPv6 literals.
+    if (raw.startsWith('[')) {
+      const end = raw.indexOf(']');
+      return end >= 0 ? raw.slice(1, end) : raw;
+    }
+
+    return raw.split(':')[0];
+  }
+
+  private matchesAllowedHost(host: string, pattern: string): boolean {
+    const normalizedHost = this.normalizeHost(host);
+    const normalizedPattern = this.normalizeHost(pattern);
+
+    if (!normalizedPattern) return false;
+    if (normalizedPattern === '*') return true;
+    if (normalizedPattern.startsWith('*.')) {
+      const suffix = normalizedPattern.slice(1);
+      return normalizedHost.endsWith(suffix) || normalizedHost === normalizedPattern.slice(2);
+    }
+    if (normalizedPattern.endsWith('*')) {
+      return normalizedHost.startsWith(normalizedPattern.slice(0, -1));
+    }
+
+    return normalizedHost === normalizedPattern;
+  }
+
+  private isAllowedRequestHost(req: any): boolean {
+    const websocketConfig = configService.get<Websocket>('WEBSOCKET');
+    const configuredHosts = websocketConfig.ALLOWED_HOSTS || '';
+    const allowedHosts = ['localhost', '127.0.0.1', configuredHosts]
+      .join(',')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const candidates: string[] = [];
+    const origin = String(req?.headers?.origin || '').trim();
+    const forwardedHost = String(req?.headers?.['x-forwarded-host'] || '').trim();
+    const host = String(req?.headers?.host || '').trim();
+
+    if (origin) candidates.push(origin);
+    if (forwardedHost) candidates.push(forwardedHost.split(',')[0]);
+    if (host) candidates.push(host);
+
+    return candidates.some((candidate) =>
+      allowedHosts.some((pattern) => this.matchesAllowedHost(candidate, pattern)),
+    );
   }
 
   public init(httpServer: Server): void {
@@ -60,19 +126,25 @@ export class WebsocketController extends EventController implements EventControl
       allowRequest: (req, callback) => {
         try {
           const remoteAddress = req.socket.remoteAddress;
+          const trustedNetwork = this.isAllowedNetworkAddress(remoteAddress);
+          const trustedHost = this.isAllowedRequestHost(req);
 
-          if (!this.isAllowedNetworkAddress(remoteAddress)) {
-            this.logger.error(`Connection rejected: network address not allowed (${remoteAddress || 'unknown'})`);
-            return callback('Network address not allowed', false);
+          // Engine.IO runs before Socket.IO auth is available. Behind a reverse
+          // proxy we therefore accept either the trusted internal proxy network
+          // or a configured public Origin/Host, and perform API-key validation
+          // in the Socket.IO middleware immediately afterwards.
+          if (!trustedNetwork && !trustedHost) {
+            this.logger.error(
+              `Connection rejected: Socket.IO origin/network not allowed (${remoteAddress || 'unknown'})`,
+            );
+            return callback('Socket.IO origin/network not allowed', false);
           }
 
-          // Network validation is only the first security layer. Authentication
-          // is mandatory for every Socket.IO connection in the middleware below.
           return callback(null, true);
         } catch (error) {
-          this.logger.error('Network validation error:');
+          this.logger.error('Socket.IO request validation error:');
           this.logger.error(error);
-          return callback('Network validation error', false);
+          return callback('Socket.IO request validation error', false);
         }
       },
     });
@@ -87,11 +159,10 @@ export class WebsocketController extends EventController implements EventControl
         if (!apiKey) {
           const remoteAddress = socket.request?.socket?.remoteAddress || socket.handshake.address;
 
-          // Backward-compatible Manager handshake. Network validation in
-          // allowRequest remains mandatory, while legacy Manager clients do not
-          // have to inject the API key into the Engine.IO handshake.
+          // Backward compatibility is restricted to the trusted internal
+          // network only. Public Manager clients must authenticate with apikey.
           if (this.isAllowedNetworkAddress(remoteAddress)) {
-            this.logger.info(`Trusted Manager Socket.IO connection accepted: ${socket.id}`);
+            this.logger.info(`Trusted internal Socket.IO connection accepted without API key: ${socket.id}`);
             return next();
           }
 
@@ -135,7 +206,7 @@ export class WebsocketController extends EventController implements EventControl
       });
     });
 
-    this.logger.info('Socket.io initialized with network allowlist and Manager-compatible API-key authentication');
+    this.logger.info('Socket.io initialized with reverse-proxy aware allowlist and API-key authentication');
   }
 
   private set cors(cors: Array<any>) {
