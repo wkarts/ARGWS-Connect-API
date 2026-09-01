@@ -261,7 +261,10 @@ export class BusinessStartupService extends ChannelStartupService {
       return null;
     }
 
-    if (message.from === received.metadata.phone_number_id) {
+    if (
+      String(message.from || '').replace(/\D/g, '') ===
+      String(received.metadata.display_phone_number || '').replace(/\D/g, '')
+    ) {
       content = {
         extendedTextMessage: { text: message.text.body },
       };
@@ -396,7 +399,9 @@ export class BusinessStartupService extends ChannelStartupService {
         const key = {
           id: message.id,
           remoteJid: this.phoneNumber,
-          fromMe: message.from === received.metadata.phone_number_id,
+          fromMe:
+            String(message.from || '').replace(/\D/g, '') ===
+            String(received.metadata.display_phone_number || '').replace(/\D/g, ''),
         };
 
         if (message.type === 'sticker') {

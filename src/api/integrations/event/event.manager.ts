@@ -1,3 +1,4 @@
+import { MetaCloudWebhookDispatcher } from '@api/compat/meta-cloud/meta-cloud-webhook.dispatcher';
 import { KafkaController } from '@api/integrations/event/kafka/kafka.controller';
 import { NatsController } from '@api/integrations/event/nats/nats.controller';
 import { PusherController } from '@api/integrations/event/pusher/pusher.controller';
@@ -19,6 +20,7 @@ export class EventManager {
   private sqsController: SqsController;
   private pusherController: PusherController;
   private kafkaController: KafkaController;
+  private metaCloudDispatcher?: MetaCloudWebhookDispatcher;
 
   constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
     this.prisma = prismaRepository;
@@ -103,6 +105,10 @@ export class EventManager {
     return this.kafkaController;
   }
 
+  public setMetaCloudDispatcher(dispatcher: MetaCloudWebhookDispatcher): void {
+    this.metaCloudDispatcher = dispatcher;
+  }
+
   public init(httpServer: Server): void {
     this.websocket.init(httpServer);
     this.rabbitmq.init();
@@ -125,6 +131,9 @@ export class EventManager {
     integration?: string[];
     extra?: Record<string, any>;
   }): Promise<void> {
+    if (this.metaCloudDispatcher) {
+      void this.metaCloudDispatcher.handleEvent(eventData).catch(() => undefined);
+    }
     await this.websocket.emit(eventData);
     await this.rabbitmq.emit(eventData);
     await this.nats.emit(eventData);
