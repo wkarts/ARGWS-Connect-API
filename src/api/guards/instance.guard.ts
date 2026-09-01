@@ -8,15 +8,29 @@ async function getInstance(instanceName: string) {
   try {
     const cacheConf = configService.get<CacheConf>('CACHE');
 
-    const exists = !!waMonitor.waInstances[instanceName];
-
-    if (cacheConf.REDIS.ENABLED && cacheConf.REDIS.SAVE_INSTANCES) {
-      const keyExists = await cache.has(instanceName);
-
-      return exists || keyExists;
+    // Runtime memory is the fastest source, but it must never be the only
+    // source of truth for lifecycle operations such as DELETE. A disconnected
+    // instance may still be persisted even when there is no live runtime.
+    if (waMonitor.waInstances[instanceName]) {
+      return true;
     }
 
-    return exists || (await prismaRepository.instance.findMany({ where: { name: instanceName } })).length > 0;
+    // Redis is an optimization/persistence layer, not an authority that can
+    // hide a valid database record. If the cache entry was evicted or became
+    // stale, continue to the database fallback instead of returning false.
+    if (cacheConf.REDIS.ENABLED && cacheConf.REDIS.SAVE_INSTANCES) {
+      const keyExists = await cache.has(instanceName);
+      if (keyExists) {
+        return true;
+      }
+    }
+
+    const persistedInstance = await prismaRepository.instance.findFirst({
+      where: { name: instanceName },
+      select: { id: true },
+    });
+
+    return !!persistedInstance;
   } catch (error) {
     throw new InternalServerErrorException(error?.toString());
   }
