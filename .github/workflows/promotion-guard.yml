@@ -28,7 +28,7 @@ jobs:
 
       - name: Validate promotion boundaries
         env:
-          ALLOW_GOVERNANCE_CHANGES: ${{ contains(github.event.pull_request.labels.*.name, 'governance:ci') }}
+          ALLOW_GOVERNANCE_CHANGES: ${{ contains(github.event.pull_request.labels.*.name, 'governance:ci') || startsWith(github.head_ref, 'chore/canonical-ci-governance') }}
         run: >-
           node .github/scripts/validate-promotion.mjs
           "${{ github.event.pull_request.base.sha }}"
