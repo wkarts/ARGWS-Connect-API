@@ -28,19 +28,38 @@ jobs:
       - name: Materialize full implementation
         run: python3 .github/scripts/_implement_meta_cloud_full.py
 
-      - name: Normalize async contract test for CommonJS runner
+      - name: Normalize isolated version validator and async contract test
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
+          version = Path('src/api/compat/meta-cloud/meta-cloud-version.ts')
+          version.write_text("export const isMetaGraphVersion = (version: string) => /^v[0-9]+\\.[0-9]+$/.test(version || '');\n", encoding='utf-8')
+
+          router = Path('src/api/compat/meta-cloud/meta-cloud-graph.router.ts')
+          text = router.read_text(encoding='utf-8')
+          local = "export const isMetaGraphVersion = (version: string) => /^v[0-9]+\\.[0-9]+$/.test(version || '');\n\n"
+          text = text.replace(local, '')
+          anchor = "import { MetaCloudRateLimiter } from './meta-cloud-rate-limiter';\n"
+          if "from './meta-cloud-version'" not in text:
+              if anchor not in text:
+                  raise SystemExit('graph router import anchor not found')
+              text = text.replace(anchor, anchor + "import { isMetaGraphVersion } from './meta-cloud-version';\n", 1)
+          router.write_text(text, encoding='utf-8')
+
           p = Path('test/meta-cloud/contract.test.ts')
           text = p.read_text(encoding='utf-8')
+          text = text.replace(
+              "import { isMetaGraphVersion } from '../../src/api/compat/meta-cloud/meta-cloud-graph.router';",
+              "import { isMetaGraphVersion } from '../../src/api/compat/meta-cloud/meta-cloud-version';",
+          )
           marker = 'const calls: string[] = [];'
           if 'async function main() {' not in text:
               if marker not in text:
                   raise SystemExit('contract test marker not found')
               text = text.replace(marker, 'async function main() {\n' + marker, 1)
               text = text.rstrip() + '\n}\n\nvoid main();\n'
-              p.write_text(text, encoding='utf-8')
+          p.write_text(text, encoding='utf-8')
           PY
 
       - name: Install packages
