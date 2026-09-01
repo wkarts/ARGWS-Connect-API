@@ -46,9 +46,7 @@ export class WebsocketController extends EventController implements EventControl
   private isAllowedNetworkAddress(address?: string): boolean {
     const websocketConfig = configService.get<Websocket>('WEBSOCKET');
     const defaults = '127.0.0.1,::1,::ffff:127.0.0.1,172.*,10.*,192.168.*';
-    const allowedAddresses = [defaults, websocketConfig.ALLOWED_IPS]
-      .filter(Boolean)
-      .join(',');
+    const allowedAddresses = [defaults, websocketConfig.ALLOWED_IPS].filter(Boolean).join(',');
 
     return allowedAddresses
       .split(',')
@@ -58,7 +56,9 @@ export class WebsocketController extends EventController implements EventControl
   }
 
   private normalizeHost(value?: string): string {
-    const raw = String(value || '').trim().toLowerCase();
+    const raw = String(value || '')
+      .trim()
+      .toLowerCase();
     if (!raw) return '';
 
     try {
