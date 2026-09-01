@@ -1,3 +1,4 @@
+// Contract-level non-regression coverage for the additive Meta Cloud Compatible façade.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
