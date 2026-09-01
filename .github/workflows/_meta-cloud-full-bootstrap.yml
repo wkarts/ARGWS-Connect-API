@@ -28,6 +28,21 @@ jobs:
       - name: Materialize full implementation
         run: python3 .github/scripts/_implement_meta_cloud_full.py
 
+      - name: Normalize async contract test for CommonJS runner
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('test/meta-cloud/contract.test.ts')
+          text = p.read_text(encoding='utf-8')
+          marker = 'const calls: string[] = [];'
+          if 'async function main() {' not in text:
+              if marker not in text:
+                  raise SystemExit('contract test marker not found')
+              text = text.replace(marker, 'async function main() {\n' + marker, 1)
+              text = text.rstrip() + '\n}\n\nvoid main();\n'
+              p.write_text(text, encoding='utf-8')
+          PY
+
       - name: Install packages
         run: npm ci
 
