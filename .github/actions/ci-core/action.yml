@@ -1,0 +1,45 @@
+name: ARGWS Connect CI Core
+description: Canonical validation core shared by repository workflows
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout source
+      uses: actions/checkout@v5
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
+    - name: Install Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: 20.x
+        cache: npm
+
+    - name: Install packages
+      shell: bash
+      run: npm ci
+
+    - name: Check linting
+      shell: bash
+      run: npm run lint:check
+
+    - name: Check Manager runtime compatibility syntax
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -f manager/dist/assets/argws-runtime-fixes.js ]]; then
+          node --check manager/dist/assets/argws-runtime-fixes.js
+        fi
+
+    - name: Check legacy message compatibility
+      shell: bash
+      run: npm run test:compat
+
+    - name: Generate Prisma client
+      shell: bash
+      run: npm run db:generate
+
+    - name: Check build
+      shell: bash
+      run: npm run build
