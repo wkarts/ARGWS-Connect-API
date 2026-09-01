@@ -765,7 +765,7 @@ model ConnectAISetting {
 
 model MetaCompatibility {
   id         String   @id @default(cuid())
-  enabled    Boolean  @default(false) @db.Boolean
+  enabled    Boolean  @default(false)
   webhookUrl String?  @db.VarChar(500)
   createdAt  DateTime @default(now()) @db.Timestamp
   updatedAt  DateTime @updatedAt @db.Timestamp
