@@ -26,25 +26,13 @@ env:
 
 jobs:
   validate:
-    name: Validate source
+    name: Validate source via canonical CI Core
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout merge commit
-        uses: actions/checkout@v5
-        with:
-          submodules: recursive
-          fetch-depth: 0
-      - name: Install Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-      - run: npm ci
-      - run: npm run lint:check
-      - run: npm run db:generate
-      - run: npm run build
+      - name: Run canonical validation core from main
+        uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
 
   plan-version:
     name: Plan semantic version
