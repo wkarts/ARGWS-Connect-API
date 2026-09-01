@@ -89,26 +89,39 @@ export class EventController {
       return;
     }
 
-    if (!data[this.name]?.enabled) {
-      data[this.name].events = [];
-    } else {
-      if (0 === data[this.name].events.length) {
-        data[this.name].events = EventController.events;
-      }
+    const instance = this.monitor.waInstances[instanceName];
+    if (!instance) {
+      return null;
     }
+
+    // Manager versions in circulation may submit either the canonical wrapper
+    // ({ websocket: {...} }) or, during partial form state transitions, an
+    // absent/empty integration object. Never dereference data[this.name]
+    // before normalizing it.
+    const rawConfig = ((data as any)?.[this.name] ?? {}) as {
+      enabled?: boolean;
+      events?: string[];
+    };
+
+    const enabled = Boolean(rawConfig.enabled);
+    const events = enabled
+      ? Array.isArray(rawConfig.events) && rawConfig.events.length > 0
+        ? rawConfig.events
+        : EventController.events
+      : [];
 
     return this.prisma[this.name].upsert({
       where: {
-        instanceId: this.monitor.waInstances[instanceName].instanceId,
+        instanceId: instance.instanceId,
       },
       update: {
-        enabled: data[this.name]?.enabled,
-        events: data[this.name].events,
+        enabled,
+        events,
       },
       create: {
-        enabled: data[this.name]?.enabled,
-        events: data[this.name].events,
-        instanceId: this.monitor.waInstances[instanceName].instanceId,
+        enabled,
+        events,
+        instanceId: instance.instanceId,
       },
     });
   }
@@ -154,6 +167,7 @@ export class EventController {
     'CHATS_UPDATE',
     'CHATS_DELETE',
     'GROUPS_UPSERT',
+    'GROUPS_UPDATE',
     'GROUP_UPDATE',
     'GROUP_PARTICIPANTS_UPDATE',
     'CONNECTION_UPDATE',

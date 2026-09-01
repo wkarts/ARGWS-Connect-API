@@ -9,8 +9,8 @@ O fluxo de autenticação por código de pareamento é mantido separado do ciclo
 - Telefone em formato internacional, somente dígitos (`DDI + DDD + número`).
 - `requestPairingCode()` é chamado somente mediante solicitação explícita.
 - A renovação periódica do QR Code não regenera nem substitui o pairing code.
-- A identidade visual do produto (`CONFIG_SESSION_PHONE_CLIENT=ConnectAPI`) não é usada como fingerprint protocolar do companion device.
-- O socket Baileys usa fingerprint canônico `Ubuntu / Chrome / 20.0.04` para compatibilidade com a validação de pairing do WhatsApp.
+- O QR Code usa fingerprint configurável por `WHATSAPP_PROTOCOL_BROWSER_*`, com padrão `🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸 / Chrome / 20.0.04`.
+- O código de pareamento usa obrigatoriamente o fingerprint canônico `Ubuntu / Chrome / 20.0.04`, porque a validação de companion registration do WhatsApp rejeita o nome customizado nesse fluxo.
 - QR Code continua disponível como método independente de autenticação.
 
 ## Diagnóstico
