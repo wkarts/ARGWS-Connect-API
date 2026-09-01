@@ -1,7 +1,7 @@
 {
-  "name": "ARGWS Connect API",
-  "short_name": "ARGWS Connect",
-  "description": "Communication & Integration Platform",
+  "name": "Connect|API",
+  "short_name": "Connect|API",
+  "description": "Connect|API — Communication & Integration Platform",
   "start_url": "/manager/",
   "scope": "/manager/",
   "display": "standalone",
