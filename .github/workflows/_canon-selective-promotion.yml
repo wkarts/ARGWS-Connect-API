@@ -1,0 +1,73 @@
+name: One-shot selective canonicalization
+
+on:
+  push:
+    branches:
+      - canon/stabilization-2026-09-01
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canonicalization branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Promote only stabilized runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main develop
+
+          git checkout origin/develop -- \
+            .env.example \
+            PAIRING-CODE-COMPATIBILITY.md \
+            deploy/canonical/env.example \
+            deploy/cloudpanel/.env.example \
+            deploy/cloudpanel/env.example \
+            deploy/develop/env.example \
+            deploy/dockge/.env.example \
+            deploy/dockge/env.example \
+            deploy/homologation/env.example \
+            deploy/production/env.example \
+            docs/WHATSAPP-PAIRING.md \
+            env.example \
+            manager/dist/assets/argws-runtime-fixes.js \
+            manager/dist/assets/index-CO3NSIFj.js \
+            manager/dist/index.html \
+            src/api/controllers/instance.controller.ts \
+            src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts \
+            src/api/integrations/event/event.controller.ts \
+            src/api/integrations/event/event.manager.ts \
+            src/api/integrations/event/websocket/websocket.controller.ts \
+            src/config/env.config.ts
+
+          # Release/versioning/build control of main must remain byte-for-byte canonical.
+          git checkout origin/main -- \
+            .github/workflows/auto-version-release.yml \
+            .github/workflows/check_code_quality.yml \
+            .github/workflows/ghcr-publish-application.yml \
+            .github/workflows/image-promotion-integrity.yml \
+            DEVELOPMENT-FLOW.md \
+            VERSION \
+            package.json \
+            package-lock.json \
+            RELEASE-MANIFEST.json
+
+          rm -f .github/workflows/_canon-selective-promotion.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No selective changes to commit"
+            exit 0
+          fi
+
+          git commit -m "fix(canon): promove estabilização funcional sem alterar release da main"
+          git push origin HEAD:canon/stabilization-2026-09-01
