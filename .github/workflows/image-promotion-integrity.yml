@@ -46,25 +46,43 @@ jobs:
           [[ "$develop" == "ghcr.io/wkarts/argws-connect-api:develop" ]]
           [[ "$canonical" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
+          # develop is an isolated moving channel.
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
+          grep -q 'component: \[api, manager\]' .github/workflows/ghcr-publish-application.yml
+          grep -q 'image: argws-connect-api' .github/workflows/ghcr-publish-application.yml
+          grep -q 'image: argws-connect-manager' .github/workflows/ghcr-publish-application.yml
           grep -q 'runner: ubuntu-24.04$' .github/workflows/ghcr-publish-application.yml
           grep -q 'runner: ubuntu-24.04-arm$' .github/workflows/ghcr-publish-application.yml
           grep -q 'platform: linux/amd64$' .github/workflows/ghcr-publish-application.yml
           grep -q 'platform: linux/arm64$' .github/workflows/ghcr-publish-application.yml
           grep -q 'docker buildx imagetools create -t "${repo}:develop"' .github/workflows/ghcr-publish-application.yml
+          grep -q 'refs/heads/develop' .github/workflows/ghcr-publish-application.yml
 
           if grep -q 'setup-qemu' .github/workflows/ghcr-publish-application.yml; then
             echo "Develop must use native amd64/arm64 runners, not QEMU." >&2
             exit 1
           fi
 
-          if grep -nE 'argws-connect-api:(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' \
+          if grep -nE 'argws-connect-(api|manager):(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' \
             .github/workflows/ghcr-publish-application.yml; then
-            echo "The develop workflow may publish only the :develop channel." >&2
+            echo "Develop may publish only the :develop channel for API and Manager." >&2
             exit 1
           fi
 
+          if grep -nE 'gh release|git tag|refs/heads/main' .github/workflows/ghcr-publish-application.yml; then
+            echo "Develop workflow must not release, tag, or target main." >&2
+            exit 1
+          fi
+
+          # main owns stable versioning and promotion.
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
+          grep -q 'component: \[api, manager\]' .github/workflows/auto-version-release.yml
+          grep -q 'image: argws-connect-api' .github/workflows/auto-version-release.yml
+          grep -q 'image: argws-connect-manager' .github/workflows/auto-version-release.yml
+          grep -q '"${repo}:latest"' .github/workflows/auto-version-release.yml
+          grep -q 'gh release create' .github/workflows/auto-version-release.yml
+
+          # Runtime stacks remain independent.
           grep -q 'argws-connect-api:latest' deploy/production/compose.yaml
           grep -q 'argws-connect-api:develop' deploy/develop/compose.yaml
           grep -Eq 'argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+' deploy/canonical/compose.yaml
