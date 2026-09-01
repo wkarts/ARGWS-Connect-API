@@ -138,7 +138,7 @@ export class EventManager {
     if (data.websocket) {
       await this.websocket.set(instanceName, {
         websocket: {
-          enabled: true,
+          enabled: data.websocket?.enabled ?? true,
           events: data.websocket?.events,
         },
       });
@@ -147,7 +147,7 @@ export class EventManager {
     if (data.rabbitmq) {
       await this.rabbitmq.set(instanceName, {
         rabbitmq: {
-          enabled: true,
+          enabled: data.rabbitmq?.enabled ?? true,
           events: data.rabbitmq?.events,
         },
       });
@@ -156,7 +156,7 @@ export class EventManager {
     if (data.nats) {
       await this.nats.set(instanceName, {
         nats: {
-          enabled: true,
+          enabled: data.nats?.enabled ?? true,
           events: data.nats?.events,
         },
       });
@@ -165,7 +165,7 @@ export class EventManager {
     if (data.sqs) {
       await this.sqs.set(instanceName, {
         sqs: {
-          enabled: true,
+          enabled: data.sqs?.enabled ?? true,
           events: data.sqs?.events,
         },
       });
@@ -174,7 +174,7 @@ export class EventManager {
     if (data.webhook) {
       await this.webhook.set(instanceName, {
         webhook: {
-          enabled: true,
+          enabled: data.webhook?.enabled ?? true,
           events: data.webhook?.events,
           url: data.webhook?.url,
           headers: data.webhook?.headers,
@@ -187,7 +187,7 @@ export class EventManager {
     if (data.pusher) {
       await this.pusher.set(instanceName, {
         pusher: {
-          enabled: true,
+          enabled: data.pusher?.enabled ?? true,
           events: data.pusher?.events,
           appId: data.pusher?.appId,
           key: data.pusher?.key,
@@ -201,7 +201,7 @@ export class EventManager {
     if (data.kafka) {
       await this.kafka.set(instanceName, {
         kafka: {
-          enabled: true,
+          enabled: data.kafka?.enabled ?? true,
           events: data.kafka?.events,
         },
       });
