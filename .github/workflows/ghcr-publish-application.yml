@@ -55,7 +55,10 @@ jobs:
       - name: Resolve runtime base version
         id: metadata
         shell: bash
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
