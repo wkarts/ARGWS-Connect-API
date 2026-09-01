@@ -46,7 +46,7 @@ export class InstanceController {
   }
 
   private async waitForQrCode(instance: any, pairingCodeRequested: boolean): Promise<wa.QrCode> {
-    const timeoutMs = pairingCodeRequested ? 10000 : 5000;
+    const timeoutMs = pairingCodeRequested ? 15000 : 10000;
     const startedAt = Date.now();
 
     do {
@@ -62,6 +62,10 @@ export class InstanceController {
       throw new BadRequestException(
         'Unable to generate pairing code. Confirm the international phone number and try again.',
       );
+    }
+
+    if (!pairingCodeRequested && !qrCode?.code && !qrCode?.base64) {
+      throw new BadRequestException('Unable to generate QR code. Try again.');
     }
 
     return qrCode;
@@ -80,6 +84,10 @@ export class InstanceController {
       throw new BadRequestException(
         'Unable to generate pairing code. Confirm the international phone number and try again.',
       );
+    }
+
+    if (typeof instance.setPairingCode === 'function') {
+      instance.setPairingCode(pairingCode);
     }
 
     const maskedNumber = `${'*'.repeat(Math.max(0, number.length - 4))}${number.slice(-4)}`;

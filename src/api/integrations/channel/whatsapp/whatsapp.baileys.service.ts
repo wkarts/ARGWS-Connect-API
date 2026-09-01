@@ -250,7 +250,7 @@ export class BaileysStartupService extends ChannelStartupService {
   private readonly userDevicesCache: CacheStore = new NodeCache({ stdTTL: 300000, useClones: false });
   private endSession = false;
   private protocolAuthMode: 'qrcode' | 'pairing-code' = 'qrcode';
-  private suppressNextReconnect = false;
+  private connectionGeneration = 0;
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
 
@@ -264,6 +264,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public get connectionStatus() {
     return this.stateConnection;
+  }
+
+  public setPairingCode(pairingCode?: string) {
+    this.instance.qrcode.pairingCode = pairingCode ?? null;
   }
 
   public async logoutInstance() {
@@ -333,7 +337,15 @@ export class BaileysStartupService extends ChannelStartupService {
     };
   }
 
-  private async connectionUpdate({ qr, connection, lastDisconnect }: Partial<ConnectionState>) {
+  private async connectionUpdate(
+    { qr, connection, lastDisconnect }: Partial<ConnectionState>,
+    client: WASocket = this.client,
+    generation: number = this.connectionGeneration,
+  ) {
+    if (generation !== this.connectionGeneration || client !== this.client) {
+      return;
+    }
+
     if (qr) {
       if (this.instance.qrcode.count === this.configService.get<QrCode>('QRCODE').LIMIT) {
         this.sendDataWebhook(Events.QRCODE_UPDATED, {
@@ -374,12 +386,18 @@ export class BaileysStartupService extends ChannelStartupService {
         color: { light: '#ffffff', dark: color },
       };
 
-      // Pairing code is an explicit authentication operation and must not
-      // be regenerated every time WhatsApp rotates the QR code. Repeated calls
-      // invalidate the code that the user is currently typing on the phone.
-      this.instance.qrcode.pairingCode = null;
+      // Pairing code is explicit and independent from QR rotation.
+      // Only QR mode clears pairing state; pairing mode must preserve a code
+      // already returned to the user while WhatsApp rotates its QR challenge.
+      if (this.protocolAuthMode === 'qrcode') {
+        this.instance.qrcode.pairingCode = null;
+      }
 
       qrcode.toDataURL(qr, optsQrcode, (error, base64) => {
+        if (generation !== this.connectionGeneration || client !== this.client) {
+          return;
+        }
+
         if (error) {
           this.logger.error('Qrcode generate failed:' + error.toString());
           return;
@@ -421,8 +439,7 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (connection === 'close') {
-      if (this.suppressNextReconnect) {
-        this.suppressNextReconnect = false;
+      if (generation !== this.connectionGeneration || client !== this.client) {
         return;
       }
 
@@ -584,9 +601,12 @@ export class BaileysStartupService extends ChannelStartupService {
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
     const normalizedPhoneNumber = number?.replace(/\D/g, '') || this.phoneNumber;
 
+    // QR keeps the ARGWS/custom identity. Pairing deliberately uses
+    // a separate canonical fingerprint below because WhatsApp validates it
+    // more strictly during companion-device registration.
     const qrCodeBrowser: WABrowserDescription = [
-      process.env.WHATSAPP_PROTOCOL_BROWSER_CLIENT || '🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸',
-      process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || 'Chrome',
+      process.env.WHATSAPP_PROTOCOL_BROWSER_CLIENT || session.CLIENT,
+      process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || session.NAME,
       process.env.WHATSAPP_PROTOCOL_BROWSER_VERSION || '20.0.04',
     ];
 
@@ -719,21 +739,23 @@ export class BaileysStartupService extends ChannelStartupService {
 
     this.endSession = false;
 
-    this.client = makeWASocket(socketConfig);
+    const generation = ++this.connectionGeneration;
+    const client = makeWASocket(socketConfig);
+    this.client = client;
 
     if (this.localSettings.wavoipToken && this.localSettings.wavoipToken.length > 0) {
-      useVoiceCallsBaileys(this.localSettings.wavoipToken, this.client, this.connectionStatus.state as any, true);
+      useVoiceCallsBaileys(this.localSettings.wavoipToken, client, this.connectionStatus.state as any, true);
     }
 
-    this.eventHandler();
+    this.eventHandler(client, generation);
 
-    this.client.ws.on('CB:call', (packet) => {
+    client.ws.on('CB:call', (packet) => {
       console.log('CB:call', packet);
       const payload = { event: 'CB:call', packet: packet };
       this.sendDataWebhook(Events.CALL, payload, true, ['websocket']);
     });
 
-    this.client.ws.on('CB:ack,class:call', (packet) => {
+    client.ws.on('CB:ack,class:call', (packet) => {
       console.log('CB:ack,class:call', packet);
       const payload = { event: 'CB:ack,class:call', packet: packet };
       this.sendDataWebhook(Events.CALL, payload, true, ['websocket']);
@@ -751,19 +773,31 @@ export class BaileysStartupService extends ChannelStartupService {
       throw new BadRequestException('Pairing-code phone number is required');
     }
 
+    // A live QR socket may be reused only while it still owns a usable QR.
+    // Pairing requests are always fresh explicit operations so a previous or
+    // expired pairing attempt can never poison the next request.
     if (
+      mode === 'qrcode' &&
       this.client &&
-      this.protocolAuthMode === mode &&
-      (mode === 'qrcode' || this.phoneNumber === normalizedPhoneNumber)
+      this.protocolAuthMode === 'qrcode' &&
+      (this.instance.qrcode?.code || this.instance.qrcode?.base64)
     ) {
       return this.client;
     }
 
     const previousClient = this.client;
+
+    // Invalidate callbacks/listeners from the previous client before closing
+    // its transport. This removes the race where a late connection.update
+    // from the old socket reconnects or mutates the newly created client.
+    ++this.connectionGeneration;
+
     if (previousClient?.ws) {
-      this.suppressNextReconnect = true;
-      previousClient.ws.close();
-      await delay(250);
+      try {
+        previousClient.ws.close();
+      } catch (error) {
+        this.logger.warn(`Error closing previous WhatsApp socket: ${error?.message || error}`);
+      }
     }
 
     this.instance.qrcode = { count: 0 };
@@ -1935,10 +1969,14 @@ export class BaileysStartupService extends ChannelStartupService {
     },
   };
 
-  private eventHandler() {
-    this.client.ev.process(async (events) => {
+  private eventHandler(client: WASocket, generation: number) {
+    client.ev.process(async (events) => {
       this.eventProcessingQueue = this.eventProcessingQueue.then(async () => {
         try {
+          if (generation !== this.connectionGeneration || client !== this.client) {
+            return;
+          }
+
           if (!this.endSession) {
             const database = this.configService.get<Database>('DATABASE');
             const settings = await this.findSettings();
@@ -1963,7 +2001,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
 
             if (events['connection.update']) {
-              this.connectionUpdate(events['connection.update']);
+              await this.connectionUpdate(events['connection.update'], client, generation);
             }
 
             if (events['creds.update']) {

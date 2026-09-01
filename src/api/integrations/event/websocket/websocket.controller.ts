@@ -85,6 +85,16 @@ export class WebsocketController extends EventController implements EventControl
           (socket.handshake.headers?.apikey as string);
 
         if (!apiKey) {
+          const remoteAddress = socket.request?.socket?.remoteAddress || socket.handshake.address;
+
+          // Backward-compatible Manager handshake. Network validation in
+          // allowRequest remains mandatory, while legacy Manager clients do not
+          // have to inject the API key into the Engine.IO handshake.
+          if (this.isAllowedNetworkAddress(remoteAddress)) {
+            this.logger.info(`Trusted Manager Socket.IO connection accepted: ${socket.id}`);
+            return next();
+          }
+
           this.logger.error('Connection rejected: apiKey not provided');
           return next(new Error('apiKey is required'));
         }
@@ -108,7 +118,7 @@ export class WebsocketController extends EventController implements EventControl
     });
 
     this.socket.on('connection', (socket) => {
-      this.logger.info(`Authenticated user connected: ${socket.id}`);
+      this.logger.info(`Socket.IO user connected: ${socket.id}`);
 
       socket.on('disconnect', (reason) => {
         this.logger.info(`User disconnected: ${socket.id} - ${reason}`);
@@ -125,7 +135,7 @@ export class WebsocketController extends EventController implements EventControl
       });
     });
 
-    this.logger.info('Socket.io initialized with network allowlist and mandatory API-key authentication');
+    this.logger.info('Socket.io initialized with network allowlist and Manager-compatible API-key authentication');
   }
 
   private set cors(cors: Array<any>) {
