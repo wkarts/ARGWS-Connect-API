@@ -1,0 +1,501 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Connect|API — Meta Compatible /graph",
+    "version": "1.0.16",
+    "summary": "Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.",
+    "description": "A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Antes do uso, habilite a instância em `PUT /compat/meta/{instanceName}`."
+  },
+  "servers": [
+    {
+      "url": "https://d.api.connect.argws.com.br/graph",
+      "description": "Develop / homologação"
+    },
+    {
+      "url": "http://localhost:38080/graph",
+      "description": "Docker local"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Messages"
+    },
+    {
+      "name": "Media"
+    },
+    {
+      "name": "Templates"
+    }
+  ],
+  "paths": {
+    "/{version}/{phoneNumberId}/messages": {
+      "post": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "Enviar mensagem compatível com Meta",
+        "operationId": "meta_send_message",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaMessageRequest"
+              },
+              "examples": {
+                "text": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": "5575999999999",
+                    "type": "text",
+                    "text": {
+                      "body": "Olá pelo /graph"
+                    }
+                  }
+                },
+                "reaction": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "to": "5575999999999",
+                    "type": "reaction",
+                    "reaction": {
+                      "message_id": "REAL_PROVIDER_ID",
+                      "emoji": "👍"
+                    }
+                  }
+                },
+                "read": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "status": "read",
+                    "message_id": "REAL_PROVIDER_ID"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mensagem enviada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/media": {
+      "post": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Upload temporário de mídia",
+        "operationId": "meta_upload_media",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "messaging_product": {
+                    "type": "string",
+                    "const": "whatsapp"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mídia recebida para uso temporário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{businessAccountId}/message_templates": {
+      "get": {
+        "tags": [
+          "Templates"
+        ],
+        "summary": "Listar templates",
+        "operationId": "meta_list_templates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "businessAccountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS retorna `data: []`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{mediaId}": {
+      "get": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Resolver mídia recebida",
+        "operationId": "meta_get_media",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ID real da mensagem/provider usado como media id."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadados e URL presigned segura.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Instance token",
+        "description": "Token real da instância correspondente ao recurso Graph."
+      }
+    },
+    "schemas": {
+      "MetaMessageRequest": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "recipient_type": {
+            "type": "string",
+            "enum": [
+              "individual"
+            ]
+          },
+          "to": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "document",
+              "audio",
+              "location",
+              "contacts",
+              "reaction",
+              "interactive"
+            ]
+          },
+          "text": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "image": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "video": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "audio": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "location": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "reaction": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "interactive": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "read"
+            ]
+          },
+          "message_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "MetaMessageResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "ID real do provider, sem wamid artificial."
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "messaging_product"
+        ]
+      },
+      "GraphError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "code": {
+                "type": "integer"
+              },
+              "fbtrace_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "message",
+              "type",
+              "code"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    },
+    "responses": {
+      "GraphError": {
+        "description": "Erro em formato Graph.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GraphError"
+            }
+          }
+        }
+      }
+    }
+  }
+}

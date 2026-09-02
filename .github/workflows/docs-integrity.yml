@@ -1,0 +1,109 @@
+name: Docs Integrity
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Scalar / OpenAPI / AsyncAPI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Fetch PR base
+        if: github.event_name == 'pull_request'
+        run: git fetch origin "${{ github.base_ref }}" --force
+
+      - name: Check documentation impact
+        if: github.event_name == 'pull_request'
+        env:
+          DOCS_BASE_REF: ${{ github.base_ref }}
+          DOCS_PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: |
+          if printf '%s' "$DOCS_PR_BODY" | grep -Fq 'DOCS IMPACT: NONE'; then
+            export DOCS_IMPACT_EXEMPT=true
+          else
+            export DOCS_IMPACT_EXEMPT=false
+          fi
+          node docs/scripts/check-docs-impact.mjs
+
+      - name: Verify generated contracts are synchronized
+        run: npm run docs:check
+
+      - name: Validate contract JSON
+        run: |
+          node -e "for (const f of ['docs/openapi/connect-api.openapi.json','docs/openapi/meta-compatible.openapi.json','docs/openapi/coverage.json','docs/asyncapi/connect-api-events.asyncapi.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('valid', f); }"
+
+      - name: Build dedicated docs image
+        run: docker build -f docs/Dockerfile -t connect-api-docs-ci:local .
+
+      - name: Prepare disposable Compose env
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
+        run: docker compose --env-file .env.example config >/dev/null
+
+      - name: Start Scalar docs service
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
+        run: docker compose --env-file .env.example up -d --pull never docs
+
+      - name: Wait for Scalar healthcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:38082/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --env-file .env.example logs docs
+          exit 1
+
+      - name: Validate Scalar document endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:38082/ >/dev/null
+          curl -fsS http://127.0.0.1:38082/openapi/connect-api.openapi.json -o /tmp/connect-api.openapi.json
+          curl -fsS http://127.0.0.1:38082/openapi/meta-compatible.openapi.json -o /tmp/meta-compatible.openapi.json
+          curl -fsS http://127.0.0.1:38082/openapi/connect-api-events.asyncapi.json -o /tmp/connect-api-events.asyncapi.json
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-light.png -o /tmp/connect-api-docs-light.png
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-dark.png -o /tmp/connect-api-docs-dark.png
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-light.svg -o /tmp/connect-api-docs-light.svg
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-dark.svg -o /tmp/connect-api-docs-dark.svg
+          test -s /tmp/connect-api-docs-light.png
+          test -s /tmp/connect-api-docs-dark.png
+          grep -q '<svg' /tmp/connect-api-docs-light.svg
+          grep -q '<svg' /tmp/connect-api-docs-dark.svg
+          node -e "for (const f of ['/tmp/connect-api.openapi.json','/tmp/meta-compatible.openapi.json','/tmp/connect-api-events.asyncapi.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))"
+
+      - name: Scalar logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example logs docs || true
+
+      - name: Stop Scalar docs service
+        if: always()
+        run: docker compose --env-file .env.example down --remove-orphans || true

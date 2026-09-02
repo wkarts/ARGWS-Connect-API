@@ -353,3 +353,25 @@ export DATABASE_PROVIDER=postgresql  # or mysql
 - **Health checks**: Instance status and connection monitoring
 - **Telemetry**: Usage analytics (non-sensitive data only)
 
+
+
+## Connect|API Documentation Governance
+
+Documentation is part of the Definition of Done. Before completing any public or integration-facing change, read `docs/DOCUMENTATION-CONTRACT.md`.
+
+Mandatory workflow for public API, DTO, event, provider capability, environment, deployment, media, Meta Compatible or operational changes:
+
+1. Implement the real behavior first.
+2. Update semantic guides/examples when needed.
+3. Run `npm run docs:generate` whenever routes or the central Events catalog change.
+4. Run `npm run docs:check` before declaring the task complete.
+5. Keep native REST, Meta Compatible and Events contracts truthful to the code.
+6. Never invent endpoints, fields, provider capabilities or response semantics only to make documentation look complete.
+
+If a change truly has no documentation impact, the PR must state:
+
+`DOCS IMPACT: NONE`
+
+with a short objective reason.
+
+The official self-hosted documentation service is `docs`, powered by Scalar API Reference and the versioned OpenAPI/AsyncAPI files under `docs/`.

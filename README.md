@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./branding/ARGWS-Connect-API-Branding/github/readme-header.png" alt="Connect|API" />
+  <img src="./docs/assets/readme-header.png" alt="Connect|API" />
 </p>
 
 # Connect|API
