@@ -22,6 +22,7 @@ import { ChatRouter } from './chat.router';
 import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
+import { MicroAppRouter } from './micro-app.router';
 import { ProxyRouter } from './proxy.router';
 import { RecipeRouter } from './recipe.router';
 import { MessageRouter } from './sendMessage.router';
@@ -222,6 +223,7 @@ router
   .use('/template', new TemplateRouter(configService, ...guards).router)
   .use('/action', new ActionRouter(...guards).router)
   .use('/recipe', new RecipeRouter(...guards).router)
+  .use('/micro-app', new MicroAppRouter(...guards).router)
   .use('/interaction/strong', new StrongConfirmationRouter(instanceExistsGuard, authGuard['globalApiKey']).router)
   .use('/settings', new SettingsRouter(...guards).router)
   .use('/proxy', new ProxyRouter(...guards).router)

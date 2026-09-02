@@ -111,3 +111,5 @@ assert.match(
 );
 
 console.log('provider template capabilities: ok');
+
+require('../phase6.test');

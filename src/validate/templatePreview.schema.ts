@@ -10,6 +10,7 @@ export const templatePreviewSchema: JSONSchema7 = {
     category: { type: 'string', enum: ['AUTHENTICATION', 'MARKETING', 'UTILITY'] },
     components: { type: 'array' },
     variables: { type: 'object' },
+    policy: { type: 'object' },
   },
   anyOf: [{ required: ['components'] }, { required: ['name'] }],
 };

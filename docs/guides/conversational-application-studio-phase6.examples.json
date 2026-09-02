@@ -1,0 +1,96 @@
+{
+  "interactionsV2": {
+    "version": 2,
+    "items": [
+      {
+        "type": "LIST",
+        "id": "appointments",
+        "title": "Agendamentos",
+        "body": "Escolha um atendimento",
+        "buttonText": "Ver agenda",
+        "source": {
+          "path": "api.appointments",
+          "id": "{{item.id}}",
+          "title": "{{item.date}} · {{item.service}}",
+          "description": "{{item.status}}",
+          "sectionTitle": "Disponíveis",
+          "capture": { "path": "selection.appointment" },
+          "binding": {
+            "type": "ACTION",
+            "key": "scheduler.appointment.select",
+            "keepSessionOpen": true
+          }
+        }
+      },
+      {
+        "type": "CHOICE",
+        "id": "confirmation",
+        "title": "Confirmar operação?",
+        "mode": "SINGLE",
+        "options": [
+          {
+            "id": "confirm",
+            "title": "Confirmar",
+            "capture": { "path": "decision", "value": true },
+            "binding": { "type": "ACTION", "key": "scheduler.appointment.confirm" }
+          },
+          {
+            "id": "cancel",
+            "title": "Cancelar",
+            "capture": { "path": "decision", "value": false }
+          }
+        ]
+      }
+    ]
+  },
+  "microApps": {
+    "version": 1,
+    "apps": [
+      {
+        "key": "checkin",
+        "title": "Check-in com localização",
+        "startPage": "identify",
+        "ttlSeconds": 900,
+        "accessMode": "CONVERSATION_SESSION",
+        "pages": [
+          {
+            "key": "identify",
+            "title": "Identificação",
+            "captureRoot": "form",
+            "components": [
+              { "type": "INPUT", "id": "name", "label": "Nome" },
+              { "type": "INPUT", "id": "document", "label": "Documento" }
+            ],
+            "next": "location"
+          },
+          {
+            "key": "location",
+            "title": "Confirmar localização",
+            "location": {
+              "mode": "REQUIRED_AUTO",
+              "capturePath": "visit.location",
+              "policy": {
+                "enabled": true,
+                "allowedSources": ["MICRO_APP_GPS"],
+                "maxAccuracyMeters": 100,
+                "geofences": [
+                  {
+                    "id": "office",
+                    "name": "Área autorizada",
+                    "latitude": -12.9714,
+                    "longitude": -38.5014,
+                    "radiusMeters": 500
+                  }
+                ],
+                "outsideGeofence": "BLOCK"
+              }
+            },
+            "components": [
+              { "type": "LOCATION", "id": "location", "label": "Localização atual" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

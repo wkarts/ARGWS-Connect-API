@@ -26,8 +26,42 @@ function normalizedText(value: unknown) {
   return text;
 }
 
+function normalizedLocation(node: any, contextMessageId?: string): NormalizedInteraction | null {
+  const latitude = Number(node?.degreesLatitude ?? node?.latitude);
+  const longitude = Number(node?.degreesLongitude ?? node?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+
+  const name = String(node?.name || '').trim() || undefined;
+  const address = String(node?.address || '').trim() || undefined;
+  return {
+    type: 'location',
+    id: 'location',
+    title: name || address || undefined,
+    contextMessageId,
+    payload: {
+      latitude,
+      longitude,
+      name,
+      address,
+      url: node?.url || undefined,
+      source: 'WHATSAPP',
+    },
+  };
+}
+
 function fromBaileysNode(node: any): NormalizedInteraction | null {
   if (!node || typeof node !== 'object') return null;
+
+  if (node.locationMessage) {
+    const location = normalizedLocation(node.locationMessage, contextId(node.locationMessage));
+    if (location) return location;
+  }
+
+  if (node.liveLocationMessage) {
+    const location = normalizedLocation(node.liveLocationMessage, contextId(node.liveLocationMessage));
+    if (location) return { ...location, type: 'live_location' };
+  }
 
   if (node.buttonsResponseMessage) {
     const response = node.buttonsResponseMessage;
@@ -138,6 +172,11 @@ export function extractBaileysPollInteraction(message: any): NormalizedInteracti
 
 export function extractMetaInteraction(message: any): NormalizedInteraction | null {
   if (!message || typeof message !== 'object') return null;
+
+  if (message.location) {
+    const location = normalizedLocation(message.location, message.context?.id);
+    if (location) return location;
+  }
 
   if (message.interactive) {
     const interactive = message.interactive;

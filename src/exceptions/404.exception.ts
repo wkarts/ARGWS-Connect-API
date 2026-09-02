@@ -1,4 +1,4 @@
-import { HttpStatus } from '@api/routes/index.router';
+import { HttpStatus } from './http-status';
 
 export class NotFoundException {
   constructor(...objectError: any[]) {
