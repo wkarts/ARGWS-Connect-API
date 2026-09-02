@@ -30,3 +30,7 @@ A aprovação executa a Action/Recipe com `confirmed=true`; falhas terminam em `
 `GET /recipe/library/{instanceName}` lista pacotes disponíveis. `POST /recipe/install/{instanceName}` instala Actions, Recipes e templates em uma instância usando uma Base URL e `credentialRef`, sem persistir segredos no catálogo.
 
 O primeiro pacote é `scheduler-pro` e inclui consulta, confirmação, cancelamento e reagendamento de agendamentos, além do template `scheduler_appointment_confirmation`.
+
+## Template Studio v2
+
+A aba Integrações expõe controles para a política Meta, instalação de pacotes oficiais e fila de Strong Confirmation. A interface é cliente do contrato HTTP; toda regra permanece no backend e pode ser reutilizada por um frontend futuro.
