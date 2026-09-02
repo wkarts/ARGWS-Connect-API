@@ -76,11 +76,8 @@ export function distanceMeters(origin: GeoPoint, target: GeoPoint): number {
   return EARTH_RADIUS_METERS * angularDistance;
 }
 
-export function evaluateLocationPolicy(
-  location: CapturedLocation,
-  policy: LocationPolicy = {},
-): LocationPolicyResult {
-  if (!isValidGeoPoint(location)) {
+export function evaluateLocationPolicy(location: CapturedLocation, policy: LocationPolicy = {}): LocationPolicyResult {
+  if (!isValidGeoPoint({ latitude: location.latitude, longitude: location.longitude })) {
     return {
       accepted: false,
       reason: 'INVALID_LOCATION',
