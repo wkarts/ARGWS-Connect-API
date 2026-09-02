@@ -42,6 +42,9 @@ export type LocationPolicyResult = {
   source: LocationSource;
   accuracyAccepted: boolean;
   insideGeofence: boolean | null;
+  outsidePolicy: 'BLOCK' | 'ALLOW' | 'JUSTIFY' | 'APPROVAL';
+  requiresJustification: boolean;
+  requiresApproval: boolean;
   nearestGeofence?: GeofenceMatch;
   matches: GeofenceMatch[];
 };
@@ -77,11 +80,19 @@ export function distanceMeters(origin: GeoPoint, target: GeoPoint): number {
 }
 
 export function evaluateLocationPolicy(location: CapturedLocation, policy: LocationPolicy = {}): LocationPolicyResult {
+  const outsidePolicy = policy.outsideGeofence || 'BLOCK';
+  const base = {
+    source: location.source,
+    outsidePolicy,
+    requiresJustification: false,
+    requiresApproval: false,
+  } as const;
+
   if (!isValidGeoPoint({ latitude: location.latitude, longitude: location.longitude })) {
     return {
+      ...base,
       accepted: false,
       reason: 'INVALID_LOCATION',
-      source: location.source,
       accuracyAccepted: false,
       insideGeofence: null,
       matches: [],
@@ -91,9 +102,9 @@ export function evaluateLocationPolicy(location: CapturedLocation, policy: Locat
   const allowedSources = policy.allowedSources || ['WHATSAPP', 'MICRO_APP_GPS'];
   if (!allowedSources.includes(location.source)) {
     return {
+      ...base,
       accepted: false,
       reason: 'SOURCE_NOT_ALLOWED',
-      source: location.source,
       accuracyAccepted: false,
       insideGeofence: null,
       matches: [],
@@ -122,20 +133,73 @@ export function evaluateLocationPolicy(location: CapturedLocation, policy: Locat
 
   const nearestGeofence = matches[0];
   const insideGeofence = matches.length ? matches.some((match) => match.inside) : null;
-  const outsidePolicy = policy.outsideGeofence || 'BLOCK';
-  const geofenceAccepted = insideGeofence !== false || outsidePolicy !== 'BLOCK';
-  const accepted = accuracyAccepted && geofenceAccepted;
+
+  if (!accuracyAccepted) {
+    return {
+      ...base,
+      accepted: false,
+      reason: 'ACCURACY_TOO_LOW',
+      accuracyAccepted,
+      insideGeofence,
+      nearestGeofence,
+      matches,
+    };
+  }
+
+  if (insideGeofence !== false) {
+    return {
+      ...base,
+      accepted: true,
+      reason: 'ACCEPTED',
+      accuracyAccepted,
+      insideGeofence,
+      nearestGeofence,
+      matches,
+    };
+  }
+
+  if (outsidePolicy === 'ALLOW') {
+    return {
+      ...base,
+      accepted: true,
+      reason: 'OUTSIDE_GEOFENCE_ALLOWED',
+      accuracyAccepted,
+      insideGeofence,
+      nearestGeofence,
+      matches,
+    };
+  }
+
+  if (outsidePolicy === 'JUSTIFY') {
+    return {
+      ...base,
+      accepted: false,
+      reason: 'OUTSIDE_GEOFENCE_JUSTIFICATION_REQUIRED',
+      accuracyAccepted,
+      insideGeofence,
+      requiresJustification: true,
+      nearestGeofence,
+      matches,
+    };
+  }
+
+  if (outsidePolicy === 'APPROVAL') {
+    return {
+      ...base,
+      accepted: false,
+      reason: 'OUTSIDE_GEOFENCE_APPROVAL_REQUIRED',
+      accuracyAccepted,
+      insideGeofence,
+      requiresApproval: true,
+      nearestGeofence,
+      matches,
+    };
+  }
 
   return {
-    accepted,
-    reason: !accuracyAccepted
-      ? 'ACCURACY_TOO_LOW'
-      : !geofenceAccepted
-        ? 'OUTSIDE_GEOFENCE'
-        : insideGeofence === false
-          ? `OUTSIDE_GEOFENCE_${outsidePolicy}`
-          : 'ACCEPTED',
-    source: location.source,
+    ...base,
+    accepted: false,
+    reason: 'OUTSIDE_GEOFENCE',
     accuracyAccepted,
     insideGeofence,
     nearestGeofence,
