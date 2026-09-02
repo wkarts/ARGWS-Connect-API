@@ -1,10 +1,10 @@
 import { InstanceDto } from '@api/dto/instance.dto';
 import { TemplateDeleteDto, TemplateDto, TemplateEditDto, TemplatePreviewDto } from '@api/dto/template.dto';
+import { TemplateService } from '@api/services/template.service';
 import { containsProtectedTemplate } from '@api/services/template-deletion-policy';
 import { renderInteractionModelV2 } from '@api/services/template-interaction-model';
 import { mergePolicyInteractionBindings } from '@api/services/template-policy-bindings';
 import { planTemplateTransport } from '@api/services/template-transport-planner';
-import { TemplateService } from '@api/services/template.service';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
 export class TemplateController {
