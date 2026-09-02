@@ -14,6 +14,7 @@ import { MetaCloudStatusMapper } from './compat/meta-cloud/meta-cloud-status.map
 import { MetaCloudTemplateService } from './compat/meta-cloud/meta-cloud-template.service';
 import { MetaCloudWebhookDispatcher } from './compat/meta-cloud/meta-cloud-webhook.dispatcher';
 import { MetaCloudWebhookSerializer } from './compat/meta-cloud/meta-cloud-webhook.serializer';
+import { ActionController } from './controllers/action.controller';
 import { BusinessController } from './controllers/business.controller';
 import { CallController } from './controllers/call.controller';
 import { ChatController } from './controllers/chat.controller';
@@ -21,6 +22,7 @@ import { GroupController } from './controllers/group.controller';
 import { InstanceController } from './controllers/instance.controller';
 import { LabelController } from './controllers/label.controller';
 import { ProxyController } from './controllers/proxy.controller';
+import { RecipeController } from './controllers/recipe.controller';
 import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
 import { TemplateController } from './controllers/template.controller';
@@ -50,9 +52,12 @@ import { S3Controller } from './integrations/storage/s3/controllers/s3.controlle
 import { S3Service } from './integrations/storage/s3/services/s3.service';
 import { ProviderFiles } from './provider/sessions';
 import { PrismaRepository } from './repository/repository.service';
+import { ActionExecutionService } from './services/action-execution.service';
+import { ActionRegistryService } from './services/action-registry.service';
 import { CacheService } from './services/cache.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
+import { RecipeService } from './services/recipe.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
 import { TemplateEngineService } from './services/template-engine.service';
@@ -73,6 +78,11 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 }
 
 export const prismaRepository = new PrismaRepository(configService);
+export const actionRegistryService = new ActionRegistryService(prismaRepository);
+export const actionExecutionService = new ActionExecutionService(prismaRepository);
+export const actionController = new ActionController(actionRegistryService, actionExecutionService);
+export const recipeService = new RecipeService(prismaRepository, actionExecutionService);
+export const recipeController = new RecipeController(recipeService);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
 export const metaCloudAuthService = new MetaCloudAuthService();
 export const metaCloudController = new MetaCloudController(prismaRepository, metaCloudIdentityResolver);

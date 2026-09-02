@@ -33,7 +33,8 @@ export class ActionExecutionService {
     const path = String(resolveActionValue(action.path, context) || '');
     const baseUrl = new URL(action.baseUrl);
     const target = new URL(path || '.', baseUrl);
-    if (target.origin !== baseUrl.origin) throw new BadRequestException('Action path cannot change the configured origin.');
+    if (target.origin !== baseUrl.origin)
+      throw new BadRequestException('Action path cannot change the configured origin.');
     await this.assertTargetAllowed(target, action.allowPrivateNetwork);
 
     const resolvedTemplate = resolveActionValue(template, context) as Record<string, unknown>;

@@ -67,7 +67,8 @@ export class ActionRegistryService {
 
   private validateDefinition(data: IntegrationActionDto) {
     if (!ACTION_KEY.test(data.actionKey || '')) throw new BadRequestException('Invalid actionKey.');
-    if (!METHODS.has(String(data.method || '').toUpperCase())) throw new BadRequestException('Invalid action HTTP method.');
+    if (!METHODS.has(String(data.method || '').toUpperCase()))
+      throw new BadRequestException('Invalid action HTTP method.');
     if (data.credentialRef && !CREDENTIAL_REF.test(data.credentialRef)) {
       throw new BadRequestException('credentialRef must contain only letters, numbers, underscore or dash.');
     }
