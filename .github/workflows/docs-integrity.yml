@@ -30,14 +30,21 @@ jobs:
 
       - name: Fetch PR base
         if: github.event_name == 'pull_request'
-        run: git fetch origin "${{ github.base_ref }}:${{ github.base_ref }}" --force
+        run: git fetch origin "${{ github.base_ref }}" --force
 
       - name: Check documentation impact
         if: github.event_name == 'pull_request'
         env:
           DOCS_BASE_REF: ${{ github.base_ref }}
-          DOCS_IMPACT_EXEMPT: ${{ contains(github.event.pull_request.body || '', 'DOCS IMPACT: NONE') }}
-        run: node docs/scripts/check-docs-impact.mjs
+          DOCS_PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: |
+          if printf '%s' "$DOCS_PR_BODY" | grep -Fq 'DOCS IMPACT: NONE'; then
+            export DOCS_IMPACT_EXEMPT=true
+          else
+            export DOCS_IMPACT_EXEMPT=false
+          fi
+          node docs/scripts/check-docs-impact.mjs
 
       - name: Verify generated contracts are synchronized
         run: npm run docs:check
