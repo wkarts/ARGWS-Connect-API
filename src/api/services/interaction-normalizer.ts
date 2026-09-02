@@ -119,6 +119,23 @@ export function extractBaileysInteraction(message: any): NormalizedInteraction |
   return fromBaileysNode(message);
 }
 
+export function extractBaileysPollInteraction(message: any): NormalizedInteraction | null {
+  const updates = Array.isArray(message?.pollUpdates) ? message.pollUpdates : [];
+  const selectedOptions = updates
+    .filter((update: any) => Array.isArray(update?.voters) && update.voters.length > 0 && update?.name)
+    .map((update: any) => String(update.name));
+  if (!selectedOptions.length) return null;
+
+  const selected = selectedOptions[0];
+  return {
+    type: 'poll_reply',
+    id: selected,
+    title: selected,
+    contextMessageId: message?.message?.pollUpdateMessage?.pollCreationMessageKey?.id || undefined,
+    payload: { selectedOptions },
+  };
+}
+
 export function extractMetaInteraction(message: any): NormalizedInteraction | null {
   if (!message || typeof message !== 'object') return null;
 

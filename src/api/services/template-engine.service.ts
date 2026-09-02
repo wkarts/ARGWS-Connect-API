@@ -71,7 +71,10 @@ export class TemplateEngineService {
     }
 
     if (rendered.buttons.length) {
-      result = await this.sendInteractiveWithFallback(runtime, data, rendered, template);
+      result =
+        provider === 'WHATSAPP-BAILEYS'
+          ? await this.sendBaileysCompatibleInteraction(runtime, data, rendered, template)
+          : await this.sendInteractiveWithFallback(runtime, data, rendered, template);
     } else {
       result = await runtime.textMessage({
         number: data.number,
@@ -93,8 +96,94 @@ export class TemplateEngineService {
       });
     }
 
-    await this.registerInteractionSession(instanceRow.id, template, data, result);
+    await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
     return result;
+  }
+
+  private async sendBaileysCompatibleInteraction(
+    runtime: any,
+    data: SendTemplateDto,
+    rendered: RenderedTemplate,
+    template: any,
+  ) {
+    const replyButtons = rendered.buttons.filter((button) => button.type === 'reply' && button.displayText);
+    const replyOnly = replyButtons.length > 0 && replyButtons.length === rendered.buttons.length;
+
+    if (replyOnly && typeof runtime.pollMessage === 'function') {
+      try {
+        const result = await runtime.pollMessage({
+          number: data.number,
+          name: this.pollPrompt(rendered),
+          selectableCount: 1,
+          values: replyButtons.map((button) => String(button.displayText)),
+          delay: data.delay,
+          quoted: data.quoted,
+          linkPreview: data.linkPreview,
+          mentionsEveryOne: data.mentionsEveryOne,
+          mentioned: data.mentioned,
+        });
+        this.attachDiagnostics(result, {
+          provider: 'WHATSAPP-BAILEYS',
+          templateName: data.name,
+          language: data.language || 'pt_BR',
+          category: template.category,
+          mode: 'POLL_COMPAT',
+          buttonCount: rendered.buttons.length,
+          fallback: false,
+          compatibilityTransport: 'BAILEYS_OFFICIAL_POLL',
+        });
+        return result;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Baileys poll compatibility for template ${data.name} failed; using text fallback: ${reason}`);
+        return this.sendBaileysTextCompatibility(runtime, data, rendered, template, reason);
+      }
+    }
+
+    return this.sendBaileysTextCompatibility(
+      runtime,
+      data,
+      rendered,
+      template,
+      'Official Baileys does not reliably render nativeFlow interactive messages.',
+    );
+  }
+
+  private async sendBaileysTextCompatibility(
+    runtime: any,
+    data: SendTemplateDto,
+    rendered: RenderedTemplate,
+    template: any,
+    reason: string,
+  ) {
+    const result = await runtime.textMessage({
+      number: data.number,
+      text: this.textFallback(rendered),
+      delay: data.delay,
+      quoted: data.quoted,
+      linkPreview: data.linkPreview,
+      mentionsEveryOne: data.mentionsEveryOne,
+      mentioned: data.mentioned,
+    });
+    this.attachDiagnostics(result, {
+      provider: 'WHATSAPP-BAILEYS',
+      templateName: data.name,
+      language: data.language || 'pt_BR',
+      category: template.category,
+      mode: 'TEXT_COMPAT',
+      buttonCount: rendered.buttons.length,
+      fallback: true,
+      fallbackReason: reason,
+      compatibilityTransport: 'BAILEYS_TEXT',
+    });
+    return result;
+  }
+
+  private pollPrompt(rendered: RenderedTemplate) {
+    return (
+      ([rendered.title, rendered.text, rendered.footer].filter(Boolean) as string[]).join('\n\n').trim() ||
+      'Escolha uma opção'
+    );
   }
 
   private async sendInteractiveWithFallback(
@@ -200,8 +289,51 @@ export class TemplateEngineService {
     );
   }
 
-  private async registerInteractionSession(instanceId: string, template: any, data: SendTemplateDto, result: any) {
-    if (!template || !this.hasBindings(template.actions)) return;
+  private actionsWithRenderedAliases(actions: unknown, rendered?: RenderedTemplate): unknown {
+    if (!actions || typeof actions !== 'object' || !rendered?.buttons?.length) return actions;
+
+    const labels = new Map(
+      rendered.buttons
+        .filter((button) => button.type === 'reply' && button.id && button.displayText)
+        .map((button) => [String(button.id), String(button.displayText)]),
+    );
+    if (!labels.size) return actions;
+
+    const source = actions as any;
+    if (Array.isArray(source.bindings)) {
+      return {
+        ...source,
+        bindings: source.bindings.map((binding: any) => ({
+          ...binding,
+          matchTitle: binding.matchTitle || labels.get(String(binding.id || '')) || undefined,
+        })),
+      };
+    }
+
+    if (source.interactions && typeof source.interactions === 'object') {
+      return {
+        ...source,
+        interactions: Object.fromEntries(
+          Object.entries(source.interactions).map(([id, binding]: [string, any]) => [
+            id,
+            { ...binding, matchTitle: binding?.matchTitle || labels.get(id) || undefined },
+          ]),
+        ),
+      };
+    }
+
+    return actions;
+  }
+
+  private async registerInteractionSession(
+    instanceId: string,
+    template: any,
+    data: SendTemplateDto,
+    result: any,
+    rendered?: RenderedTemplate,
+  ) {
+    const sessionActions = this.actionsWithRenderedAliases(template?.actions, rendered);
+    if (!template || !this.hasBindings(sessionActions)) return;
 
     const outboundMessageId = result?.key?.id || result?.messages?.[0]?.id;
     if (!outboundMessageId) return;
@@ -228,7 +360,7 @@ export class TemplateEngineService {
         templateName: data.name,
         language: data.language || template.language || 'pt_BR',
         variables: (data.variables || {}) as any,
-        actions: template.actions as any,
+        actions: sessionActions as any,
         status: 'OPEN',
         expiresAt,
       },
@@ -237,7 +369,7 @@ export class TemplateEngineService {
         templateName: data.name,
         language: data.language || template.language || 'pt_BR',
         variables: (data.variables || {}) as any,
-        actions: template.actions as any,
+        actions: sessionActions as any,
         status: 'OPEN',
         inboundMessageId: null,
         lastError: null,

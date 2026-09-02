@@ -34,3 +34,15 @@ O primeiro pacote é `scheduler-pro` e inclui consulta, confirmação, cancelame
 ## Template Studio v2
 
 A aba Integrações expõe controles para a política Meta, instalação de pacotes oficiais e fila de Strong Confirmation. A interface é cliente do contrato HTTP; toda regra permanece no backend e pode ser reutilizada por um frontend futuro.
+
+
+## Compatibilidade de interação por provider
+
+O Connect|API mantém o contrato lógico de Template/Interaction independente do provider, mas escolhe o transporte visual conforme a capacidade real do canal.
+
+- `WHATSAPP-BUSINESS`: templates e botões continuam provider-native, sob as regras oficiais da Meta.
+- `WHATSAPP-BAILEYS`: quick replies são emitidos como poll de escolha única (`POLL_COMPAT`) no Baileys oficial, evitando `nativeFlowMessage` que pode receber ACK e ainda ser descartado pelos clientes WhatsApp.
+- Botões URL, telefone e copiar no Baileys usam `TEXT_COMPAT`, preservando texto, URL, número ou código como conteúdo utilizável.
+- O `Interaction Engine` converte a seleção do poll para `poll_reply` e associa o texto exibido ao mesmo binding lógico do botão original.
+
+Assim, a Recipe/Action ligada a `confirm`, `cancel` etc. continua independente de Meta ou Baileys, sem enviar mensagens interativas incompatíveis ao cliente.
