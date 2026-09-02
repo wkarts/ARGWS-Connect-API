@@ -6,7 +6,7 @@ import { BadRequestException, NotFoundException } from '@exceptions';
 
 import { WAMonitoringService } from './monitor.service';
 import { RenderedTemplate, renderTemplateDefinition } from './template-renderer';
-import { TemplateTransportPlan, planTemplateTransport } from './template-transport-planner';
+import { planTemplateTransport, TemplateTransportPlan } from './template-transport-planner';
 
 export class TemplateEngineService {
   private readonly logger = new Logger('TemplateEngineService');
@@ -161,15 +161,7 @@ export class TemplateEngineService {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Baileys poll compatibility for template ${data.name} failed; using text fallback: ${reason}`);
-      return this.sendTextCompatibility(
-        runtime,
-        data,
-        rendered,
-        template,
-        transport.provider,
-        'BAILEYS_TEXT',
-        reason,
-      );
+      return this.sendTextCompatibility(runtime, data, rendered, template, transport.provider, 'BAILEYS_TEXT', reason);
     }
   }
 
