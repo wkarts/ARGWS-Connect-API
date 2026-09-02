@@ -196,6 +196,7 @@
     await api(`/action/create/${encodeURIComponent(instance)}`, { method: 'POST', body: payload });
     registry.selectedAction = payload.actionKey;
     await refreshRegistry();
+    $('refreshButton')?.click();
     toast('Action salva no Integration Registry.');
   }
 
@@ -206,6 +207,7 @@
     await api(`/action/delete/${encodeURIComponent(instance)}`, { method: 'DELETE', body: { actionKey } });
     resetAction();
     await refreshRegistry();
+    $('refreshButton')?.click();
     toast('Action removida.');
   }
 
@@ -266,6 +268,7 @@
     await api(`/recipe/create/${encodeURIComponent(instance)}`, { method: 'POST', body: payload });
     registry.selectedRecipe = payload.recipeKey;
     await refreshRegistry();
+    $('refreshButton')?.click();
     toast('Recipe salva.');
   }
 
@@ -276,6 +279,7 @@
     await api(`/recipe/delete/${encodeURIComponent(instance)}`, { method: 'DELETE', body: { recipeKey } });
     resetRecipe();
     await refreshRegistry();
+    $('refreshButton')?.click();
     toast('Recipe removida.');
   }
 

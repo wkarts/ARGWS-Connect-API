@@ -97,7 +97,12 @@ export class TemplateEngineService {
     return result;
   }
 
-  private async sendInteractiveWithFallback(runtime: any, data: SendTemplateDto, rendered: RenderedTemplate, template: any) {
+  private async sendInteractiveWithFallback(
+    runtime: any,
+    data: SendTemplateDto,
+    rendered: RenderedTemplate,
+    template: any,
+  ) {
     const title = rendered.title || data.name;
     const description = rendered.text || undefined;
 
