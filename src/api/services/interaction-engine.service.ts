@@ -5,6 +5,7 @@ import { Logger } from '@config/logger.config';
 
 import { ActionExecutionService } from './action-execution.service';
 import { resolveActionValue } from './action-value-resolver';
+import { extractBaileysPollInteraction } from './interaction-normalizer';
 import { WAMonitoringService } from './monitor.service';
 import { RecipeService } from './recipe.service';
 import { TemplateEngineService } from './template-engine.service';
@@ -37,7 +38,7 @@ export class InteractionEngineService {
     if (eventData.event !== Events.MESSAGES_UPSERT) return;
 
     const message = eventData.data as any;
-    const interaction = message?.interaction;
+    const interaction = message?.interaction || extractBaileysPollInteraction(message);
     if (!interaction?.id || message?.key?.fromMe) return;
 
     const instanceRow = await this.prisma.instance.findUnique({
