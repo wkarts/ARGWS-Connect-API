@@ -1,3 +1,4 @@
+# Temporary validated migration helper for the incremental Meta schema rollout.
 from pathlib import Path
 
 p = Path('docs/scripts/generate-openapi.mjs')
