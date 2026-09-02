@@ -1,0 +1,81 @@
+name: TEMP Conversational Platform Phase 4
+
+on:
+  push:
+    branches: [feat/conversational-platform-phase4]
+    paths:
+      - .github/workflows/tmp-conversational-phase4.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/conversational-platform-phase4
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Apply Phase 4
+        run: python scripts/tmp-apply-conversational-phase4.py
+      - name: Format TypeScript
+        run: npx eslint --ext .ts src --fix
+      - name: Validate PostgreSQL
+        run: |
+          DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma validate --schema prisma/postgresql-schema.prisma
+          DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma generate --schema prisma/postgresql-schema.prisma
+      - name: Validate PgBouncer
+        run: |
+          DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' DATABASE_BOUNCER_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:6432/argws' npx prisma validate --schema prisma/psql_bouncer-schema.prisma
+          node - <<'NODE'
+          const fs = require('fs');
+          const clean = (p) => fs.readFileSync(p,'utf8').replace(/datasource db \{[\s\S]*?\n\}/,'').replace(/\s+/g,' ');
+          if (clean('prisma/postgresql-schema.prisma') !== clean('prisma/psql_bouncer-schema.prisma')) throw new Error('PostgreSQL/PgBouncer schema parity failed');
+          NODE
+      - name: Validate MySQL
+        run: |
+          DATABASE_CONNECTION_URI='mysql://argws:argws@127.0.0.1:3306/argws' npx prisma validate --schema prisma/mysql-schema.prisma
+      - name: Generate contracts
+        run: npm run docs:generate
+      - name: Validate product
+        run: |
+          set -euo pipefail
+          npm run docs:check
+          npm run test:compat
+          npm run build
+          npm run lint:check
+          node - <<'NODE'
+          const fs=require('fs');
+          const files=[
+            'src/api/compat/meta-cloud/meta-cloud-policy.service.ts',
+            'src/api/routes/strong-confirmation.router.ts',
+            'src/api/services/recipe-library.service.ts',
+            'src/api/recipes/official/scheduler-pro.ts'
+          ];
+          for (const f of files) if (!fs.existsSync(f)) throw new Error(`missing ${f}`);
+          const index=fs.readFileSync('src/api/routes/index.router.ts','utf8');
+          if(!index.includes("authGuard['globalApiKey']")) throw new Error('strong confirmation is not global-key protected');
+          const graph=fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-graph.controller.ts','utf8');
+          if(!graph.includes('assertOutbound')) throw new Error('Graph policy not enforced');
+          const pkg=fs.readFileSync('src/api/recipes/official/scheduler-pro.ts','utf8');
+          for(const key of ['scheduler.appointment.confirm','scheduler.appointment.cancel','scheduler.appointment.reschedule']) if(!pkg.includes(key)) throw new Error(`missing ${key}`);
+          console.log('Phase 4 structural validation: ok');
+          NODE
+      - name: Commit validated product changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src prisma docs package.json
+          git add -f test/conversational-platform/foundation.test.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(platform): adiciona política Meta, confirmação forte e recipes oficiais"
+            git push --no-verify origin HEAD:feat/conversational-platform-phase4
+          fi
