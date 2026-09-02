@@ -1,0 +1,188 @@
+name: DOCs Deployment Integrity
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - ".env.example"
+      - "docker-compose.yaml"
+      - "deploy/**"
+      - "docs/**"
+      - ".github/workflows/auto-version-release.yml"
+      - ".github/workflows/ghcr-publish-docs.yml"
+      - ".github/workflows/docs-deployment-integrity.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - ".env.example"
+      - "docker-compose.yaml"
+      - "deploy/**"
+      - "docs/**"
+      - ".github/workflows/auto-version-release.yml"
+      - ".github/workflows/ghcr-publish-docs.yml"
+      - ".github/workflows/docs-deployment-integrity.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  validate:
+    name: Integrated + Standalone DOCs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare Compose env files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          for stack in production homologation develop canonical; do
+            cp "deploy/${stack}/env.example" "deploy/${stack}/.env"
+          done
+          cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
+          cp deploy/dockge/env.example deploy/dockge/.env
+          cp deploy/docs/env.example deploy/docs/.env
+          cp deploy/docs-develop/env.example deploy/docs-develop/.env
+
+      - name: Validate every DOCs-enabled Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --env-file .env.example -f docker-compose.yaml config >/dev/null
+          for stack in production homologation develop canonical docs docs-develop; do
+            docker compose --env-file "deploy/${stack}/env.example" -f "deploy/${stack}/compose.yaml" config >/dev/null
+          done
+          docker compose --env-file deploy/cloudpanel/env.example -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --env-file deploy/dockge/env.example -f deploy/dockge/compose.yaml config >/dev/null
+
+      - name: Enforce public hostname policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def env(path):
+              out = {}
+              for raw in Path(path).read_text().splitlines():
+                  line = raw.strip()
+                  if line and not line.startswith('#') and '=' in line:
+                      k, v = line.split('=', 1)
+                      out[k] = v
+              return out
+
+          stable_url = 'https://docs.connect.argws.com.br'
+          develop_url = 'https://d.docs.connect.argws.com.br'
+
+          stable_envs = [
+              '.env.example',
+              'deploy/production/env.example',
+              'deploy/homologation/env.example',
+              'deploy/canonical/env.example',
+              'deploy/cloudpanel/env.example',
+              'deploy/cloudpanel/.env.example',
+              'deploy/dockge/env.example',
+              'deploy/dockge/.env.example',
+          ]
+          for path in stable_envs:
+              value = env(path).get('ARGWS_CONNECT_DOCS_PUBLIC_URL')
+              assert value == stable_url, f'{path}: URL DOCs pública inválida: {value}'
+
+          dev = env('deploy/develop/env.example')
+          assert dev.get('ARGWS_CONNECT_DOCS_PUBLIC_URL') == develop_url
+
+          prod_docs = env('deploy/docs/env.example')
+          assert prod_docs['COMPOSE_PROJECT_NAME'] == 'argws-connect-docs'
+          assert prod_docs['ARGWS_CONNECT_DOCS_HOST_PORT'] == '38280'
+          assert prod_docs['ARGWS_CONNECT_DOCS_PUBLIC_URL'] == stable_url
+          assert prod_docs['ARGWS_CONNECT_DOCS_IMAGE'] == 'ghcr.io/wkarts/argws-connect-docs:latest'
+
+          dev_docs = env('deploy/docs-develop/env.example')
+          assert dev_docs['COMPOSE_PROJECT_NAME'] == 'argws-connect-docs-develop'
+          assert dev_docs['ARGWS_CONNECT_DOCS_HOST_PORT'] == '38282'
+          assert dev_docs['ARGWS_CONNECT_DOCS_PUBLIC_URL'] == develop_url
+          assert dev_docs['ARGWS_CONNECT_DOCS_IMAGE'] == 'ghcr.io/wkarts/argws-connect-docs:develop'
+
+          print('DOCs public hostname policy OK')
+          PY
+
+      - name: Validate integrated DOCs ports
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^ARGWS_CONNECT_DOCS_HOST_PORT=38180$' deploy/production/env.example
+          grep -q '^ARGWS_CONNECT_DOCS_HOST_PORT=38181$' deploy/homologation/env.example
+          grep -q '^ARGWS_CONNECT_DOCS_HOST_PORT=38182$' deploy/develop/env.example
+          grep -q '^ARGWS_CONNECT_DOCS_HOST_PORT=38183$' deploy/canonical/env.example
+
+      - name: Validate portable Scalar source URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            docker-compose.yaml \
+            deploy/production/compose.yaml \
+            deploy/homologation/compose.yaml \
+            deploy/develop/compose.yaml \
+            deploy/canonical/compose.yaml \
+            deploy/cloudpanel/docker-compose.yml \
+            deploy/dockge/compose.yaml \
+            deploy/docs/compose.yaml \
+            deploy/docs-develop/compose.yaml; do
+            grep -q '"url":"openapi/connect-api.openapi.json"' "$file"
+            grep -q '"url":"openapi/meta-compatible.openapi.json"' "$file"
+            grep -q '"url":"openapi/connect-api-events.asyncapi.json"' "$file"
+            if grep -q 'ARGWS_CONNECT_DOCS_PUBLIC_BASE_PATH' "$file"; then
+              echo "$file ainda acopla Scalar ao prefixo público" >&2
+              exit 1
+            fi
+          done
+
+      - name: Validate standalone Nginx examples and scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'docs.connect.argws.com.br' deploy/docs/nginx-location.conf.example
+          grep -q '127.0.0.1:38280' deploy/docs/nginx-location.conf.example
+          grep -q 'd.docs.connect.argws.com.br' deploy/docs-develop/nginx-location.conf.example
+          grep -q '127.0.0.1:38282' deploy/docs-develop/nginx-location.conf.example
+          for stack in docs docs-develop; do
+            for script in deploy.sh update.sh status.sh preflight.sh; do
+              test -x "deploy/${stack}/${script}"
+              bash -n "deploy/${stack}/${script}"
+            done
+          done
+
+      - name: Login GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Verify develop DOCs image exists
+        run: docker manifest inspect ghcr.io/wkarts/argws-connect-docs:develop >/dev/null
+
+      - name: Runtime smoke test standalone develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose --env-file deploy/docs-develop/env.example -f deploy/docs-develop/compose.yaml up -d --pull always
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:38282/health >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          $ready
+          curl -fsS http://127.0.0.1:38282/ >/dev/null
+          curl -fsS http://127.0.0.1:38282/openapi/connect-api.openapi.json -o /tmp/connect-api.openapi.json
+          node -e "JSON.parse(require('fs').readFileSync('/tmp/connect-api.openapi.json','utf8'))"
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          docker compose --env-file deploy/docs-develop/env.example -f deploy/docs-develop/compose.yaml down --remove-orphans || true
+          rm -f .env deploy/production/.env deploy/homologation/.env deploy/develop/.env deploy/canonical/.env deploy/cloudpanel/.env deploy/dockge/.env deploy/docs/.env deploy/docs-develop/.env
