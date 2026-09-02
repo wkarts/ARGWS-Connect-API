@@ -1,0 +1,191 @@
+name: Docs Integrity
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Scalar / OpenAPI / AsyncAPI / PWA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Fetch PR base
+        if: github.event_name == 'pull_request'
+        run: git fetch origin "${{ github.base_ref }}" --force
+
+      - name: Check documentation impact
+        if: github.event_name == 'pull_request'
+        env:
+          DOCS_BASE_REF: ${{ github.base_ref }}
+          DOCS_PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: |
+          if printf '%s' "$DOCS_PR_BODY" | grep -Fq 'DOCS IMPACT: NONE'; then
+            export DOCS_IMPACT_EXEMPT=true
+          else
+            export DOCS_IMPACT_EXEMPT=false
+          fi
+          node docs/scripts/check-docs-impact.mjs
+
+      - name: Verify generated contracts are synchronized
+        run: npm run docs:check
+
+      - name: Validate contract and PWA JSON
+        run: |
+          node - <<'NODE'
+          const fs = require('fs')
+          for (const f of [
+            'docs/openapi/connect-api.openapi.json',
+            'docs/openapi/meta-compatible.openapi.json',
+            'docs/openapi/coverage.json',
+            'docs/asyncapi/connect-api-events.asyncapi.json',
+            'docs/pwa/manifest.webmanifest',
+          ]) {
+            JSON.parse(fs.readFileSync(f, 'utf8'))
+            console.log('valid', f)
+          }
+          const native = JSON.parse(fs.readFileSync('docs/openapi/connect-api.openapi.json', 'utf8'))
+          if (native.components?.securitySchemes?.apiKey?.name !== 'apikey') {
+            throw new Error('native auth header must be apikey')
+          }
+          const manifest = JSON.parse(fs.readFileSync('docs/pwa/manifest.webmanifest', 'utf8'))
+          if (manifest.name !== 'Connect|API DOCs') throw new Error('PWA name inválido')
+          if (manifest.short_name !== 'Connect|API DOCs') throw new Error('PWA short_name inválido')
+          if (manifest.display !== 'standalone') throw new Error('PWA display deve ser standalone')
+          const icons = new Map(manifest.icons.map((icon) => [`${icon.sizes}:${icon.purpose}`, icon]))
+          for (const required of ['192x192:any', '512x512:any', '192x192:maskable', '512x512:maskable']) {
+            if (!icons.has(required)) throw new Error(`Ícone PWA ausente: ${required}`)
+          }
+          NODE
+          node --check docs/pwa/sw.js
+
+      - name: Validate PWA source assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s docs/pwa/index.html
+          test -s docs/pwa/sw.js
+          test -s docs/pwa/manifest.webmanifest
+          for asset in \
+            docs/pwa/icons/apple-touch-icon.png \
+            docs/pwa/icons/icon-192x192.png \
+            docs/pwa/icons/icon-512x512.png \
+            docs/pwa/icons/icon-maskable-192x192.png \
+            docs/pwa/icons/icon-maskable-512x512.png; do
+            test -s "$asset"
+            file "$asset" | grep -q 'PNG image data'
+          done
+          grep -q 'Connect|API DOCs' docs/pwa/index.html
+          grep -q 'manifest.webmanifest' docs/pwa/index.html
+          grep -q 'serviceWorker.register' docs/pwa/index.html
+          grep -q 'connect-api-docs-light.png' docs/pwa/index.html
+          grep -q 'favicon.svg' docs/pwa/index.html
+
+      - name: Build dedicated docs image
+        run: docker build -f docs/Dockerfile -t connect-api-docs-ci:local .
+
+      - name: Prepare disposable Compose env
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
+        run: docker compose --env-file .env.example config >/dev/null
+
+      - name: Start Scalar docs service
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
+        run: docker compose --env-file .env.example up -d --pull never docs
+
+      - name: Wait for Scalar healthcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:38082/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --env-file .env.example logs docs
+          exit 1
+
+      - name: Validate Scalar document endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:38082/ -o /tmp/docs-index.html
+          curl -fsS http://127.0.0.1:38082/openapi/connect-api.openapi.json -o /tmp/connect-api.openapi.json
+          curl -fsS http://127.0.0.1:38082/openapi/meta-compatible.openapi.json -o /tmp/meta-compatible.openapi.json
+          curl -fsS http://127.0.0.1:38082/openapi/connect-api-events.asyncapi.json -o /tmp/connect-api-events.asyncapi.json
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-light.png -o /tmp/connect-api-docs-light.png
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-dark.png -o /tmp/connect-api-docs-dark.png
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-light.svg -o /tmp/connect-api-docs-light.svg
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-dark.svg -o /tmp/connect-api-docs-dark.svg
+          test -s /tmp/connect-api-docs-light.png
+          test -s /tmp/connect-api-docs-dark.png
+          grep -q '<svg' /tmp/connect-api-docs-light.svg
+          grep -q '<svg' /tmp/connect-api-docs-dark.svg
+          grep -q 'Connect|API DOCs' /tmp/docs-index.html
+          grep -q 'manifest.webmanifest' /tmp/docs-index.html
+          node -e "for (const f of ['/tmp/connect-api.openapi.json','/tmp/meta-compatible.openapi.json','/tmp/connect-api-events.asyncapi.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))"
+          node -e "const s=JSON.parse(require('fs').readFileSync('/tmp/connect-api.openapi.json','utf8')); if(s.components?.securitySchemes?.apiKey?.name!=='apikey') throw new Error('native auth header must be apikey');"
+
+      - name: Validate PWA runtime endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:38082/manifest.webmanifest -o /tmp/manifest.webmanifest
+          curl -fsS http://127.0.0.1:38082/sw.js -o /tmp/sw.js
+          curl -fsS http://127.0.0.1:38082/favicon.svg -o /tmp/favicon.svg
+          curl -fsS http://127.0.0.1:38082/favicon.ico -o /tmp/favicon.ico
+          curl -fsS http://127.0.0.1:38082/apple-touch-icon.png -o /tmp/apple-touch-icon.png
+          curl -fsS http://127.0.0.1:38082/icons/icon-192x192.png -o /tmp/icon-192x192.png
+          curl -fsS http://127.0.0.1:38082/icons/icon-512x512.png -o /tmp/icon-512x512.png
+          curl -fsS http://127.0.0.1:38082/icons/icon-maskable-192x192.png -o /tmp/icon-maskable-192x192.png
+          curl -fsS http://127.0.0.1:38082/icons/icon-maskable-512x512.png -o /tmp/icon-maskable-512x512.png
+          curl -fsS http://127.0.0.1:38082/branding/connect-api-docs-light.png -o /tmp/runtime-docs-logo-light.png
+          curl -fsS http://127.0.0.1:38082/branding/connect-api-docs-dark.png -o /tmp/runtime-docs-logo-dark.png
+          node - <<'NODE'
+          const fs = require('fs')
+          const manifest = JSON.parse(fs.readFileSync('/tmp/manifest.webmanifest', 'utf8'))
+          if (manifest.name !== 'Connect|API DOCs') throw new Error('Manifest runtime incorreto')
+          if (manifest.display !== 'standalone') throw new Error('Manifest runtime não é standalone')
+          NODE
+          grep -q 'connect-api-docs-pwa-v1' /tmp/sw.js
+          grep -q '<svg' /tmp/favicon.svg
+          test -s /tmp/favicon.ico
+          test -s /tmp/apple-touch-icon.png
+          test -s /tmp/icon-192x192.png
+          test -s /tmp/icon-512x512.png
+          test -s /tmp/icon-maskable-192x192.png
+          test -s /tmp/icon-maskable-512x512.png
+          test -s /tmp/runtime-docs-logo-light.png
+          test -s /tmp/runtime-docs-logo-dark.png
+
+      - name: Scalar logs on failure
+        if: failure()
+        run: docker compose --env-file .env.example logs docs || true
+
+      - name: Stop Scalar docs service
+        if: always()
+        run: docker compose --env-file .env.example down --remove-orphans || true

@@ -26,13 +26,26 @@ env:
 
 jobs:
   validate:
-    name: Validate source via canonical CI Core
+    name: Validate source
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Run canonical validation core from main
-        uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+      - name: Checkout merge commit
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Install Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:check
+      - run: npm run db:generate
+      - run: npm run build
+      - run: npm run docs:check
 
   plan-version:
     name: Plan semantic version
@@ -117,7 +130,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager]
+        component: [api, manager, docs]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -134,6 +147,10 @@ jobs:
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
+          - component: docs
+            context: .
+            dockerfile: ./docs/Dockerfile
+            image: argws-connect-docs
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout validated source
@@ -234,6 +251,8 @@ jobs:
             image: argws-connect-api
           - component: manager
             image: argws-connect-manager
+          - component: docs
+            image: argws-connect-docs
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5
@@ -320,6 +339,7 @@ jobs:
             echo
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-docs:${version}"
             echo
             for f in release-digests/*.txt; do
               echo "===== $(basename "$f") ====="

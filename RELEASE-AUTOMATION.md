@@ -168,3 +168,8 @@ GitHub Actions requer:
 - `pull-requests: read` para metadados da PR.
 
 `develop` usa `contents: read` e `packages: write`.
+
+
+## Connect|API DOCs
+
+A release de `main` publica `ghcr.io/wkarts/argws-connect-docs` com a mesma SemVer da API, incluindo `X.Y.Z`, `X.Y`, `X` e `latest`. O `deploy/canonical` mantém API e DOCs pinados na mesma versão.

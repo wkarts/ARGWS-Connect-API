@@ -8,13 +8,14 @@ Sem profiles adicionais, sobe apenas:
 
 ```text
 ARGWS Connect API
+├── Connect|API DOCs
 ├── PostgreSQL
 ├── Redis
 ├── RabbitMQ
 └── MinIO
 ```
 
-Somente a API publica `127.0.0.1:38081`; `/manager`, `/health`, `/metrics`, WebSocket e webhooks usam esse mesmo endpoint.
+A API publica `127.0.0.1:38081` e o Connect|API DOCs publica `127.0.0.1:38181`. `/manager`, `/health`, `/metrics`, WebSocket e webhooks da aplicação continuam no endpoint da API.
 
 ## Mensageria opcional
 
@@ -42,6 +43,7 @@ A homologação usa exclusivamente a imagem contínua da branch `develop`:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
+ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
 A branch `develop` nunca publica `:latest`, tag SemVer ou GitHub Release. Cada push/merge em `develop` substitui a mesma tag `:develop`.

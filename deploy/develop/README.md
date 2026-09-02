@@ -3,12 +3,14 @@
     Stack independente `develop`.
 
     - URL: `https://d.api.connect.argws.com.br`
-    - Porta local padrão: `38082`
+    - Porta local API: `38082`
+    - Porta local DOCs: `38182`
     - API image: `ghcr.io/wkarts/argws-connect-api:develop`
-    - Única porta publicada: API
+    - DOCs image: `ghcr.io/wkarts/argws-connect-docs:develop`
+    - Portas locais publicadas: API + Connect|API DOCs
     - Manager: `https://d.api.connect.argws.com.br/manager`
     - Persistência: `./volumes/...`
-    - Serviços core: API, PostgreSQL, Redis, RabbitMQ e MinIO
+    - Serviços core: API, Connect|API DOCs, PostgreSQL, Redis, RabbitMQ e MinIO
     - Profiles opcionais: `nats`, `kafka`, `extended`
 
     Convenção dos services: `<recurso>-argws-connect-develop`.

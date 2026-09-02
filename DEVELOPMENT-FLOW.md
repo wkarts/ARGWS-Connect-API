@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Separar completamente desenvolvimento/homologação da linha estável de produção.
+Separar completamente desenvolvimento/homologação da linha estável de produção, sem permitir que os workflows de uma branch publiquem tags pertencentes à outra.
 
 ## Branches permanentes
 
@@ -10,22 +10,25 @@ Separar completamente desenvolvimento/homologação da linha estável de produç
 
 Branch de integração contínua.
 
-- nasce como clone da `main`;
+- nasce e permanece sincronizável com a `main`;
 - recebe PRs de `feature/*`, `fix/*`, `chore/*` e demais branches de trabalho;
-- cada push/merge publica sempre a mesma imagem:
+- cada push/merge em `develop` publica os dois artefatos de desenvolvimento:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
+ghcr.io/wkarts/argws-connect-manager:develop
+ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
-- não altera `VERSION`;
+- usa builds nativos `linux/amd64` e `linux/arm64`;
+- não altera `VERSION` para criar release;
 - não cria Git tag;
 - não cria GitHub Release;
 - não publica `:latest`;
 - não publica tag SemVer;
-- não publica tag SHA da aplicação.
+- não publica tags estáveis da aplicação.
 
-A stack de homologação consome exclusivamente `:develop`.
+A stack `deploy/develop` consome `argws-connect-api:develop` e `argws-connect-docs:develop`. O Manager operacional continua servido pela própria API em `/manager`; a imagem `argws-connect-manager:develop` é publicada como artefato independente para validar o mesmo componente que será publicado pela `main`, sem exigir um segundo container no Compose atual.
 
 ### `main`
 
@@ -38,12 +41,48 @@ Quando o estado de `develop` estiver aprovado em homologação:
 1. abrir PR `develop → main`;
 2. aguardar todos os gates obrigatórios;
 3. fazer merge;
-4. o workflow de release calcula a próxima versão SemVer;
-5. publica as imagens versionadas;
-6. cria Git tag e GitHub Release;
-7. a produção pode promover explicitamente a nova versão.
+4. somente o push resultante em `main` dispara o workflow de release;
+5. o workflow calcula a próxima versão SemVer;
+6. constrói API, Manager e DOCs em `amd64` e `arm64`;
+7. publica imagens versionadas e `:latest`;
+8. cria Git tag e GitHub Release.
 
-## Diagrama
+## Isolamento dos gatilhos
+
+```text
+push/merge em develop
+        │
+        └── GHCR Development
+             ├── argws-connect-api:develop
+             └── argws-connect-manager:develop
+
+PR develop → main
+        │
+        ├── executa gates de validação
+        └── NÃO publica release antes do merge
+
+merge/push em main
+        │
+        └── Release Stable
+             ├── API :X.Y.Z / :X.Y / :X / :latest
+             ├── Manager :X.Y.Z / :X.Y / :X / :latest
+             ├── Git tag
+             └── GitHub Release
+
+sincronização main → develop
+        │
+        └── é um push em develop
+             ├── atualiza somente API :develop
+             ├── atualiza somente Manager :develop
+             └── nunca dispara SemVer/:latest/Release
+```
+
+Assim, os dois sentidos são seguros:
+
+- `develop → main`: somente depois do merge a `main` publica uma nova release;
+- `main → develop`: apenas renova as imagens `:develop`, sem tocar em `:latest` ou SemVer.
+
+## Diagrama operacional
 
 ```text
 feature/* / fix/*
@@ -52,9 +91,12 @@ feature/* / fix/*
        ▼
     develop
        │
-       │ CI + build
+       │ CI + builds nativos
        ▼
-argws-connect-api:develop
+┌──────────────────────────────────────┐
+│ argws-connect-api:develop            │
+│ argws-connect-manager:develop        │
+└──────────────────────────────────────┘
        │
        ▼
   HOMOLOGAÇÃO
@@ -63,16 +105,15 @@ argws-connect-api:develop
        ▼
  PR develop → main
        │
+       │ gates somente
        ▼
-      main
+   MERGE EM main
        │
        ├── SemVer
        ├── Git tag
        ├── GitHub Release
-       ├── :X.Y.Z
-       ├── :X.Y
-       ├── :X
-       └── :latest (última release estável)
+       ├── API :X.Y.Z / :X.Y / :X / :latest
+       └── Manager :X.Y.Z / :X.Y / :X / :latest
               │
               ▼
           PRODUÇÃO
@@ -82,11 +123,11 @@ argws-connect-api:develop
 
 `latest` representa somente a última release estável produzida pela `main`.
 
-Desenvolvimento nunca escreve em `latest`.
+A branch `develop` nunca escreve em `latest`.
 
-## Homologação
+## Homologação / develop
 
-Imagem:
+Imagem operacional:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
@@ -95,24 +136,15 @@ ghcr.io/wkarts/argws-connect-api:develop
 Deployment:
 
 ```bash
-cd deploy/homologation
+cd deploy/develop
 ./update.sh
 ```
 
+O Compose usa projeto, containers, rede, volumes e porta próprios do ambiente `develop` e não compartilha identidade de stack com produção/canonical.
+
 ## Produção
 
-Produção deve utilizar tag SemVer explícita:
-
-```text
-ghcr.io/wkarts/argws-connect-api:X.Y.Z
-```
-
-Promoção:
-
-```bash
-cd deploy/production
-./promote.sh X.Y.Z
-```
+O workflow da `main` publica SemVer e também atualiza `:latest`. A promoção operacional deve continuar controlada pelo deployment de produção, sem reutilizar `:develop`.
 
 ## Fase 2 / Control Plane
 

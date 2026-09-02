@@ -1,8 +1,8 @@
 {
   "product": "ARGWS Connect API",
   "package": "argws-connect-api",
-  "version": "1.0.17",
-  "revision_date": "2026-09-01",
+  "version": "1.0.16",
+  "revision_date": "2026-08-31",
   "source_files_excluding_node_modules": 430,
   "typescript_files_in_src": 186,
   "distribution": {

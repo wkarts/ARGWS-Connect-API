@@ -43,6 +43,7 @@ if (fs.existsSync('RELEASE-MANIFEST.json')) {
 fs.writeFileSync('VERSION', `${version}\n`);
 
 const canonicalImage = `ghcr.io/wkarts/argws-connect-api:${version}`;
+const canonicalDocsImage = `ghcr.io/wkarts/argws-connect-docs:${version}`;
 replaceRequired(
   'deploy/canonical/env.example',
   /^ARGWS_CONNECT_API_IMAGE=ghcr\.io\/wkarts\/argws-connect-api:\d+\.\d+\.\d+$/m,
@@ -54,5 +55,17 @@ replaceRequired(
   canonicalImage,
 );
 
+replaceRequired(
+  'deploy/canonical/env.example',
+  /^ARGWS_CONNECT_DOCS_IMAGE=ghcr\.io\/wkarts\/argws-connect-docs:\d+\.\d+\.\d+$/m,
+  `ARGWS_CONNECT_DOCS_IMAGE=${canonicalDocsImage}`,
+);
+replaceRequired(
+  'deploy/canonical/compose.yaml',
+  /ghcr\.io\/wkarts\/argws-connect-docs:\d+\.\d+\.\d+/,
+  canonicalDocsImage,
+);
+
 console.log(`ARGWS Connect API version set to ${version}`);
-console.log(`Production tracks :latest. Canonical pinned to ${canonicalImage}.`);
+console.log(`Production tracks :latest. Canonical API pinned to ${canonicalImage}.`);
+console.log(`Canonical DOCs pinned to ${canonicalDocsImage}.`);

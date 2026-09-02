@@ -4,7 +4,7 @@ Stack canônica do ARGWS Connect API para Dockge.
 
 ## Contrato de rede
 
-Somente `api` possui `ports:`. PostgreSQL, Redis, RabbitMQ, MinIO e serviços opcionais ficam exclusivamente na rede `argws-connect-net`.
+`api` e `docs` possuem `ports:` dedicadas. PostgreSQL, Redis, RabbitMQ, MinIO e serviços opcionais ficam exclusivamente na rede `argws-connect-net`.
 
 O Manager atual está dentro da imagem da API e pode ser aberto em:
 
@@ -16,7 +16,7 @@ Assim, não existe `manager:3000` na stack de produção.
 
 ## Serviços padrão
 
-O Deploy/Up normal inicia API, PostgreSQL, Redis, RabbitMQ e MinIO.
+O Deploy/Up normal inicia API, Connect|API DOCs, PostgreSQL, Redis, RabbitMQ e MinIO.
 
 Perfis opcionais:
 
@@ -58,6 +58,7 @@ Por padrão:
 ```env
 ARGWS_CONNECT_BIND_ADDRESS=127.0.0.1
 ARGWS_CONNECT_API_HOST_PORT=38080
+ARGWS_CONNECT_DOCS_HOST_PORT=38180
 SERVER_PORT=8080
 ```
 

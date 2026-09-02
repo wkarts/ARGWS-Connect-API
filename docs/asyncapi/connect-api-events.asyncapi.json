@@ -1,0 +1,326 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Connect|API — Eventos",
+    "version": "1.0.16",
+    "description": "![Connect|API Events](/openapi/branding/docs/connect-api-events-light.png)\n\nEventos do Connect|API publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte."
+  },
+  "channels": {
+    "application.startup": {
+      "description": "Evento `application.startup` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_application_startup",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "instance.create": {
+      "description": "Evento `instance.create` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_instance_create",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "instance.delete": {
+      "description": "Evento `instance.delete` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_instance_delete",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "qrcode.updated": {
+      "description": "Evento `qrcode.updated` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_qrcode_updated",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "connection.update": {
+      "description": "Evento `connection.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_connection_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "status.instance": {
+      "description": "Evento `status.instance` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_status_instance",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "messages.set": {
+      "description": "Evento `messages.set` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_messages_set",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "messages.upsert": {
+      "description": "Evento `messages.upsert` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_messages_upsert",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "messages.edited": {
+      "description": "Evento `messages.edited` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_messages_edited",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "messages.update": {
+      "description": "Evento `messages.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_messages_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "messages.delete": {
+      "description": "Evento `messages.delete` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_messages_delete",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "send.message": {
+      "description": "Evento `send.message` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_send_message",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "send.message.update": {
+      "description": "Evento `send.message.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_send_message_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "contacts.set": {
+      "description": "Evento `contacts.set` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_contacts_set",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "contacts.upsert": {
+      "description": "Evento `contacts.upsert` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_contacts_upsert",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "contacts.update": {
+      "description": "Evento `contacts.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_contacts_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "presence.update": {
+      "description": "Evento `presence.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_presence_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "chats.set": {
+      "description": "Evento `chats.set` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_chats_set",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "chats.update": {
+      "description": "Evento `chats.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_chats_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "chats.upsert": {
+      "description": "Evento `chats.upsert` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_chats_upsert",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "chats.delete": {
+      "description": "Evento `chats.delete` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_chats_delete",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "groups.upsert": {
+      "description": "Evento `groups.upsert` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_groups_upsert",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "groups.update": {
+      "description": "Evento `groups.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_groups_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "group-participants.update": {
+      "description": "Evento `group-participants.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_group_participants_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "call": {
+      "description": "Evento `call` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_call",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "typebot.start": {
+      "description": "Evento `typebot.start` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_typebot_start",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "typebot.change-status": {
+      "description": "Evento `typebot.change-status` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_typebot_change_status",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "labels.edit": {
+      "description": "Evento `labels.edit` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_labels_edit",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "labels.association": {
+      "description": "Evento `labels.association` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_labels_association",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "creds.update": {
+      "description": "Evento `creds.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_creds_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "messaging-history.set": {
+      "description": "Evento `messaging-history.set` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_messaging_history_set",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "remove.instance": {
+      "description": "Evento `remove.instance` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_remove_instance",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "logout.instance": {
+      "description": "Evento `logout.instance` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_logout_instance",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "ConnectEvent": {
+        "name": "ConnectEvent",
+        "title": "Evento Connect|API",
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "instance": {},
+            "data": {}
+          }
+        }
+      }
+    }
+  }
+}

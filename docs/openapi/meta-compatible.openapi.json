@@ -1,0 +1,1517 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Connect|API — Meta Compatible /graph",
+    "version": "1.0.16",
+    "summary": "Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.",
+    "description": "![Connect|API Meta](/openapi/branding/docs/connect-api-meta-light.png)\n\nFachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.\n\nA autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão."
+  },
+  "servers": [
+    {
+      "url": "https://d.api.connect.argws.com.br/graph",
+      "description": "Develop / homologação"
+    },
+    {
+      "url": "http://localhost:38080/graph",
+      "description": "Docker local"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Messages"
+    },
+    {
+      "name": "Media"
+    },
+    {
+      "name": "Templates"
+    }
+  ],
+  "paths": {
+    "/{version}/{phoneNumberId}/messages": {
+      "post": {
+        "tags": [
+          "Messages"
+        ],
+        "summary": "Enviar mensagem compatível com Meta",
+        "operationId": "meta_send_message",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaMessageRequest"
+              },
+              "examples": {
+                "text": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": "5575999999999",
+                    "type": "text",
+                    "text": {
+                      "body": "Olá pelo /graph"
+                    }
+                  }
+                },
+                "reaction": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "to": "5575999999999",
+                    "type": "reaction",
+                    "reaction": {
+                      "message_id": "REAL_PROVIDER_ID",
+                      "emoji": "👍"
+                    }
+                  }
+                },
+                "read": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "status": "read",
+                    "message_id": "REAL_PROVIDER_ID"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mensagem enviada ou leitura confirmada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MetaMessageResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MetaReadReceiptResponse"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/media": {
+      "post": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Upload temporário de mídia",
+        "operationId": "meta_upload_media",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaMediaUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mídia recebida para uso temporário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaMediaUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{businessAccountId}/message_templates": {
+      "get": {
+        "tags": [
+          "Templates"
+        ],
+        "summary": "Listar templates",
+        "operationId": "meta_list_templates",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "businessAccountId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS e CONNECT retornam `data: []`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaTemplateListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{mediaId}": {
+      "get": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Resolver mídia recebida",
+        "operationId": "meta_get_media",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "ID real da mensagem/provider usado como media id."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadados e URL presigned segura.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaMediaResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Instance token",
+        "description": "Token real da instância correspondente ao recurso Graph."
+      }
+    },
+    "schemas": {
+      "MetaTextContent": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Texto da mensagem."
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "MetaImageContent": {
+        "type": "object",
+        "description": "Imagem referenciada por link público ou id previamente enviado ao endpoint de mídia.",
+        "properties": {
+          "link": {
+            "type": "string",
+            "description": "URL da imagem.",
+            "format": "uri"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID de mídia temporário retornado por /media."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Legenda opcional."
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type opcional."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "link"
+            ]
+          },
+          {
+            "required": [
+              "id"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "MetaVideoContent": {
+        "type": "object",
+        "description": "Vídeo referenciado por link público ou id previamente enviado ao endpoint de mídia.",
+        "properties": {
+          "link": {
+            "type": "string",
+            "description": "URL do vídeo.",
+            "format": "uri"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID de mídia temporário retornado por /media."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Legenda opcional."
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type opcional."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "link"
+            ]
+          },
+          {
+            "required": [
+              "id"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "MetaDocumentContent": {
+        "type": "object",
+        "description": "Documento referenciado por link público ou id previamente enviado ao endpoint de mídia.",
+        "properties": {
+          "link": {
+            "type": "string",
+            "description": "URL do documento.",
+            "format": "uri"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID de mídia temporário retornado por /media."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Nome do arquivo enviado ao destinatário."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Legenda opcional."
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type opcional."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "link"
+            ]
+          },
+          {
+            "required": [
+              "id"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "MetaAudioContent": {
+        "type": "object",
+        "description": "Áudio referenciado por link público ou id previamente enviado ao endpoint de mídia.",
+        "properties": {
+          "link": {
+            "type": "string",
+            "description": "URL do áudio.",
+            "format": "uri"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID de mídia temporário retornado por /media."
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type opcional."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "link"
+            ]
+          },
+          {
+            "required": [
+              "id"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "MetaLocationContent": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "name": {
+            "type": "string",
+            "description": "Nome opcional do local."
+          },
+          "address": {
+            "type": "string",
+            "description": "Endereço opcional do local."
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "additionalProperties": false
+      },
+      "MetaContactName": {
+        "type": "object",
+        "properties": {
+          "formatted_name": {
+            "type": "string",
+            "description": "Nome completo formatado."
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Primeiro nome."
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Sobrenome."
+          }
+        },
+        "additionalProperties": true
+      },
+      "MetaContactPhone": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "Número telefônico do contato."
+          },
+          "wa_id": {
+            "type": "string",
+            "description": "WhatsApp ID numérico alternativo ao campo phone."
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo do telefone, quando fornecido."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "phone"
+            ]
+          },
+          {
+            "required": [
+              "wa_id"
+            ]
+          }
+        ],
+        "additionalProperties": true
+      },
+      "MetaContactEmail": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "E-mail do contato.",
+            "format": "email"
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo do e-mail."
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": true
+      },
+      "MetaContactUrl": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL do contato.",
+            "format": "uri"
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo da URL."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": true
+      },
+      "MetaContactOrg": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "string",
+            "description": "Empresa/organização do contato."
+          }
+        },
+        "additionalProperties": true
+      },
+      "MetaContact": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/MetaContactName"
+          },
+          "phones": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/MetaContactPhone"
+            }
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaContactEmail"
+            }
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaContactUrl"
+            }
+          },
+          "org": {
+            "$ref": "#/components/schemas/MetaContactOrg"
+          }
+        },
+        "required": [
+          "name",
+          "phones"
+        ],
+        "additionalProperties": true
+      },
+      "MetaReactionContent": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "ID real da mensagem/provider que receberá a reação."
+          },
+          "emoji": {
+            "type": "string",
+            "description": "Emoji da reação. String vazia pode representar remoção quando suportado pelo provider."
+          }
+        },
+        "required": [
+          "message_id",
+          "emoji"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveText": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Texto exibido no bloco interativo."
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveButtonReply": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identificador da resposta."
+          },
+          "title": {
+            "type": "string",
+            "description": "Texto exibido no botão."
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveButton": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "reply"
+          },
+          "reply": {
+            "$ref": "#/components/schemas/MetaInteractiveButtonReply"
+          }
+        },
+        "required": [
+          "type",
+          "reply"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveListRow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identificador da linha."
+          },
+          "title": {
+            "type": "string",
+            "description": "Título da opção."
+          },
+          "description": {
+            "type": "string",
+            "description": "Descrição opcional da opção."
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveListSection": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Título da seção."
+          },
+          "rows": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/MetaInteractiveListRow"
+            }
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveButtonContent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "button"
+          },
+          "header": {
+            "$ref": "#/components/schemas/MetaInteractiveText"
+          },
+          "body": {
+            "$ref": "#/components/schemas/MetaInteractiveText"
+          },
+          "footer": {
+            "$ref": "#/components/schemas/MetaInteractiveText"
+          },
+          "action": {
+            "type": "object",
+            "properties": {
+              "buttons": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/components/schemas/MetaInteractiveButton"
+                }
+              }
+            },
+            "required": [
+              "buttons"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveListContent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "list"
+          },
+          "header": {
+            "$ref": "#/components/schemas/MetaInteractiveText"
+          },
+          "body": {
+            "$ref": "#/components/schemas/MetaInteractiveText"
+          },
+          "footer": {
+            "$ref": "#/components/schemas/MetaInteractiveText"
+          },
+          "action": {
+            "type": "object",
+            "properties": {
+              "button": {
+                "type": "string",
+                "description": "Texto do botão que abre a lista."
+              },
+              "sections": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/components/schemas/MetaInteractiveListSection"
+                }
+              }
+            },
+            "required": [
+              "sections"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "MetaInteractiveContent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MetaInteractiveButtonContent"
+          },
+          {
+            "$ref": "#/components/schemas/MetaInteractiveListContent"
+          }
+        ],
+        "description": "Interativo suportado atualmente: button ou list."
+      },
+      "MetaMessageBase": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "recipient_type": {
+            "type": "string",
+            "enum": [
+              "individual"
+            ]
+          },
+          "to": {
+            "type": "string",
+            "description": "Número internacional do destinatário; caracteres não numéricos são normalizados pelo adapter."
+          }
+        },
+        "required": [
+          "to"
+        ]
+      },
+      "MetaTextMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "text"
+              },
+              "text": {
+                "$ref": "#/components/schemas/MetaTextContent"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ]
+          }
+        ]
+      },
+      "MetaImageMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "image"
+              },
+              "image": {
+                "$ref": "#/components/schemas/MetaImageContent"
+              }
+            },
+            "required": [
+              "type",
+              "image"
+            ]
+          }
+        ]
+      },
+      "MetaVideoMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "video"
+              },
+              "video": {
+                "$ref": "#/components/schemas/MetaVideoContent"
+              }
+            },
+            "required": [
+              "type",
+              "video"
+            ]
+          }
+        ]
+      },
+      "MetaDocumentMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "document"
+              },
+              "document": {
+                "$ref": "#/components/schemas/MetaDocumentContent"
+              }
+            },
+            "required": [
+              "type",
+              "document"
+            ]
+          }
+        ]
+      },
+      "MetaAudioMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "audio"
+              },
+              "audio": {
+                "$ref": "#/components/schemas/MetaAudioContent"
+              }
+            },
+            "required": [
+              "type",
+              "audio"
+            ]
+          }
+        ]
+      },
+      "MetaLocationMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "location"
+              },
+              "location": {
+                "$ref": "#/components/schemas/MetaLocationContent"
+              }
+            },
+            "required": [
+              "type",
+              "location"
+            ]
+          }
+        ]
+      },
+      "MetaContactsMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "contacts"
+              },
+              "contacts": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/components/schemas/MetaContact"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "contacts"
+            ]
+          }
+        ]
+      },
+      "MetaReactionMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "reaction"
+              },
+              "reaction": {
+                "$ref": "#/components/schemas/MetaReactionContent"
+              }
+            },
+            "required": [
+              "type",
+              "reaction"
+            ]
+          }
+        ]
+      },
+      "MetaInteractiveMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "interactive"
+              },
+              "interactive": {
+                "$ref": "#/components/schemas/MetaInteractiveContent"
+              }
+            },
+            "required": [
+              "type",
+              "interactive"
+            ]
+          }
+        ]
+      },
+      "MetaReadReceiptRequest": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "status": {
+            "type": "string",
+            "const": "read"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "ID real da mensagem/provider a marcar como lida."
+          }
+        },
+        "required": [
+          "status",
+          "message_id"
+        ],
+        "additionalProperties": false
+      },
+      "MetaMessageRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MetaTextMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaImageMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaVideoMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaDocumentMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaAudioMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaLocationMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaContactsMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaReactionMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaInteractiveMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaReadReceiptRequest"
+          }
+        ],
+        "description": "Union dos formatos de mensagem aceitos atualmente pela fachada Meta Compatible."
+      },
+      "MetaMessageContact": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Destinatário normalizado."
+          },
+          "wa_id": {
+            "type": "string",
+            "description": "WhatsApp ID normalizado."
+          }
+        },
+        "required": [
+          "input",
+          "wa_id"
+        ],
+        "additionalProperties": false
+      },
+      "MetaMessageId": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID real retornado pelo provider; não é criado wamid artificial."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "MetaMessageResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaMessageContact"
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaMessageId"
+            }
+          }
+        },
+        "required": [
+          "messaging_product",
+          "contacts",
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "MetaReadReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "additionalProperties": false
+      },
+      "MetaMediaUploadRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "type": {
+            "type": "string",
+            "description": "MIME type declarado; se ausente é usado o MIME do upload."
+          },
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "MetaMediaUploadResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID temporário de mídia válido para a instância."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "MetaMediaResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID real/temporário da mídia."
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type persistido."
+          },
+          "url": {
+            "type": "string",
+            "description": "URL presigned temporária para download.",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "id",
+          "mime_type",
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTemplate": {
+        "type": "object",
+        "description": "Template retornado pelo provider oficial. A estrutura adicional é preservada porque varia conforme o provider/versão.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identificador do template."
+          },
+          "name": {
+            "type": "string",
+            "description": "Nome do template."
+          },
+          "status": {
+            "type": "string",
+            "description": "Status do template."
+          },
+          "language": {
+            "type": "string",
+            "description": "Idioma do template."
+          },
+          "category": {
+            "type": "string",
+            "description": "Categoria do template."
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "MetaTemplateListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaTemplate"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": true
+      },
+      "MetaWebhookMessage": {
+        "type": "object",
+        "description": "Mensagem serializada no formato Meta Compatible. O conteúdo específico depende do tipo recebido.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID real da mensagem/provider."
+          },
+          "from": {
+            "type": "string",
+            "description": "Remetente normalizado."
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Timestamp Meta-compatible."
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo da mensagem."
+          },
+          "text": {
+            "$ref": "#/components/schemas/MetaTextContent"
+          },
+          "image": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "video": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "audio": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": true
+      },
+      "MetaWebhookStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID real da mensagem/provider."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "delivered",
+              "read",
+              "failed",
+              "deleted"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Timestamp do status."
+          },
+          "recipient_id": {
+            "type": "string",
+            "description": "Destinatário quando disponível."
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": true
+      },
+      "MetaWebhookValue": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaWebhookMessage"
+            }
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaWebhookStatus"
+            }
+          }
+        },
+        "required": [
+          "messaging_product"
+        ],
+        "additionalProperties": true
+      },
+      "MetaWebhookChange": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "const": "messages"
+          },
+          "value": {
+            "$ref": "#/components/schemas/MetaWebhookValue"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "MetaWebhookEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Business account/identity do evento."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaWebhookChange"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "changes"
+        ],
+        "additionalProperties": false
+      },
+      "MetaWebhookPayload": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "whatsapp_business_account"
+          },
+          "entry": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaWebhookEntry"
+            }
+          }
+        },
+        "required": [
+          "object",
+          "entry"
+        ],
+        "additionalProperties": false
+      },
+      "GraphErrorDetail": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Mensagem segura do erro."
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo Graph-compatible do erro."
+          },
+          "code": {
+            "type": "integer",
+            "description": "Código Graph/OAuth compatível."
+          },
+          "fbtrace_id": {
+            "type": "string",
+            "description": "Trace id opcional quando disponível."
+          }
+        },
+        "required": [
+          "message",
+          "type",
+          "code"
+        ],
+        "additionalProperties": true
+      },
+      "GraphError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/GraphErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "GraphError": {
+        "description": "Erro em formato Graph.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GraphError"
+            }
+          }
+        }
+      }
+    }
+  }
+}

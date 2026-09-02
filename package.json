@@ -1,6 +1,6 @@
 {
   "name": "argws-connect-api",
-  "version": "1.0.17",
+  "version": "1.0.16",
   "description": "ARGWS Connect API — Communication & Integration Platform",
   "main": "./dist/main.js",
   "type": "commonjs",
@@ -10,7 +10,7 @@
     "start:prod": "node dist/main",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
-    "test:compat": "tsx ./test/message-payload.compat.test.ts",
+    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts",
     "lint": "eslint --fix --ext .ts src",
     "lint:check": "eslint --ext .ts src",
     "commit": "cz",
@@ -21,7 +21,9 @@
     "db:studio": "node runWithProvider.js \"npx prisma studio --schema ./prisma/DATABASE_PROVIDER-schema.prisma\"",
     "db:migrate:dev": "node runWithProvider.js \"rm -rf ./prisma/migrations && cp -r ./prisma/DATABASE_PROVIDER-migrations ./prisma/migrations && npx prisma migrate dev --schema ./prisma/DATABASE_PROVIDER-schema.prisma && cp -r ./prisma/migrations/* ./prisma/DATABASE_PROVIDER-migrations\"",
     "db:migrate:dev:win": "node runWithProvider.js \"xcopy /E /I prisma\\DATABASE_PROVIDER-migrations prisma\\migrations && npx prisma migrate dev --schema prisma\\DATABASE_PROVIDER-schema.prisma\"",
-    "prepare": "husky"
+    "prepare": "husky",
+    "docs:generate": "node docs/scripts/generate-openapi.mjs",
+    "docs:check": "node docs/scripts/generate-openapi.mjs --check"
   },
   "repository": {
     "type": "git",

@@ -10,6 +10,7 @@ A branch `develop` publica somente uma tag mutável:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
+ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
 Ela é sobrescrita a cada push/merge em `develop` e não representa release.
@@ -23,6 +24,10 @@ ghcr.io/wkarts/argws-connect-api:X.Y.Z
 ghcr.io/wkarts/argws-connect-api:X.Y
 ghcr.io/wkarts/argws-connect-api:X
 ghcr.io/wkarts/argws-connect-api:latest
+ghcr.io/wkarts/argws-connect-docs:X.Y.Z
+ghcr.io/wkarts/argws-connect-docs:X.Y
+ghcr.io/wkarts/argws-connect-docs:X
+ghcr.io/wkarts/argws-connect-docs:latest
 ```
 
 Produção deve permanecer fixada em `X.Y.Z`; `latest` não deve ser usado para deployment de produção.

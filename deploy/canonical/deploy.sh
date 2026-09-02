@@ -10,3 +10,4 @@ docker compose --env-file .env -f compose.yaml ps
 echo "API: https://c.api.connect.argws.com.br"
 echo "Manager: https://c.api.connect.argws.com.br/manager"
 echo "Health: https://c.api.connect.argws.com.br/health"
+echo "DOCs local: http://127.0.0.1:38183"

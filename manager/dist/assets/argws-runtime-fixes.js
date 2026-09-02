@@ -11,7 +11,7 @@
   if (window.__ARGWS_RUNTIME_FIXES_LOADED__) return;
   window.__ARGWS_RUNTIME_FIXES_LOADED__ = true;
 
-  const VERSION = '2026.09.01.2';
+  const VERSION = '2026.09.01.3';
   const WEBHOOK_DISABLED_SENTINEL = 'https://disabled.invalid/';
   const nativeJsonParse = JSON.parse.bind(JSON);
   const runtimeState = {
@@ -23,6 +23,30 @@
     version: VERSION,
     state: runtimeState,
   };
+
+  const PUBLIC_BRAND = 'Connect|API';
+
+  const enforcePublicBrand = () => {
+    let title = document.querySelector('title');
+    if (!title) {
+      title = document.createElement('title');
+      document.head.appendChild(title);
+    }
+    if (title.textContent !== PUBLIC_BRAND) title.textContent = PUBLIC_BRAND;
+    if (document.title !== PUBLIC_BRAND) document.title = PUBLIC_BRAND;
+  };
+
+  const startBrandGuard = () => {
+    enforcePublicBrand();
+    const observer = new MutationObserver(enforcePublicBrand);
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startBrandGuard, { once: true });
+  } else {
+    startBrandGuard();
+  }
 
   const getUrl = (value) => {
     if (typeof value === 'string') return value;

@@ -1,4 +1,4 @@
-name: GHCR - Publish Development Image
+name: GHCR - Publish Development Images
 
 on:
   push:
@@ -10,12 +10,26 @@ permissions:
   packages: write
 
 concurrency:
-  group: ghcr-develop-${{ github.ref }}
+  group: argws-connect-develop-images
   cancel-in-progress: true
 
 jobs:
+  guard:
+    name: Guard develop channel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse execution outside develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/develop" ]]; then
+            echo "This workflow may publish only from refs/heads/develop (got ${GITHUB_REF})." >&2
+            exit 1
+          fi
+
   prepare-build-bases:
-    name: Prepare GHCR build base
+    name: Prepare GHCR build bases
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - name: Install skopeo
@@ -24,19 +38,22 @@ jobs:
           sudo apt-get install -y skopeo
       - name: Login GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Ensure GHCR build base exists
+      - name: Ensure GHCR build bases exist
         env:
           OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           skopeo copy --all docker://docker.io/library/node:24-alpine docker://ghcr.io/${OWNER}/argws-connect-node:24-alpine
+          skopeo copy --all docker://docker.io/library/nginx:1.27-alpine docker://ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
 
   build-native:
-    name: Build develop / ${{ matrix.arch }}
+    name: Build develop ${{ matrix.component }} / ${{ matrix.arch }}
     needs: prepare-build-bases
     strategy:
       fail-fast: false
       matrix:
+        component: [api, manager]
+        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-24.04
@@ -44,18 +61,36 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
+          - component: api
+            context: .
+            dockerfile: ./Dockerfile
+            image: argws-connect-api
+          - component: manager
+            context: ./manager
+            dockerfile: ./manager/Dockerfile
+            image: argws-connect-manager
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout develop
         uses: actions/checkout@v5
         with:
+          ref: develop
           submodules: recursive
           fetch-depth: 0
+
+      - name: Verify checked out branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git branch --show-current)" == "develop" ]]
 
       - name: Resolve runtime base version
         id: metadata
         shell: bash
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -71,19 +106,19 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/argws-connect-api,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             APP_VERSION=${{ steps.metadata.outputs.version }}
           labels: |
-            org.opencontainers.image.title=ARGWS Connect API
+            org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
             org.opencontainers.image.version=develop
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=develop-api-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=develop-api-${{ matrix.arch }}
+          cache-from: type=gha,scope=develop-${{ matrix.component }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=develop-${{ matrix.component }}-${{ matrix.arch }}
 
       - name: Export digest
         shell: bash
@@ -96,20 +131,27 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digest-develop-${{ matrix.arch }}
+          name: digest-develop-${{ matrix.component }}-${{ matrix.arch }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
   publish:
-    name: Publish :develop multi-arch manifest
+    name: Publish ${{ matrix.component }} :develop multi-arch manifest
     needs: build-native
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - component: api
+            image: argws-connect-api
+          - component: manager
+            image: argws-connect-manager
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5
         with:
-          pattern: digest-develop-*
+          pattern: digest-develop-${{ matrix.component }}-*
           path: /tmp/digests
           merge-multiple: true
 
@@ -127,7 +169,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          repo="ghcr.io/${{ github.repository_owner }}/argws-connect-api"
+          [[ "${GITHUB_REF}" == "refs/heads/develop" ]]
+          repo="ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}"
           sources=()
           for digest_file in /tmp/digests/*; do
             sources+=("${repo}@sha256:$(basename "$digest_file")")

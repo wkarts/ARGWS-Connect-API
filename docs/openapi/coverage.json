@@ -1,0 +1,954 @@
+{
+  "generatedAt": "2026-09-02T04:18:24.762Z",
+  "version": "1.0.16",
+  "sourceDigest": "fc9761cc54df80401d42df9241bd95ce87df7deba1e06646d1728c3846735800",
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/",
+      "source": "src/api/routes/index.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/assertSessions/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/createParticipantNodes/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/generateMessageTag/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/getAuthState/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/getUSyncDevices/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/onWhatsapp/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/profilePictureUrl/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/sendNode/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/baileys/signalRepositoryDecryptMessage/{instanceName}",
+      "source": "src/api/integrations/channel/whatsapp/baileys.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/business/getCatalog/{instanceName}",
+      "source": "src/api/routes/business.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/business/getCollections/{instanceName}",
+      "source": "src/api/routes/business.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/offer/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/archiveChat/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/chat/deleteMessageForEveryone/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/fetchBusinessProfile/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/fetchPrivacySettings/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/fetchProfile/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/fetchProfilePictureUrl/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/findChatByRemoteJid/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/findChats/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/findContacts/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/findMessages/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/findStatusMessage/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/getBase64FromMediaMessage/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/markChatUnread/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/markMessageAsRead/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/chat/removeProfilePicture/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/sendPresence/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/updateBlockStatus/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/updateMessage/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/updatePrivacySettings/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/updateProfileName/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/updateProfilePicture/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/updateProfileStatus/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/whatsappNumbers/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chatwoot/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/chatwoot/routes/chatwoot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chatwoot/set/{instanceName}",
+      "source": "src/api/integrations/chatbot/chatwoot/routes/chatwoot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chatwoot/webhook/{instanceName}",
+      "source": "src/api/integrations/chatbot/chatwoot/routes/chatwoot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/meta/{instanceName}",
+      "source": "src/api/compat/meta-cloud/meta-cloud.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/compat/meta/{instanceName}",
+      "source": "src/api/compat/meta-cloud/meta-cloud.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectAI/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectAI/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/connectAI/delete/{connectAIId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectAI/fetch/{connectAIId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectAI/fetchSessions/{connectAIId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectAI/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectAI/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectAI/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectAI/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/connectAI/update/{connectAIId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectAI/routes/connectAI.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectBot/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectBot/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/connectBot/delete/{connectBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectBot/fetch/{connectBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectBot/fetchSessions/{connectBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectBot/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/connectBot/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectBot/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/connectBot/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/connectBot/update/{connectBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/dify/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/dify/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/dify/delete/{difyId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/dify/fetch/{difyId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/dify/fetchSessions/{difyId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/dify/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/dify/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/dify/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/dify/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/dify/update/{difyId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/flowise/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/flowise/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/flowise/delete/{flowiseId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/flowise/fetch/{flowiseId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/flowise/fetchSessions/{flowiseId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/flowise/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/flowise/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/flowise/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/flowise/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/flowise/update/{flowiseId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/flowise/routes/flowise.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/group/acceptInviteCode/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/create/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/group/fetchAllGroups/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/group/findGroupInfos/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/group/inviteCode/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/group/inviteInfo/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/group/leaveGroup/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/group/participants/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/revokeInviteCode/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/sendInvite/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/toggleEphemeral/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/updateGroupDescription/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/updateGroupPicture/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/updateGroupSubject/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/updateParticipant/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/group/updateSetting/{instanceName}",
+      "source": "src/api/routes/group.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "source": "src/api/routes/index.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/instance/connect/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/instance/connectionState/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/instance/create",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/instance/delete/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/instance/fetchInstances",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/instance/logout/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/instance/restart/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/instance/setPresence/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/kafka/find/{instanceName}",
+      "source": "src/api/integrations/event/kafka/kafka.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/kafka/set/{instanceName}",
+      "source": "src/api/integrations/event/kafka/kafka.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/label/findLabels/{instanceName}",
+      "source": "src/api/routes/label.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/label/handleLabel/{instanceName}",
+      "source": "src/api/routes/label.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendButtons/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendContact/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendList/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendLocation/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendMedia/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendPoll/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendPtv/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendReaction/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendStatus/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendSticker/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendTemplate/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendText/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/message/sendWhatsAppAudio/{instanceName}",
+      "source": "src/api/routes/sendMessage.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "source": "src/api/routes/index.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/n8n/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/n8n/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/n8n/delete/{n8nId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/n8n/fetch/{n8nId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/n8n/fetchSessions/{n8nId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/n8n/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/n8n/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/n8n/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/n8n/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/n8n/update/{n8nId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/n8n/routes/n8n.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/nats/find/{instanceName}",
+      "source": "src/api/integrations/event/nats/nats.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/nats/set/{instanceName}",
+      "source": "src/api/integrations/event/nats/nats.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/creds/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/creds/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/openai/creds/{openaiCredsId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/openai/delete/{openaiBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/fetch/{openaiBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/fetchSessions/{openaiBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/openai/getModels/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/openai/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/openai/update/{openaiBotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/find/{instanceName}",
+      "source": "src/api/routes/proxy.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/proxy/set/{instanceName}",
+      "source": "src/api/routes/proxy.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/pusher/find/{instanceName}",
+      "source": "src/api/integrations/event/pusher/pusher.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/pusher/set/{instanceName}",
+      "source": "src/api/integrations/event/pusher/pusher.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/rabbitmq/find/{instanceName}",
+      "source": "src/api/integrations/event/rabbitmq/rabbitmq.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/rabbitmq/set/{instanceName}",
+      "source": "src/api/integrations/event/rabbitmq/rabbitmq.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/s3/getMedia/{instanceName}",
+      "source": "src/api/integrations/storage/s3/routes/s3.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/s3/getMediaUrl/{instanceName}",
+      "source": "src/api/integrations/storage/s3/routes/s3.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/settings/find/{instanceName}",
+      "source": "src/api/routes/settings.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/settings/set/{instanceName}",
+      "source": "src/api/routes/settings.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/sqs/find/{instanceName}",
+      "source": "src/api/integrations/event/sqs/sqs.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/sqs/set/{instanceName}",
+      "source": "src/api/integrations/event/sqs/sqs.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/template/create/{instanceName}",
+      "source": "src/api/routes/template.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/template/delete/{instanceName}",
+      "source": "src/api/routes/template.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/template/edit/{instanceName}",
+      "source": "src/api/routes/template.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/template/find/{instanceName}",
+      "source": "src/api/routes/template.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/typebot/changeStatus/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/typebot/create/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/typebot/delete/{typebotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/typebot/fetch/{typebotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/typebot/fetchSessions/{typebotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/typebot/fetchSettings/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/typebot/find/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/typebot/ignoreJid/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/typebot/settings/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/typebot/start/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/typebot/update/{typebotId}/{instanceName}",
+      "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/verify-creds",
+      "source": "src/api/routes/index.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/webhook/connect",
+      "source": "src/api/integrations/channel/connect/connect.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/webhook/find/{instanceName}",
+      "source": "src/api/integrations/event/webhook/webhook.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/webhook/meta",
+      "source": "src/api/integrations/channel/meta/meta.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/webhook/meta",
+      "source": "src/api/integrations/channel/meta/meta.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/webhook/set/{instanceName}",
+      "source": "src/api/integrations/event/webhook/webhook.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/websocket/find/{instanceName}",
+      "source": "src/api/integrations/event/websocket/websocket.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/websocket/set/{instanceName}",
+      "source": "src/api/integrations/event/websocket/websocket.router.ts"
+    }
+  ],
+  "graphOperations": [
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{businessAccountId}/message_templates",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{mediaId}",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/media",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/messages",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    }
+  ]
+}

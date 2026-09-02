@@ -1,9 +1,0 @@
-# Canonical repository governance
-/.github/workflows/ @wkarts
-/.github/actions/ @wkarts
-/.github/scripts/ @wkarts
-/VERSION @wkarts
-/RELEASE-MANIFEST.json @wkarts
-/package.json @wkarts
-/package-lock.json @wkarts
-/deploy/canonical/ @wkarts

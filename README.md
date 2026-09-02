@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./branding/ARGWS-Connect-API-Branding/github/readme-header.png" alt="Connect|API" />
+  <img src="./docs/assets/readme-header.png" alt="Connect|API" />
 </p>
 
 # Connect|API
@@ -68,6 +68,8 @@ docker compose up -d
 ```
 
 As imagens oficiais da aplicação são publicadas no GitHub Container Registry do projeto.
+
+Documentação pública: `/docs/` (reverse proxy para o service Connect|API DOCs).
 
 ## Manager
 

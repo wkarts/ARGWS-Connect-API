@@ -81,6 +81,7 @@ model Instance {
   Contact                 Contact[]
   Message                 Message[]
   Webhook                 Webhook?
+  MetaCompatibility       MetaCompatibility?
   Chatwoot                Chatwoot?
   Label                   Label[]
   Proxy                   Proxy?
@@ -760,4 +761,16 @@ model ConnectAISetting {
   connectAIIdFallback String?    @db.VarChar(100)
   Instance            Instance   @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   instanceId          String     @unique
+}
+
+model MetaCompatibility {
+  id         String   @id @default(cuid())
+  enabled    Boolean  @default(true)
+  webhookUrl String?  @db.VarChar(500)
+  createdAt  DateTime @default(now()) @db.Timestamp
+  updatedAt  DateTime @updatedAt @db.Timestamp
+  instanceId String   @unique
+  Instance   Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
 }

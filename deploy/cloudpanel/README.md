@@ -2,21 +2,24 @@
 
 Deployment oficial do ARGWS Connect API para CloudPanel, sem build no servidor e consumindo somente imagens do GHCR.
 
-## Uma única porta
+## Portas locais
 
-Somente a API publica porta no host:
+API e Connect|API DOCs publicam portas locais dedicadas no host:
 
 ```text
-127.0.0.1:${ARGWS_CONNECT_API_HOST_PORT:-38080} -> container:8080
+127.0.0.1:${ARGWS_CONNECT_API_HOST_PORT:-38080} -> API container:8080
+127.0.0.1:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180} -> DOCs container:8080
 ```
 
 O Manager é servido pela própria API em `/manager`. `/metrics`, `/health`, WebSocket, webhooks e demais recursos usam o mesmo upstream.
 
-No CloudPanel crie **um único Reverse Proxy** apontando para:
+No CloudPanel mantenha o Reverse Proxy da API apontando para:
 
 ```text
 http://127.0.0.1:38080
 ```
+
+Para expor o Connect|API DOCs, crie um segundo Reverse Proxy/hostname apontando para `http://127.0.0.1:38180`.
 
 O snippet `nginx/api-location.conf.example` já contém headers de WebSocket e limite de upload compatível com a API.
 
@@ -25,6 +28,7 @@ O snippet `nginx/api-location.conf.example` já contém headers de WebSocket e l
 `docker compose up -d` inicia:
 
 - API;
+- Connect|API DOCs;
 - PostgreSQL;
 - Redis;
 - RabbitMQ;
@@ -72,6 +76,7 @@ chmod 600 .env
 
 ```env
 ARGWS_CONNECT_API_HOST_PORT=38080
+ARGWS_CONNECT_DOCS_HOST_PORT=38180
 ```
 
 Não altere `SERVER_PORT` no deployment Docker.
