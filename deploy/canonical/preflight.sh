@@ -12,7 +12,10 @@ for key in "${required[@]}"; do
 done
 
 api_image="$(get_value ARGWS_CONNECT_API_IMAGE)"
-[[ "$api_image" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERRO: canonical exige SemVer X.Y.Z."; exit 1; }
+docs_image="$(get_value ARGWS_CONNECT_DOCS_IMAGE)"
+[[ "$api_image" =~ ^ghcr\.io/wkarts/argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERRO: canonical exige API SemVer X.Y.Z."; exit 1; }
+[[ "$docs_image" =~ ^ghcr\.io/wkarts/argws-connect-docs:[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERRO: canonical exige DOCs SemVer X.Y.Z."; exit 1; }
+[[ "${api_image##*:}" == "${docs_image##*:}" ]] || { echo "ERRO: canonical exige a mesma SemVer para API e DOCs."; exit 1; }
 
 if command -v sysctl >/dev/null 2>&1; then
   overcommit="$(sysctl -n vm.overcommit_memory 2>/dev/null || true)"
@@ -22,7 +25,7 @@ if command -v sysctl >/dev/null 2>&1; then
   fi
 fi
 
-image_vars=(ARGWS_CONNECT_API_IMAGE ARGWS_CONNECT_POSTGRES_IMAGE ARGWS_CONNECT_REDIS_IMAGE ARGWS_CONNECT_RABBITMQ_IMAGE ARGWS_CONNECT_MINIO_IMAGE)
+image_vars=(ARGWS_CONNECT_API_IMAGE ARGWS_CONNECT_DOCS_IMAGE ARGWS_CONNECT_POSTGRES_IMAGE ARGWS_CONNECT_REDIS_IMAGE ARGWS_CONNECT_RABBITMQ_IMAGE ARGWS_CONNECT_MINIO_IMAGE)
 profiles=",$(get_value COMPOSE_PROFILES),"
 [[ "$profiles" == *,nats,* || "$profiles" == *,extended,* ]] && image_vars+=(ARGWS_CONNECT_NATS_IMAGE)
 [[ "$profiles" == *,kafka,* || "$profiles" == *,extended,* ]] && image_vars+=(ARGWS_CONNECT_KAFKA_IMAGE ARGWS_CONNECT_ZOOKEEPER_IMAGE)

@@ -69,6 +69,8 @@ docker compose up -d
 
 As imagens oficiais da aplicação são publicadas no GitHub Container Registry do projeto.
 
+Documentação pública: `/docs/` (reverse proxy para o service Connect|API DOCs).
+
 ## Manager
 
 O Manager faz parte do produto e sua distribuição compilada está em:

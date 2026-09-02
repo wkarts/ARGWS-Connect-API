@@ -63,5 +63,6 @@ done < <(docker compose config --images)
 docker compose pull
 docker compose up -d --remove-orphans
 
-echo "Stack iniciada. Somente a porta da API e publicada no host."
+echo "Stack iniciada. API e Connect|API DOCs possuem portas locais dedicadas no host."
 docker compose ps
+echo "DOCs local: http://127.0.0.1:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180}"

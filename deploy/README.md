@@ -4,20 +4,23 @@ A plataforma possui duas stacks oficiais e autocontidas: `deploy/production/` e 
 
 Cada ambiente possui projeto Compose, rede, banco, cache, event bus, bucket e persistência física próprios e pode rodar simultaneamente no mesmo host.
 
-## Regra de porta única
+## Portas locais oficiais
 
-Somente a API publica porta no host:
+Cada stack publica duas portas de aplicação: API e Connect|API DOCs. A infraestrutura continua interna.
 
-- Produção: `https://api.connect.argws.com.br` → `127.0.0.1:38080`
-- Homologação: `https://h.api.connect.argws.com.br` → `127.0.0.1:38081`
+- Produção: API `127.0.0.1:38080` | DOCs `127.0.0.1:38180`
+- Homologação: API `127.0.0.1:38081` | DOCs `127.0.0.1:38181`
+- Develop: API `127.0.0.1:38082` | DOCs `127.0.0.1:38182`
+- Canonical: API `127.0.0.1:38083` | DOCs `127.0.0.1:38183`
 
-O mesmo endpoint atende `/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da API.
+`/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da aplicação continuam no endpoint da API. O Scalar roda no service `docs`.
 
 ## Core padrão
 
 Sem nenhum profile adicional, as duas stacks sobem:
 
 - API;
+- Connect|API DOCs;
 - PostgreSQL;
 - Redis;
 - RabbitMQ;
@@ -78,3 +81,16 @@ Profiles opcionais podem usar também `./volumes/nats`, `./volumes/kafka` e `./v
 Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`. O bootstrap inicial já foi executado com sucesso e o workflow de sincronização mantém core e mensageria opcional espelhados no GHCR.
 
 `production/` e `homologation/` são as referências canônicas para o provisionamento futuro do Control Plane; CloudPanel e Dockge continuam como integrações operacionais.
+
+
+## DOCs standalone / always-on
+
+`deploy/docs/` mantém o Connect|API DOCs online de forma independente na porta local `38280`. O reverse proxy recomendado publica a documentação em `/docs/` no mesmo hostname da API.
+
+
+## Connect|API DOCs — hostnames públicos
+
+- `deploy/docs/` → `https://docs.connect.argws.com.br` → `127.0.0.1:38280` → `:latest`;
+- `deploy/docs-develop/` → `https://d.docs.connect.argws.com.br` → `127.0.0.1:38282` → `:develop`.
+
+As stacks completas mantêm DOCs integrados nas portas `38180` a `38183`. A variável `ARGWS_CONNECT_DOCS_PUBLIC_URL` define o destino público usado pela aplicação; somente o deployment `develop` usa por padrão `d.docs.connect.argws.com.br`.

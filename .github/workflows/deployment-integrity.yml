@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   compose:
-    name: Official Stacks / Services / Single Port
+    name: Official Stacks / Services / API + DOCs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,14 +23,22 @@ jobs:
           cp deploy/production/env.example deploy/production/.env
           cp deploy/develop/env.example deploy/develop/.env
           cp deploy/canonical/env.example deploy/canonical/.env
+          cp deploy/homologation/env.example deploy/homologation/.env
+          cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
+          cp deploy/dockge/env.example deploy/dockge/.env
 
       - name: Validate Compose syntax
         run: |
           set -euo pipefail
-          for stack in production develop canonical; do
-            docker compose -f "deploy/${stack}/compose.yaml" config >/dev/null
-            docker compose --profile '*' -f "deploy/${stack}/compose.yaml" config >/dev/null
+          for stack in production develop canonical homologation; do
+            compose_file="deploy/${stack}/compose.yaml"
+            docker compose -f "$compose_file" config >/dev/null
+            docker compose --profile '*' -f "$compose_file" config >/dev/null
           done
+          docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
 
       - name: Enforce official deployment contract
         shell: bash
@@ -45,21 +53,27 @@ jobs:
           stacks = {
               'production': {
                   'port': 38080,
+                  'docs_port': 38180,
                   'image': 'ghcr.io/wkarts/argws-connect-api:latest',
+                  'docs_image': 'ghcr.io/wkarts/argws-connect-docs:latest',
                   'url': 'https://api.connect.argws.com.br',
               },
               'develop': {
                   'port': 38082,
+                  'docs_port': 38182,
                   'image': 'ghcr.io/wkarts/argws-connect-api:develop',
+                  'docs_image': 'ghcr.io/wkarts/argws-connect-docs:develop',
                   'url': 'https://d.api.connect.argws.com.br',
               },
               'canonical': {
                   'port': 38083,
+                  'docs_port': 38183,
                   'image_regex': r'ghcr\.io/wkarts/argws-connect-api:\d+\.\d+\.\d+',
+                  'docs_image_regex': r'ghcr\.io/wkarts/argws-connect-docs:\d+\.\d+\.\d+',
                   'url': 'https://c.api.connect.argws.com.br',
               },
           }
-          core_resources = ('api', 'postgres', 'redis', 'rabbitmq', 'minio')
+          core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
           optional_resources = ('nats', 'zookeeper', 'kafka')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
@@ -112,12 +126,18 @@ jobs:
                   ports = cfg.get('ports', [])
                   if service_name == f'api-{suffix}':
                       assert len(ports) == 1, f'{stack}: API deve publicar exatamente uma porta'
-                      assert int(ports[0]['target']) == 8080, f'{stack}: target interno deve ser 8080'
+                      assert int(ports[0]['target']) == 8080, f'{stack}: target API deve ser 8080'
                       assert int(ports[0]['published']) == contract['port'], (
-                          f'{stack}: porta esperada {contract["port"]}'
+                          f'{stack}: porta API esperada {contract["port"]}'
+                      )
+                  elif service_name == f'docs-{suffix}':
+                      assert len(ports) == 1, f'{stack}: DOCs deve publicar exatamente uma porta'
+                      assert int(ports[0]['target']) == 8080, f'{stack}: target DOCs deve ser 8080'
+                      assert int(ports[0]['published']) == contract['docs_port'], (
+                          f'{stack}: porta DOCs esperada {contract["docs_port"]}'
                       )
                   else:
-                      assert not ports, f'{stack}: somente API pode publicar porta: {service_name}'
+                      assert not ports, f'{stack}: infraestrutura não pode publicar porta: {service_name}'
 
                   for mount in cfg.get('volumes', []):
                       assert mount.get('type') == 'bind', f'{stack}: {service_name} deve usar bind mount'
@@ -131,6 +151,18 @@ jobs:
                       f'{stack}: canonical deve usar SemVer: {api_image}'
                   )
 
+              docs_service = full['services'][f'docs-{suffix}']
+              docs_image = docs_service['image']
+              if 'docs_image' in contract:
+                  assert docs_image == contract['docs_image'], f'{stack}: imagem DOCs incorreta: {docs_image}'
+              else:
+                  assert re.fullmatch(contract['docs_image_regex'], docs_image), (
+                      f'{stack}: canonical DOCs deve usar SemVer: {docs_image}'
+                  )
+                  assert api_image.rsplit(':', 1)[1] == docs_image.rsplit(':', 1)[1], (
+                      f'{stack}: API e DOCs canonical devem usar a mesma SemVer'
+                  )
+
               for resource, expected_image in infra_images.items():
                   service = full['services'][f'{resource}-{suffix}']
                   assert service['image'] == expected_image, (
@@ -140,6 +172,7 @@ jobs:
               assert env['COMPOSE_PROJECT_NAME'] == suffix
               assert env['ARGWS_CONNECT_NETWORK_NAME'] == f'{suffix}-net'
               assert int(env['ARGWS_CONNECT_API_HOST_PORT']) == contract['port']
+              assert int(env['ARGWS_CONNECT_DOCS_HOST_PORT']) == contract['docs_port']
               assert env['SERVER_URL'] == contract['url']
 
               raw_compose = Path(compose_path).read_text()
@@ -174,7 +207,7 @@ jobs:
 
           required = {
               'COMPOSE_PROJECT_NAME', 'ARGWS_CONNECT_NETWORK_NAME', 'ARGWS_CONNECT_API_HOST_PORT',
-              'ARGWS_CONNECT_API_IMAGE', 'ARGWS_CONNECT_POSTGRES_IMAGE', 'ARGWS_CONNECT_REDIS_IMAGE',
+              'ARGWS_CONNECT_DOCS_HOST_PORT', 'ARGWS_CONNECT_API_IMAGE', 'ARGWS_CONNECT_DOCS_IMAGE', 'ARGWS_CONNECT_POSTGRES_IMAGE', 'ARGWS_CONNECT_REDIS_IMAGE',
               'ARGWS_CONNECT_RABBITMQ_IMAGE', 'ARGWS_CONNECT_MINIO_IMAGE', 'SERVER_URL',
               'DATABASE_CONNECTION_URI', 'CACHE_REDIS_URI', 'RABBITMQ_URI', 'S3_ENDPOINT',
               'POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'RABBITMQ_DEFAULT_PASS', 'MINIO_ROOT_PASSWORD',
@@ -184,8 +217,12 @@ jobs:
               assert not missing, f'{name}: variaveis ausentes: {sorted(missing)}'
 
           assert prod['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:latest'
+          assert prod['ARGWS_CONNECT_DOCS_IMAGE'] == 'ghcr.io/wkarts/argws-connect-docs:latest'
           assert dev['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:develop'
+          assert dev['ARGWS_CONNECT_DOCS_IMAGE'] == 'ghcr.io/wkarts/argws-connect-docs:develop'
           assert re.fullmatch(r'ghcr\.io/wkarts/argws-connect-api:\d+\.\d+\.\d+', canonical['ARGWS_CONNECT_API_IMAGE'])
+          assert re.fullmatch(r'ghcr\.io/wkarts/argws-connect-docs:\d+\.\d+\.\d+', canonical['ARGWS_CONNECT_DOCS_IMAGE'])
+          assert canonical['ARGWS_CONNECT_API_IMAGE'].rsplit(':',1)[1] == canonical['ARGWS_CONNECT_DOCS_IMAGE'].rsplit(':',1)[1]
 
           for env in (prod, dev, canonical):
               assert env['ARGWS_CONNECT_POSTGRES_IMAGE'] == 'ghcr.io/wkarts/argws-connect-postgres:15'
@@ -194,6 +231,38 @@ jobs:
               assert env['ARGWS_CONNECT_MINIO_IMAGE'] == 'ghcr.io/wkarts/argws-connect-minio:latest'
 
           print('Environment channels OK')
+          PY
+
+      - name: Validate homologation, CloudPanel and Dockge DOCs contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          cases = [
+              ('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs', 38181, 'ghcr.io/wkarts/argws-connect-docs:develop'),
+              ('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs', 38180, 'ghcr.io/wkarts/argws-connect-docs:latest'),
+              ('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs', 38180, 'ghcr.io/wkarts/argws-connect-docs:latest'),
+          ]
+          def env_values(path):
+              out = {}
+              for raw in Path(path).read_text().splitlines():
+                  line = raw.strip()
+                  if line and not line.startswith('#') and '=' in line:
+                      k,v=line.split('=',1); out[k]=v
+              return out
+          for name, compose, envfile, service, port, image in cases:
+              cfg=json.loads(subprocess.check_output(['docker','compose','-f',compose,'config','--format','json'], text=True))
+              docs=cfg['services'][service]
+              ports=docs.get('ports',[])
+              assert len(ports)==1 and int(ports[0]['target'])==8080 and int(ports[0]['published'])==port, f'{name}: porta DOCs inválida'
+              assert docs['image']==image, f'{name}: imagem DOCs inválida: {docs["image"]}'
+              env=env_values(envfile)
+              assert int(env['ARGWS_CONNECT_DOCS_HOST_PORT'])==port
+              assert env['ARGWS_CONNECT_DOCS_IMAGE']==image
+          print('Auxiliary DOCs deployment contract OK')
           PY
 
       - name: Validate deployment scripts
@@ -217,6 +286,7 @@ jobs:
           for image in \
             ghcr.io/wkarts/argws-connect-api:latest \
             ghcr.io/wkarts/argws-connect-api:develop \
+            ghcr.io/wkarts/argws-connect-docs:develop \
             "$canonical_image" \
             ghcr.io/wkarts/argws-connect-postgres:15 \
             ghcr.io/wkarts/argws-connect-redis:latest \

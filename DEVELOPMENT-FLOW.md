@@ -17,6 +17,7 @@ Branch de integração contínua.
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
 ghcr.io/wkarts/argws-connect-manager:develop
+ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
 - usa builds nativos `linux/amd64` e `linux/arm64`;
@@ -27,7 +28,7 @@ ghcr.io/wkarts/argws-connect-manager:develop
 - não publica tag SemVer;
 - não publica tags estáveis da aplicação.
 
-A stack `deploy/develop` consome exclusivamente `argws-connect-api:develop`. O Manager operacional continua servido pela própria API em `/manager`; a imagem `argws-connect-manager:develop` é publicada como artefato independente para validar o mesmo componente que será publicado pela `main`, sem exigir um segundo container no Compose atual.
+A stack `deploy/develop` consome `argws-connect-api:develop` e `argws-connect-docs:develop`. O Manager operacional continua servido pela própria API em `/manager`; a imagem `argws-connect-manager:develop` é publicada como artefato independente para validar o mesmo componente que será publicado pela `main`, sem exigir um segundo container no Compose atual.
 
 ### `main`
 
@@ -42,7 +43,7 @@ Quando o estado de `develop` estiver aprovado em homologação:
 3. fazer merge;
 4. somente o push resultante em `main` dispara o workflow de release;
 5. o workflow calcula a próxima versão SemVer;
-6. constrói API e Manager em `amd64` e `arm64`;
+6. constrói API, Manager e DOCs em `amd64` e `arm64`;
 7. publica imagens versionadas e `:latest`;
 8. cria Git tag e GitHub Release.
 
