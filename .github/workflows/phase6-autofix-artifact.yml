@@ -30,8 +30,21 @@ jobs:
           test/phase6.test.ts
           manager/dist/assets/template-editor-phase5.js
           manager/dist/assets/template-editor-phase6.js
-      - name: Pack autofixed sources
-        run: tar -czf phase6-autofix.tgz src manager/dist/assets/template-editor-phase5.js manager/dist/assets/template-editor-phase6.js test
+      - name: Generate canonical documentation contracts
+        run: npm run docs:generate
+      - name: Validate Manager JavaScript syntax
+        run: |
+          node --check manager/dist/assets/template-editor-phase5.js
+          node --check manager/dist/assets/template-editor-phase6.js
+      - name: Pack autofixed sources and contracts
+        run: >-
+          tar -czf phase6-autofix.tgz
+          src
+          manager/dist/assets/template-editor-phase5.js
+          manager/dist/assets/template-editor-phase6.js
+          test
+          docs/openapi/connect-api.openapi.json
+          docs/openapi/coverage.json
       - uses: actions/upload-artifact@v4
         with:
           name: phase6-autofix
