@@ -27,7 +27,9 @@ jobs:
       - run: npm ci
 
       - name: Apply compatibility correction
-        run: python scripts/tmp-fix-baileys-template-interactive.py
+        run: |
+          python scripts/tmp-fix-baileys-template-interactive.py
+          python scripts/tmp-fix-baileys-template-interactive-v2.py
 
       - name: Format TypeScript
         run: npx eslint --ext .ts src --fix
@@ -43,10 +45,12 @@ jobs:
           const fs = require('fs')
           const engine = fs.readFileSync('src/api/services/template-engine.service.ts','utf8')
           const interaction = fs.readFileSync('src/api/services/interaction-engine.service.ts','utf8')
+          const normalizer = fs.readFileSync('src/api/services/interaction-normalizer.ts','utf8')
           if (!engine.includes("mode: 'POLL_COMPAT'")) throw new Error('POLL_COMPAT missing')
           if (!engine.includes("compatibilityTransport: 'BAILEYS_OFFICIAL_POLL'")) throw new Error('Baileys poll transport missing')
           if (!engine.includes("mode: 'TEXT_COMPAT'")) throw new Error('TEXT_COMPAT missing')
-          if (!interaction.includes("type: 'poll_reply'")) throw new Error('poll_reply normalization missing')
+          if (!normalizer.includes("type: 'poll_reply'")) throw new Error('poll_reply normalization missing')
+          if (!interaction.includes('extractBaileysPollInteraction(message)')) throw new Error('Interaction Engine poll bridge missing')
           if (!engine.includes("provider === 'WHATSAPP-BAILEYS'")) throw new Error('provider capability branch missing')
           console.log('Baileys interactive compatibility structural validation: ok')
           NODE
