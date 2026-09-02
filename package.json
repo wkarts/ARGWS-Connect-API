@@ -10,7 +10,7 @@
     "start:prod": "node dist/main",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
-    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && tsx ./test/template-engine/foundation.test.ts && tsx ./test/recipe-action/foundation.test.ts && tsx ./test/interaction-engine/foundation.test.ts && tsx ./test/conversational-platform/foundation.test.ts && tsx ./test/template-engine/baileys-compat.test.ts",
+    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && tsx ./test/template-engine/foundation.test.ts && tsx ./test/recipe-action/foundation.test.ts && tsx ./test/interaction-engine/foundation.test.ts && tsx ./test/conversational-platform/foundation.test.ts && tsx ./test/template-engine/baileys-compat.test.ts && tsx ./test/template-engine/provider-capabilities.test.ts",
     "lint": "eslint --fix --ext .ts src",
     "lint:check": "eslint --ext .ts src",
     "commit": "cz",
