@@ -30,7 +30,7 @@ jobs:
         run: python scripts/tmp-fix-baileys-template-interactive.py
 
       - name: Format TypeScript
-        run: npx eslint --ext .ts src test/template-engine/baileys-compat.test.ts --fix
+        run: npx eslint --ext .ts src --fix
 
       - name: Validate compatibility
         run: |
