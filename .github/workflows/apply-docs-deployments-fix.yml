@@ -65,14 +65,18 @@ jobs:
           node --check .github/scripts/apply-version.mjs
           node docs/scripts/generate-openapi.mjs --check
 
-      - name: Remove temporary automation files
+      - name: Keep workflow files for direct connector update
         shell: bash
         run: |
+          set -euo pipefail
+          git checkout HEAD -- \
+            .github/workflows/auto-version-release.yml \
+            .github/workflows/deployment-integrity.yml \
+            .github/workflows/image-promotion-integrity.yml
           rm -rf .github/tmp
-          rm -f .github/workflows/apply-docs-deployments-fix.yml
           rm -f deploy/production/.env deploy/homologation/.env deploy/develop/.env deploy/canonical/.env deploy/cloudpanel/.env deploy/dockge/.env
 
-      - name: Commit final correction
+      - name: Commit validated deployment correction
         shell: bash
         run: |
           set -euo pipefail
