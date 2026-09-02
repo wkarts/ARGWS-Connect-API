@@ -54,6 +54,7 @@ import { CacheService } from './services/cache.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
+import { TemplateEngineService } from './services/template-engine.service';
 import { TemplateService } from './services/template.service';
 
 const logger = new Logger('WA MODULE');
@@ -91,6 +92,7 @@ export const s3Controller = new S3Controller(s3Service);
 
 const templateService = new TemplateService(waMonitor, prismaRepository, configService);
 export const templateController = new TemplateController(templateService);
+export const templateEngine = new TemplateEngineService(waMonitor, prismaRepository);
 
 const proxyService = new ProxyService(waMonitor);
 export const proxyController = new ProxyController(proxyService, waMonitor);
@@ -114,7 +116,7 @@ export const instanceController = new InstanceController(
   baileysCache,
   providerFiles,
 );
-export const sendMessageController = new SendMessageController(waMonitor);
+export const sendMessageController = new SendMessageController(waMonitor, templateEngine);
 export const callController = new CallController(waMonitor);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
