@@ -4,9 +4,18 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
+import {
+  interactionTextFallback,
+  RenderedTemplateInteraction,
+  renderInteractionModelV2,
+} from './template-interaction-model';
 import { WAMonitoringService } from './monitor.service';
 import { RenderedTemplate, renderTemplateDefinition } from './template-renderer';
-import { planTemplateTransport, TemplateTransportPlan } from './template-transport-planner';
+import {
+  planTemplateTransport,
+  TemplateRenderEnvelope,
+  TemplateTransportPlan,
+} from './template-transport-planner';
 
 export class TemplateEngineService {
   private readonly logger = new Logger('TemplateEngineService');
@@ -36,12 +45,17 @@ export class TemplateEngineService {
         enabled: true,
       },
     });
+    const variables = (data.variables || {}) as Record<string, unknown>;
+    const interactions = renderInteractionModelV2(template?.policy, variables);
 
     let result: any;
+    let rendered: TemplateRenderEnvelope;
 
-    // Meta Business remains provider-native. A local template record acts only as
-    // Connect|API metadata overlay (actions/policy/editor state) when available.
+    // Meta Business remains provider-native. Local records are metadata overlays
+    // for Actions/Policy/Interaction Model v2 and never contaminate Meta components.
     if (provider === 'WHATSAPP-BUSINESS') {
+      rendered = { text: '', buttons: [], interactions };
+      const transport = planTemplateTransport(provider, rendered);
       result = await runtime.templateMessage(data);
       this.attachDiagnostics(result, {
         provider,
@@ -50,9 +64,19 @@ export class TemplateEngineService {
         category: template?.category || null,
         mode: 'PROVIDER_NATIVE',
         buttonCount: 0,
+        interactionCount: interactions.length,
         fallback: false,
       });
-      await this.registerInteractionSession(instanceRow.id, template, data, result);
+      await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
+      await this.sendRenderedInteractions(
+        instanceRow.id,
+        runtime,
+        data,
+        provider,
+        template,
+        rendered,
+        transport,
+      );
       return result;
     }
 
@@ -61,59 +85,121 @@ export class TemplateEngineService {
     }
 
     const definition: any = template.template || {};
-    const rendered = renderTemplateDefinition(
+    const baseRendered = renderTemplateDefinition(
       definition,
       Array.isArray(data.components) ? data.components : [],
-      data.variables || {},
+      variables,
     );
+    rendered = { ...baseRendered, interactions };
 
-    if (!rendered.text && !rendered.title) {
-      throw new BadRequestException(`Template ${data.name} has no renderable text content for provider ${provider}`);
+    if (!rendered.text && !rendered.title && !rendered.interactions.length) {
+      throw new BadRequestException(`Template ${data.name} has no renderable content for provider ${provider}`);
     }
 
     const transport = planTemplateTransport(provider, rendered);
 
-    if (transport.mode === 'POLL_COMPAT') {
-      result = await this.sendBaileysPollCompatibility(runtime, data, rendered, template, transport);
-    } else if (transport.mode === 'TEXT_COMPAT') {
-      result = await this.sendTextCompatibility(
-        runtime,
-        data,
-        rendered,
-        template,
-        transport.provider,
-        transport.compatibilityTransport || 'GENERIC_TEXT',
-        transport.warnings.join(' ') || 'Provider requires textual compatibility transport.',
-      );
-    } else if (transport.mode === 'INTERACTIVE') {
-      result = await this.sendInteractiveWithFallback(transport.provider, runtime, data, rendered, template);
-    } else if (transport.mode === 'TEXT') {
-      result = await runtime.textMessage({
-        number: data.number,
-        text: rendered.text || rendered.title,
-        delay: data.delay,
-        quoted: data.quoted,
-        linkPreview: data.linkPreview,
-        mentionsEveryOne: data.mentionsEveryOne,
-        mentioned: data.mentioned,
-      });
-      this.attachDiagnostics(result, {
-        provider: transport.provider,
-        templateName: data.name,
-        language,
-        category: template.category,
-        mode: transport.mode,
-        buttonCount: 0,
-        fallback: false,
-      });
+    if (rendered.text || rendered.title || rendered.buttons.length) {
+      if (transport.mode === 'POLL_COMPAT') {
+        result = await this.sendBaileysPollCompatibility(runtime, data, rendered, template, transport);
+      } else if (transport.mode === 'TEXT_COMPAT') {
+        result = await this.sendTextCompatibility(
+          runtime,
+          data,
+          rendered,
+          template,
+          transport.provider,
+          transport.compatibilityTransport || 'GENERIC_TEXT',
+          transport.warnings.join(' ') || 'Provider requires textual compatibility transport.',
+        );
+      } else if (transport.mode === 'INTERACTIVE') {
+        result = await this.sendInteractiveWithFallback(transport.provider, runtime, data, rendered, template);
+      } else if (transport.mode === 'TEXT') {
+        result = await runtime.textMessage({
+          number: data.number,
+          text: rendered.text || rendered.title,
+          delay: data.delay,
+          quoted: data.quoted,
+          linkPreview: data.linkPreview,
+          mentionsEveryOne: data.mentionsEveryOne,
+          mentioned: data.mentioned,
+        });
+        this.attachDiagnostics(result, {
+          provider: transport.provider,
+          templateName: data.name,
+          language,
+          category: template.category,
+          mode: transport.mode,
+          buttonCount: 0,
+          interactionCount: interactions.length,
+          fallback: false,
+        });
+      } else {
+        throw new BadRequestException(
+          `Template transport ${transport.mode} cannot be executed locally for provider ${transport.provider}`,
+        );
+      }
+
+      await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
     } else {
-      throw new BadRequestException(
-        `Template transport ${transport.mode} cannot be executed locally for provider ${transport.provider}`,
-      );
+      result = { templateExecution: { engine: 'CONNECT_TEMPLATE_ENGINE', mode: 'INTERACTION_ONLY' } };
     }
 
-    await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
+    await this.sendRenderedInteractions(instanceRow.id, runtime, data, provider, template, rendered, transport);
     return result;
+  }
+
+  public async preview(instance: InstanceDto, data: any) {
+    const runtime = this.waMonitor.waInstances[instance.instanceName];
+    if (!runtime) throw new NotFoundException(`Instance ${instance.instanceName} not found`);
+
+    const instanceRow = await this.prisma.instance.findUnique({
+      where: { name: instance.instanceName },
+      select: { id: true, integration: true },
+    });
+    if (!instanceRow) throw new NotFoundException(`Instance ${instance.instanceName} not found`);
+
+    const provider = instance.integration || instanceRow.integration || runtime.instance?.integration;
+    const language = data.language || 'pt_BR';
+    const variables = (data.variables || {}) as Record<string, unknown>;
+    let persisted = false;
+    let template: any = null;
+    let definition: any;
+    let policy: any = data.policy || {};
+
+    if (Array.isArray(data.components)) {
+      definition = { components: data.components };
+    } else {
+      template = await this.prisma.template.findFirst({
+        where: { instanceId: instanceRow.id, name: data.name, language },
+      });
+      if (!template) throw new NotFoundException(`Template ${data.name} (${language}) not found for this instance`);
+      definition = template.template || {};
+      policy = template.policy || {};
+      persisted = true;
+    }
+
+    const baseRendered = renderTemplateDefinition(definition, [], variables);
+    const rendered: TemplateRenderEnvelope = {
+      ...baseRendered,
+      interactions: renderInteractionModelV2(policy, variables),
+    };
+    const transport = planTemplateTransport(provider, rendered);
+
+    return {
+      provider: transport.provider,
+      persisted,
+      capabilities: this.capabilities(provider),
+      transport,
+      plan: transport,
+      rendered,
+      sideEffectFree: true,
+    };
+  }
+
+  public capabilities(provider?: string) {
+    return planTemplateTransport(provider, { text: '', buttons: [], interactions: [] }).provider
+      ? require('./template-transport-planner').getProviderTemplateCapabilities(provider)
+      : null;
   }
 
   private async sendBaileysPollCompatibility(
@@ -264,6 +350,165 @@ export class TemplateEngineService {
     }
   }
 
+  private async sendRenderedInteractions(
+    instanceId: string,
+    runtime: any,
+    data: SendTemplateDto,
+    provider: string,
+    template: any,
+    rendered: TemplateRenderEnvelope,
+    transport: TemplateTransportPlan,
+  ) {
+    const interactions = rendered.interactions || [];
+    for (const interaction of interactions) {
+      const planned = transport.interactions.find((item) => item.id === interaction.id);
+      if (!planned) continue;
+
+      let result: any;
+      let fallback = false;
+      let fallbackReason: string | undefined;
+      try {
+        if (planned.compatibilityTransport === 'META_LIST' && interaction.type === 'list') {
+          result = await runtime.listMessage(this.listPayload(data, interaction));
+        } else if (
+          planned.compatibilityTransport === 'META_INTERACTIVE_CHOICE' &&
+          interaction.type === 'choice' &&
+          interaction.options.length > 3 &&
+          typeof runtime.listMessage === 'function'
+        ) {
+          result = await runtime.listMessage(this.choiceAsListPayload(data, interaction));
+        } else if (
+          (planned.compatibilityTransport === 'META_INTERACTIVE_CHOICE' ||
+            planned.compatibilityTransport === 'CONNECT_BUTTONS') &&
+          interaction.type === 'choice' &&
+          typeof runtime.buttonMessage === 'function'
+        ) {
+          result = await runtime.buttonMessage(this.choiceButtonPayload(data, interaction));
+        } else if (
+          planned.compatibilityTransport === 'BAILEYS_OFFICIAL_POLL' &&
+          interaction.type === 'choice' &&
+          typeof runtime.pollMessage === 'function'
+        ) {
+          result = await runtime.pollMessage({
+            number: data.number,
+            name: this.interactionPrompt(interaction),
+            selectableCount: interaction.mode === 'MULTIPLE' ? interaction.options.length : 1,
+            values: interaction.options.map((option) => option.title),
+            delay: data.delay,
+            quoted: data.quoted,
+          });
+        } else {
+          fallback = true;
+          result = await runtime.textMessage({
+            number: data.number,
+            text: interactionTextFallback(interaction),
+            delay: data.delay,
+            quoted: data.quoted,
+            linkPreview: data.linkPreview,
+          });
+        }
+      } catch (error) {
+        fallback = true;
+        fallbackReason = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Interaction ${interaction.id} for template ${data.name} failed; using text fallback: ${fallbackReason}`,
+        );
+        result = await runtime.textMessage({
+          number: data.number,
+          text: interactionTextFallback(interaction),
+          delay: data.delay,
+          quoted: data.quoted,
+          linkPreview: data.linkPreview,
+        });
+      }
+
+      this.attachInteractionDiagnostics(result, {
+        provider,
+        templateName: data.name,
+        interactionId: interaction.id,
+        interactionType: interaction.type,
+        mode: fallback ? 'TEXT_COMPAT' : planned.mode,
+        compatibilityTransport: fallback ? 'TEXT_FALLBACK' : planned.compatibilityTransport,
+        fallback,
+        fallbackReason,
+      });
+      await this.registerInteractionSession(instanceId, template, data, result, {
+        text: '',
+        buttons: [],
+        interactions: [interaction],
+      });
+    }
+  }
+
+  private listPayload(data: SendTemplateDto, interaction: Extract<RenderedTemplateInteraction, { type: 'list' }>) {
+    return {
+      number: data.number,
+      title: interaction.title || data.name,
+      description: interaction.body,
+      footerText: interaction.footer,
+      buttonText: interaction.buttonText,
+      sections: interaction.sections.map((section) => ({
+        title: section.title || 'Opções',
+        rows: section.rows.map((row) => ({
+          rowId: row.id,
+          title: row.title,
+          description: row.description || '',
+        })),
+      })),
+      delay: data.delay,
+      quoted: data.quoted,
+    };
+  }
+
+  private choiceAsListPayload(
+    data: SendTemplateDto,
+    interaction: Extract<RenderedTemplateInteraction, { type: 'choice' }>,
+  ) {
+    return {
+      number: data.number,
+      title: interaction.title || data.name,
+      description: interaction.body,
+      footerText: interaction.footer,
+      buttonText: 'Ver opções',
+      sections: [
+        {
+          title: 'Opções',
+          rows: interaction.options.map((option) => ({
+            rowId: option.id,
+            title: option.title,
+            description: option.description || '',
+          })),
+        },
+      ],
+      delay: data.delay,
+      quoted: data.quoted,
+    };
+  }
+
+  private choiceButtonPayload(
+    data: SendTemplateDto,
+    interaction: Extract<RenderedTemplateInteraction, { type: 'choice' }>,
+  ) {
+    return {
+      number: data.number,
+      title: interaction.title || data.name,
+      description: interaction.body,
+      footer: interaction.footer,
+      buttons: interaction.options.slice(0, 3).map((option) => ({
+        type: 'reply',
+        id: option.id,
+        displayText: option.title,
+      })),
+      delay: data.delay,
+      quoted: data.quoted,
+    };
+  }
+
+  private interactionPrompt(interaction: RenderedTemplateInteraction) {
+    return ([interaction.title, interaction.body, interaction.footer].filter(Boolean) as string[]).join('\n\n').trim() ||
+      'Escolha uma opção';
+  }
+
   private textFallback(rendered: RenderedTemplate) {
     const parts = [rendered.title, rendered.text, rendered.footer].filter(Boolean) as string[];
     const replyButtons = rendered.buttons.filter((button) => button.type === 'reply' && button.displayText);
@@ -299,6 +544,14 @@ export class TemplateEngineService {
     };
   }
 
+  private attachInteractionDiagnostics(result: any, diagnostics: Record<string, unknown>) {
+    if (!result || typeof result !== 'object') return;
+    result.interactionExecution = {
+      engine: 'CONNECT_INTERACTION_MODEL_V2',
+      ...diagnostics,
+    };
+  }
+
   private hasBindings(actions: unknown) {
     if (!actions || typeof actions !== 'object') return false;
     const value = actions as any;
@@ -308,14 +561,21 @@ export class TemplateEngineService {
     );
   }
 
-  private actionsWithRenderedAliases(actions: unknown, rendered?: RenderedTemplate): unknown {
-    if (!actions || typeof actions !== 'object' || !rendered?.buttons?.length) return actions;
+  private actionsWithRenderedAliases(actions: unknown, rendered?: TemplateRenderEnvelope): unknown {
+    if (!actions || typeof actions !== 'object') return actions;
 
-    const labels = new Map(
-      rendered.buttons
-        .filter((button) => button.type === 'reply' && button.id && button.displayText)
-        .map((button) => [String(button.id), String(button.displayText)]),
-    );
+    const labels = new Map<string, string>();
+    for (const button of rendered?.buttons || []) {
+      if (button.type === 'reply' && button.id && button.displayText) {
+        labels.set(String(button.id), String(button.displayText));
+      }
+    }
+    for (const interaction of rendered?.interactions || []) {
+      const rows = interaction.type === 'list' ? interaction.sections.flatMap((section) => section.rows) : interaction.options;
+      for (const row of rows) {
+        if (row.id && row.title) labels.set(String(row.id), String(row.title));
+      }
+    }
     if (!labels.size) return actions;
 
     const source = actions as any;
@@ -349,7 +609,7 @@ export class TemplateEngineService {
     template: any,
     data: SendTemplateDto,
     result: any,
-    rendered?: RenderedTemplate,
+    rendered?: TemplateRenderEnvelope,
   ) {
     const sessionActions = this.actionsWithRenderedAliases(template?.actions, rendered);
     if (!template || !this.hasBindings(sessionActions)) return;
