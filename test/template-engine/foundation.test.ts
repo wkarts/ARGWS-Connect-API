@@ -42,4 +42,16 @@ const named = renderTemplateDefinition(
 );
 assert.equal(named.text, 'Pedido 4582: Em transporte');
 
+const dynamicUrl = renderTemplateDefinition(
+  {
+    components: [
+      { type: 'BODY', text: 'Acompanhe seu pedido.' },
+      { type: 'BUTTONS', buttons: [{ type: 'URL', text: 'Rastrear', url: 'https://example.com/track/{{1}}' }] },
+    ],
+  },
+  [{ type: 'button', sub_type: 'url', index: 0, parameters: [{ type: 'text', text: 'ABC 123' }] }],
+);
+assert.equal(dynamicUrl.buttons[0].type, 'url');
+assert.equal(dynamicUrl.buttons[0].url, 'https://example.com/track/ABC%20123');
+
 console.log('template engine foundation: ok');
