@@ -53,14 +53,21 @@ jobs:
         run: |
           node -e "for (const f of ['docs/openapi/connect-api.openapi.json','docs/openapi/meta-compatible.openapi.json','docs/openapi/coverage.json','docs/asyncapi/connect-api-events.asyncapi.json']) { JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('valid', f); }"
 
+      - name: Build dedicated docs image
+        run: docker build -f docs/Dockerfile -t connect-api-docs-ci:local .
+
       - name: Prepare disposable Compose env
         run: cp .env.example .env
 
       - name: Validate Docker Compose
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
         run: docker compose --env-file .env.example config >/dev/null
 
       - name: Start Scalar docs service
-        run: docker compose --env-file .env.example up -d docs
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
+        run: docker compose --env-file .env.example up -d --pull never docs
 
       - name: Wait for Scalar healthcheck
         shell: bash
