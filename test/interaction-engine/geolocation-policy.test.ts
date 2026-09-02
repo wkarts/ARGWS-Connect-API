@@ -46,7 +46,9 @@ const outside = evaluateLocationPolicy(
   },
   {
     enabled: true,
-    geofences: [{ id: 'salvador', latitude: -12.9714, longitude: -38.5014, radiusMeters: 500 }],
+    geofences: [
+      { id: 'salvador', name: 'Operação Salvador', latitude: -12.9714, longitude: -38.5014, radiusMeters: 500 },
+    ],
     outsideGeofence: 'BLOCK',
   },
 );
@@ -58,13 +60,15 @@ const needsApproval = evaluateLocationPolicy(
   { source: 'WHATSAPP', latitude: -13.5, longitude: -38.5 },
   {
     enabled: true,
-    geofences: [{ id: 'salvador', latitude: -12.9714, longitude: -38.5014, radiusMeters: 500 }],
+    geofences: [
+      { id: 'salvador', name: 'Operação Salvador', latitude: -12.9714, longitude: -38.5014, radiusMeters: 500 },
+    ],
     outsideGeofence: 'APPROVAL',
   },
 );
 assert.equal(needsApproval.accepted, true);
 assert.equal(needsApproval.insideGeofence, false);
-assert.equal(needsApproval.outsidePolicy, 'APPROVAL');
+assert.equal(needsApproval.reason, 'OUTSIDE_GEOFENCE_APPROVAL');
 
 const inaccurate = evaluateLocationPolicy(
   { source: 'MICRO_APP_GPS', latitude: -12.9714, longitude: -38.5014, accuracy: 500 },
