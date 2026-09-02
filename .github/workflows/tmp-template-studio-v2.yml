@@ -1,0 +1,99 @@
+name: TEMP Template Studio v2
+
+on:
+  push:
+    branches: [fix/template-studio-v2]
+    paths:
+      - .github/workflows/tmp-template-studio-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: fix/template-studio-v2
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Format source
+        run: npx eslint --ext .ts src --fix
+
+      - name: Generate contracts
+        run: npm run docs:generate
+
+      - name: Validate Studio v2
+        run: |
+          set -euo pipefail
+          npm run docs:check
+          npm run test:compat
+          npm run build
+          npm run lint:check
+          node --check manager/dist/assets/template-editor.js
+          node --check manager/dist/assets/template-editor-v2.js
+          node --check manager/dist/assets/template-editor-launcher.js
+          node - <<'NODE'
+          const fs = require('fs')
+          const html = fs.readFileSync('manager/dist/template-editor.html', 'utf8')
+          const css = fs.readFileSync('manager/dist/assets/template-editor.css', 'utf8')
+          const js = fs.readFileSync('manager/dist/assets/template-editor-v2.js', 'utf8')
+          const engine = fs.readFileSync('src/api/services/template-engine.service.ts', 'utf8')
+          const tests = fs.readFileSync('test/template-engine/foundation.test.ts', 'utf8')
+          for (const required of ['data-tab="integrations"', 'actionBaseUrlInput', 'recipeStepsInput', 'testDiagnostic']) {
+            if (!html.includes(required)) throw new Error(`Studio HTML missing ${required}`)
+          }
+          if (css.includes('min-width: 1180px')) throw new Error('legacy fixed minimum width remains')
+          if (!css.includes('@media (max-width: 560px)')) throw new Error('mobile breakpoint missing')
+          for (const required of ['/action/create/', '/recipe/create/', 'dryRun: true', 'sample_marketing']) {
+            if (!js.includes(required)) throw new Error(`Studio JS missing ${required}`)
+          }
+          for (const required of ['TEXT_FALLBACK', 'templateExecution', 'sendInteractiveWithFallback']) {
+            if (!engine.includes(required)) throw new Error(`Template Engine missing ${required}`)
+          }
+          for (const name of ['hello_world', 'sample_utility', 'sample_marketing', 'sample_authentication']) {
+            if (!tests.includes(name)) throw new Error(`Default template test missing ${name}`)
+          }
+          console.log('Template Studio v2 structural validation: ok')
+          NODE
+
+      - name: Refresh original editor registry after integration changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('manager/dist/assets/template-editor-v2.js')
+          text = path.read_text()
+          for marker in [
+              "    await refreshRegistry();\n    toast('Action salva no Integration Registry.');",
+              "    await refreshRegistry();\n    toast('Action removida.');",
+              "    await refreshRegistry();\n    toast('Recipe salva.');",
+              "    await refreshRegistry();\n    toast('Recipe removida.');",
+          ]:
+              if marker in text:
+                  text = text.replace(marker, marker.replace("    toast(", "    $('refreshButton')?.click();\n    toast("), 1)
+          path.write_text(text)
+          PY
+          node --check manager/dist/assets/template-editor-v2.js
+
+      - name: Commit validated changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src manager/dist docs test package.json
+          if ! git diff --cached --quiet; then
+            git commit -m "fix(templates): valida envio e refina Template Studio v2"
+            git push --no-verify origin HEAD:fix/template-studio-v2
+          fi
