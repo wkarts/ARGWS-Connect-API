@@ -1,15 +1,16 @@
-import { InstanceDto } from '@api/dto/instance.dto';
-import { MicroAppSessionDto, MicroAppSubmitDto } from '@api/dto/micro-app.dto';
-import { PrismaRepository } from '@api/repository/repository.service';
-import { Auth, ConfigService, HttpServer } from '@config/env.config';
+import type { InstanceDto } from '@api/dto/instance.dto';
+import type { MicroAppSessionDto, MicroAppSubmitDto } from '@api/dto/micro-app.dto';
+import type { PrismaRepository } from '@api/repository/repository.service';
+import type { Auth, ConfigService, HttpServer } from '@config/env.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
-import { ActionExecutionService } from './action-execution.service';
+import type { ActionExecutionService } from './action-execution.service';
 import { resolveActionValue } from './action-value-resolver';
-import { CacheService } from './cache.service';
-import { CapturedLocation, evaluateLocationPolicy, LocationPolicy } from './geolocation-policy';
-import { RecipeService } from './recipe.service';
+import type { CacheService } from './cache.service';
+import { evaluateLocationPolicy } from './geolocation-policy';
+import type { CapturedLocation, LocationPolicy } from './geolocation-policy';
+import type { RecipeService } from './recipe.service';
 import type { TemplateEngineService } from './template-engine.service';
 import { resolveDataPath } from './template-interaction-model';
 
