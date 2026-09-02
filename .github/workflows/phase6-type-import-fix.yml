@@ -1,0 +1,38 @@
+name: Phase 6 Type Import Fix
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'feat/conversational-application-studio-phase6'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Convert TemplateEngineService to type-only import
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/api/services/micro-app.service.ts')
+          source = path.read_text()
+          old = "import { TemplateEngineService } from './template-engine.service';"
+          new = "import type { TemplateEngineService } from './template-engine.service';"
+          if old not in source:
+              raise SystemExit('target import not found')
+          path.write_text(source.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Commit and push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/api/services/micro-app.service.ts
+          git commit --no-verify -m 'fix(micro-app): use type-only template engine dependency'
+          git push --no-verify origin HEAD:${{ github.head_ref }}
