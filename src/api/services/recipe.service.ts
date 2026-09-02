@@ -3,6 +3,7 @@ import { InstanceDto } from '@api/dto/instance.dto';
 import { RecipeDeleteDto, RecipeDto, RecipeExecuteDto, RecipeStepDto } from '@api/dto/recipe.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { BadRequestException } from '@exceptions';
+import { validate } from 'jsonschema';
 
 import { ActionExecutionService } from './action-execution.service';
 import { resolveActionValue } from './action-value-resolver';
@@ -63,6 +64,7 @@ export class RecipeService {
       where: { instanceId_recipeKey: { instanceId, recipeKey: data.recipeKey } },
     });
     if (!recipe || !recipe.enabled) throw new BadRequestException(`Recipe ${data.recipeKey} is unavailable.`);
+    this.validateInput(data.input || {}, recipe.inputSchema);
     if (!data.dryRun && recipe.confirmation !== 'NONE' && !data.confirmed) {
       throw new BadRequestException(`Recipe ${data.recipeKey} requires confirmation: ${recipe.confirmation}.`);
     }
@@ -124,6 +126,12 @@ export class RecipeService {
       if (ids.has(step.id)) throw new BadRequestException(`Duplicate recipe step id: ${step.id}.`);
       ids.add(step.id);
     }
+  }
+
+  private validateInput(input: Record<string, unknown>, schema: unknown) {
+    if (!schema || typeof schema !== 'object') return;
+    const result = validate(input, schema as any);
+    if (!result.valid) throw new BadRequestException(result.errors.map((item) => item.stack));
   }
 
   private async resolveInstanceId(instanceName: string) {
