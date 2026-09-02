@@ -1,3 +1,4 @@
+import { RenderedTemplateInteraction } from './template-interaction-model';
 import { RenderedTemplate } from './template-renderer';
 
 export type TemplateTransportMode = 'PROVIDER_NATIVE' | 'TEXT' | 'INTERACTIVE' | 'POLL_COMPAT' | 'TEXT_COMPAT';
@@ -12,6 +13,8 @@ export type ProviderTemplateCapabilities = {
   phoneButton: CapabilityLevel;
   copyCodeButton: CapabilityLevel;
   list: CapabilityLevel;
+  choice: CapabilityLevel;
+  microApp: CapabilityLevel;
   transportNotes: string[];
 };
 
@@ -23,6 +26,15 @@ export type PlannedButtonTransport = {
   degraded: boolean;
 };
 
+export type PlannedInteractionTransport = {
+  id: string;
+  type: RenderedTemplateInteraction['type'];
+  mode: TemplateTransportMode;
+  compatibilityTransport?: string;
+  degraded: boolean;
+  warnings: string[];
+};
+
 export type TemplateTransportPlan = {
   provider: string;
   mode: TemplateTransportMode;
@@ -30,6 +42,11 @@ export type TemplateTransportPlan = {
   degraded: boolean;
   warnings: string[];
   buttons: PlannedButtonTransport[];
+  interactions: PlannedInteractionTransport[];
+};
+
+export type TemplateRenderEnvelope = RenderedTemplate & {
+  interactions?: RenderedTemplateInteraction[];
 };
 
 function plannedTextButton(button: RenderedTemplate['buttons'][number]): PlannedButtonTransport {
@@ -49,12 +66,65 @@ function plannedTextButton(button: RenderedTemplate['buttons'][number]): Planned
   };
 }
 
+function interactionPlans(provider: string, rendered: TemplateRenderEnvelope): PlannedInteractionTransport[] {
+  const interactions = rendered.interactions || [];
+
+  return interactions.map((interaction) => {
+    if (provider === 'WHATSAPP-BUSINESS') {
+      return {
+        id: interaction.id,
+        type: interaction.type,
+        mode: 'INTERACTIVE',
+        compatibilityTransport: interaction.type === 'list' ? 'META_LIST' : 'META_INTERACTIVE_CHOICE',
+        degraded: false,
+        warnings: [],
+      };
+    }
+
+    if (provider === 'WHATSAPP-BAILEYS' && interaction.type === 'choice' && interaction.mode === 'SINGLE') {
+      return {
+        id: interaction.id,
+        type: interaction.type,
+        mode: 'POLL_COMPAT',
+        compatibilityTransport: 'BAILEYS_OFFICIAL_POLL',
+        degraded: true,
+        warnings: ['A escolha única será exibida como enquete para compatibilidade real neste provider.'],
+      };
+    }
+
+    if (provider === 'CONNECT' && interaction.type === 'choice' && interaction.options.length <= 3) {
+      return {
+        id: interaction.id,
+        type: interaction.type,
+        mode: 'INTERACTIVE',
+        compatibilityTransport: 'CONNECT_BUTTONS',
+        degraded: false,
+        warnings: [],
+      };
+    }
+
+    return {
+      id: interaction.id,
+      type: interaction.type,
+      mode: 'TEXT_COMPAT',
+      compatibilityTransport: provider === 'WHATSAPP-BAILEYS' ? 'BAILEYS_TEXT' : 'GENERIC_TEXT',
+      degraded: true,
+      warnings: [
+        interaction.type === 'list'
+          ? 'A lista será preservada como opções textuais funcionais neste provider.'
+          : 'A escolha será preservada como opções textuais funcionais neste provider.',
+      ],
+    };
+  });
+}
+
 function textCompatibilityPlan(
   provider: string,
-  rendered: RenderedTemplate,
+  rendered: TemplateRenderEnvelope,
   compatibilityTransport: string,
   warning: string,
 ): TemplateTransportPlan {
+  const interactions = interactionPlans(provider, rendered);
   return {
     provider,
     mode: 'TEXT_COMPAT',
@@ -62,6 +132,7 @@ function textCompatibilityPlan(
     degraded: true,
     warnings: [warning],
     buttons: rendered.buttons.map(plannedTextButton),
+    interactions,
   };
 }
 
@@ -78,7 +149,13 @@ export function getProviderTemplateCapabilities(provider?: string): ProviderTemp
       phoneButton: 'NATIVE',
       copyCodeButton: 'NATIVE',
       list: 'NATIVE',
-      transportNotes: ['Templates e interações são delegados ao provider oficial Meta.'],
+      choice: 'NATIVE',
+      microApp: 'NATIVE',
+      transportNotes: [
+        'Templates são delegados ao provider oficial Meta.',
+        'Listas e escolhas do Interaction Model v2 são enviadas como interações posteriores ao template.',
+        'Micro Apps são links seguros do Connect|API e não alteram o contrato do template Meta.',
+      ],
     };
   }
 
@@ -92,9 +169,12 @@ export function getProviderTemplateCapabilities(provider?: string): ProviderTemp
       phoneButton: 'TEXT_COMPAT',
       copyCodeButton: 'TEXT_COMPAT',
       list: 'TEXT_COMPAT',
+      choice: 'POLL_COMPAT',
+      microApp: 'NATIVE',
       transportNotes: [
-        'Quick replies usam poll de escolha única para compatibilidade real com WhatsApp Desktop e mobile.',
-        'URL, telefone, copiar código e combinações não representáveis são preservados como conteúdo textual funcional.',
+        'Quick replies e escolhas únicas usam poll de escolha única para compatibilidade real com WhatsApp Desktop e mobile.',
+        'Listas, URL, telefone, copiar código e combinações não representáveis são preservados como conteúdo textual funcional.',
+        'Micro Apps são abertos por URL segura e independem do transporte interativo do Baileys.',
       ],
     };
   }
@@ -109,9 +189,12 @@ export function getProviderTemplateCapabilities(provider?: string): ProviderTemp
       phoneButton: 'NATIVE',
       copyCodeButton: 'NATIVE',
       list: 'UNSUPPORTED',
+      choice: 'NATIVE',
+      microApp: 'NATIVE',
       transportNotes: [
         'Templates locais usam o adaptador buttonMessage já existente no provider CONNECT.',
-        'Listas não são declaradas como suportadas porque listMessage é indisponível no provider CONNECT atual.',
+        'Escolhas pequenas usam botões; coleções maiores e listas degradam para texto quando necessário.',
+        'Micro Apps são links seguros do Connect|API.',
       ],
     };
   }
@@ -125,23 +208,30 @@ export function getProviderTemplateCapabilities(provider?: string): ProviderTemp
     phoneButton: 'UNSUPPORTED',
     copyCodeButton: 'UNSUPPORTED',
     list: 'UNSUPPORTED',
+    choice: 'UNSUPPORTED',
+    microApp: 'NATIVE',
     transportNotes: [
       'Provider sem capability interativa declarada; o Template Engine preserva o conteúdo com transporte textual.',
+      'Micro Apps continuam disponíveis por URL segura quando o canal aceita links.',
     ],
   };
 }
 
-export function planTemplateTransport(provider: string | undefined, rendered: RenderedTemplate): TemplateTransportPlan {
+export function planTemplateTransport(
+  provider: string | undefined,
+  rendered: TemplateRenderEnvelope,
+): TemplateTransportPlan {
   const capabilities = getProviderTemplateCapabilities(provider);
   const normalized = capabilities.provider;
   const buttons = rendered.buttons || [];
+  const interactions = interactionPlans(normalized, rendered);
 
   if (normalized === 'WHATSAPP-BUSINESS') {
     return {
       provider: normalized,
       mode: 'PROVIDER_NATIVE',
-      degraded: false,
-      warnings: [],
+      degraded: interactions.some((item) => item.degraded),
+      warnings: interactions.flatMap((item) => item.warnings),
       buttons: buttons.map((button) => ({
         id: button.id,
         title: String(button.displayText || ''),
@@ -149,11 +239,19 @@ export function planTemplateTransport(provider: string | undefined, rendered: Re
         transport: 'NATIVE_BUTTON',
         degraded: false,
       })),
+      interactions,
     };
   }
 
   if (!buttons.length) {
-    return { provider: normalized, mode: 'TEXT', degraded: false, warnings: [], buttons: [] };
+    return {
+      provider: normalized,
+      mode: 'TEXT',
+      degraded: interactions.some((item) => item.degraded),
+      warnings: interactions.flatMap((item) => item.warnings),
+      buttons: [],
+      interactions,
+    };
   }
 
   if (normalized === 'WHATSAPP-BAILEYS') {
@@ -165,7 +263,10 @@ export function planTemplateTransport(provider: string | undefined, rendered: Re
         mode: 'POLL_COMPAT',
         compatibilityTransport: 'BAILEYS_OFFICIAL_POLL',
         degraded: true,
-        warnings: ['Quick replies serão exibidos como enquete de escolha única neste provider.'],
+        warnings: [
+          'Quick replies serão exibidos como enquete de escolha única neste provider.',
+          ...interactions.flatMap((item) => item.warnings),
+        ],
         buttons: replies.map((button) => ({
           id: button.id,
           title: String(button.displayText || ''),
@@ -173,6 +274,7 @@ export function planTemplateTransport(provider: string | undefined, rendered: Re
           transport: 'POLL_OPTION',
           degraded: true,
         })),
+        interactions,
       };
     }
 
@@ -188,8 +290,8 @@ export function planTemplateTransport(provider: string | undefined, rendered: Re
     return {
       provider: normalized,
       mode: 'INTERACTIVE',
-      degraded: false,
-      warnings: [],
+      degraded: interactions.some((item) => item.degraded),
+      warnings: interactions.flatMap((item) => item.warnings),
       buttons: buttons.map((button) => ({
         id: button.id,
         title: String(button.displayText || ''),
@@ -197,6 +299,7 @@ export function planTemplateTransport(provider: string | undefined, rendered: Re
         transport: 'NATIVE_BUTTON',
         degraded: false,
       })),
+      interactions,
     };
   }
 
