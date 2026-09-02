@@ -26,8 +26,13 @@
         background: #ffffff;
       }
 
+      html {
+        scroll-padding-top: 66px;
+      }
+
       .connect-docs-brandbar {
         box-sizing: border-box;
+        width: 100%;
         min-height: 58px;
         display: flex;
         align-items: center;
@@ -36,8 +41,12 @@
         padding: 8px 18px;
         border-bottom: 1px solid #e5e7eb;
         background: rgba(255, 255, 255, 0.97);
-        position: relative;
+        position: sticky;
+        top: 0;
         z-index: 100;
+        isolation: isolate;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
 
       .connect-docs-brandbar picture,
@@ -81,6 +90,10 @@
       }
 
       @media (max-width: 640px) {
+        html {
+          scroll-padding-top: 60px;
+        }
+
         .connect-docs-brandbar {
           min-height: 52px;
           padding: 7px 10px;
