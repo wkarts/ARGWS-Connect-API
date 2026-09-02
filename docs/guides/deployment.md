@@ -85,3 +85,12 @@ Os contratos carregam a versão do `package.json` no momento da geração. Em `d
 ## Segurança
 
 A documentação contém exemplos e schemas, nunca credenciais reais. O botão de autenticação do Scalar deve receber tokens somente no navegador do usuário; chaves não devem ser versionadas no repositório nem embutidas nos documentos.
+
+
+### Endpoint público `/docs/`
+
+Os deployments oficiais definem `ARGWS_CONNECT_DOCS_PUBLIC_BASE_PATH=/docs`. O reverse proxy recebe `/docs/...`, remove o prefixo ao encaminhar para o Scalar e mantém a documentação no mesmo origin da API. Assim o frontend pode usar simplesmente `/docs/`, sem conhecer porta ou nome de container.
+
+### Deployment standalone
+
+`deploy/docs/` usa `127.0.0.1:38280` por padrão e pode ficar continuamente online mesmo durante deploy/restart das stacks da API.

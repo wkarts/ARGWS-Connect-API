@@ -1,0 +1,32 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-docs}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+    max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+
+services:
+  docs-argws-connect-standalone:
+    image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
+    pull_policy: always
+    container_name: docs-argws-connect-standalone
+    restart: unless-stopped
+    environment:
+      API_REFERENCE_CONFIG: >-
+        {"sources":[{"url":"${ARGWS_CONNECT_DOCS_PUBLIC_BASE_PATH:-/docs}/openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"${ARGWS_CONNECT_DOCS_PUBLIC_BASE_PATH:-/docs}/openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"${ARGWS_CONNECT_DOCS_PUBLIC_BASE_PATH:-/docs}/openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost"}
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38280}:8080"
+    networks: [argws-connect-docs-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *default-logging
+
+networks:
+  argws-connect-docs-net:
+    name: ${ARGWS_CONNECT_DOCS_NETWORK_NAME:-argws-connect-docs-net}
+    driver: bridge
