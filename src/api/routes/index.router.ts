@@ -15,6 +15,7 @@ import express, { NextFunction, Request, Response, Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 
+import { ActionRouter } from './action.router';
 import { BusinessRouter } from './business.router';
 import { CallRouter } from './call.router';
 import { ChatRouter } from './chat.router';
@@ -22,6 +23,7 @@ import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
 import { ProxyRouter } from './proxy.router';
+import { RecipeRouter } from './recipe.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
 import { TemplateRouter } from './template.router';
@@ -217,6 +219,8 @@ router
   .use('/business', new BusinessRouter(...guards).router)
   .use('/group', new GroupRouter(...guards).router)
   .use('/template', new TemplateRouter(configService, ...guards).router)
+  .use('/action', new ActionRouter(...guards).router)
+  .use('/recipe', new RecipeRouter(...guards).router)
   .use('/settings', new SettingsRouter(...guards).router)
   .use('/proxy', new ProxyRouter(...guards).router)
   .use('/label', new LabelRouter(...guards).router)

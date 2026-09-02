@@ -213,3 +213,8 @@ Leia `DOCUMENTATION-CONTRACT.md` antes de finalizar mudanças públicas. Documen
 ## Endpoint público
 
 Em deployments com reverse proxy, a URL canônica é `/docs/`. Existe também `deploy/docs/` para operação standalone/always-on.
+
+
+## Recipes e Actions
+
+A camada nativa de orquestração está documentada em [`guides/recipes-actions.md`](guides/recipes-actions.md). Ela separa templates, receitas e ações registradas, com credenciais por referência, `dryRun`, confirmação e proteção contra alvos de rede privada por padrão.

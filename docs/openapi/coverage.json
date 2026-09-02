@@ -1,12 +1,32 @@
 {
-  "generatedAt": "2026-09-02T06:12:35.314Z",
+  "generatedAt": "2026-09-02T06:52:09.683Z",
   "version": "1.0.16",
-  "sourceDigest": "fc9761cc54df80401d42df9241bd95ce87df7deba1e06646d1728c3846735800",
+  "sourceDigest": "f3434aed25aee53cb0a5bf64dc74113aa06a3c47f55db9a960d0e111e5399901",
   "operations": [
     {
       "method": "GET",
       "path": "/",
       "source": "src/api/routes/index.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/action/create/{instanceName}",
+      "source": "src/api/routes/action.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/action/delete/{instanceName}",
+      "source": "src/api/routes/action.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/action/execute/{instanceName}",
+      "source": "src/api/routes/action.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/action/find/{instanceName}",
+      "source": "src/api/routes/action.router.ts"
     },
     {
       "method": "POST",
@@ -782,6 +802,26 @@
       "method": "POST",
       "path": "/rabbitmq/set/{instanceName}",
       "source": "src/api/integrations/event/rabbitmq/rabbitmq.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/recipe/create/{instanceName}",
+      "source": "src/api/routes/recipe.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/recipe/delete/{instanceName}",
+      "source": "src/api/routes/recipe.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/recipe/execute/{instanceName}",
+      "source": "src/api/routes/recipe.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/recipe/find/{instanceName}",
+      "source": "src/api/routes/recipe.router.ts"
     },
     {
       "method": "POST",

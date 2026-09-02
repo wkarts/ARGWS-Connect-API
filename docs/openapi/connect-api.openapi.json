@@ -150,6 +150,275 @@
         "x-source-file": "src/api/routes/index.router.ts"
       }
     },
+    "/action/create/{instanceName}": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Create",
+        "operationId": "post_action_create_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/action.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/action.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/action/delete/{instanceName}": {
+      "delete": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Delete",
+        "operationId": "delete_action_delete_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/action.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/action.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/action/execute/{instanceName}": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Execute",
+        "operationId": "post_action_execute_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/action.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/action.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/action/find/{instanceName}": {
+      "get": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Find",
+        "operationId": "get_action_find_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/action.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/action.router.ts"
+      }
+    },
     "/baileys/assertSessions/{instanceName}": {
       "post": {
         "tags": [
@@ -10712,6 +10981,275 @@
             }
           }
         }
+      }
+    },
+    "/recipe/create/{instanceName}": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Create",
+        "operationId": "post_recipe_create_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/recipe.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/recipe.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recipe/delete/{instanceName}": {
+      "delete": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Delete",
+        "operationId": "delete_recipe_delete_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/recipe.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/recipe.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recipe/execute/{instanceName}": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Execute",
+        "operationId": "post_recipe_execute_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/recipe.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/recipe.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recipe/find/{instanceName}": {
+      "get": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Find",
+        "operationId": "get_recipe_find_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/recipe.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/recipe.router.ts"
       }
     },
     "/s3/getMedia/{instanceName}": {

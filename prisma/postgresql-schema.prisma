@@ -100,6 +100,9 @@ model Instance {
   OpenaiBot               OpenaiBot[]
   OpenaiSetting           OpenaiSetting?
   Template                Template[]
+  IntegrationAction       IntegrationAction[]
+  Recipe                  Recipe[]
+  ActionExecution         ActionExecution[]
   Dify                    Dify[]
   DifySetting             DifySetting?
   IntegrationSession      IntegrationSession[]
@@ -525,6 +528,69 @@ model Template {
   @@index([instanceId])
   @@index([instanceId, category, status])
 }
+
+model IntegrationAction {
+  id                  String    @id @default(cuid())
+  actionKey           String    @db.VarChar(150)
+  name                String    @db.VarChar(255)
+  description         String?   @db.Text
+  method              String    @db.VarChar(10)
+  baseUrl             String    @db.VarChar(500)
+  path                String    @db.VarChar(500)
+  credentialRef       String?   @db.VarChar(100)
+  headers             Json?
+  requestTemplate     Json?
+  inputSchema         Json?
+  outputMapping       Json?
+  timeoutMs           Int       @default(10000)
+  confirmation        String    @default("NONE") @db.VarChar(20)
+  allowPrivateNetwork Boolean   @default(false)
+  enabled             Boolean   @default(true)
+  createdAt           DateTime  @default(now()) @db.Timestamp
+  updatedAt           DateTime  @updatedAt @db.Timestamp
+  Instance            Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId          String
+
+  @@unique([instanceId, actionKey])
+  @@index([instanceId, enabled])
+}
+
+model Recipe {
+  id             String    @id @default(cuid())
+  recipeKey      String    @db.VarChar(150)
+  name           String    @db.VarChar(255)
+  description    String?   @db.Text
+  version        Int       @default(1)
+  steps          Json
+  inputSchema    Json?
+  outputTemplate Json?
+  confirmation   String    @default("NONE") @db.VarChar(20)
+  enabled        Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @db.Timestamp
+  updatedAt      DateTime  @updatedAt @db.Timestamp
+  Instance       Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId     String
+
+  @@unique([instanceId, recipeKey])
+  @@index([instanceId, enabled])
+}
+
+model ActionExecution {
+  id           String    @id @default(cuid())
+  actionKey    String    @db.VarChar(150)
+  recipeKey    String?   @db.VarChar(150)
+  status       String    @db.VarChar(30)
+  requestMeta  Json?
+  responseMeta Json?
+  errorMeta    Json?
+  startedAt    DateTime  @default(now()) @db.Timestamp
+  finishedAt   DateTime? @db.Timestamp
+  Instance     Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId   String
+
+  @@index([instanceId, actionKey, startedAt])
+}
+
 
 model Dify {
   id              String           @id @default(cuid())
