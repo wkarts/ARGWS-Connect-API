@@ -1,3 +1,5 @@
+import { resolveDataPath } from './template-interaction-model';
+
 export type TemplateRenderButton = {
   type: 'reply' | 'copy' | 'url' | 'call';
   displayText?: string;
@@ -56,9 +58,9 @@ function interpolate(text: string, positional: any[], variables: Record<string, 
     return stringifyParameter(value);
   });
 
-  rendered = rendered.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}/g, (_match, key) => {
-    const value = variables?.[key];
-    return value === undefined || value === null ? '' : String(value);
+  rendered = rendered.replace(/\{\{\s*([A-Za-z_$][A-Za-z0-9_$.[\]'"-]*)\s*\}\}/g, (_match, key) => {
+    const value = resolveDataPath(variables, String(key));
+    return value === undefined || value === null ? '' : stringifyParameter(value);
   });
 
   return rendered;
