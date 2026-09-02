@@ -22,6 +22,14 @@ jobs:
           ref: feat/meta-compatible-schemas
           fetch-depth: 0
 
+      - name: Sync current develop
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin develop
+          git merge --no-edit origin/develop
+
       - name: Apply generator changes
         run: |
           set -euo pipefail
@@ -64,12 +72,8 @@ jobs:
       - name: Commit validated schema catalog
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/scripts/generate-openapi.mjs docs/scripts/meta-compatible-schemas.mjs docs/openapi docs/guides/meta-compatible.md
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
+          if ! git diff --cached --quiet; then
+            git commit -m "docs(meta): publica schemas completos da camada Graph"
           fi
-          git commit -m "docs(meta): publica schemas completos da camada Graph"
-          git push origin HEAD:feat/meta-compatible-schemas
+          git push --no-verify origin HEAD:feat/meta-compatible-schemas
