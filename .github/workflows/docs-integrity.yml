@@ -91,7 +91,13 @@ jobs:
           curl -fsS http://127.0.0.1:38082/openapi/meta-compatible.openapi.json -o /tmp/meta-compatible.openapi.json
           curl -fsS http://127.0.0.1:38082/openapi/connect-api-events.asyncapi.json -o /tmp/connect-api-events.asyncapi.json
           curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-light.png -o /tmp/connect-api-docs-light.png
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-dark.png -o /tmp/connect-api-docs-dark.png
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-light.svg -o /tmp/connect-api-docs-light.svg
+          curl -fsS http://127.0.0.1:38082/openapi/branding/docs/connect-api-docs-dark.svg -o /tmp/connect-api-docs-dark.svg
           test -s /tmp/connect-api-docs-light.png
+          test -s /tmp/connect-api-docs-dark.png
+          grep -q '<svg' /tmp/connect-api-docs-light.svg
+          grep -q '<svg' /tmp/connect-api-docs-dark.svg
           node -e "for (const f of ['/tmp/connect-api.openapi.json','/tmp/meta-compatible.openapi.json','/tmp/connect-api-events.asyncapi.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))"
 
       - name: Scalar logs on failure
