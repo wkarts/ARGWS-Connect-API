@@ -134,3 +134,15 @@ ERROR         → failed
 DELETED       → deleted
 PENDING       → não antecipar status sent
 ```
+
+
+## Templates canônicos por instância
+
+Templates são um recurso nativo da instância Connect|API e não ficam restritos ao `/graph`. A API nativa e a camada Meta Compatible utilizam o mesmo catálogo.
+
+- `WHATSAPP-BUSINESS`: o envio continua usando o template real/aprovado pelo provider Meta.
+- `WHATSAPP-BAILEYS`: o Connect|API mantém templates locais em formato compatível e renderiza BODY/HEADER/FOOTER e botões suportados para o provider real.
+- O mesmo nome de template pode existir em instâncias diferentes e em idiomas diferentes.
+- Instâncias locais recebem receitas de exemplo `hello_world`, `sample_utility`, `sample_marketing` e `sample_authentication` quando o catálogo ainda não possui esses nomes.
+
+O endpoint `GET /graph/{version}/{businessAccountId}/message_templates` lista o catálogo apropriado ao provider, e `POST /graph/{version}/{phoneNumberId}/messages` aceita `type: template`. O endpoint nativo `POST /message/sendTemplate/{instanceName}` usa o mesmo engine.

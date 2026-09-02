@@ -502,15 +502,29 @@ model OpenaiSetting {
 }
 
 model Template {
-  id         String    @id @default(cuid())
-  templateId String    @unique @db.VarChar(255)
-  name       String    @unique @db.VarChar(255)
-  template   Json      @db.JsonB
-  webhookUrl String?   @db.VarChar(500)
-  createdAt  DateTime? @default(now()) @db.Timestamp
-  updatedAt  DateTime  @updatedAt @db.Timestamp
-  Instance   Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  instanceId String
+  id                 String    @id @default(cuid())
+  templateId         String    @db.VarChar(255)
+  externalTemplateId String?   @db.VarChar(255)
+  name               String    @db.VarChar(255)
+  language           String    @default("pt_BR") @db.VarChar(20)
+  category           String    @default("UTILITY") @db.VarChar(30)
+  status             String    @default("APPROVED") @db.VarChar(30)
+  origin             String    @default("LOCAL") @db.VarChar(30)
+  enabled            Boolean   @default(true)
+  isDefault          Boolean   @default(false)
+  template           Json
+  actions            Json?
+  policy             Json?
+  webhookUrl         String?   @db.VarChar(500)
+  createdAt          DateTime? @default(now()) @db.Timestamp
+  updatedAt          DateTime  @updatedAt @db.Timestamp
+  Instance           Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId         String
+
+  @@unique([instanceId, templateId])
+  @@unique([instanceId, name, language])
+  @@index([instanceId])
+  @@index([instanceId, category, status])
 }
 
 model Dify {

@@ -98,6 +98,18 @@ export class MetaCloudMessageAdapter {
       case 'interactive':
         result = await this.sendInteractive(instance, to, payload.interactive);
         break;
+      case 'template': {
+        const template = payload.template;
+        if (!template?.name) throw new MetaCloudGraphError(400, 'template.name is required.');
+        const language = template.language?.code || 'pt_BR';
+        result = await this.sendController.sendTemplate(instance, {
+          number: to,
+          name: template.name,
+          language,
+          components: Array.isArray(template.components) ? template.components : [],
+        });
+        break;
+      }
       default:
         throw new MetaCloudGraphError(400, `Message type ${String(payload.type)} is not supported by this provider.`);
     }
