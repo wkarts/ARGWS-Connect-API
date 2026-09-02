@@ -184,6 +184,13 @@ async function main() {
     'utf8',
   );
   assert.doesNotMatch(dispatcherSource, /\.message\.create\s*\(/);
+  assert.doesNotMatch(dispatcherSource, /config\?\.enabled/);
+
+  const graphControllerSource = fs.readFileSync(
+    'src/api/compat/meta-cloud/meta-cloud-graph.controller.ts',
+    'utf8',
+  );
+  assert.doesNotMatch(graphControllerSource, /assertEnabled|compatibility is not enabled/);
 
   const adapterSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-message.adapter.ts', 'utf8');
   assert.doesNotMatch(adapterSource, /makeWASocket|\.sendMessage\s*\(/);

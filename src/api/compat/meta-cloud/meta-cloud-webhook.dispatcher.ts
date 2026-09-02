@@ -33,7 +33,7 @@ export class MetaCloudWebhookDispatcher {
     try {
       const identity = await this.resolver.resolveByInstanceName(eventData.instanceName);
       const config = await this.prisma.metaCompatibility.findUnique({ where: { instanceId: identity.instanceId } });
-      if (!config?.enabled || !config.webhookUrl) return;
+      if (!config?.webhookUrl) return;
       const payload = await this.serializer.serialize(eventData);
       if (!payload) return;
       const envelope: MetaCloudWebhookEnvelope = {

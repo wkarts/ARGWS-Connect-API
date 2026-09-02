@@ -18,9 +18,6 @@ export class MetaCloudController {
 
   public async setCompatibility(instanceName: string, data: { enabled?: boolean; webhookUrl?: string | null }) {
     const identity = await this.identityResolver.resolveByInstanceName(instanceName);
-    if (data.enabled === true && !identity.phoneNumberId) {
-      throw new MetaCloudGraphError(400, 'Meta Cloud compatibility cannot be enabled without a stable phone identity.');
-    }
     if (data.webhookUrl && !/^https?:\/\//i.test(data.webhookUrl)) {
       throw new MetaCloudGraphError(400, 'webhookUrl must be an absolute HTTP(S) URL.');
     }
@@ -30,11 +27,11 @@ export class MetaCloudController {
       where: { instanceId: identity.instanceId },
       create: {
         instanceId: identity.instanceId,
-        enabled: data.enabled ?? false,
+        enabled: true,
         webhookUrl: data.webhookUrl ?? null,
       },
       update: {
-        enabled: data.enabled ?? current?.enabled ?? false,
+        enabled: true,
         webhookUrl: data.webhookUrl === undefined ? (current?.webhookUrl ?? null) : data.webhookUrl,
       },
     });
@@ -44,7 +41,8 @@ export class MetaCloudController {
   private serializeConfig(identity: any, config: any) {
     const serverUrl = String(configService.get<any>('SERVER')?.URL || '').replace(/\/$/, '');
     return {
-      enabled: Boolean(config?.enabled),
+      // Kept for wire compatibility. Meta Compatible is always available for addressable instances.
+      enabled: true,
       instanceName: identity.instanceName,
       provider: identity.provider,
       phoneNumberId: identity.phoneNumberId,

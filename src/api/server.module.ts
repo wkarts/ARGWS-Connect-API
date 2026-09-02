@@ -134,7 +134,6 @@ export const metaCloudMessageAdapter = new MetaCloudMessageAdapter(
 );
 export const metaCloudTemplateService = new MetaCloudTemplateService(templateController);
 export const metaCloudGraphController = new MetaCloudGraphController(
-  prismaRepository,
   metaCloudIdentityResolver,
   metaCloudAuthService,
   metaCloudMessageAdapter,
