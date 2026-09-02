@@ -132,15 +132,29 @@ export class TemplateService {
         components: data.components,
       };
     } else {
-      const templates = await this.find(instance);
-      const list = Array.isArray(templates)
-        ? templates
-        : Array.isArray((templates as any)?.data)
-          ? (templates as any).data
-          : [];
-      const selected = list.find(
-        (template: any) => template.name === data.name && String(template.language || 'pt_BR') === language,
-      );
+      let selected: any = null;
+
+      if (this.isMetaBusiness(runtimeInstance.integration)) {
+        const templates = await this.find(instance);
+        const list = Array.isArray(templates)
+          ? templates
+          : Array.isArray((templates as any)?.data)
+            ? (templates as any).data
+            : [];
+        selected = list.find(
+          (template: any) => template.name === data.name && String(template.language || 'pt_BR') === language,
+        );
+      } else {
+        const localTemplate = await this.prismaRepository.template.findFirst({
+          where: {
+            instanceId: runtimeInstance.id,
+            name: data.name,
+            language,
+          },
+        });
+        if (localTemplate) selected = this.toMetaShape(localTemplate);
+      }
+
       if (!selected) throw new NotFoundException(`Template ${data.name} (${language}) not found for this instance`);
       definition = selected;
     }
