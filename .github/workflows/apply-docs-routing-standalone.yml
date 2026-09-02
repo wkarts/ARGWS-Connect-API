@@ -1,0 +1,135 @@
+name: Apply DOCs Routing and Standalone
+
+on:
+  push:
+    branches: [fix/connect-api-docs-deployments]
+    paths:
+      - .github/workflows/apply-docs-routing-standalone.yml
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout correction branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/connect-api-docs-deployments
+          fetch-depth: 0
+
+      - name: Apply routing and standalone deployment
+        run: |
+          python3 .github/tmp/docs-routing-standalone.py
+          chmod +x deploy/docs/deploy.sh deploy/docs/update.sh deploy/docs/status.sh deploy/docs/preflight.sh
+
+      - name: Prepare environments
+        run: |
+          cp deploy/production/env.example deploy/production/.env
+          cp deploy/homologation/env.example deploy/homologation/.env
+          cp deploy/develop/env.example deploy/develop/.env
+          cp deploy/canonical/env.example deploy/canonical/.env
+          cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
+          cp deploy/dockge/env.example deploy/dockge/.env
+          cp deploy/docs/env.example deploy/docs/.env
+
+      - name: Validate all seven Compose deployments
+        shell: bash
+        run: |
+          set -euo pipefail
+          for stack in production homologation develop canonical; do
+            docker compose -f "deploy/${stack}/compose.yaml" config >/dev/null
+            docker compose --profile '*' -f "deploy/${stack}/compose.yaml" config >/dev/null
+          done
+          docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose -f deploy/docs/compose.yaml config >/dev/null
+
+      - name: Validate shell scripts
+        run: |
+          set -euo pipefail
+          for script in deploy/docs/deploy.sh deploy/docs/update.sh deploy/docs/status.sh deploy/docs/preflight.sh; do
+            bash -n "$script"
+          done
+
+      - name: Login GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Start standalone DOCs using develop image
+        env:
+          ARGWS_CONNECT_DOCS_IMAGE: ghcr.io/wkarts/argws-connect-docs:develop
+        run: docker compose --env-file deploy/docs/.env -f deploy/docs/compose.yaml up -d --pull always
+
+      - name: Wait for DOCs health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:38280/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --env-file deploy/docs/.env -f deploy/docs/compose.yaml logs
+          exit 1
+
+      - name: Validate Scalar public base configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:38280/ -o /tmp/scalar.html
+          grep -q '/docs/openapi/connect-api.openapi.json' /tmp/scalar.html
+          curl -fsS http://127.0.0.1:38280/openapi/connect-api.openapi.json -o /tmp/openapi.json
+          node -e "JSON.parse(require('fs').readFileSync('/tmp/openapi.json','utf8'))"
+
+      - name: Test /docs reverse proxy with nginx
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >/tmp/nginx.conf <<'NGINX'
+          events {}
+          http {
+            server {
+              listen 39000;
+              location = /docs { return 301 /docs/; }
+              location /docs/ {
+                proxy_pass http://127.0.0.1:38280/;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Forwarded-Prefix /docs;
+              }
+            }
+          }
+          NGINX
+          docker run -d --name docs-proxy --network host -v /tmp/nginx.conf:/etc/nginx/nginx.conf:ro ghcr.io/wkarts/argws-connect-nginx:1.27-alpine
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:39000/docs/ >/tmp/proxied.html; then break; fi
+            sleep 1
+          done
+          grep -q '/docs/openapi/connect-api.openapi.json' /tmp/proxied.html
+          curl -fsS http://127.0.0.1:39000/docs/openapi/connect-api.openapi.json -o /tmp/proxied-openapi.json
+          node -e "JSON.parse(require('fs').readFileSync('/tmp/proxied-openapi.json','utf8'))"
+
+      - name: Remove temporary files
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f docs-proxy >/dev/null 2>&1 || true
+          docker compose --env-file deploy/docs/.env -f deploy/docs/compose.yaml down --remove-orphans || true
+          rm -f deploy/production/.env deploy/homologation/.env deploy/develop/.env deploy/canonical/.env deploy/cloudpanel/.env deploy/dockge/.env deploy/docs/.env
+
+      - name: Commit validated routing and standalone deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/tmp/docs-routing-standalone.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(docs): publica /docs e adiciona deployment standalone"
+          git push origin HEAD:fix/connect-api-docs-deployments
