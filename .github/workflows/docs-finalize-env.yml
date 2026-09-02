@@ -1,0 +1,39 @@
+name: Finalize Docs Env
+
+on:
+  push:
+    branches: [feat/connect-api-docs]
+    paths:
+      - .github/workflows/docs-finalize-env.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout docs branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/connect-api-docs
+          fetch-depth: 0
+
+      - name: Patch only docs-related env lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/# Uma unica porta publicada: API\. Manager em \/manager\./# API e DOCs usam portas locais dedicadas. Manager permanece em \/manager./' .env.example
+          sed -i 's#ARGWS_CONNECT_DOCS_IMAGE=scalarapi/api-reference:latest#ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest#' .env.example
+          grep -F 'ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest' .env.example
+          rm -f .github/workflows/docs-finalize-env.yml
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add .env.example .github/workflows/docs-finalize-env.yml
+          git commit -m "docs(stack): aponta service DOCs para imagem GHCR"
+          git push origin HEAD:feat/connect-api-docs
