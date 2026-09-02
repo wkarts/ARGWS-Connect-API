@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-02T08:56:04.288Z",
+  "generatedAt": "2026-09-02T13:31:48.145Z",
   "version": "1.0.16",
-  "sourceDigest": "25e0a1b011fc073eaecddb8eeeefb655a0f5d89d1ef4eda97c5342738f7754b5",
+  "sourceDigest": "a095e5970d1d2538fd12bdb70d397894bf71122ebf3970cf5a5516e76584b239",
   "operations": [
     {
       "method": "GET",
@@ -884,6 +884,11 @@
       "source": "src/api/integrations/event/sqs/sqs.router.ts"
     },
     {
+      "method": "GET",
+      "path": "/template/capabilities/{instanceName}",
+      "source": "src/api/routes/template.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/template/create/{instanceName}",
       "source": "src/api/routes/template.router.ts"
@@ -901,6 +906,11 @@
     {
       "method": "GET",
       "path": "/template/find/{instanceName}",
+      "source": "src/api/routes/template.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/template/preview/{instanceName}",
       "source": "src/api/routes/template.router.ts"
     },
     {

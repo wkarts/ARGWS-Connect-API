@@ -1,11 +1,12 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import { InstanceDto } from '@api/dto/instance.dto';
-import { TemplateDeleteDto, TemplateDto, TemplateEditDto } from '@api/dto/template.dto';
+import { TemplateDeleteDto, TemplateDto, TemplateEditDto, TemplatePreviewDto } from '@api/dto/template.dto';
 import { templateController } from '@api/server.module';
 import { ConfigService } from '@config/env.config';
 import { createMetaErrorResponse } from '@utils/errorResponse';
 import { templateDeleteSchema } from '@validate/templateDelete.schema';
 import { templateEditSchema } from '@validate/templateEdit.schema';
+import { templatePreviewSchema } from '@validate/templatePreview.schema';
 import { instanceSchema, templateSchema } from '@validate/validate.schema';
 import { RequestHandler, Router } from 'express';
 
@@ -66,6 +67,34 @@ export class TemplateRouter extends RouterBroker {
         } catch (error) {
           console.error('Template delete error:', error);
           const errorResponse = createMetaErrorResponse(error, 'template_delete');
+          res.status(errorResponse.status).json(errorResponse);
+        }
+      })
+      .get(this.routerPath('capabilities'), ...guards, async (req, res) => {
+        try {
+          const response = await this.dataValidate<InstanceDto>({
+            request: req,
+            schema: instanceSchema,
+            ClassRef: InstanceDto,
+            execute: (instance) => templateController.capabilities(instance),
+          });
+          res.status(HttpStatus.OK).json(response);
+        } catch (error) {
+          const errorResponse = createMetaErrorResponse(error, 'template_capabilities');
+          res.status(errorResponse.status).json(errorResponse);
+        }
+      })
+      .post(this.routerPath('preview'), ...guards, async (req, res) => {
+        try {
+          const response = await this.dataValidate<TemplatePreviewDto>({
+            request: req,
+            schema: templatePreviewSchema,
+            ClassRef: TemplatePreviewDto,
+            execute: (instance, data) => templateController.previewTemplate(instance, data),
+          });
+          res.status(HttpStatus.OK).json(response);
+        } catch (error) {
+          const errorResponse = createMetaErrorResponse(error, 'template_preview');
           res.status(errorResponse.status).json(errorResponse);
         }
       })

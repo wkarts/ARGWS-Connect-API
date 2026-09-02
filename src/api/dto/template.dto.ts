@@ -28,3 +28,11 @@ export class TemplateDeleteDto {
   name: string;
   hsmId?: string;
 }
+
+export class TemplatePreviewDto {
+  name?: string;
+  language?: string;
+  category?: 'AUTHENTICATION' | 'MARKETING' | 'UTILITY';
+  components?: any[];
+  variables?: Record<string, unknown>;
+}

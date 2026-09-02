@@ -6,6 +6,7 @@ import { BadRequestException, NotFoundException } from '@exceptions';
 
 import { WAMonitoringService } from './monitor.service';
 import { RenderedTemplate, renderTemplateDefinition } from './template-renderer';
+import { planTemplateTransport, TemplateTransportPlan } from './template-transport-planner';
 
 export class TemplateEngineService {
   private readonly logger = new Logger('TemplateEngineService');
@@ -70,12 +71,23 @@ export class TemplateEngineService {
       throw new BadRequestException(`Template ${data.name} has no renderable text content for provider ${provider}`);
     }
 
-    if (rendered.buttons.length) {
-      result =
-        provider === 'WHATSAPP-BAILEYS'
-          ? await this.sendBaileysCompatibleInteraction(runtime, data, rendered, template)
-          : await this.sendInteractiveWithFallback(runtime, data, rendered, template);
-    } else {
+    const transport = planTemplateTransport(provider, rendered);
+
+    if (transport.mode === 'POLL_COMPAT') {
+      result = await this.sendBaileysPollCompatibility(runtime, data, rendered, template, transport);
+    } else if (transport.mode === 'TEXT_COMPAT') {
+      result = await this.sendTextCompatibility(
+        runtime,
+        data,
+        rendered,
+        template,
+        transport.provider,
+        transport.compatibilityTransport || 'GENERIC_TEXT',
+        transport.warnings.join(' ') || 'Provider requires textual compatibility transport.',
+      );
+    } else if (transport.mode === 'INTERACTIVE') {
+      result = await this.sendInteractiveWithFallback(transport.provider, runtime, data, rendered, template);
+    } else if (transport.mode === 'TEXT') {
       result = await runtime.textMessage({
         number: data.number,
         text: rendered.text || rendered.title,
@@ -86,74 +98,80 @@ export class TemplateEngineService {
         mentioned: data.mentioned,
       });
       this.attachDiagnostics(result, {
-        provider,
+        provider: transport.provider,
         templateName: data.name,
         language,
         category: template.category,
-        mode: 'TEXT',
+        mode: transport.mode,
         buttonCount: 0,
         fallback: false,
       });
+    } else {
+      throw new BadRequestException(
+        `Template transport ${transport.mode} cannot be executed locally for provider ${transport.provider}`,
+      );
     }
 
     await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
     return result;
   }
 
-  private async sendBaileysCompatibleInteraction(
+  private async sendBaileysPollCompatibility(
     runtime: any,
     data: SendTemplateDto,
     rendered: RenderedTemplate,
     template: any,
+    transport: TemplateTransportPlan,
   ) {
-    const replyButtons = rendered.buttons.filter((button) => button.type === 'reply' && button.displayText);
-    const replyOnly = replyButtons.length > 0 && replyButtons.length === rendered.buttons.length;
-
-    if (replyOnly && typeof runtime.pollMessage === 'function') {
-      try {
-        const result = await runtime.pollMessage({
-          number: data.number,
-          name: this.pollPrompt(rendered),
-          selectableCount: 1,
-          values: replyButtons.map((button) => String(button.displayText)),
-          delay: data.delay,
-          quoted: data.quoted,
-          linkPreview: data.linkPreview,
-          mentionsEveryOne: data.mentionsEveryOne,
-          mentioned: data.mentioned,
-        });
-        this.attachDiagnostics(result, {
-          provider: 'WHATSAPP-BAILEYS',
-          templateName: data.name,
-          language: data.language || 'pt_BR',
-          category: template.category,
-          mode: 'POLL_COMPAT',
-          buttonCount: rendered.buttons.length,
-          fallback: false,
-          compatibilityTransport: 'BAILEYS_OFFICIAL_POLL',
-        });
-        return result;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Baileys poll compatibility for template ${data.name} failed; using text fallback: ${reason}`);
-        return this.sendBaileysTextCompatibility(runtime, data, rendered, template, reason);
-      }
+    if (typeof runtime.pollMessage !== 'function') {
+      return this.sendTextCompatibility(
+        runtime,
+        data,
+        rendered,
+        template,
+        transport.provider,
+        'BAILEYS_TEXT',
+        'Baileys runtime does not expose pollMessage; using textual compatibility transport.',
+      );
     }
 
-    return this.sendBaileysTextCompatibility(
-      runtime,
-      data,
-      rendered,
-      template,
-      'Official Baileys does not reliably render nativeFlow interactive messages.',
-    );
+    try {
+      const result = await runtime.pollMessage({
+        number: data.number,
+        name: this.pollPrompt(rendered),
+        selectableCount: 1,
+        values: rendered.buttons.map((button) => String(button.displayText)),
+        delay: data.delay,
+        quoted: data.quoted,
+        linkPreview: data.linkPreview,
+        mentionsEveryOne: data.mentionsEveryOne,
+        mentioned: data.mentioned,
+      });
+      this.attachDiagnostics(result, {
+        provider: transport.provider,
+        templateName: data.name,
+        language: data.language || 'pt_BR',
+        category: template.category,
+        mode: transport.mode,
+        buttonCount: rendered.buttons.length,
+        fallback: false,
+        compatibilityTransport: transport.compatibilityTransport,
+      });
+      return result;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Baileys poll compatibility for template ${data.name} failed; using text fallback: ${reason}`);
+      return this.sendTextCompatibility(runtime, data, rendered, template, transport.provider, 'BAILEYS_TEXT', reason);
+    }
   }
 
-  private async sendBaileysTextCompatibility(
+  private async sendTextCompatibility(
     runtime: any,
     data: SendTemplateDto,
     rendered: RenderedTemplate,
     template: any,
+    provider: string,
+    compatibilityTransport: string,
     reason: string,
   ) {
     const result = await runtime.textMessage({
@@ -166,7 +184,7 @@ export class TemplateEngineService {
       mentioned: data.mentioned,
     });
     this.attachDiagnostics(result, {
-      provider: 'WHATSAPP-BAILEYS',
+      provider,
       templateName: data.name,
       language: data.language || 'pt_BR',
       category: template.category,
@@ -174,7 +192,7 @@ export class TemplateEngineService {
       buttonCount: rendered.buttons.length,
       fallback: true,
       fallbackReason: reason,
-      compatibilityTransport: 'BAILEYS_TEXT',
+      compatibilityTransport,
     });
     return result;
   }
@@ -187,6 +205,7 @@ export class TemplateEngineService {
   }
 
   private async sendInteractiveWithFallback(
+    provider: string,
     runtime: any,
     data: SendTemplateDto,
     rendered: RenderedTemplate,
@@ -208,7 +227,7 @@ export class TemplateEngineService {
         mentioned: data.mentioned,
       });
       this.attachDiagnostics(result, {
-        provider: runtime.instance?.integration || 'WHATSAPP-BAILEYS',
+        provider,
         templateName: data.name,
         language: data.language || 'pt_BR',
         category: template.category,
@@ -232,7 +251,7 @@ export class TemplateEngineService {
         mentioned: data.mentioned,
       });
       this.attachDiagnostics(result, {
-        provider: runtime.instance?.integration || 'WHATSAPP-BAILEYS',
+        provider,
         templateName: data.name,
         language: data.language || 'pt_BR',
         category: template.category,

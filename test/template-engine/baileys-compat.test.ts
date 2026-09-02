@@ -3,15 +3,19 @@ import { readFileSync } from 'node:fs';
 
 import { extractBaileysPollInteraction } from '../../src/api/services/interaction-normalizer';
 import { renderTemplateDefinition } from '../../src/api/services/template-renderer';
+import { planTemplateTransport } from '../../src/api/services/template-transport-planner';
 
 const engineSource = readFileSync('src/api/services/template-engine.service.ts', 'utf8');
+const plannerSource = readFileSync('src/api/services/template-transport-planner.ts', 'utf8');
 
-assert.match(engineSource, /provider === 'WHATSAPP-BAILEYS'/);
-assert.match(engineSource, /sendBaileysCompatibleInteraction/);
+assert.match(engineSource, /planTemplateTransport\(provider, rendered\)/);
+assert.match(engineSource, /transport\.mode === 'POLL_COMPAT'/);
+assert.match(engineSource, /sendBaileysPollCompatibility/);
 assert.match(engineSource, /runtime\.pollMessage/);
-assert.match(engineSource, /mode: 'POLL_COMPAT'/);
-assert.match(engineSource, /compatibilityTransport: 'BAILEYS_OFFICIAL_POLL'/);
-assert.match(engineSource, /mode: 'TEXT_COMPAT'/);
+assert.match(plannerSource, /normalized === 'WHATSAPP-BAILEYS'/);
+assert.match(plannerSource, /mode: 'POLL_COMPAT'/);
+assert.match(plannerSource, /compatibilityTransport: 'BAILEYS_OFFICIAL_POLL'/);
+assert.match(plannerSource, /mode: 'TEXT_COMPAT'/);
 
 const rendered = renderTemplateDefinition(
   {
@@ -35,6 +39,11 @@ assert.deepEqual(
     { id: 'cancel', title: 'Cancelar' },
   ],
 );
+
+const planned = planTemplateTransport('WHATSAPP-BAILEYS', rendered);
+assert.equal(planned.mode, 'POLL_COMPAT');
+assert.equal(planned.compatibilityTransport, 'BAILEYS_OFFICIAL_POLL');
+assert.deepEqual(planned.buttons.map((button) => button.transport), ['POLL_OPTION', 'POLL_OPTION']);
 
 const normalized = extractBaileysPollInteraction({
   message: { pollUpdateMessage: { pollCreationMessageKey: { id: 'poll-outbound-1' } } },

@@ -1,5 +1,5 @@
 import { InstanceDto } from '@api/dto/instance.dto';
-import { TemplateDto } from '@api/dto/template.dto';
+import { TemplateDto, TemplatePreviewDto } from '@api/dto/template.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { ConfigService, WaBusiness } from '@config/env.config';
 import { Logger } from '@config/logger.config';
@@ -8,6 +8,8 @@ import { createId } from '@paralleldrive/cuid2';
 import axios from 'axios';
 
 import { WAMonitoringService } from './monitor.service';
+import { renderTemplateDefinition } from './template-renderer';
+import { getProviderTemplateCapabilities, planTemplateTransport } from './template-transport-planner';
 
 const DEFAULT_LOCAL_TEMPLATES = [
   {
@@ -109,6 +111,75 @@ export class TemplateService {
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }, { language: 'asc' }],
     });
     return templates.map((template) => this.toMetaShape(template));
+  }
+
+  public async capabilities(instance: InstanceDto) {
+    const runtimeInstance = await this.getRuntimeInstance(instance);
+    return getProviderTemplateCapabilities(runtimeInstance.integration);
+  }
+
+  public async preview(instance: InstanceDto, data: TemplatePreviewDto) {
+    const runtimeInstance = await this.getRuntimeInstance(instance);
+    const provider = String(runtimeInstance.integration || 'UNKNOWN');
+    const language = data.language || 'pt_BR';
+
+    let definition: any = null;
+    if (Array.isArray(data.components)) {
+      definition = {
+        name: data.name || 'draft_template',
+        language,
+        category: data.category || 'UTILITY',
+        components: data.components,
+      };
+    } else {
+      let selected: any = null;
+
+      if (this.isMetaBusiness(runtimeInstance.integration)) {
+        const templates = await this.find(instance);
+        const list = Array.isArray(templates)
+          ? templates
+          : Array.isArray((templates as any)?.data)
+            ? (templates as any).data
+            : [];
+        selected = list.find(
+          (template: any) => template.name === data.name && String(template.language || 'pt_BR') === language,
+        );
+      } else {
+        const localTemplate = await this.prismaRepository.template.findFirst({
+          where: {
+            instanceId: runtimeInstance.id,
+            name: data.name,
+            language,
+          },
+        });
+        if (localTemplate) selected = this.toMetaShape(localTemplate);
+      }
+
+      if (!selected) throw new NotFoundException(`Template ${data.name} (${language}) not found for this instance`);
+      definition = selected;
+    }
+
+    const rendered = renderTemplateDefinition(definition, [], data.variables || {});
+    const capabilities = getProviderTemplateCapabilities(provider);
+    const transport = planTemplateTransport(provider, rendered);
+
+    return {
+      sideEffectFree: true,
+      provider,
+      template: {
+        name: definition.name || data.name || 'draft_template',
+        language: definition.language || language,
+        category: definition.category || data.category || 'UTILITY',
+      },
+      capabilities,
+      transport,
+      rendered: {
+        title: rendered.title || null,
+        text: rendered.text || null,
+        footer: rendered.footer || null,
+        buttons: rendered.buttons,
+      },
+    };
   }
 
   public async create(instance: InstanceDto, data: TemplateDto) {
