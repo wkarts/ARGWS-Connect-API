@@ -32,7 +32,7 @@
   const toast = (message, error = false) => {
     const node = $('toast');
     if (!node) return;
-    node.textContent = message;
+    node.textContent = error ? humanError(message) : message;
     node.classList.toggle('error', error);
     node.classList.add('show');
     clearTimeout(toast.timer);
@@ -91,6 +91,13 @@
   function pretty(value) {
     if (typeof value === 'string') return value;
     try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+
+  function humanError(value) {
+    const raw = String(value?.message || value || 'Erro desconhecido').replace(/\s+/g, ' ').trim();
+    const prisma = raw.match(/Unknown argument [`'"]?([^`'"\s]+)|PrismaClientValidationError[:\s]+([^\n]+)/i);
+    const concise = prisma ? `Persistência incompatível: ${prisma[1] || prisma[2] || 'erro Prisma'}` : raw;
+    return concise.length > 260 ? `${concise.slice(0, 257)}...` : concise;
   }
 
   async function refreshRegistry() {
@@ -329,10 +336,17 @@
         let data = text;
         try { data = text ? JSON.parse(text) : null; } catch { /* keep text */ }
         if (refs.diagnostic) {
+          const messageId = data?.key?.id || data?.messages?.[0]?.id || null;
           refs.diagnostic.textContent = pretty({
             httpStatus: response.status,
             ok: response.ok,
+            transportStatus: response.ok ? 'ACCEPTED_BY_PROVIDER' : 'REJECTED',
+            deliveryStatus: response.ok ? 'PENDING_OR_UNKNOWN' : 'NOT_SENT',
+            messageId,
             templateExecution: data?.templateExecution || null,
+            note: response.ok
+              ? 'O provider aceitou o envio. A confirmação de entrega é assíncrona e não é equivalente ao HTTP 201.'
+              : 'O request falhou antes de uma confirmação de transporte confiável.',
             response: data,
           });
         }

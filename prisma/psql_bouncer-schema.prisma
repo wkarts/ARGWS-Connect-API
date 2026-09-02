@@ -105,6 +105,7 @@ model Instance {
   Recipe                  Recipe[]
   ActionExecution         ActionExecution[]
   TemplateInteractionSession TemplateInteractionSession[]
+  MetaConversationWindow       MetaConversationWindow[]
   Dify                    Dify[]
   DifySetting             DifySetting?
   IntegrationSession      IntegrationSession[]
@@ -604,7 +605,13 @@ model TemplateInteractionSession {
   actions           Json?     @db.JsonB
   status            String    @default("OPEN") @db.VarChar(40)
   expiresAt         DateTime? @db.Timestamp
-  lastError         String?   @db.Text
+  lastError         String?
+  strongBindingId    String?   @db.VarChar(255)
+  strongInput        Json?
+  strongRequestedAt  DateTime?
+  strongDecisionAt   DateTime?
+  strongDecisionBy   String?   @db.VarChar(255)
+  strongDecisionReason String?  @db.Text
   createdAt         DateTime  @default(now()) @db.Timestamp
   updatedAt         DateTime  @updatedAt @db.Timestamp
   Instance          Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
@@ -870,11 +877,33 @@ model ConnectAISetting {
 model MetaCompatibility {
   id         String   @id @default(cuid())
   enabled    Boolean  @default(true) @db.Boolean
-  webhookUrl String?  @db.VarChar(500)
+  webhookUrl String?
+  policyMode String   @default("PERMISSIVE") @db.VarChar(20)
+  windowSeconds Int   @default(86400)
+  templateRequiredOutsideWindow Boolean @default(true)
   createdAt  DateTime @default(now()) @db.Timestamp
   updatedAt  DateTime @updatedAt @db.Timestamp
   instanceId String   @unique
   Instance   Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   @@index([instanceId])
+}
+
+
+model MetaConversationWindow {
+  id                 String    @id @default(cuid())
+  instanceId         String
+  remoteJid          String    @db.VarChar(150)
+  lastInboundAt      DateTime?
+  windowExpiresAt    DateTime?
+  lastOutboundAt     DateTime?
+  lastPolicyDecision String?   @db.VarChar(100)
+  lastPolicyAt       DateTime?
+  violationCount     Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  Instance           Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@unique([instanceId, remoteJid])
+  @@index([instanceId, windowExpiresAt])
 }

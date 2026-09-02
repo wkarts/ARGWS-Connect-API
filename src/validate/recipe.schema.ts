@@ -55,3 +55,16 @@ export const recipeDeleteSchema: JSONSchema7 = {
   required: ['recipeKey'],
   additionalProperties: false,
 };
+
+export const recipeInstallSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    packageKey: { type: 'string', minLength: 1, maxLength: 100 },
+    baseUrl: { type: 'string', minLength: 8 },
+    credentialRef: { type: 'string', pattern: '^[A-Za-z0-9_-]{2,100}$' },
+    allowPrivateNetwork: { type: 'boolean' },
+  },
+  required: ['packageKey', 'baseUrl'],
+  additionalProperties: false,
+};

@@ -26,6 +26,7 @@ import { ProxyRouter } from './proxy.router';
 import { RecipeRouter } from './recipe.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
+import { StrongConfirmationRouter } from './strong-confirmation.router';
 import { TemplateRouter } from './template.router';
 import { ViewsRouter } from './view.router';
 
@@ -221,6 +222,7 @@ router
   .use('/template', new TemplateRouter(configService, ...guards).router)
   .use('/action', new ActionRouter(...guards).router)
   .use('/recipe', new RecipeRouter(...guards).router)
+  .use('/interaction/strong', new StrongConfirmationRouter(instanceExistsGuard, authGuard['globalApiKey']).router)
   .use('/settings', new SettingsRouter(...guards).router)
   .use('/proxy', new ProxyRouter(...guards).router)
   .use('/label', new LabelRouter(...guards).router)

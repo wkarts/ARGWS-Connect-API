@@ -9,6 +9,7 @@ import { MetaCloudGraphController } from './compat/meta-cloud/meta-cloud-graph.c
 import { MetaCloudIdentityResolver } from './compat/meta-cloud/meta-cloud-identity.resolver';
 import { MetaCloudMediaService } from './compat/meta-cloud/meta-cloud-media.service';
 import { MetaCloudMessageAdapter } from './compat/meta-cloud/meta-cloud-message.adapter';
+import { MetaCloudPolicyService } from './compat/meta-cloud/meta-cloud-policy.service';
 import { MetaCloudResponseSerializer } from './compat/meta-cloud/meta-cloud-response.serializer';
 import { MetaCloudStatusMapper } from './compat/meta-cloud/meta-cloud-status.mapper';
 import { MetaCloudTemplateService } from './compat/meta-cloud/meta-cloud-template.service';
@@ -25,6 +26,7 @@ import { ProxyController } from './controllers/proxy.controller';
 import { RecipeController } from './controllers/recipe.controller';
 import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
+import { StrongConfirmationController } from './controllers/strong-confirmation.controller';
 import { TemplateController } from './controllers/template.controller';
 import { ChannelController } from './integrations/channel/channel.controller';
 import { ConnectController } from './integrations/channel/connect/connect.controller';
@@ -59,6 +61,7 @@ import { InteractionEngineService } from './services/interaction-engine.service'
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { RecipeService } from './services/recipe.service';
+import { RecipeLibraryService } from './services/recipe-library.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
 import { TemplateEngineService } from './services/template-engine.service';
@@ -83,10 +86,16 @@ export const actionRegistryService = new ActionRegistryService(prismaRepository)
 export const actionExecutionService = new ActionExecutionService(prismaRepository);
 export const actionController = new ActionController(actionRegistryService, actionExecutionService);
 export const recipeService = new RecipeService(prismaRepository, actionExecutionService);
-export const recipeController = new RecipeController(recipeService);
+export const recipeLibraryService = new RecipeLibraryService(prismaRepository, actionRegistryService, recipeService);
+export const recipeController = new RecipeController(recipeService, recipeLibraryService);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
+export const metaCloudPolicyService = new MetaCloudPolicyService(prismaRepository);
 export const metaCloudAuthService = new MetaCloudAuthService();
-export const metaCloudController = new MetaCloudController(prismaRepository, metaCloudIdentityResolver);
+export const metaCloudController = new MetaCloudController(
+  prismaRepository,
+  metaCloudIdentityResolver,
+  metaCloudPolicyService,
+);
 
 export const waMonitor = new WAMonitoringService(
   eventEmitter,
@@ -111,6 +120,8 @@ export const interactionEngine = new InteractionEngineService(
   templateEngine,
   waMonitor,
 );
+
+export const strongConfirmationController = new StrongConfirmationController(interactionEngine);
 
 const proxyService = new ProxyService(waMonitor);
 export const proxyController = new ProxyController(proxyService, waMonitor);
@@ -159,6 +170,7 @@ export const metaCloudGraphController = new MetaCloudGraphController(
   metaCloudMessageAdapter,
   metaCloudMediaService,
   metaCloudTemplateService,
+  metaCloudPolicyService,
 );
 export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
   metaCloudIdentityResolver,
@@ -167,6 +179,7 @@ export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
 
 export const eventManager = new EventManager(prismaRepository, waMonitor);
 eventManager.setInteractionEngine(interactionEngine);
+eventManager.setMetaCloudPolicy(metaCloudPolicyService);
 export const metaCloudWebhookDispatcher = new MetaCloudWebhookDispatcher(
   prismaRepository,
   metaCloudIdentityResolver,

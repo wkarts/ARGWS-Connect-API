@@ -1451,8 +1451,7 @@ export class BaileysStartupService extends ChannelStartupService {
           }
 
           if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { pollUpdates, ...messageData } = messageRaw;
+            const messageData = this.messageForPersistence(messageRaw);
             const msg = await this.prismaRepository.message.create({ data: messageData });
 
             const { remoteJid } = received.key;
@@ -1530,7 +1529,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
                     messageRaw.message.mediaUrl = mediaUrl;
 
-                    await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+                    await this.prismaRepository.message.update({
+                      where: { id: msg.id },
+                      data: this.messageForPersistence(messageRaw),
+                    });
                   }
                 } catch (error) {
                   this.logger.error(['Error on upload file to minio', error?.message, error?.stack]);
@@ -2558,7 +2560,8 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
-        const msg = await this.prismaRepository.message.create({ data: messageRaw });
+        const messageData = this.messageForPersistence(messageRaw);
+        const msg = await this.prismaRepository.message.create({ data: messageData });
 
         if (isMedia && this.configService.get<S3>('S3').ENABLE) {
           try {
@@ -2603,7 +2606,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
               messageRaw.message.mediaUrl = mediaUrl;
 
-              await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+              await this.prismaRepository.message.update({
+                where: { id: msg.id },
+                data: this.messageForPersistence(messageRaw),
+              });
             }
           } catch (error) {
             this.logger.error(['Error on upload file to minio', error?.message, error?.stack]);
@@ -4751,10 +4757,20 @@ export class BaileysStartupService extends ChannelStartupService {
     return obj;
   }
 
+  private messageForPersistence(messageRaw: any): any {
+    const messageData = { ...messageRaw };
+    // `interaction` is a normalized runtime/event projection consumed by the
+    // Interaction Engine. It intentionally remains outside the legacy Message
+    // table so we do not change the native persistence contract.
+    delete messageData.interaction;
+    delete messageData.pollUpdates;
+    return messageData;
+  }
+
   private prepareMessage(message: proto.IWebMessageInfo): any {
     const contentType = getContentType(message.message);
     const contentMsg = message?.message[contentType] as any;
-    const interaction = extractBaileysInteraction(message.message);
+    const interaction = message?.key?.fromMe ? null : extractBaileysInteraction(message.message);
 
     const messageRaw: any = {
       key: message.key, // Save key exactly as it comes from Baileys

@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-02T08:33:51.902Z",
+  "generatedAt": "2026-09-02T08:56:04.288Z",
   "version": "1.0.16",
-  "sourceDigest": "f3434aed25aee53cb0a5bf64dc74113aa06a3c47f55db9a960d0e111e5399901",
+  "sourceDigest": "25e0a1b011fc073eaecddb8eeeefb655a0f5d89d1ef4eda97c5342738f7754b5",
   "operations": [
     {
       "method": "GET",
@@ -226,6 +226,11 @@
     {
       "method": "PUT",
       "path": "/compat/meta/{instanceName}",
+      "source": "src/api/compat/meta-cloud/meta-cloud.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/compat/meta/{instanceName}/window/{recipient}",
       "source": "src/api/compat/meta-cloud/meta-cloud.router.ts"
     },
     {
@@ -554,6 +559,21 @@
       "source": "src/api/routes/instance.router.ts"
     },
     {
+      "method": "POST",
+      "path": "/interaction/strong/approve/{instanceName}",
+      "source": "src/api/routes/strong-confirmation.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/interaction/strong/pending/{instanceName}",
+      "source": "src/api/routes/strong-confirmation.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/interaction/strong/reject/{instanceName}",
+      "source": "src/api/routes/strong-confirmation.router.ts"
+    },
+    {
       "method": "GET",
       "path": "/kafka/find/{instanceName}",
       "source": "src/api/integrations/event/kafka/kafka.router.ts"
@@ -821,6 +841,16 @@
     {
       "method": "GET",
       "path": "/recipe/find/{instanceName}",
+      "source": "src/api/routes/recipe.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/recipe/install/{instanceName}",
+      "source": "src/api/routes/recipe.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/recipe/library/{instanceName}",
       "source": "src/api/routes/recipe.router.ts"
     },
     {
