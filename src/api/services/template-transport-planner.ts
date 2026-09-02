@@ -32,6 +32,39 @@ export type TemplateTransportPlan = {
   buttons: PlannedButtonTransport[];
 };
 
+function plannedTextButton(button: RenderedTemplate['buttons'][number]): PlannedButtonTransport {
+  return {
+    id: button.id,
+    title: String(button.displayText || ''),
+    canonicalType: button.type,
+    transport:
+      button.type === 'url'
+        ? 'TEXT_LINK'
+        : button.type === 'call'
+          ? 'TEXT_PHONE'
+          : button.type === 'copy'
+            ? 'TEXT_CODE'
+            : 'TEXT_OPTION',
+    degraded: true,
+  };
+}
+
+function textCompatibilityPlan(
+  provider: string,
+  rendered: RenderedTemplate,
+  compatibilityTransport: string,
+  warning: string,
+): TemplateTransportPlan {
+  return {
+    provider,
+    mode: 'TEXT_COMPAT',
+    compatibilityTransport,
+    degraded: true,
+    warnings: [warning],
+    buttons: rendered.buttons.map(plannedTextButton),
+  };
+}
+
 export function getProviderTemplateCapabilities(provider?: string): ProviderTemplateCapabilities {
   const normalized = String(provider || 'UNKNOWN').toUpperCase();
 
@@ -66,16 +99,35 @@ export function getProviderTemplateCapabilities(provider?: string): ProviderTemp
     };
   }
 
+  if (normalized === 'CONNECT') {
+    return {
+      provider: normalized,
+      providerNativeTemplates: false,
+      canonicalTemplateContract: true,
+      quickReply: 'NATIVE',
+      urlButton: 'NATIVE',
+      phoneButton: 'NATIVE',
+      copyCodeButton: 'NATIVE',
+      list: 'UNSUPPORTED',
+      transportNotes: [
+        'Templates locais usam o adaptador buttonMessage já existente no provider CONNECT.',
+        'Listas não são declaradas como suportadas porque listMessage é indisponível no provider CONNECT atual.',
+      ],
+    };
+  }
+
   return {
     provider: normalized,
     providerNativeTemplates: false,
     canonicalTemplateContract: true,
-    quickReply: 'NATIVE',
-    urlButton: 'NATIVE',
-    phoneButton: 'NATIVE',
-    copyCodeButton: 'NATIVE',
-    list: 'TEXT_COMPAT',
-    transportNotes: ['O provider usa o adaptador interativo existente com fallback textual.'],
+    quickReply: 'UNSUPPORTED',
+    urlButton: 'UNSUPPORTED',
+    phoneButton: 'UNSUPPORTED',
+    copyCodeButton: 'UNSUPPORTED',
+    list: 'UNSUPPORTED',
+    transportNotes: [
+      'Provider sem capability interativa declarada; o Template Engine preserva o conteúdo com transporte textual.',
+    ],
   };
 }
 
@@ -124,40 +176,34 @@ export function planTemplateTransport(provider: string | undefined, rendered: Re
       };
     }
 
+    return textCompatibilityPlan(
+      normalized,
+      rendered,
+      'BAILEYS_TEXT',
+      'Este conjunto de interações será convertido para conteúdo textual funcional neste provider.',
+    );
+  }
+
+  if (normalized === 'CONNECT') {
     return {
       provider: normalized,
-      mode: 'TEXT_COMPAT',
-      compatibilityTransport: 'BAILEYS_TEXT',
-      degraded: true,
-      warnings: ['Este conjunto de interações será convertido para conteúdo textual funcional neste provider.'],
+      mode: 'INTERACTIVE',
+      degraded: false,
+      warnings: [],
       buttons: buttons.map((button) => ({
         id: button.id,
         title: String(button.displayText || ''),
         canonicalType: button.type,
-        transport:
-          button.type === 'url'
-            ? 'TEXT_LINK'
-            : button.type === 'call'
-              ? 'TEXT_PHONE'
-              : button.type === 'copy'
-                ? 'TEXT_CODE'
-                : 'TEXT_OPTION',
-        degraded: true,
+        transport: 'NATIVE_BUTTON',
+        degraded: false,
       })),
     };
   }
 
-  return {
-    provider: normalized,
-    mode: 'INTERACTIVE',
-    degraded: false,
-    warnings: [],
-    buttons: buttons.map((button) => ({
-      id: button.id,
-      title: String(button.displayText || ''),
-      canonicalType: button.type,
-      transport: 'NATIVE_BUTTON',
-      degraded: false,
-    })),
-  };
+  return textCompatibilityPlan(
+    normalized,
+    rendered,
+    'GENERIC_TEXT',
+    'Provider sem capability interativa declarada; as interações serão preservadas como conteúdo textual funcional.',
+  );
 }
