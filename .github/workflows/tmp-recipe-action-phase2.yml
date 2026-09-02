@@ -34,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Format TypeScript source
-        run: npx eslint --ext .ts src test/recipe-action --fix
+        run: npx eslint --ext .ts src --fix
 
       - name: Generate Prisma client
         run: npx prisma generate --schema prisma/postgresql-schema.prisma
