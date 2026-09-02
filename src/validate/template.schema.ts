@@ -29,8 +29,11 @@ export const templateSchema: JSONSchema7 = {
     allowCategoryChange: { type: 'boolean' },
     language: { type: 'string' },
     components: { type: 'array' },
+    actions: { type: 'object' },
+    policy: { type: 'object' },
+    enabled: { type: 'boolean' },
     webhookUrl: { type: 'string' },
   },
   required: ['name', 'category', 'language', 'components'],
-  ...isNotEmpty('name', 'category', 'language', 'components'),
+  ...isNotEmpty('name', 'category', 'language'),
 };
