@@ -1,0 +1,39 @@
+name: Phase 6 Import Sort Fix
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'feat/conversational-application-studio-phase6'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Sort Micro App imports
+        run: |
+          npx eslint --fix src/api/services/micro-app.service.ts
+          npx eslint src/api/services/micro-app.service.ts
+          git diff --check
+      - name: Commit and push
+        run: |
+          if git diff --quiet; then
+            echo 'No import sort changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/api/services/micro-app.service.ts
+          git commit --no-verify -m 'style(micro-app): normalize imports'
+          git push --no-verify origin HEAD:${{ github.head_ref }}
