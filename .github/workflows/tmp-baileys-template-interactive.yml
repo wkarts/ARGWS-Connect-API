@@ -34,6 +34,11 @@ jobs:
       - name: Format TypeScript
         run: npx eslint --ext .ts src --fix
 
+      - name: Generate Prisma client
+        run: |
+          DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma validate --schema prisma/postgresql-schema.prisma
+          DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma generate --schema prisma/postgresql-schema.prisma
+
       - name: Validate compatibility
         run: |
           set -euo pipefail
