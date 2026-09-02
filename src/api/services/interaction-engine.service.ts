@@ -5,23 +5,35 @@ import { Logger } from '@config/logger.config';
 
 import { ActionExecutionService } from './action-execution.service';
 import { resolveActionValue } from './action-value-resolver';
+import { CapturedLocation, evaluateLocationPolicy, LocationPolicy } from './geolocation-policy';
 import { extractBaileysPollInteraction } from './interaction-normalizer';
 import { WAMonitoringService } from './monitor.service';
 import { RecipeService } from './recipe.service';
 import { TemplateEngineService } from './template-engine.service';
 
+type InteractionCapture = {
+  path: string;
+  value?: unknown;
+  includePayload?: boolean;
+};
+
 type InteractionBinding = {
   id: string;
   matchTitle?: string;
+  interactionType?: string;
   type: 'ACTION' | 'RECIPE' | 'NONE';
   key?: string;
   input?: Record<string, unknown>;
+  capture?: InteractionCapture;
+  locationPolicy?: LocationPolicy;
   confirmOnInteraction?: boolean;
   keepSessionOpen?: boolean;
   retryOnError?: boolean;
   response?: Record<string, unknown> | null;
   onError?: Record<string, unknown> | null;
 };
+
+const CAPTURE_PATH = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/;
 
 export class InteractionEngineService {
   private readonly logger = new Logger('InteractionEngineService');
@@ -59,7 +71,9 @@ export class InteractionEngineService {
     }
 
     const binding = this.findBinding(session.actions, interaction);
-    if (!binding || binding.type === 'NONE' || !binding.key) return;
+    if (!binding) return;
+    const isExecutable = binding.type !== 'NONE' && Boolean(binding.key);
+    if (!isExecutable && !binding.capture && !binding.locationPolicy) return;
 
     const inboundMessageId = String(message?.key?.id || '');
     const claimed = await this.prisma.templateInteractionSession.updateMany({
@@ -78,28 +92,54 @@ export class InteractionEngineService {
       integration: instanceRow.integration,
     };
 
-    const baseContext = {
-      session: {
-        id: session.id,
-        templateName: session.templateName,
-        language: session.language,
-        variables: (session.variables as any) || {},
-        remoteJid: session.remoteJid,
-      },
-      interaction,
-      message: {
-        id: inboundMessageId,
-        remoteJid: message?.key?.remoteJid,
-        pushName: message?.pushName,
-      },
-      input: (session.variables as any) || {},
-    };
-
     try {
-      const input = resolveActionValue(binding.input || (session.variables as any) || {}, baseContext) as Record<
-        string,
-        unknown
-      >;
+      const previousVariables = ((session.variables as any) || {}) as Record<string, unknown>;
+      const variables = this.captureInteraction(previousVariables, binding, interaction);
+      const locationValidation = this.validateLocation(binding, interaction);
+      if (locationValidation) {
+        interaction.payload = { ...(interaction.payload || {}), locationValidation };
+      }
+
+      if (binding.capture || locationValidation) {
+        await this.prisma.templateInteractionSession.update({
+          where: { id: session.id },
+          data: { variables: variables as any },
+        });
+      }
+
+      const baseContext = {
+        session: {
+          id: session.id,
+          templateName: session.templateName,
+          language: session.language,
+          variables,
+          remoteJid: session.remoteJid,
+        },
+        interaction,
+        message: {
+          id: inboundMessageId,
+          remoteJid: message?.key?.remoteJid,
+          pushName: message?.pushName,
+        },
+        input: variables,
+      };
+
+      if (!isExecutable) {
+        if (binding.response) {
+          await this.sendConfiguredResponse(instance, session.remoteJid, binding.response, baseContext);
+        }
+        await this.prisma.templateInteractionSession.update({
+          where: { id: session.id },
+          data: {
+            status: binding.keepSessionOpen === false ? 'COMPLETED' : 'OPEN',
+            variables: variables as any,
+            lastError: null,
+          },
+        });
+        return;
+      }
+
+      const input = resolveActionValue(binding.input || variables, baseContext) as Record<string, unknown>;
       const confirmation = await this.resolveConfirmation(instanceRow.id, binding);
 
       if (confirmation === 'STRONG') {
@@ -116,6 +156,7 @@ export class InteractionEngineService {
           where: { id: session.id },
           data: {
             status: 'WAITING_STRONG_CONFIRMATION',
+            variables: variables as any,
             strongBindingId: binding.id,
             strongInput: input as any,
             strongRequestedAt: new Date(),
@@ -155,6 +196,7 @@ export class InteractionEngineService {
         where: { id: session.id },
         data: {
           status: binding.keepSessionOpen ? 'OPEN' : 'COMPLETED',
+          variables: variables as any,
           lastError: null,
         },
       });
@@ -164,10 +206,22 @@ export class InteractionEngineService {
 
       if (binding.onError) {
         try {
-          await this.sendConfiguredResponse(instance, session.remoteJid, binding.onError, {
-            ...baseContext,
-            error: { message: messageText },
-          });
+          await this.sendConfiguredResponse(
+            instance,
+            session.remoteJid,
+            binding.onError,
+            {
+              session: {
+                id: session.id,
+                templateName: session.templateName,
+                language: session.language,
+                variables: (session.variables as any) || {},
+                remoteJid: session.remoteJid,
+              },
+              interaction,
+              error: { message: messageText },
+            },
+          );
         } catch (responseError) {
           this.logger.error(`Interaction error response failed: ${String(responseError)}`);
         }
@@ -362,13 +416,85 @@ export class InteractionEngineService {
     const title = String(interaction?.title || '')
       .trim()
       .toLowerCase();
+    const type = String(interaction?.type || '').trim().toLowerCase();
+    const bindings = this.bindings(actions);
     return (
-      this.bindings(actions).find((binding) => String(binding.id || '') === id) ||
-      this.bindings(actions).find(
+      bindings.find((binding) => String(binding.id || '') === id) ||
+      bindings.find(
         (binding) => binding.matchTitle && String(binding.matchTitle).trim().toLowerCase() === title,
+      ) ||
+      bindings.find(
+        (binding) => binding.interactionType && String(binding.interactionType).trim().toLowerCase() === type,
       ) ||
       null
     );
+  }
+
+  private captureInteraction(
+    previousVariables: Record<string, unknown>,
+    binding: InteractionBinding,
+    interaction: any,
+  ): Record<string, unknown> {
+    const variables = this.cloneObject(previousVariables);
+    if (!binding.capture?.path) return variables;
+    if (!CAPTURE_PATH.test(binding.capture.path)) throw new Error('Invalid interaction capture path.');
+
+    const context = { interaction, input: variables, session: { variables } };
+    let value: unknown;
+    if (binding.capture.value !== undefined) {
+      value = resolveActionValue(binding.capture.value, context);
+    } else if (binding.capture.includePayload) {
+      value = interaction?.payload || null;
+    } else if (interaction?.payload && interaction.type === 'location') {
+      value = interaction.payload;
+    } else {
+      value = { id: interaction?.id, title: interaction?.title, payload: interaction?.payload };
+    }
+
+    this.setPath(variables, binding.capture.path, value);
+    return variables;
+  }
+
+  private validateLocation(binding: InteractionBinding, interaction: any) {
+    if (!binding.locationPolicy) return null;
+    if (interaction?.type !== 'location' && interaction?.type !== 'live_location') {
+      throw new Error('LOCATION_REQUIRED');
+    }
+
+    const payload = interaction?.payload || {};
+    const location: CapturedLocation = {
+      source: 'WHATSAPP',
+      latitude: Number(payload.latitude),
+      longitude: Number(payload.longitude),
+      address: payload.address ? String(payload.address) : undefined,
+      name: payload.name ? String(payload.name) : undefined,
+      capturedAt: new Date().toISOString(),
+    };
+    const validation = evaluateLocationPolicy(location, binding.locationPolicy);
+    if (!validation.accepted) throw new Error(validation.reason);
+    return validation;
+  }
+
+  private cloneObject(value: Record<string, unknown>) {
+    try {
+      return JSON.parse(JSON.stringify(value || {})) as Record<string, unknown>;
+    } catch {
+      return { ...value };
+    }
+  }
+
+  private setPath(target: Record<string, unknown>, path: string, value: unknown) {
+    const parts = path.split('.').filter(Boolean);
+    let current: any = target;
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (index === parts.length - 1) {
+        current[part] = value;
+      } else {
+        if (!current[part] || typeof current[part] !== 'object' || Array.isArray(current[part])) current[part] = {};
+        current = current[part];
+      }
+    }
   }
 
   private async resolveConfirmation(instanceId: string, binding: InteractionBinding): Promise<string> {
