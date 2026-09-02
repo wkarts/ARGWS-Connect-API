@@ -1,0 +1,78 @@
+name: Template Studio Transfer Finalize
+
+on:
+  push:
+    branches: [feat/template-studio-professional]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/template-studio-professional
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Wire transfer assets and tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          html_path = Path('manager/dist/template-editor.html')
+          html = html_path.read_text()
+          css_marker = '    <link rel="stylesheet" href="/assets/template-studio-wizard.css" />\n'
+          transfer_css = '    <link rel="stylesheet" href="/assets/template-studio-transfer.css" />\n'
+          if '/assets/template-studio-transfer.css' not in html:
+              if css_marker not in html:
+                  raise SystemExit('wizard css marker not found')
+              html = html.replace(css_marker, css_marker + transfer_css, 1)
+          script_marker = '    <script src="/assets/template-studio-wizard.js"></script>\n'
+          transfer_script = '    <script src="/assets/template-studio-transfer.js"></script>\n'
+          if '/assets/template-studio-transfer.js' not in html:
+              if script_marker not in html:
+                  raise SystemExit('wizard script marker not found')
+              html = html.replace(script_marker, script_marker + transfer_script, 1)
+          html_path.write_text(html)
+
+          package_path = Path('package.json')
+          package_text = package_path.read_text()
+          marker = 'tsx ./test/template-studio/wizard-ui.test.ts'
+          replacement = marker + ' && tsx ./test/template-studio/transfer-center.test.ts'
+          if 'template-studio/transfer-center.test.ts' not in package_text:
+              if marker not in package_text:
+                  raise SystemExit('wizard test marker not found')
+              package_text = package_text.replace(marker, replacement, 1)
+          package_path.write_text(package_text)
+          PY
+      - name: Canonical format and validation
+        run: |
+          npx eslint --fix src/api/controllers/template.controller.ts src/api/services/template-deletion-policy.ts
+          npx prettier --write src/api/controllers/template.controller.ts src/api/services/template-deletion-policy.ts manager/dist/template-editor.html manager/dist/assets/template-studio-professional.js manager/dist/assets/template-studio-professional.css manager/dist/assets/template-studio-wizard.js manager/dist/assets/template-studio-wizard.css manager/dist/assets/template-studio-transfer.js manager/dist/assets/template-studio-transfer.css test/template-studio/professional-ui.test.ts test/template-studio/wizard-ui.test.ts test/template-studio/transfer-center.test.ts docs/guides/template-studio-professional-wizard.md docs/guides/template-studio-import-export.md package.json
+          npx eslint src/api/controllers/template.controller.ts src/api/services/template-deletion-policy.ts
+          node --check manager/dist/assets/template-studio-professional.js
+          node --check manager/dist/assets/template-studio-wizard.js
+          node --check manager/dist/assets/template-studio-transfer.js
+          npx tsx ./test/template-studio/professional-ui.test.ts
+          npx tsx ./test/template-studio/wizard-ui.test.ts
+          npx tsx ./test/template-studio/transfer-center.test.ts
+          npm run docs:check
+          git diff --check
+      - name: Commit canonical outputs
+        run: |
+          if git diff --quiet; then
+            echo 'No canonical changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/api/controllers/template.controller.ts src/api/services/template-deletion-policy.ts manager/dist/template-editor.html manager/dist/assets/template-studio-professional.js manager/dist/assets/template-studio-professional.css manager/dist/assets/template-studio-wizard.js manager/dist/assets/template-studio-wizard.css manager/dist/assets/template-studio-transfer.js manager/dist/assets/template-studio-transfer.css docs/guides/template-studio-professional-wizard.md docs/guides/template-studio-import-export.md package.json
+          git add -f test/template-studio/professional-ui.test.ts test/template-studio/wizard-ui.test.ts test/template-studio/transfer-center.test.ts
+          git commit --no-verify -m 'feat(studio): finalize portable transfer center'
+          git push --no-verify origin HEAD:feat/template-studio-professional
