@@ -11,6 +11,13 @@ export class MetaCloudAdminRouter {
   constructor() {
     const guards = [instanceExistsGuard, instanceLoggedGuard, authGuard['apikey']];
     this.router.get(
+      '/:instanceName/window/:recipient',
+      ...guards,
+      this.wrap(async (req, res) => {
+        res.json(await metaCloudController.inspectWindow(req.params.instanceName, req.params.recipient));
+      }),
+    );
+    this.router.get(
       '/:instanceName',
       ...guards,
       this.wrap(async (req, res) => {

@@ -97,7 +97,9 @@ export const schedulerProRecipePackage = {
       description: 'Consulta os dados atuais de um agendamento.',
       version: 1,
       confirmation: 'NONE',
-      steps: [{ id: 'appointment', action: 'scheduler.appointment.get', input: { appointmentId: '{{input.appointmentId}}' } }],
+      steps: [
+        { id: 'appointment', action: 'scheduler.appointment.get', input: { appointmentId: '{{input.appointmentId}}' } },
+      ],
       outputTemplate: { appointment: '{{steps.appointment.result.data}}' },
     },
     {
@@ -106,7 +108,9 @@ export const schedulerProRecipePackage = {
       description: 'Confirma o agendamento explicitamente escolhido pelo cliente.',
       version: 1,
       confirmation: 'CONFIRM',
-      steps: [{ id: 'confirm', action: 'scheduler.appointment.confirm', input: { appointmentId: '{{input.appointmentId}}' } }],
+      steps: [
+        { id: 'confirm', action: 'scheduler.appointment.confirm', input: { appointmentId: '{{input.appointmentId}}' } },
+      ],
       outputTemplate: { result: '{{steps.confirm.result.data}}' },
     },
     {

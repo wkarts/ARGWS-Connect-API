@@ -113,7 +113,15 @@ export class InteractionEngineService {
         );
         await this.prisma.templateInteractionSession.update({
           where: { id: session.id },
-          data: { status: 'WAITING_STRONG_CONFIRMATION' },
+          data: {
+            status: 'WAITING_STRONG_CONFIRMATION',
+            strongBindingId: binding.id,
+            strongInput: input as any,
+            strongRequestedAt: new Date(),
+            strongDecisionAt: null,
+            strongDecisionBy: null,
+            strongDecisionReason: null,
+          },
         });
         return;
       }
@@ -171,6 +179,144 @@ export class InteractionEngineService {
           lastError: messageText.slice(0, 4000),
         },
       });
+    }
+  }
+
+  public async listStrongConfirmations(instanceName: string) {
+    const instance = await this.prisma.instance.findUnique({ where: { name: instanceName }, select: { id: true } });
+    if (!instance) return [];
+    return this.prisma.templateInteractionSession.findMany({
+      where: { instanceId: instance.id, status: 'WAITING_STRONG_CONFIRMATION' },
+      orderBy: { strongRequestedAt: 'asc' },
+      select: {
+        id: true,
+        remoteJid: true,
+        templateName: true,
+        language: true,
+        strongBindingId: true,
+        strongInput: true,
+        strongRequestedAt: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  public async approveStrongConfirmation(instanceName: string, sessionId: string, actor: string, reason?: string) {
+    return this.decideStrongConfirmation(instanceName, sessionId, 'APPROVE', actor, reason);
+  }
+
+  public async rejectStrongConfirmation(instanceName: string, sessionId: string, actor: string, reason?: string) {
+    return this.decideStrongConfirmation(instanceName, sessionId, 'REJECT', actor, reason);
+  }
+
+  private async decideStrongConfirmation(
+    instanceName: string,
+    sessionId: string,
+    decision: 'APPROVE' | 'REJECT',
+    actor: string,
+    reason?: string,
+  ) {
+    const instanceRow = await this.prisma.instance.findUnique({
+      where: { name: instanceName },
+      select: { id: true, name: true, integration: true },
+    });
+    if (!instanceRow) throw new Error(`Instance ${instanceName} was not found.`);
+
+    const session = await this.prisma.templateInteractionSession.findFirst({
+      where: { id: sessionId, instanceId: instanceRow.id },
+    });
+    if (!session || session.status !== 'WAITING_STRONG_CONFIRMATION') {
+      throw new Error('Strong confirmation is no longer pending.');
+    }
+
+    if (decision === 'REJECT') {
+      const changed = await this.prisma.templateInteractionSession.updateMany({
+        where: { id: session.id, status: 'WAITING_STRONG_CONFIRMATION' },
+        data: {
+          status: 'REJECTED',
+          strongDecisionAt: new Date(),
+          strongDecisionBy: actor,
+          strongDecisionReason: reason || null,
+        },
+      });
+      if (!changed.count) throw new Error('Strong confirmation was already decided.');
+      const instance: InstanceDto = {
+        instanceName: instanceRow.name,
+        instanceId: instanceRow.id,
+        integration: instanceRow.integration,
+      };
+      await this.sendConfiguredResponse(
+        instance,
+        session.remoteJid,
+        { type: 'TEXT', text: 'Operação não autorizada pelo responsável.' },
+        { session: { id: session.id } },
+      );
+      return { sessionId: session.id, status: 'REJECTED', actor, reason: reason || null };
+    }
+
+    const claimed = await this.prisma.templateInteractionSession.updateMany({
+      where: { id: session.id, status: 'WAITING_STRONG_CONFIRMATION' },
+      data: {
+        status: 'PROCESSING_STRONG_CONFIRMATION',
+        strongDecisionAt: new Date(),
+        strongDecisionBy: actor,
+        strongDecisionReason: reason || null,
+        lastError: null,
+      },
+    });
+    if (!claimed.count) throw new Error('Strong confirmation was already decided.');
+
+    const binding = this.bindings(session.actions).find((item) => item.id === session.strongBindingId);
+    if (!binding || binding.type === 'NONE' || !binding.key) {
+      await this.prisma.templateInteractionSession.update({
+        where: { id: session.id },
+        data: { status: 'FAILED', lastError: 'Strong binding is unavailable.' },
+      });
+      throw new Error('Strong binding is unavailable.');
+    }
+
+    const instance: InstanceDto = {
+      instanceName: instanceRow.name,
+      instanceId: instanceRow.id,
+      integration: instanceRow.integration,
+    };
+    const input = ((session.strongInput as any) || {}) as Record<string, unknown>;
+    try {
+      let result: any;
+      if (binding.type === 'RECIPE') {
+        result = await this.recipeService.execute(instance, {
+          recipeKey: binding.key,
+          input,
+          confirmed: true,
+          dryRun: false,
+        });
+      } else {
+        result = await this.actionExecution.execute(instance, {
+          actionKey: binding.key,
+          input,
+          confirmed: true,
+          dryRun: false,
+        });
+      }
+      if (binding.response) {
+        await this.sendConfiguredResponse(instance, session.remoteJid, binding.response, {
+          session: { id: session.id, variables: (session.variables as any) || {} },
+          result,
+        });
+      }
+      await this.prisma.templateInteractionSession.update({
+        where: { id: session.id },
+        data: { status: 'COMPLETED', lastError: null },
+      });
+      return { sessionId: session.id, status: 'COMPLETED', actor, reason: reason || null, result };
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      await this.prisma.templateInteractionSession.update({
+        where: { id: session.id },
+        data: { status: 'FAILED', lastError: messageText.slice(0, 4000) },
+      });
+      throw error;
     }
   }
 

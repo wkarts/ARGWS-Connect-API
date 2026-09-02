@@ -1,3 +1,4 @@
+import { MetaCloudPolicyService } from '@api/compat/meta-cloud/meta-cloud-policy.service';
 import { MetaCloudWebhookDispatcher } from '@api/compat/meta-cloud/meta-cloud-webhook.dispatcher';
 import { KafkaController } from '@api/integrations/event/kafka/kafka.controller';
 import { NatsController } from '@api/integrations/event/nats/nats.controller';
@@ -23,6 +24,7 @@ export class EventManager {
   private kafkaController: KafkaController;
   private metaCloudDispatcher?: MetaCloudWebhookDispatcher;
   private interactionEngine?: InteractionEngineService;
+  private metaCloudPolicy?: MetaCloudPolicyService;
 
   constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
     this.prisma = prismaRepository;
@@ -115,6 +117,10 @@ export class EventManager {
     this.interactionEngine = engine;
   }
 
+  public setMetaCloudPolicy(policy: MetaCloudPolicyService): void {
+    this.metaCloudPolicy = policy;
+  }
+
   public init(httpServer: Server): void {
     this.websocket.init(httpServer);
     this.rabbitmq.init();
@@ -137,6 +143,9 @@ export class EventManager {
     integration?: string[];
     extra?: Record<string, any>;
   }): Promise<void> {
+    if (this.metaCloudPolicy) {
+      await this.metaCloudPolicy.handleEvent(eventData).catch(() => undefined);
+    }
     if (this.metaCloudDispatcher) {
       void this.metaCloudDispatcher.handleEvent(eventData).catch(() => undefined);
     }

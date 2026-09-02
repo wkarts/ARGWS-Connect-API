@@ -5,6 +5,7 @@ import { MetaCloudAuthService } from './meta-cloud-auth.service';
 import { MetaCloudIdentityResolver } from './meta-cloud-identity.resolver';
 import { MetaCloudMediaService } from './meta-cloud-media.service';
 import { MetaCloudMessageAdapter } from './meta-cloud-message.adapter';
+import { MetaCloudPolicyService } from './meta-cloud-policy.service';
 import { MetaCloudTemplateService } from './meta-cloud-template.service';
 import { MetaCloudMessageRequest } from './types/meta-message.types';
 import { MetaCloudIdentity } from './types/meta-response.types';
@@ -18,13 +19,20 @@ export class MetaCloudGraphController {
     private readonly adapter: MetaCloudMessageAdapter,
     private readonly media: MetaCloudMediaService,
     private readonly templates: MetaCloudTemplateService,
+    private readonly policy: MetaCloudPolicyService,
   ) {}
 
   public async send(version: string, phoneNumberId: string, authorization: any, payload: MetaCloudMessageRequest) {
     const identity = await this.resolvePhone(phoneNumberId, authorization);
     this.log(identity, version, payload?.status === 'read' ? 'mark-read' : `send-${payload?.type || 'unknown'}`);
+    if (payload?.status !== 'read' && payload?.to) {
+      await this.policy.assertOutbound(identity, String(payload.to), String(payload.type || ''));
+    }
     const result = await this.adapter.execute(identity, payload || {});
-    if (payload?.status !== 'read') metaCloudMetrics.increment('connect_meta_compat_messages_sent_total');
+    if (payload?.status !== 'read') {
+      metaCloudMetrics.increment('connect_meta_compat_messages_sent_total');
+      if (payload?.to) await this.policy.recordOutbound(identity.instanceId, String(payload.to));
+    }
     return result;
   }
 

@@ -1,9 +1,9 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import { InstanceDto } from '@api/dto/instance.dto';
-import { RecipeDeleteDto, RecipeDto, RecipeExecuteDto } from '@api/dto/recipe.dto';
+import { RecipeDeleteDto, RecipeDto, RecipeExecuteDto, RecipeInstallDto } from '@api/dto/recipe.dto';
 import { recipeController } from '@api/server.module';
 import { createMetaErrorResponse } from '@utils/errorResponse';
-import { recipeDeleteSchema, recipeExecuteSchema, recipeSchema } from '@validate/recipe.schema';
+import { recipeDeleteSchema, recipeExecuteSchema, recipeInstallSchema, recipeSchema } from '@validate/recipe.schema';
 import { RequestHandler, Router } from 'express';
 
 import { HttpStatus } from './index.router';
@@ -12,6 +12,28 @@ export class RecipeRouter extends RouterBroker {
   constructor(...guards: RequestHandler[]) {
     super();
     this.router
+      .get(this.routerPath('library'), ...guards, async (req, res) => {
+        try {
+          res.status(HttpStatus.OK).json(await recipeController.library());
+        } catch (error) {
+          const response = createMetaErrorResponse(error, 'recipe_library');
+          res.status(response.status).json(response);
+        }
+      })
+      .post(this.routerPath('install'), ...guards, async (req, res) => {
+        try {
+          const response = await this.dataValidate<RecipeInstallDto>({
+            request: req,
+            schema: recipeInstallSchema,
+            ClassRef: RecipeInstallDto,
+            execute: (instance, data) => recipeController.install(instance, data),
+          });
+          res.status(HttpStatus.CREATED).json(response);
+        } catch (error) {
+          const response = createMetaErrorResponse(error, 'recipe_install');
+          res.status(response.status).json(response);
+        }
+      })
       .post(this.routerPath('create'), ...guards, async (req, res) => {
         try {
           const response = await this.dataValidate<RecipeDto>({

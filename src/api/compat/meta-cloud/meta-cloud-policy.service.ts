@@ -146,13 +146,7 @@ export class MetaCloudPolicyService {
     };
   }
 
-  private async recordDecision(
-    instanceId: string,
-    remoteJid: string,
-    decision: string,
-    violation: boolean,
-    at: Date,
-  ) {
+  private async recordDecision(instanceId: string, remoteJid: string, decision: string, violation: boolean, at: Date) {
     if (!remoteJid) return;
     await this.prisma.metaConversationWindow.upsert({
       where: { instanceId_remoteJid: { instanceId, remoteJid } },
@@ -172,6 +166,8 @@ export class MetaCloudPolicyService {
   }
 
   private normalizeRecipient(value: unknown) {
-    return String(value || '').split('@')[0].replace(/\D/g, '');
+    return String(value || '')
+      .split('@')[0]
+      .replace(/\D/g, '');
   }
 }

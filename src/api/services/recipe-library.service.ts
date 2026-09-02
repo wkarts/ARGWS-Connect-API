@@ -1,7 +1,7 @@
 import { InstanceDto } from '@api/dto/instance.dto';
 import { RecipeInstallDto } from '@api/dto/recipe.dto';
-import { PrismaRepository } from '@api/repository/repository.service';
 import { schedulerProRecipePackage } from '@api/recipes/official/scheduler-pro';
+import { PrismaRepository } from '@api/repository/repository.service';
 import { BadRequestException } from '@exceptions';
 
 import { ActionRegistryService } from './action-registry.service';

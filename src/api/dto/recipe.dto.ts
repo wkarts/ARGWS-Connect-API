@@ -29,3 +29,10 @@ export class RecipeExecuteDto {
 export class RecipeDeleteDto {
   recipeKey: string;
 }
+
+export class RecipeInstallDto {
+  packageKey: string;
+  baseUrl: string;
+  credentialRef?: string;
+  allowPrivateNetwork?: boolean;
+}
