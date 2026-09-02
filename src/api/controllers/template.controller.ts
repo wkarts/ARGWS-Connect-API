@@ -26,13 +26,33 @@ export class TemplateController {
     let policy: Record<string, unknown> = data.policy || {};
 
     if (!Array.isArray(data.components) && data.name) {
-      const templates: any = await this.templateService.find(instance);
-      const list = Array.isArray(templates) ? templates : Array.isArray(templates?.data) ? templates.data : [];
-      const selected = list.find(
-        (template: any) =>
-          template.name === data.name && String(template.language || 'pt_BR') === String(data.language || 'pt_BR'),
-      );
-      if (selected?.policy && typeof selected.policy === 'object') policy = selected.policy;
+      if (preview.provider === 'WHATSAPP-BUSINESS') {
+        const templates: any = await this.templateService.find(instance);
+        const list = Array.isArray(templates) ? templates : Array.isArray(templates?.data) ? templates.data : [];
+        const selected = list.find(
+          (template: any) =>
+            template.name === data.name && String(template.language || 'pt_BR') === String(data.language || 'pt_BR'),
+        );
+        if (selected?.policy && typeof selected.policy === 'object') policy = selected.policy;
+      } else {
+        const instanceRow = await this.templateService.prismaRepository.instance.findUnique({
+          where: { name: instance.instanceName },
+          select: { id: true },
+        });
+        if (instanceRow) {
+          const selected = await this.templateService.prismaRepository.template.findFirst({
+            where: {
+              instanceId: instanceRow.id,
+              name: data.name,
+              language: data.language || 'pt_BR',
+            },
+            select: { policy: true },
+          });
+          if (selected?.policy && typeof selected.policy === 'object') {
+            policy = selected.policy as Record<string, unknown>;
+          }
+        }
+      }
     }
 
     const interactions = renderInteractionModelV2(policy, data.variables || {});
@@ -51,8 +71,21 @@ export class TemplateController {
   }
 
   public async editTemplate(instance: InstanceDto, data: TemplateEditDto) {
-    if (data.policy !== undefined || data.actions !== undefined) {
-      data.actions = mergePolicyInteractionBindings(data.actions, data.policy);
+    if (data.policy !== undefined) {
+      const instanceRow = await this.templateService.prismaRepository.instance.findUnique({
+        where: { name: instance.instanceName },
+        select: { id: true },
+      });
+      const existing = instanceRow
+        ? await this.templateService.prismaRepository.template.findFirst({
+            where: {
+              instanceId: instanceRow.id,
+              OR: [{ templateId: data.templateId }, { externalTemplateId: data.templateId }],
+            },
+            select: { actions: true },
+          })
+        : null;
+      data.actions = mergePolicyInteractionBindings(data.actions ?? existing?.actions, data.policy);
     }
     return this.templateService.edit(instance, data);
   }
