@@ -3,7 +3,7 @@
   "info": {
     "title": "Connect|API — Eventos",
     "version": "1.0.16",
-    "description": "Catálogo dos eventos definidos em `Events`, publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte."
+    "description": "![Connect|API Events](/openapi/branding/docs/connect-api-events-light.png)\n\nEventos do Connect|API publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte."
   },
   "channels": {
     "application.startup": {

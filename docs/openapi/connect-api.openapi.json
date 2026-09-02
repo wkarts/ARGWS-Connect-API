@@ -4,7 +4,7 @@
     "title": "Connect|API — REST API",
     "version": "1.0.16",
     "summary": "Referência interativa da API nativa do Connect|API.",
-    "description": "![Connect|API DOCs](/openapi/branding/docs/connect-api-docs-light.png)\n\nDocumentação gerada a partir das rotas Express atuais do projeto. O contrato nativo continua sendo a interface principal da aplicação e pode coexistir com a camada Meta Compatible `/graph`.\n\n### Autenticação\nA API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.\n\n### Providers\n- `WHATSAPP-BUSINESS`\n- `WHATSAPP-BAILEYS`\n- `CONNECT`\n\n### Atualização automática\nEste documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado."
+    "description": "![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)\n\nAPI nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.\n\n### Autenticação\nA API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.\n\n### Providers\n- `WHATSAPP-BUSINESS`\n- `WHATSAPP-BAILEYS`\n- `CONNECT`\n\n### Atualização automática\nEste documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado."
   },
   "servers": [
     {
