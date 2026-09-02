@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Format TypeScript source
+        run: npx eslint --ext .ts src --fix
+
       - name: Generate Prisma client
         run: npx prisma generate --schema prisma/postgresql-schema.prisma
 
@@ -71,7 +74,11 @@ jobs:
             docs/openapi/connect-api.openapi.json \
             docs/openapi/meta-compatible.openapi.json \
             docs/openapi/coverage.json \
-            docs/asyncapi/connect-api-events.asyncapi.json
+            docs/asyncapi/connect-api-events.asyncapi.json \
+            src/api/server.module.ts \
+            src/api/services/template-engine.service.ts \
+            src/api/services/template-renderer.ts \
+            src/api/services/template.service.ts
           if ! git diff --cached --quiet; then
             git commit -m "feat(template): materializa catálogo e schemas canônicos"
           fi
