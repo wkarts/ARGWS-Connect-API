@@ -72,11 +72,14 @@ function buttonFromDefinition(button: any, index: number, requestComponents: any
 
   if (type === 'URL') {
     const suffix = stringifyParameter(firstParameter);
-    const rawUrl = interpolate(button?.url || '', parameters, variables);
+    const definitionUrl = String(button?.url || '');
+    const urlWithDynamicSuffix = suffix
+      ? definitionUrl.replace(/\{\{\s*1\s*\}\}/g, encodeURIComponent(suffix))
+      : definitionUrl;
     return {
       type: 'url' as const,
       displayText: label,
-      url: suffix && rawUrl.includes('{{1}}') ? rawUrl.replace('{{1}}', encodeURIComponent(suffix)) : rawUrl,
+      url: interpolate(urlWithDynamicSuffix, parameters, variables),
     };
   }
 
