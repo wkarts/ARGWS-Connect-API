@@ -1,0 +1,139 @@
+name: Template Studio Wizard Finalize
+
+on:
+  push:
+    branches: [feat/template-studio-professional]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/template-studio-professional
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Apply canonical wiring and deletion protection
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          service_path = Path('src/api/services/template.service.ts')
+          service = service_path.read_text()
+          import_line = "import { containsProtectedTemplate } from './template-deletion-policy';\n"
+          if import_line not in service:
+              marker = "import { renderTemplateDefinition } from './template-renderer';\n"
+              if marker not in service:
+                  raise SystemExit('template renderer import marker not found')
+              service = service.replace(marker, import_line + marker, 1)
+
+          pattern = re.compile(
+              r"  public async delete\(instance: InstanceDto, data: \{ name: string; hsmId\?: string \}\) \{.*?\n  \}\n\n  private async createLocal",
+              re.S,
+          )
+          replacement = '''  public async delete(instance: InstanceDto, data: { name: string; hsmId?: string }) {
+    const runtimeInstance = await this.getRuntimeInstance(instance);
+
+    if (!this.isMetaBusiness(runtimeInstance.integration)) {
+      const selector = data.hsmId
+        ? {
+            instanceId: runtimeInstance.id,
+            OR: [{ templateId: data.hsmId }, { externalTemplateId: data.hsmId }],
+          }
+        : { instanceId: runtimeInstance.id, name: data.name };
+      const targets = await this.prismaRepository.template.findMany({
+        where: selector,
+        select: { id: true, name: true, origin: true, isDefault: true },
+      });
+      if (!targets.length) throw new NotFoundException(`Template ${data.name} was not found.`);
+      if (containsProtectedTemplate(targets)) {
+        throw new BadRequestException('System/default templates cannot be deleted.');
+      }
+      const deleted = await this.prismaRepository.template.deleteMany({
+        where: { id: { in: targets.map((template) => template.id) } },
+      });
+      return { success: true, deleted: deleted.count, name: data.name };
+    }
+
+    this.setMetaCredentials(runtimeInstance);
+    const response = await this.requestDeleteTemplate({ name: data.name, hsm_id: data.hsmId });
+    if (!response || response.error) this.throwMetaError(response, 'Error to delete template');
+
+    try {
+      await this.prismaRepository.template.deleteMany({
+        where: {
+          instanceId: runtimeInstance.id,
+          OR: [{ name: data.name }, ...(data.hsmId ? [{ templateId: data.hsmId }] : [])],
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to cleanup local template records after delete: ${(err as Error)?.message || String(err)}`,
+      );
+    }
+    return response;
+  }
+
+  private async createLocal'''
+          next_service, count = pattern.subn(replacement, service, count=1)
+          if count != 1:
+              raise SystemExit(f'template delete block replacement count={count}')
+          service_path.write_text(next_service)
+
+          html_path = Path('manager/dist/template-editor.html')
+          html = html_path.read_text()
+          css_marker = '    <link rel="stylesheet" href="/assets/template-studio-professional.css" />\n'
+          wizard_css = '    <link rel="stylesheet" href="/assets/template-studio-wizard.css" />\n'
+          if '/assets/template-studio-wizard.css' not in html:
+              if css_marker not in html:
+                  raise SystemExit('professional css marker not found')
+              html = html.replace(css_marker, css_marker + wizard_css, 1)
+          script_marker = '    <script src="/assets/template-studio-professional.js"></script>\n'
+          wizard_script = '    <script src="/assets/template-studio-wizard.js"></script>\n'
+          if '/assets/template-studio-wizard.js' not in html:
+              if script_marker not in html:
+                  raise SystemExit('professional script marker not found')
+              html = html.replace(script_marker, script_marker + wizard_script, 1)
+          html_path.write_text(html)
+
+          package_path = Path('package.json')
+          package_text = package_path.read_text()
+          marker = 'tsx ./test/phase6.test.ts'
+          suffix = 'tsx ./test/phase6.test.ts && tsx ./test/template-studio/professional-ui.test.ts && tsx ./test/template-studio/wizard-ui.test.ts'
+          if 'template-studio/wizard-ui.test.ts' not in package_text:
+              if marker not in package_text:
+                  raise SystemExit('phase6 test marker not found')
+              package_text = package_text.replace(marker, suffix, 1)
+          package_path.write_text(package_text)
+          PY
+      - name: Format and validate
+        run: |
+          npx prettier --write src/api/services/template.service.ts src/api/services/template-deletion-policy.ts manager/dist/template-editor.html manager/dist/assets/template-studio-professional.js manager/dist/assets/template-studio-professional.css manager/dist/assets/template-studio-wizard.js manager/dist/assets/template-studio-wizard.css test/template-studio/professional-ui.test.ts test/template-studio/wizard-ui.test.ts docs/guides/template-studio-professional-wizard.md package.json
+          npx eslint --fix src/api/services/template.service.ts src/api/services/template-deletion-policy.ts
+          npx eslint src/api/services/template.service.ts src/api/services/template-deletion-policy.ts
+          node --check manager/dist/assets/template-studio-professional.js
+          node --check manager/dist/assets/template-studio-wizard.js
+          npx tsx ./test/template-studio/professional-ui.test.ts
+          npx tsx ./test/template-studio/wizard-ui.test.ts
+          npm run docs:check
+          git diff --check
+      - name: Commit product outputs
+        run: |
+          if git diff --quiet; then
+            echo 'No changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/api/services/template.service.ts src/api/services/template-deletion-policy.ts manager/dist/template-editor.html manager/dist/assets/template-studio-professional.js manager/dist/assets/template-studio-professional.css manager/dist/assets/template-studio-wizard.js manager/dist/assets/template-studio-wizard.css docs/guides/template-studio-professional-wizard.md package.json
+          git add -f test/template-studio/professional-ui.test.ts test/template-studio/wizard-ui.test.ts
+          git commit --no-verify -m 'feat(studio): finalize solution wizard and protected template deletion'
+          git push --no-verify origin HEAD:feat/template-studio-professional
