@@ -45,6 +45,20 @@ const DEFAULT_LOCAL_TEMPLATES = [
   },
 ] as const;
 
+type TemplateEditData = {
+  templateId: string;
+  name?: string;
+  language?: string;
+  category?: string;
+  components?: any;
+  allowCategoryChange?: boolean;
+  ttl?: number;
+  actions?: Record<string, unknown>;
+  policy?: Record<string, unknown>;
+  enabled?: boolean;
+  webhookUrl?: string;
+};
+
 export class TemplateService {
   constructor(
     private readonly waMonitor: WAMonitoringService,
@@ -64,12 +78,34 @@ export class TemplateService {
       this.setMetaCredentials(runtimeInstance);
       const response = await this.requestTemplate({}, 'GET');
       if (!response) throw new Error('Error to find templates');
-      return response.data;
+
+      const remoteTemplates = Array.isArray(response.data) ? response.data : [];
+      const overlays = await this.prismaRepository.template.findMany({
+        where: { instanceId: runtimeInstance.id },
+      });
+
+      return remoteTemplates.map((remote) => {
+        const overlay = overlays.find(
+          (local) =>
+            String(local.externalTemplateId || '') === String(remote.id || '') ||
+            (local.name === remote.name && local.language === (remote.language || 'pt_BR')),
+        );
+        return {
+          ...remote,
+          origin: overlay?.origin || 'META',
+          enabled: overlay?.enabled ?? true,
+          isDefault: overlay?.isDefault ?? false,
+          actions: overlay?.actions || null,
+          policy: overlay?.policy || null,
+          webhookUrl: overlay?.webhookUrl || null,
+          localId: overlay?.id || null,
+        };
+      });
     }
 
     await this.ensureDefaultTemplates(runtimeInstance.id);
     const templates = await this.prismaRepository.template.findMany({
-      where: { instanceId: runtimeInstance.id, enabled: true },
+      where: { instanceId: runtimeInstance.id },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }, { language: 'asc' }],
     });
     return templates.map((template) => this.toMetaShape(template));
@@ -95,7 +131,7 @@ export class TemplateService {
       const response = await this.requestTemplate(postData, 'POST');
       if (!response || response.error) this.throwMetaError(response, 'Error to create template');
 
-      return await this.prismaRepository.template.create({
+      const created = await this.prismaRepository.template.create({
         data: {
           templateId: String(response.id),
           externalTemplateId: String(response.id),
@@ -104,45 +140,58 @@ export class TemplateService {
           category: data.category,
           status: response.status || 'PENDING',
           origin: 'META',
-          enabled: true,
+          enabled: data.enabled ?? true,
           isDefault: false,
           template: { ...postData, ...response },
+          actions: data.actions as any,
+          policy: data.policy as any,
           webhookUrl: data.webhookUrl,
           instanceId: runtimeInstance.id,
         },
       });
+
+      return this.toMetaShape(created);
     } catch (error) {
       this.logger.error('Error in create template: ' + error);
       throw error;
     }
   }
 
-  public async edit(
-    instance: InstanceDto,
-    data: { templateId: string; category?: string; components?: any; allowCategoryChange?: boolean; ttl?: number },
-  ) {
+  public async edit(instance: InstanceDto, data: TemplateEditData) {
     const runtimeInstance = await this.getRuntimeInstance(instance);
 
     if (!this.isMetaBusiness(runtimeInstance.integration)) {
       const current = await this.prismaRepository.template.findFirst({
-        where: { instanceId: runtimeInstance.id, templateId: data.templateId },
+        where: {
+          instanceId: runtimeInstance.id,
+          OR: [{ templateId: data.templateId }, { externalTemplateId: data.templateId }],
+        },
       });
       if (!current) throw new NotFoundException(`Template ${data.templateId} not found`);
 
       const currentTemplate: any = current.template || {};
       const nextTemplate = {
         ...currentTemplate,
+        ...(typeof data.name === 'string' ? { name: data.name } : {}),
+        ...(typeof data.language === 'string' ? { language: data.language } : {}),
         ...(typeof data.category === 'string' ? { category: data.category } : {}),
         ...(data.components ? { components: data.components } : {}),
         ...(typeof data.allowCategoryChange === 'boolean' ? { allow_category_change: data.allowCategoryChange } : {}),
       };
-      const nextPolicy: any = { ...((current.policy as any) || {}) };
-      if (typeof data.ttl === 'number') nextPolicy.ttl = data.ttl;
+
+      let nextPolicy: any =
+        data.policy !== undefined ? { ...(data.policy || {}) } : { ...((current.policy as any) || {}) };
+      if (typeof data.ttl === 'number') nextPolicy = { ...nextPolicy, ttl: data.ttl };
 
       const updated = await this.prismaRepository.template.update({
         where: { id: current.id },
         data: {
+          ...(typeof data.name === 'string' ? { name: data.name } : {}),
+          ...(typeof data.language === 'string' ? { language: data.language } : {}),
           ...(typeof data.category === 'string' ? { category: data.category } : {}),
+          ...(typeof data.enabled === 'boolean' ? { enabled: data.enabled } : {}),
+          ...(data.actions !== undefined ? { actions: data.actions as any } : {}),
+          ...(data.webhookUrl !== undefined ? { webhookUrl: data.webhookUrl || null } : {}),
           template: nextTemplate,
           policy: nextPolicy,
         },
@@ -157,9 +206,70 @@ export class TemplateService {
     if (typeof data.ttl === 'number') payload.time_to_live = data.ttl;
     if (data.components) payload.components = data.components;
 
-    const response = await this.requestEditTemplate(data.templateId, payload);
-    if (!response || response.error) this.throwMetaError(response, 'Error to edit template');
-    return response;
+    let response: any = { success: true };
+    if (Object.keys(payload).length > 0) {
+      response = await this.requestEditTemplate(data.templateId, payload);
+      if (!response || response.error) this.throwMetaError(response, 'Error to edit template');
+    }
+
+    let overlay = await this.prismaRepository.template.findFirst({
+      where: {
+        instanceId: runtimeInstance.id,
+        OR: [{ templateId: data.templateId }, { externalTemplateId: data.templateId }],
+      },
+    });
+
+    if (overlay) {
+      const currentTemplate: any = overlay.template || {};
+      const policy: any = data.policy !== undefined ? data.policy || {} : overlay.policy || {};
+      overlay = await this.prismaRepository.template.update({
+        where: { id: overlay.id },
+        data: {
+          ...(data.name ? { name: data.name } : {}),
+          ...(data.language ? { language: data.language } : {}),
+          ...(data.category ? { category: data.category } : {}),
+          ...(typeof data.enabled === 'boolean' ? { enabled: data.enabled } : {}),
+          ...(data.actions !== undefined ? { actions: data.actions as any } : {}),
+          ...(data.webhookUrl !== undefined ? { webhookUrl: data.webhookUrl || null } : {}),
+          policy: { ...policy, ...(typeof data.ttl === 'number' ? { ttl: data.ttl } : {}) },
+          template: {
+            ...currentTemplate,
+            ...(data.name ? { name: data.name } : {}),
+            ...(data.language ? { language: data.language } : {}),
+            ...(data.category ? { category: data.category } : {}),
+            ...(data.components ? { components: data.components } : {}),
+          },
+        },
+      });
+    } else if (data.name) {
+      const language = data.language || 'pt_BR';
+      overlay = await this.prismaRepository.template.create({
+        data: {
+          templateId: data.templateId,
+          externalTemplateId: data.templateId,
+          name: data.name,
+          language,
+          category: data.category || 'UTILITY',
+          status: 'APPROVED',
+          origin: 'META',
+          enabled: data.enabled ?? true,
+          isDefault: false,
+          template: {
+            id: data.templateId,
+            name: data.name,
+            language,
+            category: data.category || 'UTILITY',
+            components: data.components || [],
+          },
+          actions: data.actions as any,
+          policy: { ...(data.policy || {}), ...(typeof data.ttl === 'number' ? { ttl: data.ttl } : {}) } as any,
+          webhookUrl: data.webhookUrl,
+          instanceId: runtimeInstance.id,
+        },
+      });
+    }
+
+    return { ...response, ...(overlay ? { editor: this.toMetaShape(overlay) } : {}) };
   }
 
   public async delete(instance: InstanceDto, data: { name: string; hsmId?: string }) {
@@ -218,9 +328,11 @@ export class TemplateService {
         category: data.category,
         status: 'APPROVED',
         origin: 'LOCAL',
-        enabled: true,
+        enabled: data.enabled ?? true,
         isDefault: false,
         template: definition,
+        actions: data.actions as any,
+        policy: data.policy as any,
         webhookUrl: data.webhookUrl,
         instanceId,
       },
@@ -257,11 +369,20 @@ export class TemplateService {
     const definition = template.template || {};
     return {
       id: template.externalTemplateId || template.templateId,
+      localId: template.id,
       name: template.name,
       status: template.status || definition.status || 'APPROVED',
       category: template.category || definition.category || 'UTILITY',
       language: template.language || definition.language || 'pt_BR',
       components: definition.components || [],
+      origin: template.origin || 'LOCAL',
+      enabled: template.enabled !== false,
+      isDefault: Boolean(template.isDefault),
+      actions: template.actions || null,
+      policy: template.policy || null,
+      webhookUrl: template.webhookUrl || null,
+      createdAt: template.createdAt,
+      updatedAt: template.updatedAt,
     };
   }
 

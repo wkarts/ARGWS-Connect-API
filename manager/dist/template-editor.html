@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1F5FD6" />
+    <meta name="description" content="Connect|API — Editor de Templates" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/assets/template-editor.css" />
+    <title>Connect|API — Template Studio</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <a class="back" href="/" aria-label="Voltar ao Manager">←</a>
+        <div>
+          <strong>Connect|API</strong>
+          <span>Template Studio · Manager legado</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="connectionBadge" class="badge muted">Não conectado</span>
+        <button id="refreshButton" class="button secondary" type="button">Atualizar</button>
+      </div>
+    </header>
+
+    <section class="connection-panel">
+      <label>
+        <span>API key</span>
+        <input id="apiKeyInput" type="password" autocomplete="off" placeholder="Chave administrativa ou token aceito pelo Manager" />
+      </label>
+      <label>
+        <span>Instância</span>
+        <select id="instanceSelect"><option value="">Selecione uma instância</option></select>
+      </label>
+      <button id="connectButton" class="button primary" type="button">Conectar</button>
+    </section>
+
+    <main class="workspace">
+      <aside class="catalog-panel">
+        <div class="panel-title">
+          <div>
+            <h1>Templates</h1>
+            <p>Catálogo da instância</p>
+          </div>
+          <button id="newTemplateButton" class="icon-button" type="button" title="Novo template">＋</button>
+        </div>
+        <input id="templateSearch" class="search" type="search" placeholder="Buscar template..." />
+        <div id="templateList" class="template-list">
+          <div class="empty">Conecte uma instância para carregar os templates.</div>
+        </div>
+      </aside>
+
+      <section class="editor-panel">
+        <div class="editor-toolbar">
+          <div>
+            <span id="editorMode" class="eyebrow">Novo template</span>
+            <h2 id="editorTitle">Template sem título</h2>
+          </div>
+          <div class="toolbar-actions">
+            <button id="duplicateButton" class="button secondary" type="button">Duplicar</button>
+            <button id="saveButton" class="button primary" type="button">Salvar</button>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="Seções do editor">
+          <button class="tab active" data-tab="content" type="button">Conteúdo</button>
+          <button class="tab" data-tab="interactions" type="button">Interações</button>
+          <button class="tab" data-tab="test" type="button">Teste</button>
+          <button class="tab" data-tab="advanced" type="button">Avançado</button>
+        </nav>
+
+        <div class="editor-scroll">
+          <section class="tab-panel active" data-panel="content">
+            <div class="form-grid three">
+              <label><span>Nome</span><input id="nameInput" placeholder="confirmar_agendamento" /></label>
+              <label><span>Idioma</span><input id="languageInput" value="pt_BR" placeholder="pt_BR" /></label>
+              <label><span>Categoria</span><select id="categoryInput"><option>UTILITY</option><option>MARKETING</option><option>AUTHENTICATION</option></select></label>
+            </div>
+            <div class="form-grid two">
+              <label><span>Header</span><input id="headerInput" placeholder="Opcional" /></label>
+              <label><span>Footer</span><input id="footerInput" placeholder="Opcional" /></label>
+            </div>
+            <label class="block"><span>Corpo da mensagem</span><textarea id="bodyInput" rows="8" placeholder="Olá {{customer.name}}, seu atendimento está marcado para {{appointment.date}}."></textarea></label>
+
+            <div class="section-heading">
+              <div><h3>Botões</h3><p>Quick reply, URL, telefone e código de cópia.</p></div>
+              <button id="addButtonButton" class="button secondary" type="button">Adicionar botão</button>
+            </div>
+            <div id="buttonEditor" class="button-editor"></div>
+          </section>
+
+          <section class="tab-panel" data-panel="interactions">
+            <div class="notice">
+              <strong>Template → interação → Action/Recipe</strong>
+              <p>Cada botão de resposta pode acionar uma Action ou Recipe cadastrada na instância. O ID do binding deve ser igual ao ID do botão.</p>
+            </div>
+            <div id="bindingEditor" class="binding-editor"></div>
+          </section>
+
+          <section class="tab-panel" data-panel="test">
+            <div class="form-grid two">
+              <label><span>Número para teste</span><input id="testNumberInput" placeholder="5575988881111" /></label>
+              <label><span>Variáveis de amostra (JSON)</span><textarea id="variablesInput" rows="5">{}</textarea></label>
+            </div>
+            <div class="test-actions">
+              <button id="sendTestButton" class="button primary" type="button">Enviar template de teste</button>
+              <span id="testStatus" class="helper"></span>
+            </div>
+          </section>
+
+          <section class="tab-panel" data-panel="advanced">
+            <div class="form-grid two">
+              <label><span>Actions JSON</span><textarea id="actionsJsonInput" rows="12">{"bindings":[]}</textarea></label>
+              <label><span>Policy JSON</span><textarea id="policyJsonInput" rows="12">{"interactionTtlSeconds":86400}</textarea></label>
+            </div>
+            <label class="toggle-line"><input id="enabledInput" type="checkbox" checked /> <span>Template habilitado</span></label>
+            <p class="helper">O formato avançado é sincronizado com o editor visual. Segredos não devem ser armazenados aqui; use credentialRef nas Actions.</p>
+          </section>
+        </div>
+      </section>
+
+      <aside class="preview-panel">
+        <div class="panel-title preview-title"><div><h2>Preview</h2><p>Simulação visual do WhatsApp</p></div></div>
+        <div class="phone">
+          <div class="phone-header"><div class="avatar">C</div><div><strong>Connect|API</strong><span>online</span></div></div>
+          <div class="chat-bg">
+            <div id="messagePreview" class="message-card"></div>
+          </div>
+        </div>
+        <div class="preview-meta">
+          <span id="originBadge" class="badge">LOCAL</span>
+          <span id="statusBadge" class="badge success">APPROVED</span>
+        </div>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/template-editor.js"></script>
+  </body>
+</html>

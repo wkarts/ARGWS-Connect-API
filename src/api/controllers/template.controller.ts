@@ -1,5 +1,5 @@
 import { InstanceDto } from '@api/dto/instance.dto';
-import { TemplateDto } from '@api/dto/template.dto';
+import { TemplateDeleteDto, TemplateDto, TemplateEditDto } from '@api/dto/template.dto';
 import { TemplateService } from '@api/services/template.service';
 
 export class TemplateController {
@@ -13,14 +13,11 @@ export class TemplateController {
     return this.templateService.find(instance);
   }
 
-  public async editTemplate(
-    instance: InstanceDto,
-    data: { templateId: string; category?: string; components?: any; allowCategoryChange?: boolean; ttl?: number },
-  ) {
+  public async editTemplate(instance: InstanceDto, data: TemplateEditDto) {
     return this.templateService.edit(instance, data);
   }
 
-  public async deleteTemplate(instance: InstanceDto, data: { name: string; hsmId?: string }) {
+  public async deleteTemplate(instance: InstanceDto, data: TemplateDeleteDto) {
     return this.templateService.delete(instance, data);
   }
 }
