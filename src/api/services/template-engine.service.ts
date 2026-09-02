@@ -1,12 +1,15 @@
 import { InstanceDto } from '@api/dto/instance.dto';
 import { SendTemplateDto } from '@api/dto/sendMessage.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
+import { Logger } from '@config/logger.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
 import { WAMonitoringService } from './monitor.service';
-import { renderTemplateDefinition } from './template-renderer';
+import { RenderedTemplate, renderTemplateDefinition } from './template-renderer';
 
 export class TemplateEngineService {
+  private readonly logger = new Logger('TemplateEngineService');
+
   constructor(
     private readonly waMonitor: WAMonitoringService,
     private readonly prisma: PrismaRepository,
@@ -39,6 +42,15 @@ export class TemplateEngineService {
     // Connect|API metadata overlay (actions/policy/editor state) when available.
     if (provider === 'WHATSAPP-BUSINESS') {
       result = await runtime.templateMessage(data);
+      this.attachDiagnostics(result, {
+        provider,
+        templateName: data.name,
+        language,
+        category: template?.category || null,
+        mode: 'PROVIDER_NATIVE',
+        buttonCount: 0,
+        fallback: false,
+      });
       await this.registerInteractionSession(instanceRow.id, template, data, result);
       return result;
     }
@@ -59,17 +71,7 @@ export class TemplateEngineService {
     }
 
     if (rendered.buttons.length) {
-      result = await runtime.buttonMessage({
-        number: data.number,
-        title: rendered.title || rendered.text || data.name,
-        description: rendered.text || undefined,
-        footer: rendered.footer,
-        buttons: rendered.buttons,
-        delay: data.delay,
-        quoted: data.quoted,
-        mentionsEveryOne: data.mentionsEveryOne,
-        mentioned: data.mentioned,
-      });
+      result = await this.sendInteractiveWithFallback(runtime, data, rendered, template);
     } else {
       result = await runtime.textMessage({
         number: data.number,
@@ -80,10 +82,108 @@ export class TemplateEngineService {
         mentionsEveryOne: data.mentionsEveryOne,
         mentioned: data.mentioned,
       });
+      this.attachDiagnostics(result, {
+        provider,
+        templateName: data.name,
+        language,
+        category: template.category,
+        mode: 'TEXT',
+        buttonCount: 0,
+        fallback: false,
+      });
     }
 
     await this.registerInteractionSession(instanceRow.id, template, data, result);
     return result;
+  }
+
+  private async sendInteractiveWithFallback(runtime: any, data: SendTemplateDto, rendered: RenderedTemplate, template: any) {
+    const title = rendered.title || data.name;
+    const description = rendered.text || undefined;
+
+    try {
+      const result = await runtime.buttonMessage({
+        number: data.number,
+        title,
+        description,
+        footer: rendered.footer,
+        buttons: rendered.buttons,
+        delay: data.delay,
+        quoted: data.quoted,
+        mentionsEveryOne: data.mentionsEveryOne,
+        mentioned: data.mentioned,
+      });
+      this.attachDiagnostics(result, {
+        provider: runtime.instance?.integration || 'WHATSAPP-BAILEYS',
+        templateName: data.name,
+        language: data.language || 'pt_BR',
+        category: template.category,
+        mode: 'INTERACTIVE',
+        buttonCount: rendered.buttons.length,
+        fallback: false,
+      });
+      return result;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Interactive template ${data.name} failed; using text fallback: ${reason}`);
+
+      const fallbackText = this.textFallback(rendered);
+      const result = await runtime.textMessage({
+        number: data.number,
+        text: fallbackText,
+        delay: data.delay,
+        quoted: data.quoted,
+        linkPreview: data.linkPreview,
+        mentionsEveryOne: data.mentionsEveryOne,
+        mentioned: data.mentioned,
+      });
+      this.attachDiagnostics(result, {
+        provider: runtime.instance?.integration || 'WHATSAPP-BAILEYS',
+        templateName: data.name,
+        language: data.language || 'pt_BR',
+        category: template.category,
+        mode: 'TEXT_FALLBACK',
+        buttonCount: rendered.buttons.length,
+        fallback: true,
+        fallbackReason: reason,
+      });
+      return result;
+    }
+  }
+
+  private textFallback(rendered: RenderedTemplate) {
+    const parts = [rendered.title, rendered.text, rendered.footer].filter(Boolean) as string[];
+    const replyButtons = rendered.buttons.filter((button) => button.type === 'reply' && button.displayText);
+    const otherButtons = rendered.buttons.filter((button) => button.type !== 'reply' && button.displayText);
+
+    if (replyButtons.length) {
+      parts.push(
+        ['Responda com uma das opções:', ...replyButtons.map((button) => `• ${button.displayText}`)].join('\n'),
+      );
+    }
+    if (otherButtons.length) {
+      parts.push(
+        otherButtons
+          .map((button) => {
+            if (button.type === 'url') return `${button.displayText}: ${button.url || ''}`.trim();
+            if (button.type === 'call') return `${button.displayText}: ${button.phoneNumber || ''}`.trim();
+            if (button.type === 'copy') return `${button.displayText}: ${button.copyCode || ''}`.trim();
+            return String(button.displayText || '');
+          })
+          .filter(Boolean)
+          .join('\n'),
+      );
+    }
+
+    return parts.filter(Boolean).join('\n\n').trim();
+  }
+
+  private attachDiagnostics(result: any, diagnostics: Record<string, unknown>) {
+    if (!result || typeof result !== 'object') return;
+    result.templateExecution = {
+      engine: 'CONNECT_TEMPLATE_ENGINE',
+      ...diagnostics,
+    };
   }
 
   private hasBindings(actions: unknown) {
