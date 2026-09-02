@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 import { renderTemplateDefinition } from '../../src/api/services/template-renderer';
 import {
@@ -96,5 +97,17 @@ assert.equal(unknown.mode, 'TEXT_COMPAT');
 assert.equal(unknown.compatibilityTransport, 'GENERIC_TEXT');
 assert.equal(unknown.degraded, true);
 assert.deepEqual(unknown.buttons.map((button) => button.transport), ['TEXT_OPTION', 'TEXT_OPTION']);
+
+const templateServiceSource = fs.readFileSync('src/api/services/template.service.ts', 'utf8');
+const previewStart = templateServiceSource.indexOf('public async preview(');
+const createStart = templateServiceSource.indexOf('public async create(', previewStart);
+assert.ok(previewStart >= 0 && createStart > previewStart, 'TemplateService.preview must remain discoverable');
+const previewSource = templateServiceSource.slice(previewStart, createStart);
+assert.doesNotMatch(previewSource, /ensureDefaultTemplates/, 'preview must never seed local templates');
+assert.match(
+  previewSource,
+  /else \{[\s\S]*?prismaRepository\.template\.findFirst/,
+  'local persisted preview must read the requested template directly',
+);
 
 console.log('provider template capabilities: ok');
