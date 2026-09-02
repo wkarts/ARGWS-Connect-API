@@ -86,3 +86,11 @@ Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws
 ## DOCs standalone / always-on
 
 `deploy/docs/` mantém o Connect|API DOCs online de forma independente na porta local `38280`. O reverse proxy recomendado publica a documentação em `/docs/` no mesmo hostname da API.
+
+
+## Connect|API DOCs — hostnames públicos
+
+- `deploy/docs/` → `https://docs.connect.argws.com.br` → `127.0.0.1:38280` → `:latest`;
+- `deploy/docs-develop/` → `https://d.docs.connect.argws.com.br` → `127.0.0.1:38282` → `:develop`.
+
+As stacks completas mantêm DOCs integrados nas portas `38180` a `38183`. A variável `ARGWS_CONNECT_DOCS_PUBLIC_URL` define o destino público usado pela aplicação; somente o deployment `develop` usa por padrão `d.docs.connect.argws.com.br`.

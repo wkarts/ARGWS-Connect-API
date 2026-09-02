@@ -1,6 +1,6 @@
-# CloudPanel/Nginx vhost: docs.connect.argws.com.br
+# CloudPanel/Nginx vhost: d.docs.connect.argws.com.br
 location / {
-    proxy_pass http://127.0.0.1:38280;
+    proxy_pass http://127.0.0.1:38282;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;

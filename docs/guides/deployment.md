@@ -94,3 +94,11 @@ Os deployments oficiais definem `ARGWS_CONNECT_DOCS_PUBLIC_BASE_PATH=/docs`. O r
 ### Deployment standalone
 
 `deploy/docs/` usa `127.0.0.1:38280` por padrão e pode ficar continuamente online mesmo durante deploy/restart das stacks da API.
+
+
+## Hostnames oficiais do Connect|API DOCs
+
+- estável/produção: `https://docs.connect.argws.com.br`;
+- desenvolvimento: `https://d.docs.connect.argws.com.br`.
+
+Os containers usam contratos com URLs relativas (`openapi/...`), portanto a mesma imagem funciona diretamente na porta local, em hostname dedicado ou opcionalmente sob `/docs/` por reverse proxy.

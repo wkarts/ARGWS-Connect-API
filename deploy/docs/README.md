@@ -1,16 +1,13 @@
-# Connect|API DOCs — Deployment Standalone
+# Connect|API DOCs — Standalone Produção
 
-Stack independente para manter a documentação oficial **sempre online**, sem depender do ciclo de vida da API, PostgreSQL, Redis, RabbitMQ ou MinIO.
+Deployment independente/always-on da documentação oficial estável.
 
-## Componentes
-
-- image: `ghcr.io/wkarts/argws-connect-docs:latest`;
-- container: `docs-argws-connect-standalone`;
-- bind local padrão: `127.0.0.1:38280`;
-- URL pública recomendada: `https://api.connect.argws.com.br/docs/`;
+- imagem: `ghcr.io/wkarts/argws-connect-docs:latest`;
+- bind local: `127.0.0.1:38280`;
+- URL pública padrão: `https://docs.connect.argws.com.br`;
 - healthcheck: `/health`.
 
-## Subir
+O hostname público é atendido pelo CloudPanel/Nginx usando `nginx-location.conf.example`. O container continua acessível localmente pela porta 38280 sem depender da API.
 
 ```bash
 cp env.example .env
@@ -18,14 +15,4 @@ cp env.example .env
 ./deploy.sh
 ```
 
-## Reverse proxy
-
-Use `nginx-location.conf.example` no mesmo virtual host da API. O `proxy_pass` remove o prefixo `/docs/` antes de encaminhar ao Scalar.
-
-O frontend nunca precisa conhecer a porta `38280`: links da aplicação devem apontar para a URL relativa `/docs/`.
-
-## Convivência com as stacks completas
-
-Esta stack usa `38280`, portanto pode permanecer online enquanto `production`, `homologation`, `develop` ou `canonical` são atualizadas. As stacks completas continuam tendo seus próprios services DOCs nas portas `3818x`.
-
-Se o reverse proxy público usar o standalone, mantenha `/docs/ -> 127.0.0.1:38280`. Se preferir o DOCs integrado da produção, use `/docs/ -> 127.0.0.1:38180`.
+As stacks completas mantêm seus próprios DOCs integrados nas portas `3818x`. Esta stack é a documentação pública estável e pode permanecer online durante deploys da API.
