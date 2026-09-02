@@ -7,7 +7,7 @@
   function apiKey() { return String($('apiKeyInput')?.value || '').trim(); }
   function instanceName() { return String($('instanceSelect')?.value || '').trim(); }
   function parseJson(value, fallback = {}) { try { return JSON.parse(value || '{}'); } catch { return fallback; } }
-  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' })[c]); }
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;' })[c]); }
 
   function components() {
     const result = [];
@@ -68,14 +68,22 @@
     return `<div class="preview-body phase5-text-compat">${esc(lines.filter(Boolean).join('\n\n'))}</div>`;
   }
 
+  function interactionSummary(data) {
+    const interactions = data?.transport?.interactions || [];
+    if (!interactions.length) return '';
+    return `<div class="phase5-interaction-plan"><strong>Interações Phase 6</strong>${interactions.map((item) => `<div class="phase5-warning"><b>${esc(item.id)}</b> · ${esc(item.mode)}${item.compatibilityTransport ? ` · ${esc(item.compatibilityTransport)}` : ''}</div>`).join('')}</div>`;
+  }
+
   function applyPreview(data) {
     state.lastPreview = data;
+    window.__ARGWS_TEMPLATE_PROVIDER_PREVIEW__ = data;
+    window.dispatchEvent(new CustomEvent('argws:template-preview', { detail: data }));
     const transport = data?.transport || {};
     const rendered = data?.rendered || {};
     const card = ensureCard();
     if (card) {
       const warning = (transport.warnings || []).map((item) => `<div class="phase5-warning">${esc(item)}</div>`).join('');
-      card.innerHTML = `<div class="provider-transport-title"><span>Transporte real</span><span class="phase5-badge">${esc(data.provider || 'UNKNOWN')}</span></div><div class="phase5-mode-row"><strong>${esc(transport.mode || 'UNKNOWN')}</strong>${transport.degraded ? '<span class="phase5-degraded">compatibilidade</span>' : '<span class="phase5-native">nativo</span>'}</div>${warning}`;
+      card.innerHTML = `<div class="provider-transport-title"><span>Transporte real</span><span class="phase5-badge">${esc(data.provider || 'UNKNOWN')}</span></div><div class="phase5-mode-row"><strong>${esc(transport.mode || 'UNKNOWN')}</strong>${transport.degraded ? '<span class="phase5-degraded">compatibilidade</span>' : '<span class="phase5-native">nativo</span>'}</div>${warning}${interactionSummary(data)}`;
     }
 
     const message = $('messagePreview');
@@ -98,6 +106,7 @@
       category: String($('categoryInput')?.value || 'UTILITY'),
       components: components(),
       variables: parseJson($('variablesInput')?.value, {}),
+      policy: parseJson($('policyJsonInput')?.value, {}),
     };
     const signature = JSON.stringify([instance, body]);
     if (signature === state.lastKey) return;
@@ -121,18 +130,28 @@
     }), 320);
   }
 
+  function loadPhase6() {
+    if (window.__ARGWS_PHASE6_SCRIPT_REQUESTED__) return;
+    window.__ARGWS_PHASE6_SCRIPT_REQUESTED__ = true;
+    const script = document.createElement('script');
+    script.src = '/assets/template-editor-phase6.js';
+    script.defer = true;
+    document.body.appendChild(script);
+  }
+
   ensureCard();
-  ['nameInput','languageInput','categoryInput','headerInput','footerInput','bodyInput','variablesInput','instanceSelect','apiKeyInput'].forEach((id) => {
+  ['nameInput','languageInput','categoryInput','headerInput','footerInput','bodyInput','variablesInput','policyJsonInput','instanceSelect','apiKeyInput'].forEach((id) => {
     const node = $(id); if (node) { node.addEventListener('input', schedule); node.addEventListener('change', schedule); }
   });
   $('connectButton')?.addEventListener('click', () => window.setTimeout(schedule, 650));
   $('refreshButton')?.addEventListener('click', () => window.setTimeout(schedule, 400));
-  document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => { if (tab.dataset.tab === 'content' || tab.dataset.tab === 'test') schedule(); }));
+  document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => { if (tab.dataset.tab === 'content' || tab.dataset.tab === 'interactions' || tab.dataset.tab === 'test') schedule(); }));
   const editor = $('buttonEditor');
   if (editor) {
     editor.addEventListener('input', schedule);
     editor.addEventListener('change', schedule);
     new MutationObserver(schedule).observe(editor, { childList: true, subtree: true, attributes: true });
   }
+  loadPhase6();
   window.setTimeout(schedule, 900);
 })();
