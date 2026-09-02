@@ -1,0 +1,135 @@
+name: GHCR - Publish Connect API Docs
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - docs/**
+      - public/branding/connect-api/core/**
+      - public/branding/connect-api/docs/**
+      - .github/workflows/ghcr-publish-docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: argws-connect-develop-docs-image
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Guard docs develop channel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse execution outside develop
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/develop" ]]; then
+            echo "This workflow may publish only from refs/heads/develop (got ${GITHUB_REF})." >&2
+            exit 1
+          fi
+
+  build-native:
+    name: Build DOCs develop / ${{ matrix.arch }}
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v5
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Verify generated contracts
+        run: node docs/scripts/generate-openapi.mjs --check
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build native DOCs image by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docs/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/argws-connect-docs,push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.title=Connect|API DOCs
+            org.opencontainers.image.version=develop
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=develop-docs-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=develop-docs-${{ matrix.arch }}
+
+      - name: Export digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-develop-docs-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish DOCs :develop multi-arch manifest
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download native digests
+        uses: actions/download-artifact@v5
+        with:
+          pattern: digest-develop-docs-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish only develop tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == "refs/heads/develop" ]]
+          repo="ghcr.io/${{ github.repository_owner }}/argws-connect-docs"
+          sources=()
+          for digest_file in /tmp/digests/*; do
+            sources+=("${repo}@sha256:$(basename "$digest_file")")
+          done
+          test "${#sources[@]}" -eq 2
+          docker buildx imagetools create -t "${repo}:develop" "${sources[@]}"
+          docker buildx imagetools inspect "${repo}:develop"
