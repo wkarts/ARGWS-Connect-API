@@ -90,6 +90,30 @@
                     }
                   }
                 },
+                "template": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "to": "5575999999999",
+                    "type": "template",
+                    "template": {
+                      "name": "hello_world",
+                      "language": {
+                        "code": "pt_BR"
+                      },
+                      "components": [
+                        {
+                          "type": "body",
+                          "parameters": [
+                            {
+                              "type": "text",
+                              "text": "Cliente"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
                 "read": {
                   "value": {
                     "messaging_product": "whatsapp",
@@ -1057,6 +1081,150 @@
           }
         ]
       },
+      "MetaTemplateLanguage": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Código do idioma do template, por exemplo pt_BR."
+          },
+          "policy": {
+            "type": "string",
+            "description": "Política de idioma opcional para compatibilidade com clientes Meta."
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTemplateParameter": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "currency",
+              "date_time",
+              "image",
+              "video",
+              "document",
+              "payload"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "Valor textual do parâmetro."
+          },
+          "payload": {
+            "type": "string",
+            "description": "Payload de botão/resposta rápida."
+          },
+          "currency": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "date_time": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "image": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "video": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": true
+      },
+      "MetaTemplateComponent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "header",
+              "body",
+              "button"
+            ]
+          },
+          "sub_type": {
+            "type": "string",
+            "description": "Subtipo do componente, como quick_reply ou url."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaTemplateParameter"
+            }
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": true
+      },
+      "MetaTemplateContent": {
+        "type": "object",
+        "description": "Template canônico da instância. Em WHATSAPP-BUSINESS é executado como template Meta real; em providers compatíveis é renderizado pelo Connect|API.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Nome do template."
+          },
+          "language": {
+            "$ref": "#/components/schemas/MetaTemplateLanguage"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaTemplateComponent"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "language"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTemplateMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "template"
+              },
+              "template": {
+                "$ref": "#/components/schemas/MetaTemplateContent"
+              }
+            },
+            "required": [
+              "type",
+              "template"
+            ]
+          }
+        ]
+      },
       "MetaReadReceiptRequest": {
         "type": "object",
         "properties": {
@@ -1107,6 +1275,9 @@
           },
           {
             "$ref": "#/components/schemas/MetaInteractiveMessageRequest"
+          },
+          {
+            "$ref": "#/components/schemas/MetaTemplateMessageRequest"
           },
           {
             "$ref": "#/components/schemas/MetaReadReceiptRequest"

@@ -187,7 +187,9 @@ export class TemplateService {
         },
       });
     } catch (err) {
-      this.logger.warn(`Failed to cleanup local template records after delete: ${(err as Error)?.message || String(err)}`);
+      this.logger.warn(
+        `Failed to cleanup local template records after delete: ${(err as Error)?.message || String(err)}`,
+      );
     }
     return response;
   }
@@ -196,7 +198,8 @@ export class TemplateService {
     const existing = await this.prismaRepository.template.findFirst({
       where: { instanceId, name: data.name, language: data.language },
     });
-    if (existing) throw new BadRequestException(`Template ${data.name} (${data.language}) already exists for this instance`);
+    if (existing)
+      throw new BadRequestException(`Template ${data.name} (${data.language}) already exists for this instance`);
 
     const templateId = `sim_tpl_${createId()}`;
     const definition = {
@@ -302,7 +305,9 @@ export class TemplateService {
         return result.data;
       }
     } catch (e) {
-      this.logger.error('WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message));
+      this.logger.error(
+        'WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message),
+      );
       if (e.response?.data) return e.response.data;
       throw new Error(`Connection error: ${e.message}`);
     }
@@ -317,7 +322,9 @@ export class TemplateService {
       const result = await axios.post(urlServer, data, { headers });
       return result.data;
     } catch (e) {
-      this.logger.error('WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message));
+      this.logger.error(
+        'WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message),
+      );
       if (e.response?.data) return e.response.data;
       throw new Error(`Connection error: ${e.message}`);
     }
@@ -332,7 +339,9 @@ export class TemplateService {
       const result = await axios.delete(urlServer, { headers, params });
       return result.data;
     } catch (e) {
-      this.logger.error('WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message));
+      this.logger.error(
+        'WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message),
+      );
       if (e.response?.data) return e.response.data;
       throw new Error(`Connection error: ${e.message}`);
     }

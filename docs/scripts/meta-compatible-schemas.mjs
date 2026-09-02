@@ -265,6 +265,55 @@ export const metaCompatibleSchemas = {
   MetaInteractiveMessageRequest: {
     allOf: [ref('MetaMessageBase'), { type: 'object', properties: { type: { type: 'string', const: 'interactive' }, interactive: ref('MetaInteractiveContent') }, required: ['type', 'interactive'] }],
   },
+  MetaTemplateLanguage: {
+    type: 'object',
+    properties: {
+      code: string('Código do idioma do template, por exemplo pt_BR.'),
+      policy: string('Política de idioma opcional para compatibilidade com clientes Meta.'),
+    },
+    required: ['code'],
+    additionalProperties: false,
+  },
+  MetaTemplateParameter: {
+    type: 'object',
+    properties: {
+      type: { type: 'string', enum: ['text', 'currency', 'date_time', 'image', 'video', 'document', 'payload'] },
+      text: string('Valor textual do parâmetro.'),
+      payload: string('Payload de botão/resposta rápida.'),
+      currency: { type: 'object', additionalProperties: true },
+      date_time: { type: 'object', additionalProperties: true },
+      image: { type: 'object', additionalProperties: true },
+      video: { type: 'object', additionalProperties: true },
+      document: { type: 'object', additionalProperties: true },
+    },
+    required: ['type'],
+    additionalProperties: true,
+  },
+  MetaTemplateComponent: {
+    type: 'object',
+    properties: {
+      type: { type: 'string', enum: ['header', 'body', 'button'] },
+      sub_type: string('Subtipo do componente, como quick_reply ou url.'),
+      index: { type: 'integer', minimum: 0 },
+      parameters: { type: 'array', items: ref('MetaTemplateParameter') },
+    },
+    required: ['type'],
+    additionalProperties: true,
+  },
+  MetaTemplateContent: {
+    type: 'object',
+    description: 'Template canônico da instância. Em WHATSAPP-BUSINESS é executado como template Meta real; em providers compatíveis é renderizado pelo Connect|API.',
+    properties: {
+      name: string('Nome do template.'),
+      language: ref('MetaTemplateLanguage'),
+      components: { type: 'array', items: ref('MetaTemplateComponent') },
+    },
+    required: ['name', 'language'],
+    additionalProperties: false,
+  },
+  MetaTemplateMessageRequest: {
+    allOf: [ref('MetaMessageBase'), { type: 'object', properties: { type: { type: 'string', const: 'template' }, template: ref('MetaTemplateContent') }, required: ['type', 'template'] }],
+  },
   MetaReadReceiptRequest: {
     type: 'object',
     properties: {
@@ -280,7 +329,7 @@ export const metaCompatibleSchemas = {
       ref('MetaTextMessageRequest'), ref('MetaImageMessageRequest'), ref('MetaVideoMessageRequest'),
       ref('MetaDocumentMessageRequest'), ref('MetaAudioMessageRequest'), ref('MetaLocationMessageRequest'),
       ref('MetaContactsMessageRequest'), ref('MetaReactionMessageRequest'), ref('MetaInteractiveMessageRequest'),
-      ref('MetaReadReceiptRequest'),
+      ref('MetaTemplateMessageRequest'), ref('MetaReadReceiptRequest'),
     ],
     description: 'Union dos formatos de mensagem aceitos atualmente pela fachada Meta Compatible.',
   },

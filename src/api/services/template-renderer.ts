@@ -15,7 +15,9 @@ export type RenderedTemplate = {
 };
 
 function normalizeComponentType(value?: string) {
-  return String(value || '').trim().toUpperCase();
+  return String(value || '')
+    .trim()
+    .toUpperCase();
 }
 
 function stringifyParameter(parameter: any): string {
@@ -93,7 +95,9 @@ function buttonFromDefinition(button: any, index: number, requestComponents: any
   return {
     type: 'reply' as const,
     displayText: label,
-    id: String(firstParameter?.payload || firstParameter?.text || button?.id || button?.payload || `template_button_${index}`),
+    id: String(
+      firstParameter?.payload || firstParameter?.text || button?.id || button?.payload || `template_button_${index}`,
+    ),
   };
 }
 

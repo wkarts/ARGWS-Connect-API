@@ -54,8 +54,8 @@ import { CacheService } from './services/cache.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
-import { TemplateEngineService } from './services/template-engine.service';
 import { TemplateService } from './services/template.service';
+import { TemplateEngineService } from './services/template-engine.service';
 
 const logger = new Logger('WA MODULE');
 

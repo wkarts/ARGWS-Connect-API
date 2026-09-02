@@ -37,7 +37,11 @@ export class TemplateEngineService {
     }
 
     const definition: any = template.template || {};
-    const rendered = renderTemplateDefinition(definition, Array.isArray(data.components) ? data.components : [], data.variables || {});
+    const rendered = renderTemplateDefinition(
+      definition,
+      Array.isArray(data.components) ? data.components : [],
+      data.variables || {},
+    );
 
     if (!rendered.text && !rendered.title) {
       throw new BadRequestException(`Template ${data.name} has no renderable text content for provider ${provider}`);
