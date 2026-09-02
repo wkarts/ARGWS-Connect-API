@@ -38,6 +38,12 @@ curl -X PUT 'http://127.0.0.1:38080/compat/meta/minha-instancia' \
 
 O campo `enabled` pode continuar aparecendo em respostas legadas, mas é sempre `true` e não controla mais o acesso ao `/graph`.
 
+## Schemas de integração
+
+O contrato OpenAPI Meta Compatible publica schemas explícitos para os formatos realmente aceitos pelo adapter: texto, imagem, vídeo, documento, áudio, localização, contatos, reação, interativos `button`/`list`, leitura, mídia, templates, webhooks e erros Graph.
+
+A API nativa também publica `MetaCompatibilityConfig` e `MetaCompatibilityUpdateRequest`, que documentam a ponte entre uma instância Connect|API e sua identidade `/graph`.
+
 ## Autenticação Graph
 
 ```http
