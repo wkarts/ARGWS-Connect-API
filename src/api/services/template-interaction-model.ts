@@ -148,16 +148,16 @@ function dynamicRows(source: DynamicCollectionSource, variables: Record<string, 
   const values = resolveDataPath(variables, source.path);
   if (!Array.isArray(values)) return [];
 
-  return values
-    .map((item, index) => {
-      const context = { ...variables, item, index };
-      const id = interpolateInteractionValue(source.id, context).trim();
-      const title = interpolateInteractionValue(source.title, context).trim();
-      if (!id || !title) return null;
-      const description = source.description ? interpolateInteractionValue(source.description, context).trim() : undefined;
-      return { id, title, description: description || undefined };
-    })
-    .filter((item): item is RenderedInteractionRow => Boolean(item));
+  return values.flatMap((item, index): RenderedInteractionRow[] => {
+    const context = { ...variables, item, index };
+    const id = interpolateInteractionValue(source.id, context).trim();
+    const title = interpolateInteractionValue(source.title, context).trim();
+    if (!id || !title) return [];
+    const description = source.description
+      ? interpolateInteractionValue(source.description, context).trim()
+      : undefined;
+    return [{ id, title, description: description || undefined }];
+  });
 }
 
 function staticRows(rows: unknown): RenderedInteractionRow[] {
@@ -229,15 +229,12 @@ export function renderInteractionModelV2(
 
 export function interactionTextFallback(interaction: RenderedTemplateInteraction): string {
   const lines = [interaction.title, interaction.body].filter(Boolean) as string[];
-  const rows =
-    interaction.type === 'list'
-      ? interaction.sections.flatMap((section) => section.rows)
-      : interaction.options;
+  const rows = interaction.type === 'list' ? interaction.sections.flatMap((section) => section.rows) : interaction.options;
   if (rows.length) {
     lines.push(
-      rows
-        .map((row, index) => `${index + 1}. ${row.title}${row.description ? ` — ${row.description}` : ''}`)
-        .join('\n'),
+      ['Responda com o nome da opção:', ...rows.map((row) => `• ${row.title}${row.description ? ` — ${row.description}` : ''}`)].join(
+        '\n',
+      ),
     );
   }
   if (interaction.footer) lines.push(interaction.footer);
