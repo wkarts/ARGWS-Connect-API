@@ -104,6 +104,7 @@ model Instance {
   IntegrationAction       IntegrationAction[]
   Recipe                  Recipe[]
   ActionExecution         ActionExecution[]
+  TemplateInteractionSession TemplateInteractionSession[]
   Dify                    Dify[]
   DifySetting             DifySetting?
   IntegrationSession      IntegrationSession[]
@@ -591,6 +592,28 @@ model ActionExecution {
 
   @@index([instanceId, actionKey, startedAt])
 }
+
+model TemplateInteractionSession {
+  id                String    @id @default(cuid())
+  outboundMessageId String    @db.VarChar(255)
+  inboundMessageId  String?   @db.VarChar(255)
+  remoteJid         String    @db.VarChar(150)
+  templateName      String    @db.VarChar(255)
+  language          String    @default("pt_BR") @db.VarChar(20)
+  variables         Json?     @db.JsonB
+  actions           Json?     @db.JsonB
+  status            String    @default("OPEN") @db.VarChar(40)
+  expiresAt         DateTime? @db.Timestamp
+  lastError         String?   @db.Text
+  createdAt         DateTime  @default(now()) @db.Timestamp
+  updatedAt         DateTime  @updatedAt @db.Timestamp
+  Instance          Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId        String
+
+  @@unique([instanceId, outboundMessageId])
+  @@index([instanceId, remoteJid, status])
+}
+
 
 
 model Dify {

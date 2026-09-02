@@ -179,7 +179,8 @@ export class TemplateService {
         ...(typeof data.allowCategoryChange === 'boolean' ? { allow_category_change: data.allowCategoryChange } : {}),
       };
 
-      let nextPolicy: any = data.policy !== undefined ? { ...(data.policy || {}) } : { ...((current.policy as any) || {}) };
+      let nextPolicy: any =
+        data.policy !== undefined ? { ...(data.policy || {}) } : { ...((current.policy as any) || {}) };
       if (typeof data.ttl === 'number') nextPolicy = { ...nextPolicy, ttl: data.ttl };
 
       const updated = await this.prismaRepository.template.update({
@@ -261,7 +262,7 @@ export class TemplateService {
             components: data.components || [],
           },
           actions: data.actions as any,
-          policy: ({ ...(data.policy || {}), ...(typeof data.ttl === 'number' ? { ttl: data.ttl } : {}) } as any),
+          policy: { ...(data.policy || {}), ...(typeof data.ttl === 'number' ? { ttl: data.ttl } : {}) } as any,
           webhookUrl: data.webhookUrl,
           instanceId: runtimeInstance.id,
         },

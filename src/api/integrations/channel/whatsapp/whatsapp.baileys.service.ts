@@ -59,6 +59,7 @@ import { PrismaRepository, Query } from '@api/repository/repository.service';
 import { chatbotController, waMonitor } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import { extractBaileysInteraction } from '@api/services/interaction-normalizer';
 import { Events, MessageSubtype, TypeMediaMessage, wa } from '@api/types/wa.types';
 import { CacheEngine } from '@cache/cacheengine';
 import {
@@ -4753,8 +4754,9 @@ export class BaileysStartupService extends ChannelStartupService {
   private prepareMessage(message: proto.IWebMessageInfo): any {
     const contentType = getContentType(message.message);
     const contentMsg = message?.message[contentType] as any;
+    const interaction = extractBaileysInteraction(message.message);
 
-    const messageRaw = {
+    const messageRaw: any = {
       key: message.key, // Save key exactly as it comes from Baileys
       pushName:
         message.pushName ||
@@ -4800,6 +4802,8 @@ export class BaileysStartupService extends ChannelStartupService {
         delete quotedMessage.documentWithCaptionMessage;
       }
     }
+
+    if (interaction) messageRaw.interaction = interaction;
 
     return messageRaw;
   }

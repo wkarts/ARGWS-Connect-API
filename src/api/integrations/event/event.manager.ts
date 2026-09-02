@@ -7,6 +7,7 @@ import { SqsController } from '@api/integrations/event/sqs/sqs.controller';
 import { WebhookController } from '@api/integrations/event/webhook/webhook.controller';
 import { WebsocketController } from '@api/integrations/event/websocket/websocket.controller';
 import { PrismaRepository } from '@api/repository/repository.service';
+import { InteractionEngineService } from '@api/services/interaction-engine.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { Server } from 'http';
 
@@ -21,6 +22,7 @@ export class EventManager {
   private pusherController: PusherController;
   private kafkaController: KafkaController;
   private metaCloudDispatcher?: MetaCloudWebhookDispatcher;
+  private interactionEngine?: InteractionEngineService;
 
   constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
     this.prisma = prismaRepository;
@@ -109,6 +111,10 @@ export class EventManager {
     this.metaCloudDispatcher = dispatcher;
   }
 
+  public setInteractionEngine(engine: InteractionEngineService): void {
+    this.interactionEngine = engine;
+  }
+
   public init(httpServer: Server): void {
     this.websocket.init(httpServer);
     this.rabbitmq.init();
@@ -133,6 +139,9 @@ export class EventManager {
   }): Promise<void> {
     if (this.metaCloudDispatcher) {
       void this.metaCloudDispatcher.handleEvent(eventData).catch(() => undefined);
+    }
+    if (this.interactionEngine) {
+      void this.interactionEngine.handleEvent(eventData).catch(() => undefined);
     }
     await this.websocket.emit(eventData);
     await this.rabbitmq.emit(eventData);

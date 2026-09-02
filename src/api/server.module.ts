@@ -55,6 +55,7 @@ import { PrismaRepository } from './repository/repository.service';
 import { ActionExecutionService } from './services/action-execution.service';
 import { ActionRegistryService } from './services/action-registry.service';
 import { CacheService } from './services/cache.service';
+import { InteractionEngineService } from './services/interaction-engine.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { RecipeService } from './services/recipe.service';
@@ -103,6 +104,13 @@ export const s3Controller = new S3Controller(s3Service);
 const templateService = new TemplateService(waMonitor, prismaRepository, configService);
 export const templateController = new TemplateController(templateService);
 export const templateEngine = new TemplateEngineService(waMonitor, prismaRepository);
+export const interactionEngine = new InteractionEngineService(
+  prismaRepository,
+  actionExecutionService,
+  recipeService,
+  templateEngine,
+  waMonitor,
+);
 
 const proxyService = new ProxyService(waMonitor);
 export const proxyController = new ProxyController(proxyService, waMonitor);
@@ -158,6 +166,7 @@ export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
 );
 
 export const eventManager = new EventManager(prismaRepository, waMonitor);
+eventManager.setInteractionEngine(interactionEngine);
 export const metaCloudWebhookDispatcher = new MetaCloudWebhookDispatcher(
   prismaRepository,
   metaCloudIdentityResolver,

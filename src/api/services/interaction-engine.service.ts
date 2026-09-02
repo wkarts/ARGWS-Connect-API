@@ -33,11 +33,7 @@ export class InteractionEngineService {
     private readonly waMonitor: WAMonitoringService,
   ) {}
 
-  public async handleEvent(eventData: {
-    instanceName: string;
-    event: string;
-    data: object;
-  }): Promise<void> {
+  public async handleEvent(eventData: { instanceName: string; event: string; data: object }): Promise<void> {
     if (eventData.event !== Events.MESSAGES_UPSERT) return;
 
     const message = eventData.data as any;
@@ -106,10 +102,15 @@ export class InteractionEngineService {
       const confirmation = await this.resolveConfirmation(instanceRow.id, binding);
 
       if (confirmation === 'STRONG') {
-        await this.sendConfiguredResponse(instance, session.remoteJid, {
-          type: 'TEXT',
-          text: 'Esta operação exige confirmação reforçada no painel antes de ser executada.',
-        }, baseContext);
+        await this.sendConfiguredResponse(
+          instance,
+          session.remoteJid,
+          {
+            type: 'TEXT',
+            text: 'Esta operação exige confirmação reforçada no painel antes de ser executada.',
+          },
+          baseContext,
+        );
         await this.prisma.templateInteractionSession.update({
           where: { id: session.id },
           data: { status: 'WAITING_STRONG_CONFIRMATION' },
@@ -211,7 +212,9 @@ export class InteractionEngineService {
 
   private findBinding(actions: unknown, interaction: any): InteractionBinding | null {
     const id = String(interaction?.id || '');
-    const title = String(interaction?.title || '').trim().toLowerCase();
+    const title = String(interaction?.title || '')
+      .trim()
+      .toLowerCase();
     return (
       this.bindings(actions).find((binding) => String(binding.id || '') === id) ||
       this.bindings(actions).find(

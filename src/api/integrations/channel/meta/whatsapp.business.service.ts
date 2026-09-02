@@ -19,6 +19,7 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { chatbotController } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import { extractMetaInteraction } from '@api/services/interaction-normalizer';
 import { Events, wa } from '@api/types/wa.types';
 import { AudioConverter, Chatwoot, ConfigService, Database, Openai, S3, WaBusiness } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
@@ -395,6 +396,7 @@ export class BusinessStartupService extends ChannelStartupService {
 
       if (received.messages) {
         const message = received.messages[0]; // Añadir esta línea para definir message
+        const interaction = extractMetaInteraction(message);
 
         const key = {
           id: message.id,
@@ -665,6 +667,8 @@ export class BusinessStartupService extends ChannelStartupService {
             instanceId: this.instanceId,
           };
         }
+
+        if (interaction) messageRaw.interaction = interaction;
 
         if (this.localSettings.readMessages) {
           // await this.client.readMessages([received.key]);
