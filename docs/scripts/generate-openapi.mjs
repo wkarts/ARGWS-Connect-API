@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
 
 const ROOT = process.cwd();
 const API_DIRS = [
@@ -234,10 +235,33 @@ const requestOverrides = {
   'GET /health': { summary: 'Healthcheck da API', security: [] },
   'GET /': { summary: 'Informações da API', security: [] },
   'POST /verify-creds': { summary: 'Validar credenciais da API' },
-  'GET /compat/meta/{instanceName}': { summary: 'Consultar Meta Compatible', description: 'Retorna configuração e identidade compatível com Meta Cloud da instância.' },
+  'GET /compat/meta/{instanceName}': {
+    summary: 'Consultar Meta Compatible',
+    description: 'Retorna a identidade Graph derivada da instância e a configuração opcional do webhook Meta Compatible.',
+    responses: {
+      '200': { description: 'Identidade Meta Compatible da instância.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaCompatibilityConfig' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
   'PUT /compat/meta/{instanceName}': {
     summary: 'Configurar Meta Compatible',
-    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { webhookUrl: { type: ['string', 'null'], format: 'uri' } } }, example: { webhookUrl: 'https://example.com/webhooks/meta' } } } },
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/MetaCompatibilityUpdateRequest' },
+          example: { webhookUrl: 'https://example.com/webhooks/meta' },
+        },
+      },
+    },
+    responses: {
+      '200': { description: 'Configuração Meta Compatible atualizada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaCompatibilityConfig' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
   },
 };
 
@@ -316,6 +340,7 @@ function nativeSpec(routes, version) {
     components: {
       securitySchemes: { apiKey: { type: 'apiKey', in: 'header', name: 'apikey', description: 'Chave global da API ou token autorizado da instância.' } },
       schemas: {
+        ...metaCompatibilityAdminSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'CONNECT'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
@@ -346,39 +371,35 @@ function graphSpec(version) {
           tags: ['Messages'], summary: 'Enviar mensagem compatível com Meta', operationId: 'meta_send_message', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMessageRequest' }, examples: { text: { value: { messaging_product: 'whatsapp', recipient_type: 'individual', to: '5575999999999', type: 'text', text: { body: 'Olá pelo /graph' } } }, reaction: { value: { messaging_product: 'whatsapp', to: '5575999999999', type: 'reaction', reaction: { message_id: 'REAL_PROVIDER_ID', emoji: '👍' } } }, read: { value: { messaging_product: 'whatsapp', status: 'read', message_id: 'REAL_PROVIDER_ID' } } } } } },
-          responses: { '200': { description: 'Mensagem enviada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMessageResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
+          responses: { '200': { description: 'Mensagem enviada ou leitura confirmada.', content: { 'application/json': { schema: { oneOf: [{ $ref: '#/components/schemas/MetaMessageResponse' }, { $ref: '#/components/schemas/MetaReadReceiptResponse' }] } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{phoneNumberId}/media': {
         post: {
           tags: ['Media'], summary: 'Upload temporário de mídia', operationId: 'meta_upload_media', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
-          requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' }, type: { type: 'string' }, messaging_product: { type: 'string', const: 'whatsapp' } }, required: ['file'] } } } },
-          responses: { '200': { description: 'Mídia recebida para uso temporário.', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' } },
+          requestBody: { required: true, content: { 'multipart/form-data': { schema: { $ref: '#/components/schemas/MetaMediaUploadRequest' } } } },
+          responses: { '200': { description: 'Mídia recebida para uso temporário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaUploadResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{businessAccountId}/message_templates': {
         get: {
           tags: ['Templates'], summary: 'Listar templates', operationId: 'meta_list_templates', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS retorna `data: []`.', content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'array', items: { type: 'object', additionalProperties: true } } }, required: ['data'] } } } }, '401': { $ref: '#/components/responses/GraphError' } },
+          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e CONNECT retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{mediaId}': {
         get: {
           tags: ['Media'], summary: 'Resolver mídia recebida', operationId: 'meta_get_media', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'mediaId', in: 'path', required: true, schema: { type: 'string', description: 'ID real da mensagem/provider usado como media id.' } }],
-          responses: { '200': { description: 'Metadados e URL presigned segura.', content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' } },
+          responses: { '200': { description: 'Metadados e URL presigned segura.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' } },
         },
       },
     },
     components: {
       securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'Instance token', description: 'Token real da instância correspondente ao recurso Graph.' } },
-      schemas: {
-        MetaMessageRequest: { type: 'object', properties: { messaging_product: { type: 'string', const: 'whatsapp' }, recipient_type: { type: 'string', enum: ['individual'] }, to: { type: 'string' }, type: { type: 'string', enum: ['text', 'image', 'video', 'document', 'audio', 'location', 'contacts', 'reaction', 'interactive'] }, text: { type: 'object', additionalProperties: true }, image: { type: 'object', additionalProperties: true }, video: { type: 'object', additionalProperties: true }, document: { type: 'object', additionalProperties: true }, audio: { type: 'object', additionalProperties: true }, location: { type: 'object', additionalProperties: true }, contacts: { type: 'array', items: { type: 'object', additionalProperties: true } }, reaction: { type: 'object', additionalProperties: true }, interactive: { type: 'object', additionalProperties: true }, status: { type: 'string', enum: ['read'] }, message_id: { type: 'string' } }, additionalProperties: true },
-        MetaMessageResponse: { type: 'object', properties: { messaging_product: { type: 'string', const: 'whatsapp' }, contacts: { type: 'array', items: { type: 'object', additionalProperties: true } }, messages: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', description: 'ID real do provider, sem wamid artificial.' } }, required: ['id'] } } }, required: ['messaging_product'] },
-        GraphError: { type: 'object', properties: { error: { type: 'object', properties: { message: { type: 'string' }, type: { type: 'string' }, code: { type: 'integer' }, fbtrace_id: { type: 'string' } }, required: ['message', 'type', 'code'] } }, required: ['error'] },
-      },
+      schemas: metaCompatibleSchemas,
       responses: { GraphError: { description: 'Erro em formato Graph.', content: { 'application/json': { schema: { $ref: '#/components/schemas/GraphError' } } } } },
     },
   };

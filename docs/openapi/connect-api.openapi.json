@@ -2783,7 +2783,7 @@
         ],
         "summary": "Consultar Meta Compatible",
         "operationId": "get_compat_meta_instancename",
-        "description": "Retorna configuração e identidade compatível com Meta Cloud da instância.",
+        "description": "Retorna a identidade Graph derivada da instância e a configuração opcional do webhook Meta Compatible.",
         "parameters": [
           {
             "name": "instanceName",
@@ -2803,21 +2803,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Identidade Meta Compatible da instância.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/MetaCompatibilityConfig"
                 }
               }
             }
@@ -2860,21 +2850,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Configuração Meta Compatible atualizada.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/MetaCompatibilityConfig"
                 }
               }
             }
@@ -2895,16 +2875,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "webhookUrl": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "format": "uri"
-                  }
-                }
+                "$ref": "#/components/schemas/MetaCompatibilityUpdateRequest"
               },
               "example": {
                 "webhookUrl": "https://example.com/webhooks/meta"
@@ -12653,6 +12624,79 @@
       }
     },
     "schemas": {
+      "MetaCompatibilityConfig": {
+        "type": "object",
+        "description": "Identidade Graph derivada da instância Connect|API e configuração opcional do webhook Meta Compatible.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "const": true,
+            "description": "Mantido por compatibilidade. Meta Compatible é sempre habilitado para instâncias endereçáveis."
+          },
+          "instanceName": {
+            "type": "string",
+            "description": "Nome exato da instância Connect|API."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider real da instância.",
+            "enum": [
+              "WHATSAPP-BUSINESS",
+              "WHATSAPP-BAILEYS",
+              "CONNECT"
+            ]
+          },
+          "phoneNumberId": {
+            "type": "string",
+            "description": "Identificador telefônico usado nas rotas /graph."
+          },
+          "businessAccountId": {
+            "type": "string",
+            "description": "Identificador business usado nas rotas de templates."
+          },
+          "displayPhoneNumber": {
+            "type": "string",
+            "description": "Número telefônico real normalizado da instância."
+          },
+          "graphUrl": {
+            "type": "string",
+            "description": "URL base da fachada Meta Compatible.",
+            "format": "uri"
+          },
+          "webhookUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "description": "Webhook Meta Compatible opcional."
+          }
+        },
+        "required": [
+          "enabled",
+          "instanceName",
+          "provider",
+          "phoneNumberId",
+          "businessAccountId",
+          "displayPhoneNumber",
+          "graphUrl"
+        ]
+      },
+      "MetaCompatibilityUpdateRequest": {
+        "type": "object",
+        "description": "Configuração opcional do webhook Meta Compatible. Não existe toggle de ativação do /graph.",
+        "properties": {
+          "webhookUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "description": "URL absoluta HTTP(S) ou null para remover."
+          }
+        },
+        "additionalProperties": false
+      },
       "GenericResponse": {
         "type": "object",
         "additionalProperties": true
