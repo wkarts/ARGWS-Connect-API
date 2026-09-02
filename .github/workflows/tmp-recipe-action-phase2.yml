@@ -93,12 +93,12 @@ jobs:
             src/api/services/recipe.service.ts \
             src/validate/action.schema.ts \
             src/validate/recipe.schema.ts \
-            test/recipe-action/foundation.test.ts \
             docs/README.md \
             docs/guides/recipes-actions.md \
             docs/openapi/connect-api.openapi.json \
             docs/openapi/coverage.json \
             docs/asyncapi/connect-api-events.asyncapi.json
+          git add -f test/recipe-action/foundation.test.ts
           if ! git diff --cached --quiet; then
             git commit -m "feat(recipes): materializa action registry e recipe engine"
           fi
