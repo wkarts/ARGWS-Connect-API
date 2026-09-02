@@ -115,9 +115,9 @@
   function schedule() {
     window.clearTimeout(state.timer);
     state.timer = window.setTimeout(() => refresh().catch((error) => {
+      state.lastKey = '';
       const card = ensureCard();
-      if (card) card.querySelector('.provider-transport-body')?.remove();
-      if (card) card.insertAdjacentHTML('beforeend', `<div class="phase5-warning">Preview indisponível: ${esc(error.message)}</div>`);
+      if (card) card.innerHTML = `<div class="provider-transport-title">Transporte real</div><div class="phase5-warning">Preview indisponível: ${esc(error.message)}</div>`;
     }), 320);
   }
 
@@ -129,6 +129,10 @@
   $('refreshButton')?.addEventListener('click', () => window.setTimeout(schedule, 400));
   document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => { if (tab.dataset.tab === 'content' || tab.dataset.tab === 'test') schedule(); }));
   const editor = $('buttonEditor');
-  if (editor) new MutationObserver(schedule).observe(editor, { childList: true, subtree: true, attributes: true });
+  if (editor) {
+    editor.addEventListener('input', schedule);
+    editor.addEventListener('change', schedule);
+    new MutationObserver(schedule).observe(editor, { childList: true, subtree: true, attributes: true });
+  }
   window.setTimeout(schedule, 900);
 })();
