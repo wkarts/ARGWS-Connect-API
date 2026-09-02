@@ -24,20 +24,20 @@ jobs:
           const fs = require('fs');
           const file = 'src/api/services/template-engine.service.ts';
           let source = fs.readFileSync(file, 'utf8');
-          const importNeedle = "import {\n  planTemplateTransport,\n  TemplateRenderEnvelope,\n  TemplateTransportPlan,\n} from './template-transport-planner';";
-          const importReplacement = "import {\n  getProviderTemplateCapabilities,\n  planTemplateTransport,\n  TemplateRenderEnvelope,\n  TemplateTransportPlan,\n} from './template-transport-planner';";
-          if (!source.includes(importNeedle)) throw new Error('planner import block not found');
-          source = source.replace(importNeedle, importReplacement);
-          const methodNeedle = `  public capabilities(provider?: string) {
-            return planTemplateTransport(provider, { text: '', buttons: [], interactions: [] }).provider
-              ? require('./template-transport-planner').getProviderTemplateCapabilities(provider)
-              : null;
-          }`;
-          const methodReplacement = `  public capabilities(provider?: string) {
-            return getProviderTemplateCapabilities(provider);
-          }`;
-          if (!source.includes(methodNeedle)) throw new Error('capabilities method not found');
-          source = source.replace(methodNeedle, methodReplacement);
+          if (!source.includes('getProviderTemplateCapabilities,')) {
+            source = source.replace(
+              /import \{\s*planTemplateTransport,\s*TemplateRenderEnvelope,\s*TemplateTransportPlan,\s*\} from '\.\/template-transport-planner';/,
+              "import {\n  getProviderTemplateCapabilities,\n  planTemplateTransport,\n  TemplateRenderEnvelope,\n  TemplateTransportPlan,\n} from './template-transport-planner';",
+            );
+          }
+          const before = source;
+          source = source.replace(
+            /  public capabilities\(provider\?: string\) \{[\s\S]*?\n  \}\n\n  private async sendBaileysPollCompatibility/,
+            "  public capabilities(provider?: string) {\n    return getProviderTemplateCapabilities(provider);\n  }\n\n  private async sendBaileysPollCompatibility",
+          );
+          if (source === before || source.includes("require('./template-transport-planner')")) {
+            throw new Error('capabilities normalization did not apply');
+          }
           fs.writeFileSync(file, source);
           NODE
       - name: Autofix TypeScript
