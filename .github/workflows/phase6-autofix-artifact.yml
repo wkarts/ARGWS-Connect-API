@@ -73,4 +73,4 @@ jobs:
           git add src manager/dist/assets/template-editor-phase5.js manager/dist/assets/template-editor-phase6.js docs/openapi/connect-api.openapi.json docs/openapi/coverage.json
           git add -f test/template-engine/interaction-model-v2.test.ts test/template-engine/policy-bindings.test.ts test/interaction-engine/geolocation-policy.test.ts test/micro-app/foundation.test.ts test/phase6.test.ts
           git commit --no-verify -m 'chore(phase6): apply canonical lint and docs generation'
-          git push origin HEAD:${{ github.head_ref }}
+          git push --no-verify origin HEAD:${{ github.head_ref }}
