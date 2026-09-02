@@ -1,0 +1,60 @@
+name: Template Studio Professionalize
+
+on:
+  push:
+    branches: [feat/template-studio-professional-redesign-phase6]
+
+permissions:
+  contents: write
+
+jobs:
+  wire-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/template-studio-professional-redesign-phase6
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Wire professional assets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('manager/dist/template-editor.html')
+          html = path.read_text()
+          css = '    <link rel="stylesheet" href="/assets/template-studio-professional.css" />\n'
+          if '/assets/template-studio-professional.css' not in html:
+              html = html.replace('    <link rel="stylesheet" href="/assets/template-editor.css" />\n', '    <link rel="stylesheet" href="/assets/template-editor.css" />\n' + css)
+          script = '    <script src="/assets/template-studio-professional.js"></script>\n'
+          if '/assets/template-studio-professional.js' not in html:
+              marker = '    <script src="/assets/template-editor-phase5.js"></script>\n'
+              if marker not in html:
+                  raise SystemExit('phase5 script marker not found')
+              html = html.replace(marker, marker + script)
+          path.write_text(html)
+          PY
+      - name: Format and validate
+        run: |
+          npx prettier --write manager/dist/template-editor.html manager/dist/assets/template-studio-professional.js manager/dist/assets/template-studio-professional.css
+          node --check manager/dist/assets/template-studio-professional.js
+          node --check manager/dist/assets/template-editor.js
+          node --check manager/dist/assets/template-editor-v2.js
+          node --check manager/dist/assets/template-editor-phase4.js
+          node --check manager/dist/assets/template-editor-phase5.js
+          node --check manager/dist/assets/template-editor-phase6.js
+          git diff --check
+      - name: Commit canonical UI outputs
+        run: |
+          if git diff --quiet; then
+            echo 'No changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add manager/dist/template-editor.html manager/dist/assets/template-studio-professional.js manager/dist/assets/template-studio-professional.css
+          git commit --no-verify -m 'feat(studio): wire responsive professional workspace'
+          git push --no-verify origin HEAD:feat/template-studio-professional-redesign-phase6
