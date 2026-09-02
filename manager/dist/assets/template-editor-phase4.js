@@ -28,10 +28,15 @@
     return data;
   }
 
+  function conciseError(value) {
+    const raw = String(value?.message || value || 'Erro desconhecido').replace(/\s+/g, ' ').trim();
+    return raw.length > 260 ? `${raw.slice(0, 257)}...` : raw;
+  }
+
   function toast(message, error = false) {
     const node = $('toast');
     if (!node) return;
-    node.textContent = message;
+    node.textContent = error ? conciseError(message) : message;
     node.classList.toggle('error', error);
     node.classList.add('show');
     clearTimeout(toast.timer);
@@ -49,8 +54,8 @@
       .phase4-pending{display:grid;gap:8px;margin-top:12px}.phase4-pending-item{border:1px solid var(--border,#dbe3ef);border-radius:12px;padding:10px;background:#f8fafc}
       .phase4-pending-item strong{font-size:12px}.phase4-pending-item small{display:block;color:#667085;margin-top:4px}.phase4-pending-item .phase4-actions{margin-top:8px}
       .policy-state{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.policy-pill{font-size:10px;font-weight:800;border-radius:999px;padding:4px 8px;background:#eef4ff;color:#174ea6}
-      @media(max-width:1200px){.phase4-grid{grid-template-columns:1fr 1fr}.phase4-card:last-child{grid-column:1/-1}}
-      @media(max-width:760px){.phase4-grid{grid-template-columns:1fr}.phase4-card:last-child{grid-column:auto}.phase4-fields.two{grid-template-columns:1fr}}
+      @media(max-width:1360px){.phase4-grid{grid-template-columns:1fr 1fr}.phase4-card:last-child{grid-column:1/-1}}
+      @media(max-width:900px){.phase4-grid{grid-template-columns:1fr}.phase4-card:last-child{grid-column:auto}.phase4-fields.two{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
