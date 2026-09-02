@@ -4,7 +4,7 @@
     "title": "Connect|API — Meta Compatible /graph",
     "version": "1.0.16",
     "summary": "Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.",
-    "description": "A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Antes do uso, habilite a instância em `PUT /compat/meta/{instanceName}`."
+    "description": "A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível e com identidade telefônica estável é Graph-addressable por padrão."
   },
   "servers": [
     {

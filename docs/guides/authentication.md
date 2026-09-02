@@ -10,6 +10,8 @@ apikey: <API_KEY_OR_INSTANCE_TOKEN>
 
 A chave pode ser a credencial global configurada ou, conforme o endpoint/guard, o token da instância.
 
+A chave global é administrativa e não deve ser distribuída a tenants. Para endpoints vinculados a uma instância, prefira o token exclusivo daquela instância.
+
 Nunca publique chaves reais em exemplos, logs ou documentação.
 
 ## Meta Compatible `/graph`

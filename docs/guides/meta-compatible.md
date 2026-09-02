@@ -12,28 +12,31 @@ API nativa ───────┐
 
 Usar `/graph` e a API nativa em paralelo não duplica uma mensagem por si só. Duas requisições de envio distintas continuam sendo dois envios reais.
 
-## Ativação por instância
+## Disponibilidade por instância
 
-Consulte:
+A compatibilidade `/graph` é uma capacidade nativa do Connect|API e não precisa ser habilitada por ENV, banco ou toggle no Manager.
+
+Uma instância `WHATSAPP-BUSINESS`, `WHATSAPP-BAILEYS` ou `CONNECT` com identidade telefônica estável fica Graph-addressable automaticamente.
+
+Consulte a identidade e configuração:
 
 ```bash
 curl 'http://127.0.0.1:38080/compat/meta/minha-instancia' \
-  -H 'apikey: <API_KEY>'
+  -H 'apikey: <GLOBAL_API_KEY_OU_INSTANCE_TOKEN>'
 ```
 
-Ative e configure webhook:
+O endpoint administrativo continua existindo para compatibilidade e para configurar apenas o webhook Meta opcional:
 
 ```bash
 curl -X PUT 'http://127.0.0.1:38080/compat/meta/minha-instancia' \
-  -H 'apikey: <API_KEY>' \
+  -H 'apikey: <GLOBAL_API_KEY_OU_INSTANCE_TOKEN>' \
   -H 'Content-Type: application/json' \
   -d '{
-    "enabled": true,
     "webhookUrl": "https://example.com/webhooks/meta"
   }'
 ```
 
-A resposta informa a identidade compatível derivada dos dados reais da instância.
+O campo `enabled` pode continuar aparecendo em respostas legadas, mas é sempre `true` e não controla mais o acesso ao `/graph`.
 
 ## Autenticação Graph
 

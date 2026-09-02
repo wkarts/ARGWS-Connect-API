@@ -79,8 +79,8 @@ function pathParameters(apiPath) {
       name,
       in: 'path',
       required: true,
-      schema: { type: 'string' },
-      description: name === 'instanceName' ? 'Nome da instância Connect|API.' : `Parâmetro de rota ${name}.`,
+      schema: { type: 'string', minLength: 1 },
+      description: name === 'instanceName' ? 'Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição.' : `Parâmetro de rota ${name}.`,
     });
   }
   return params;
@@ -237,7 +237,7 @@ const requestOverrides = {
   'GET /compat/meta/{instanceName}': { summary: 'Consultar Meta Compatible', description: 'Retorna configuração e identidade compatível com Meta Cloud da instância.' },
   'PUT /compat/meta/{instanceName}': {
     summary: 'Configurar Meta Compatible',
-    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { enabled: { type: 'boolean' }, webhookUrl: { type: ['string', 'null'], format: 'uri' } } }, example: { enabled: true, webhookUrl: 'https://example.com/webhooks/meta' } } } },
+    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { webhookUrl: { type: ['string', 'null'], format: 'uri' } } }, example: { webhookUrl: 'https://example.com/webhooks/meta' } } } },
   },
 };
 
@@ -310,7 +310,7 @@ function nativeSpec(routes, version) {
       { name: 'Webhooks', description: 'Configuração e recebimento de webhooks.' }, { name: 'WebSocket', description: 'Eventos via WebSocket.' }, { name: 'RabbitMQ', description: 'Eventos via RabbitMQ.' },
       { name: 'NATS', description: 'NATS opcional.' }, { name: 'Pusher', description: 'Pusher opcional.' }, { name: 'SQS', description: 'AWS SQS opcional.' }, { name: 'Kafka', description: 'Kafka opcional.' },
       { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' }, { name: 'Chatbots', description: 'Integrações de chatbot/automação.' }, { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
-      { name: 'Meta Compatible Admin', description: 'Ativação e configuração da fachada Meta Compatible.' },
+      { name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },
     ],
     paths,
     components: {
@@ -336,7 +336,7 @@ function graphSpec(version) {
     openapi: '3.1.0',
     info: {
       title: 'Connect|API — Meta Compatible /graph', version, summary: 'Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.',
-      description: 'A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Antes do uso, habilite a instância em `PUT /compat/meta/{instanceName}`.',
+      description: 'A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível e com identidade telefônica estável é Graph-addressable por padrão.',
     },
     servers: [{ url: 'https://d.api.connect.argws.com.br/graph', description: 'Develop / homologação' }, { url: 'http://localhost:38080/graph', description: 'Docker local' }],
     tags: [{ name: 'Messages' }, { name: 'Media' }, { name: 'Templates' }],
