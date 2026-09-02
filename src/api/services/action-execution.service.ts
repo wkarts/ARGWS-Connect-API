@@ -6,6 +6,7 @@ import { InstanceDto } from '@api/dto/instance.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { BadRequestException } from '@exceptions';
 import axios from 'axios';
+import { validate } from 'jsonschema';
 
 import { resolveActionValue } from './action-value-resolver';
 
@@ -25,6 +26,7 @@ export class ActionExecutionService {
       where: { instanceId_actionKey: { instanceId: instanceRow.id, actionKey: data.actionKey } },
     });
     if (!action || !action.enabled) throw new BadRequestException(`Action ${data.actionKey} is unavailable.`);
+    this.validateInput(data.input || {}, action.inputSchema);
 
     const context = { input: data.input || {} };
     const template = (action.requestTemplate || {}) as Record<string, unknown>;
@@ -105,12 +107,20 @@ export class ActionExecutionService {
         },
       });
 
+      const responseContext = {
+        input: data.input || {},
+        response: { status: response.status, data: response.data },
+      };
+      const mappedData = action.outputMapping
+        ? resolveActionValue(action.outputMapping, responseContext)
+        : response.data;
+
       return {
         actionKey: action.actionKey,
         executionId: execution.id,
         success,
         status: response.status,
-        data: response.data,
+        data: mappedData,
       };
     } catch (error) {
       const finishedAt = new Date();
@@ -126,6 +136,14 @@ export class ActionExecutionService {
         },
       });
       throw error;
+    }
+  }
+
+  private validateInput(input: Record<string, unknown>, schema: unknown) {
+    if (!schema || typeof schema !== 'object') return;
+    const result = validate(input, schema as any);
+    if (!result.valid) {
+      throw new BadRequestException(result.errors.map((item) => item.stack));
     }
   }
 
