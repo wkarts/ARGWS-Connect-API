@@ -26,6 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cp .env.example .env
           for stack in production homologation develop canonical; do cp "deploy/${stack}/env.example" "deploy/${stack}/.env"; done
           cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
           cp deploy/dockge/env.example deploy/dockge/.env
@@ -47,10 +48,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' .env.example
           grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' deploy/production/env.example
           grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' deploy/homologation/env.example
           grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' deploy/canonical/env.example
           grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://d.docs.connect.argws.com.br$' deploy/develop/env.example
+          grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' deploy/cloudpanel/env.example
+          grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' deploy/dockge/env.example
           grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br$' deploy/docs/env.example
           grep -q '^ARGWS_CONNECT_DOCS_PUBLIC_URL=https://d.docs.connect.argws.com.br$' deploy/docs-develop/env.example
           for stack in docs docs-develop; do
@@ -77,7 +81,7 @@ jobs:
 
       - name: Clean generated env files
         if: always()
-        run: rm -f deploy/production/.env deploy/homologation/.env deploy/develop/.env deploy/canonical/.env deploy/cloudpanel/.env deploy/dockge/.env deploy/docs/.env deploy/docs-develop/.env
+        run: rm -f .env deploy/production/.env deploy/homologation/.env deploy/develop/.env deploy/canonical/.env deploy/cloudpanel/.env deploy/dockge/.env deploy/docs/.env deploy/docs-develop/.env
 
       - name: Commit validated topology
         shell: bash
