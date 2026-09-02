@@ -25,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/tmp-apply-meta-always-on.py
+          sed -i "/import { MetaCloudGraphError } from '.\\/meta-cloud.error';/d" src/api/compat/meta-cloud/meta-cloud-graph.controller.ts
           mkdir -p prisma/postgresql-migrations/20260902010000_meta_compatibility_always_on
           printf '%s\n' \
             'ALTER TABLE "MetaCompatibility" ALTER COLUMN "enabled" SET DEFAULT true;' \
@@ -44,6 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npx prettier --write src/api/compat/meta-cloud/meta-cloud.controller.ts
           npm run lint:check
           npx tsc --noEmit
           npm run test:compat
