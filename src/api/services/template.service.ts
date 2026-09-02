@@ -3,9 +3,47 @@ import { TemplateDto } from '@api/dto/template.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { ConfigService, WaBusiness } from '@config/env.config';
 import { Logger } from '@config/logger.config';
+import { BadRequestException, NotFoundException } from '@exceptions';
+import { createId } from '@paralleldrive/cuid2';
 import axios from 'axios';
 
 import { WAMonitoringService } from './monitor.service';
+
+const DEFAULT_LOCAL_TEMPLATES = [
+  {
+    name: 'hello_world',
+    category: 'UTILITY',
+    language: 'pt_BR',
+    components: [{ type: 'BODY', text: 'Olá {{1}}! Esta é uma mensagem de teste do Connect|API.' }],
+  },
+  {
+    name: 'sample_utility',
+    category: 'UTILITY',
+    language: 'pt_BR',
+    components: [
+      { type: 'BODY', text: 'Olá {{1}}. Sua solicitação {{2}} está pronta para continuar.' },
+      {
+        type: 'BUTTONS',
+        buttons: [
+          { type: 'QUICK_REPLY', text: 'Confirmar', id: 'confirm' },
+          { type: 'QUICK_REPLY', text: 'Cancelar', id: 'cancel' },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'sample_marketing',
+    category: 'MARKETING',
+    language: 'pt_BR',
+    components: [{ type: 'BODY', text: 'Olá {{1}}, temos uma novidade para você: {{2}}.' }],
+  },
+  {
+    name: 'sample_authentication',
+    category: 'AUTHENTICATION',
+    language: 'pt_BR',
+    components: [{ type: 'BODY', text: 'Seu código de verificação é {{1}}.' }],
+  },
+] as const;
 
 export class TemplateService {
   constructor(
@@ -20,35 +58,32 @@ export class TemplateService {
   private token: string;
 
   public async find(instance: InstanceDto) {
-    const getInstance = await this.waMonitor.waInstances[instance.instanceName].instance;
+    const runtimeInstance = await this.getRuntimeInstance(instance);
 
-    if (!getInstance) {
-      throw new Error('Instance not found');
+    if (this.isMetaBusiness(runtimeInstance.integration)) {
+      this.setMetaCredentials(runtimeInstance);
+      const response = await this.requestTemplate({}, 'GET');
+      if (!response) throw new Error('Error to find templates');
+      return response.data;
     }
 
-    this.businessId = getInstance.businessId;
-    this.token = getInstance.token;
-
-    const response = await this.requestTemplate({}, 'GET');
-
-    if (!response) {
-      throw new Error('Error to create template');
-    }
-
-    return response.data;
+    await this.ensureDefaultTemplates(runtimeInstance.id);
+    const templates = await this.prismaRepository.template.findMany({
+      where: { instanceId: runtimeInstance.id, enabled: true },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }, { language: 'asc' }],
+    });
+    return templates.map((template) => this.toMetaShape(template));
   }
 
   public async create(instance: InstanceDto, data: TemplateDto) {
     try {
-      const getInstance = await this.waMonitor.waInstances[instance.instanceName].instance;
+      const runtimeInstance = await this.getRuntimeInstance(instance);
 
-      if (!getInstance) {
-        throw new Error('Instance not found');
+      if (!this.isMetaBusiness(runtimeInstance.integration)) {
+        return await this.createLocal(runtimeInstance.id, data);
       }
 
-      this.businessId = getInstance.businessId;
-      this.token = getInstance.token;
-
+      this.setMetaCredentials(runtimeInstance);
       const postData = {
         name: data.name,
         category: data.category,
@@ -58,32 +93,26 @@ export class TemplateService {
       };
 
       const response = await this.requestTemplate(postData, 'POST');
+      if (!response || response.error) this.throwMetaError(response, 'Error to create template');
 
-      if (!response || response.error) {
-        // If there's an error from WhatsApp API, throw it with the real error data
-        if (response && response.error) {
-          // Create an error object that includes the template field for Meta errors
-          const metaError = new Error(response.error.message || 'WhatsApp API Error');
-          (metaError as any).template = response.error;
-          throw metaError;
-        }
-        throw new Error('Error to create template');
-      }
-
-      const template = await this.prismaRepository.template.create({
+      return await this.prismaRepository.template.create({
         data: {
-          templateId: response.id,
+          templateId: String(response.id),
+          externalTemplateId: String(response.id),
           name: data.name,
-          template: response,
+          language: data.language,
+          category: data.category,
+          status: response.status || 'PENDING',
+          origin: 'META',
+          enabled: true,
+          isDefault: false,
+          template: { ...postData, ...response },
           webhookUrl: data.webhookUrl,
-          instanceId: getInstance.id,
+          instanceId: runtimeInstance.id,
         },
       });
-
-      return template;
     } catch (error) {
       this.logger.error('Error in create template: ' + error);
-      // Propagate the real error instead of "engolindo" it
       throw error;
     }
   }
@@ -92,14 +121,36 @@ export class TemplateService {
     instance: InstanceDto,
     data: { templateId: string; category?: string; components?: any; allowCategoryChange?: boolean; ttl?: number },
   ) {
-    const getInstance = await this.waMonitor.waInstances[instance.instanceName].instance;
-    if (!getInstance) {
-      throw new Error('Instance not found');
+    const runtimeInstance = await this.getRuntimeInstance(instance);
+
+    if (!this.isMetaBusiness(runtimeInstance.integration)) {
+      const current = await this.prismaRepository.template.findFirst({
+        where: { instanceId: runtimeInstance.id, templateId: data.templateId },
+      });
+      if (!current) throw new NotFoundException(`Template ${data.templateId} not found`);
+
+      const currentTemplate: any = current.template || {};
+      const nextTemplate = {
+        ...currentTemplate,
+        ...(typeof data.category === 'string' ? { category: data.category } : {}),
+        ...(data.components ? { components: data.components } : {}),
+        ...(typeof data.allowCategoryChange === 'boolean' ? { allow_category_change: data.allowCategoryChange } : {}),
+      };
+      const nextPolicy: any = { ...((current.policy as any) || {}) };
+      if (typeof data.ttl === 'number') nextPolicy.ttl = data.ttl;
+
+      const updated = await this.prismaRepository.template.update({
+        where: { id: current.id },
+        data: {
+          ...(typeof data.category === 'string' ? { category: data.category } : {}),
+          template: nextTemplate,
+          policy: nextPolicy,
+        },
+      });
+      return this.toMetaShape(updated);
     }
 
-    this.businessId = getInstance.businessId;
-    this.token = getInstance.token;
-
+    this.setMetaCredentials(runtimeInstance);
     const payload: Record<string, unknown> = {};
     if (typeof data.category === 'string') payload.category = data.category;
     if (typeof data.allowCategoryChange === 'boolean') payload.allow_category_change = data.allowCategoryChange;
@@ -107,56 +158,132 @@ export class TemplateService {
     if (data.components) payload.components = data.components;
 
     const response = await this.requestEditTemplate(data.templateId, payload);
-
-    if (!response || response.error) {
-      if (response && response.error) {
-        const metaError = new Error(response.error.message || 'WhatsApp API Error');
-        (metaError as any).template = response.error;
-        throw metaError;
-      }
-      throw new Error('Error to edit template');
-    }
-
+    if (!response || response.error) this.throwMetaError(response, 'Error to edit template');
     return response;
   }
 
   public async delete(instance: InstanceDto, data: { name: string; hsmId?: string }) {
-    const getInstance = await this.waMonitor.waInstances[instance.instanceName].instance;
-    if (!getInstance) {
-      throw new Error('Instance not found');
+    const runtimeInstance = await this.getRuntimeInstance(instance);
+
+    if (!this.isMetaBusiness(runtimeInstance.integration)) {
+      const deleted = await this.prismaRepository.template.deleteMany({
+        where: {
+          instanceId: runtimeInstance.id,
+          OR: [{ name: data.name }, ...(data.hsmId ? [{ templateId: data.hsmId }] : [])],
+        },
+      });
+      return { success: true, deleted: deleted.count, name: data.name };
     }
 
-    this.businessId = getInstance.businessId;
-    this.token = getInstance.token;
-
+    this.setMetaCredentials(runtimeInstance);
     const response = await this.requestDeleteTemplate({ name: data.name, hsm_id: data.hsmId });
-
-    if (!response || response.error) {
-      if (response && response.error) {
-        const metaError = new Error(response.error.message || 'WhatsApp API Error');
-        (metaError as any).template = response.error;
-        throw metaError;
-      }
-      throw new Error('Error to delete template');
-    }
+    if (!response || response.error) this.throwMetaError(response, 'Error to delete template');
 
     try {
-      // Best-effort local cleanup of stored template metadata
       await this.prismaRepository.template.deleteMany({
         where: {
-          OR: [
-            { name: data.name, instanceId: getInstance.id },
-            data.hsmId ? { templateId: data.hsmId, instanceId: getInstance.id } : undefined,
-          ].filter(Boolean) as any,
+          instanceId: runtimeInstance.id,
+          OR: [{ name: data.name }, ...(data.hsmId ? [{ templateId: data.hsmId }] : [])],
         },
       });
     } catch (err) {
-      this.logger.warn(
-        `Failed to cleanup local template records after delete: ${(err as Error)?.message || String(err)}`,
-      );
+      this.logger.warn(`Failed to cleanup local template records after delete: ${(err as Error)?.message || String(err)}`);
     }
-
     return response;
+  }
+
+  private async createLocal(instanceId: string, data: TemplateDto) {
+    const existing = await this.prismaRepository.template.findFirst({
+      where: { instanceId, name: data.name, language: data.language },
+    });
+    if (existing) throw new BadRequestException(`Template ${data.name} (${data.language}) already exists for this instance`);
+
+    const templateId = `sim_tpl_${createId()}`;
+    const definition = {
+      id: templateId,
+      name: data.name,
+      status: 'APPROVED',
+      category: data.category,
+      language: data.language,
+      components: data.components,
+    };
+    const created = await this.prismaRepository.template.create({
+      data: {
+        templateId,
+        name: data.name,
+        language: data.language,
+        category: data.category,
+        status: 'APPROVED',
+        origin: 'LOCAL',
+        enabled: true,
+        isDefault: false,
+        template: definition,
+        webhookUrl: data.webhookUrl,
+        instanceId,
+      },
+    });
+    return this.toMetaShape(created);
+  }
+
+  private async ensureDefaultTemplates(instanceId: string) {
+    for (const definition of DEFAULT_LOCAL_TEMPLATES) {
+      const exists = await this.prismaRepository.template.findFirst({
+        where: { instanceId, name: definition.name, language: definition.language },
+      });
+      if (exists) continue;
+
+      const templateId = `sys_tpl_${createId()}`;
+      await this.prismaRepository.template.create({
+        data: {
+          templateId,
+          name: definition.name,
+          language: definition.language,
+          category: definition.category,
+          status: 'APPROVED',
+          origin: 'SYSTEM',
+          enabled: true,
+          isDefault: true,
+          template: { id: templateId, status: 'APPROVED', ...definition },
+          instanceId,
+        },
+      });
+    }
+  }
+
+  private toMetaShape(template: any) {
+    const definition = template.template || {};
+    return {
+      id: template.externalTemplateId || template.templateId,
+      name: template.name,
+      status: template.status || definition.status || 'APPROVED',
+      category: template.category || definition.category || 'UTILITY',
+      language: template.language || definition.language || 'pt_BR',
+      components: definition.components || [],
+    };
+  }
+
+  private async getRuntimeInstance(instance: InstanceDto): Promise<any> {
+    const runtime = this.waMonitor.waInstances[instance.instanceName];
+    if (!runtime?.instance) throw new NotFoundException(`Instance ${instance.instanceName} not found`);
+    return await runtime.instance;
+  }
+
+  private isMetaBusiness(provider?: string) {
+    return provider === 'WHATSAPP-BUSINESS';
+  }
+
+  private setMetaCredentials(runtimeInstance: any) {
+    this.businessId = runtimeInstance.businessId;
+    this.token = runtimeInstance.token;
+  }
+
+  private throwMetaError(response: any, fallback: string): never {
+    if (response?.error) {
+      const metaError = new Error(response.error.message || fallback);
+      (metaError as any).template = response.error;
+      throw metaError;
+    }
+    throw new Error(fallback);
   }
 
   private async requestTemplate(data: any, method: string) {
@@ -169,21 +296,14 @@ export class TemplateService {
       if (method === 'GET') {
         const result = await axios.get(urlServer, { headers });
         return result.data;
-      } else if (method === 'POST') {
+      }
+      if (method === 'POST') {
         const result = await axios.post(urlServer, data, { headers });
         return result.data;
       }
     } catch (e) {
-      this.logger.error(
-        'WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message),
-      );
-
-      // Return the complete error response from WhatsApp API
-      if (e.response?.data) {
-        return e.response.data;
-      }
-
-      // If no response data, throw connection error
+      this.logger.error('WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message));
+      if (e.response?.data) return e.response.data;
       throw new Error(`Connection error: ${e.message}`);
     }
   }
@@ -197,9 +317,7 @@ export class TemplateService {
       const result = await axios.post(urlServer, data, { headers });
       return result.data;
     } catch (e) {
-      this.logger.error(
-        'WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message),
-      );
+      this.logger.error('WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message));
       if (e.response?.data) return e.response.data;
       throw new Error(`Connection error: ${e.message}`);
     }
@@ -214,9 +332,7 @@ export class TemplateService {
       const result = await axios.delete(urlServer, { headers, params });
       return result.data;
     } catch (e) {
-      this.logger.error(
-        'WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message),
-      );
+      this.logger.error('WhatsApp API request error: ' + (e.response?.data ? JSON.stringify(e.response?.data) : e.message));
       if (e.response?.data) return e.response.data;
       throw new Error(`Connection error: ${e.message}`);
     }
