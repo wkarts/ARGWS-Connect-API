@@ -317,8 +317,8 @@ function nativeSpec(routes, version) {
       version,
       summary: 'Referência interativa da API nativa do Connect|API.',
       description: [
-        '![Connect|API DOCs](/openapi/branding/docs/connect-api-docs-light.png)', '',
-        'Documentação gerada a partir das rotas Express atuais do projeto. O contrato nativo continua sendo a interface principal da aplicação e pode coexistir com a camada Meta Compatible `/graph`.', '',
+        '![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)', '',
+        'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.', '',
         '### Autenticação', 'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.', '',
         '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `CONNECT`', '',
         '### Atualização automática', 'Este documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado.',
@@ -361,7 +361,11 @@ function graphSpec(version) {
     openapi: '3.1.0',
     info: {
       title: 'Connect|API — Meta Compatible /graph', version, summary: 'Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.',
-      description: 'A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível e com identidade telefônica estável é Graph-addressable por padrão.',
+      description: [
+        '![Connect|API Meta](/openapi/branding/docs/connect-api-meta-light.png)', '',
+        'Fachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.', '',
+        'A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão.',
+      ].join('\n'),
     },
     servers: [{ url: 'https://d.api.connect.argws.com.br/graph', description: 'Develop / homologação' }, { url: 'http://localhost:38080/graph', description: 'Docker local' }],
     tags: [{ name: 'Messages' }, { name: 'Media' }, { name: 'Templates' }],
@@ -419,7 +423,14 @@ function asyncSpec(version) {
   }
   return {
     asyncapi: '2.6.0',
-    info: { title: 'Connect|API — Eventos', version, description: 'Catálogo dos eventos definidos em `Events`, publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte.' },
+    info: {
+      title: 'Connect|API — Eventos',
+      version,
+      description: [
+        '![Connect|API Events](/openapi/branding/docs/connect-api-events-light.png)', '',
+        'Eventos do Connect|API publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte.',
+      ].join('\n'),
+    },
     channels,
     components: { messages: { ConnectEvent: { name: 'ConnectEvent', title: 'Evento Connect|API', payload: { type: 'object', additionalProperties: true, properties: { event: { type: 'string' }, instance: {}, data: {} } } } } },
   };

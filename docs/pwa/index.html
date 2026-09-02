@@ -277,8 +277,7 @@
           toggle.setAttribute('aria-label', isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro')
         }
 
-        syncScalarTheme()
-        syncDocumentLogos()
+        syncDocumentPresentation()
 
         if (persist) {
           try {
@@ -297,22 +296,51 @@
         scalarRoot.classList.toggle('light-mode', currentTheme === 'light')
       }
 
-      function syncDocumentLogos() {
-        const target = currentTheme === 'dark' ? 'connect-api-docs-dark.png' : 'connect-api-docs-light.png'
-        const opposite = currentTheme === 'dark' ? 'connect-api-docs-light.png' : 'connect-api-docs-dark.png'
+      const documentLogoPairs = [
+        ['connect-api-docs-light.png', 'connect-api-docs-dark.png'],
+        ['connect-api-rest-light.png', 'connect-api-rest-dark.png'],
+        ['connect-api-meta-light.png', 'connect-api-meta-dark.png'],
+        ['connect-api-events-light.png', 'connect-api-events-dark.png'],
+      ]
 
+      const redundantDocumentTitles = new Set([
+        'Connect|API — REST API',
+        'Connect|API — Meta Compatible /graph',
+        'Connect|API — Eventos',
+      ])
+
+      function syncDocumentLogos() {
         document.querySelectorAll('#app img').forEach((image) => {
           const source = image.getAttribute('src') || ''
-          if (!source.includes(opposite)) return
-          image.setAttribute('src', source.replace(opposite, target))
+          for (const [lightName, darkName] of documentLogoPairs) {
+            const target = currentTheme === 'dark' ? darkName : lightName
+            const opposite = currentTheme === 'dark' ? lightName : darkName
+            if (!source.includes(opposite)) continue
+            image.setAttribute('src', source.replace(opposite, target))
+            break
+          }
         })
+      }
+
+      function hideRedundantDocumentTitles() {
+        document.querySelectorAll('#app h1, #app h2, #app h3, #app [role="heading"]').forEach((heading) => {
+          const text = (heading.textContent || '').trim()
+          if (!redundantDocumentTitles.has(text)) return
+          heading.hidden = true
+          heading.setAttribute('aria-hidden', 'true')
+        })
+      }
+
+      function syncDocumentPresentation() {
+        syncScalarTheme()
+        syncDocumentLogos()
+        hideRedundantDocumentTitles()
       }
 
       function observeScalar() {
         if (scalarObserver) scalarObserver.disconnect()
         scalarObserver = new MutationObserver(() => {
-          syncScalarTheme()
-          syncDocumentLogos()
+          syncDocumentPresentation()
         })
         scalarObserver.observe(document.getElementById('app'), { childList: true, subtree: true })
       }
