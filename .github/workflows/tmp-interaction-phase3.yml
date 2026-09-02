@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma validate --schema prisma/postgresql-schema.prisma
-          DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma validate --schema prisma/psql_bouncer-schema.prisma
+          DATABASE_BOUNCER_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:6432/argws?pgbouncer=true' npx prisma validate --schema prisma/psql_bouncer-schema.prisma
           DATABASE_CONNECTION_URI='mysql://argws:argws@127.0.0.1:3306/argws' npx prisma validate --schema prisma/mysql-schema.prisma
           DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma generate --schema prisma/postgresql-schema.prisma
 
