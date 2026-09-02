@@ -34,6 +34,11 @@ assert.equal(meta.mode, 'PROVIDER_NATIVE');
 assert.equal(meta.degraded, false);
 assert.deepEqual(meta.buttons.map((button) => button.transport), ['NATIVE_BUTTON', 'NATIVE_BUTTON']);
 
+const connect = planTemplateTransport('CONNECT', utility);
+assert.equal(connect.mode, 'INTERACTIVE');
+assert.equal(connect.degraded, false);
+assert.deepEqual(connect.buttons.map((button) => button.transport), ['NATIVE_BUTTON', 'NATIVE_BUTTON']);
+
 const withUrl = renderTemplateDefinition(
   {
     components: [
@@ -48,12 +53,48 @@ const baileysUrl = planTemplateTransport('WHATSAPP-BAILEYS', withUrl);
 assert.equal(baileysUrl.mode, 'TEXT_COMPAT');
 assert.equal(baileysUrl.buttons[0]?.transport, 'TEXT_LINK');
 
+const mixed = renderTemplateDefinition(
+  {
+    components: [
+      { type: 'BODY', text: 'Escolha ou acesse.' },
+      {
+        type: 'BUTTONS',
+        buttons: [
+          { type: 'QUICK_REPLY', text: 'Confirmar', id: 'confirm' },
+          { type: 'URL', text: 'Abrir', url: 'https://example.com' },
+        ],
+      },
+    ],
+  },
+  [],
+  {},
+);
+const baileysMixed = planTemplateTransport('WHATSAPP-BAILEYS', mixed);
+assert.equal(baileysMixed.mode, 'TEXT_COMPAT');
+assert.deepEqual(baileysMixed.buttons.map((button) => button.transport), ['TEXT_OPTION', 'TEXT_LINK']);
+
 const plain = renderTemplateDefinition({ components: [{ type: 'BODY', text: 'Somente texto.' }] }, [], {});
 assert.equal(planTemplateTransport('WHATSAPP-BAILEYS', plain).mode, 'TEXT');
+assert.equal(planTemplateTransport('CONNECT', plain).mode, 'TEXT');
 
-const capabilities = getProviderTemplateCapabilities('WHATSAPP-BAILEYS');
-assert.equal(capabilities.quickReply, 'POLL_COMPAT');
-assert.equal(capabilities.urlButton, 'TEXT_COMPAT');
+const baileysCapabilities = getProviderTemplateCapabilities('WHATSAPP-BAILEYS');
+assert.equal(baileysCapabilities.quickReply, 'POLL_COMPAT');
+assert.equal(baileysCapabilities.urlButton, 'TEXT_COMPAT');
 assert.equal(getProviderTemplateCapabilities('WHATSAPP-BUSINESS').quickReply, 'NATIVE');
+
+const connectCapabilities = getProviderTemplateCapabilities('CONNECT');
+assert.equal(connectCapabilities.quickReply, 'NATIVE');
+assert.equal(connectCapabilities.list, 'UNSUPPORTED');
+
+const unknownCapabilities = getProviderTemplateCapabilities('SOMETHING-ELSE');
+assert.equal(unknownCapabilities.quickReply, 'UNSUPPORTED');
+assert.equal(unknownCapabilities.urlButton, 'UNSUPPORTED');
+assert.equal(unknownCapabilities.list, 'UNSUPPORTED');
+
+const unknown = planTemplateTransport('SOMETHING-ELSE', utility);
+assert.equal(unknown.mode, 'TEXT_COMPAT');
+assert.equal(unknown.compatibilityTransport, 'GENERIC_TEXT');
+assert.equal(unknown.degraded, true);
+assert.deepEqual(unknown.buttons.map((button) => button.transport), ['TEXT_OPTION', 'TEXT_OPTION']);
 
 console.log('provider template capabilities: ok');
