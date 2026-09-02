@@ -63,6 +63,10 @@ jobs:
             JSON.parse(fs.readFileSync(f, 'utf8'))
             console.log('valid', f)
           }
+          const native = JSON.parse(fs.readFileSync('docs/openapi/connect-api.openapi.json', 'utf8'))
+          if (native.components?.securitySchemes?.apiKey?.name !== 'apikey') {
+            throw new Error('native auth header must be apikey')
+          }
           const manifest = JSON.parse(fs.readFileSync('docs/pwa/manifest.webmanifest', 'utf8'))
           if (manifest.name !== 'Connect|API DOCs') throw new Error('PWA name inválido')
           if (manifest.short_name !== 'Connect|API DOCs') throw new Error('PWA short_name inválido')
