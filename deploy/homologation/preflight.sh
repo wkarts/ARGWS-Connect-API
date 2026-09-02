@@ -36,8 +36,16 @@ if [[ "$api_image" != "ghcr.io/wkarts/argws-connect-api:develop" ]]; then
   exit 1
 fi
 
+docs_image="$(get_value ARGWS_CONNECT_DOCS_IMAGE)"
+if [[ "$docs_image" != "ghcr.io/wkarts/argws-connect-docs:develop" ]]; then
+  echo "ERRO: homologacao deve usar exclusivamente ghcr.io/wkarts/argws-connect-docs:develop"
+  echo "Imagem DOCs atual: ${docs_image:-<vazia>}"
+  exit 1
+fi
+
 image_vars=(
   ARGWS_CONNECT_API_IMAGE
+  ARGWS_CONNECT_DOCS_IMAGE
   ARGWS_CONNECT_POSTGRES_IMAGE
   ARGWS_CONNECT_REDIS_IMAGE
   ARGWS_CONNECT_RABBITMQ_IMAGE

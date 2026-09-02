@@ -1,10 +1,10 @@
 # Deploy do Connect|API DOCs
 
-O Scalar é parte oficial da stack e roda como service `docs` no mesmo `docker-compose.yaml`.
+O Scalar é parte oficial da stack e roda como service `docs` no Compose raiz e em todos os deployments oficiais (`production`, `homologation`, `develop`, `canonical`, `cloudpanel` e `dockge`).
 
 ## Service
 
-O container usa a imagem oficial do Scalar API Reference e monta os contratos gerados como volumes somente leitura.
+O container usa a imagem GHCR `ghcr.io/wkarts/argws-connect-docs`, derivada do Scalar API Reference e com contratos/branding incorporados na própria imagem.
 
 Porta padrão local:
 
@@ -15,7 +15,7 @@ Porta padrão local:
 Variáveis:
 
 ```env
-ARGWS_CONNECT_DOCS_IMAGE=scalarapi/api-reference:latest
+ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest
 ARGWS_CONNECT_DOCS_HOST_PORT=38082
 ```
 
@@ -24,6 +24,19 @@ O bind usa a mesma variável global da stack:
 ```env
 ARGWS_CONNECT_BIND_ADDRESS=127.0.0.1
 ```
+
+## Portas por deployment
+
+```text
+production   38180
+homologation 38181
+develop      38182
+canonical    38183
+cloudpanel   38180
+dockge       38180
+```
+
+O Compose raiz continua usando `38082` por compatibilidade local.
 
 ## Subir somente documentação
 

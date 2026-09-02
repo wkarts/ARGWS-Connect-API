@@ -4,20 +4,23 @@ A plataforma possui duas stacks oficiais e autocontidas: `deploy/production/` e 
 
 Cada ambiente possui projeto Compose, rede, banco, cache, event bus, bucket e persistência física próprios e pode rodar simultaneamente no mesmo host.
 
-## Regra de porta única
+## Portas locais oficiais
 
-Somente a API publica porta no host:
+Cada stack publica duas portas de aplicação: API e Connect|API DOCs. A infraestrutura continua interna.
 
-- Produção: `https://api.connect.argws.com.br` → `127.0.0.1:38080`
-- Homologação: `https://h.api.connect.argws.com.br` → `127.0.0.1:38081`
+- Produção: API `127.0.0.1:38080` | DOCs `127.0.0.1:38180`
+- Homologação: API `127.0.0.1:38081` | DOCs `127.0.0.1:38181`
+- Develop: API `127.0.0.1:38082` | DOCs `127.0.0.1:38182`
+- Canonical: API `127.0.0.1:38083` | DOCs `127.0.0.1:38183`
 
-O mesmo endpoint atende `/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da API.
+`/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da aplicação continuam no endpoint da API. O Scalar roda no service `docs`.
 
 ## Core padrão
 
 Sem nenhum profile adicional, as duas stacks sobem:
 
 - API;
+- Connect|API DOCs;
 - PostgreSQL;
 - Redis;
 - RabbitMQ;
