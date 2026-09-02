@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-connect-docs-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -18,16 +18,40 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="alternate icon" href="favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <script>
+      ;(() => {
+        const key = 'connect-api-docs-theme'
+        let theme = null
+
+        try {
+          const stored = localStorage.getItem(key)
+          if (stored === 'light' || stored === 'dark') theme = stored
+        } catch (error) {
+          // Storage can be unavailable in privacy-restricted contexts.
+        }
+
+        if (!theme) {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        }
+
+        document.documentElement.dataset.connectDocsTheme = theme
+        document.documentElement.style.colorScheme = theme
+      })()
+    </script>
     <style>
       html,
       body {
         margin: 0;
         min-height: 100%;
-        background: #ffffff;
       }
 
       html {
         scroll-padding-top: 66px;
+        background: #ffffff;
+      }
+
+      body {
+        background: #ffffff;
       }
 
       .connect-docs-brandbar {
@@ -47,18 +71,32 @@
         isolation: isolate;
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease;
       }
 
-      .connect-docs-brandbar picture,
-      .connect-docs-brandbar img {
+      .connect-docs-brandbar__brand,
+      .connect-docs-brandbar__brand img {
         display: block;
       }
 
-      .connect-docs-brandbar img {
+      .connect-docs-brandbar__brand {
+        min-width: 0;
+      }
+
+      .connect-docs-brandbar__brand img {
         height: 38px;
         width: auto;
         max-width: min(440px, 72vw);
         object-fit: contain;
+      }
+
+      .connect-docs-brandbar__actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 0 0 auto;
       }
 
       .connect-docs-brandbar__label {
@@ -69,24 +107,81 @@
         white-space: nowrap;
       }
 
+      .connect-docs-theme-toggle {
+        width: 36px;
+        height: 36px;
+        border: 1px solid #dbe2ea;
+        border-radius: 9px;
+        background: #ffffff;
+        color: #334155;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        cursor: pointer;
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease;
+      }
+
+      .connect-docs-theme-toggle:hover {
+        background: #f8fafc;
+      }
+
+      .connect-docs-theme-toggle:focus-visible {
+        outline: 2px solid #1f5fd6;
+        outline-offset: 2px;
+      }
+
+      .connect-docs-theme-toggle svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .connect-docs-theme-toggle__moon {
+        display: none;
+      }
+
       #app {
         min-height: calc(100vh - 58px);
       }
 
-      @media (prefers-color-scheme: dark) {
-        html,
-        body {
-          background: #0b1220;
-        }
+      html[data-connect-docs-theme='dark'],
+      html[data-connect-docs-theme='dark'] body {
+        background: #0b1220;
+      }
 
-        .connect-docs-brandbar {
-          border-bottom-color: #243042;
-          background: rgba(11, 18, 32, 0.97);
-        }
+      html[data-connect-docs-theme='dark'] .connect-docs-brandbar {
+        border-bottom-color: #243042;
+        background: rgba(11, 18, 32, 0.97);
+      }
 
-        .connect-docs-brandbar__label {
-          color: #94a3b8;
-        }
+      html[data-connect-docs-theme='dark'] .connect-docs-brandbar__label {
+        color: #94a3b8;
+      }
+
+      html[data-connect-docs-theme='dark'] .connect-docs-theme-toggle {
+        border-color: #334155;
+        background: #111827;
+        color: #e2e8f0;
+      }
+
+      html[data-connect-docs-theme='dark'] .connect-docs-theme-toggle:hover {
+        background: #172033;
+      }
+
+      html[data-connect-docs-theme='dark'] .connect-docs-theme-toggle__sun {
+        display: none;
+      }
+
+      html[data-connect-docs-theme='dark'] .connect-docs-theme-toggle__moon {
+        display: block;
       }
 
       @media (max-width: 640px) {
@@ -99,13 +194,18 @@
           padding: 7px 10px;
         }
 
-        .connect-docs-brandbar img {
+        .connect-docs-brandbar__brand img {
           height: 32px;
-          max-width: 80vw;
+          max-width: 72vw;
         }
 
         .connect-docs-brandbar__label {
           display: none;
+        }
+
+        .connect-docs-theme-toggle {
+          width: 34px;
+          height: 34px;
         }
 
         #app {
@@ -117,17 +217,105 @@
 
   <body>
     <header class="connect-docs-brandbar" aria-label="Connect|API DOCs">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="branding/connect-api-docs-dark.png" />
-        <img src="branding/connect-api-docs-light.png" alt="Connect|API DOCs" />
-      </picture>
-      <span class="connect-docs-brandbar__label">API Reference</span>
+      <div class="connect-docs-brandbar__brand">
+        <img
+          id="connect-docs-brand-logo"
+          src="branding/connect-api-docs-light.png"
+          data-light-src="branding/connect-api-docs-light.png"
+          data-dark-src="branding/connect-api-docs-dark.png"
+          alt="Connect|API DOCs"
+        />
+      </div>
+      <div class="connect-docs-brandbar__actions">
+        <button
+          id="connect-docs-theme-toggle"
+          class="connect-docs-theme-toggle"
+          type="button"
+          aria-label="Alternar para modo escuro"
+          aria-pressed="false"
+          title="Alternar tema claro/escuro"
+        >
+          <svg class="connect-docs-theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+          </svg>
+          <svg class="connect-docs-theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>
+          </svg>
+        </button>
+        <span class="connect-docs-brandbar__label">API Reference</span>
+      </div>
     </header>
 
     <div id="app"></div>
     <script src="{{env "CDN_URL"}}"></script>
     <script>
       const basePath = '{{env "BASE_PATH" | js}}'.replace(/\/$/, '')
+      const themeStorageKey = 'connect-api-docs-theme'
+      let currentTheme = document.documentElement.dataset.connectDocsTheme === 'dark' ? 'dark' : 'light'
+      let scalarObserver = null
+
+      function setTheme(theme, persist = true) {
+        currentTheme = theme === 'dark' ? 'dark' : 'light'
+        const isDark = currentTheme === 'dark'
+        const root = document.documentElement
+        const themeMeta = document.querySelector('meta[name="theme-color"]')
+        const brandLogo = document.getElementById('connect-docs-brand-logo')
+        const toggle = document.getElementById('connect-docs-theme-toggle')
+
+        root.dataset.connectDocsTheme = currentTheme
+        root.style.colorScheme = currentTheme
+
+        if (themeMeta) themeMeta.setAttribute('content', isDark ? '#0B1220' : '#1F5FD6')
+
+        if (brandLogo) {
+          brandLogo.src = isDark ? brandLogo.dataset.darkSrc : brandLogo.dataset.lightSrc
+        }
+
+        if (toggle) {
+          toggle.setAttribute('aria-pressed', String(isDark))
+          toggle.setAttribute('aria-label', isDark ? 'Alternar para modo claro' : 'Alternar para modo escuro')
+        }
+
+        syncScalarTheme()
+        syncDocumentLogos()
+
+        if (persist) {
+          try {
+            localStorage.setItem(themeStorageKey, currentTheme)
+          } catch (error) {
+            // Ignore storage errors; the active session still keeps the selected theme.
+          }
+        }
+      }
+
+      function syncScalarTheme() {
+        const scalarRoot = document.querySelector('#app .scalar-app')
+        if (!scalarRoot) return
+
+        scalarRoot.classList.toggle('dark-mode', currentTheme === 'dark')
+        scalarRoot.classList.toggle('light-mode', currentTheme === 'light')
+      }
+
+      function syncDocumentLogos() {
+        const target = currentTheme === 'dark' ? 'connect-api-docs-dark.png' : 'connect-api-docs-light.png'
+        const opposite = currentTheme === 'dark' ? 'connect-api-docs-light.png' : 'connect-api-docs-dark.png'
+
+        document.querySelectorAll('#app img').forEach((image) => {
+          const source = image.getAttribute('src') || ''
+          if (!source.includes(opposite)) return
+          image.setAttribute('src', source.replace(opposite, target))
+        })
+      }
+
+      function observeScalar() {
+        if (scalarObserver) scalarObserver.disconnect()
+        scalarObserver = new MutationObserver(() => {
+          syncScalarTheme()
+          syncDocumentLogos()
+        })
+        scalarObserver.observe(document.getElementById('app'), { childList: true, subtree: true })
+      }
 
       async function init() {
         let mountedDocuments = []
@@ -147,23 +335,29 @@
         }
 
         const configuration = {{env "API_REFERENCE_CONFIG"}}
+        const baseConfiguration = Object.assign({}, configuration || {})
+        delete baseConfiguration.forceDarkModeState
+        baseConfiguration.darkMode = currentTheme === 'dark'
+        baseConfiguration.hideDarkModeToggle = true
 
         if (mountedDocuments.length > 0) {
-          const mergedConfiguration = Object.assign({}, configuration || {}, { sources: mountedDocuments })
-          Scalar.createApiReference('#app', mergedConfiguration)
+          Scalar.createApiReference('#app', Object.assign({}, baseConfiguration, { sources: mountedDocuments }))
         } else if (configuration) {
-          Scalar.createApiReference('#app', configuration)
+          Scalar.createApiReference('#app', baseConfiguration)
         } else {
           showErrorMessage(
             'Configuration Missing',
             'Add the <code>API_REFERENCE_CONFIG</code> environment variable or mount OpenAPI documents to <code>/docs</code>.',
           )
         }
+
+        observeScalar()
+        setTheme(currentTheme, false)
       }
 
       function showErrorMessage(title, message) {
         document.getElementById('app').innerHTML = `
-          <div class="scalar-app" style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 58px);">
+          <div class="scalar-app ${currentTheme === 'dark' ? 'dark-mode' : 'light-mode'}" style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 58px);">
             <div style="max-width:500px;border:1px solid var(--scalar-border-color);border-radius:var(--scalar-radius);">
               <div class="markdown" style="background-color:var(--scalar-background-2);padding:.75rem 1rem;border-bottom:1px solid var(--scalar-border-color)">
                 <strong>${title}</strong>
@@ -176,6 +370,11 @@
         `
       }
 
+      document.getElementById('connect-docs-theme-toggle').addEventListener('click', () => {
+        setTheme(currentTheme === 'dark' ? 'light' : 'dark')
+      })
+
+      setTheme(currentTheme, false)
       init()
 
       if ('serviceWorker' in navigator) {
