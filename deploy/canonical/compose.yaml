@@ -8,7 +8,7 @@ x-logging: &default-logging
 
 services:
   api-argws-connect-canonical:
-    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:1.0.16}
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:1.0.18}
     pull_policy: always
     container_name: api-argws-connect-canonical
     restart: unless-stopped
@@ -43,7 +43,7 @@ services:
     logging: *default-logging
 
   docs-argws-connect-canonical:
-    image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:1.0.16}
+    image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:1.0.18}
     pull_policy: always
     container_name: docs-argws-connect-canonical
     restart: unless-stopped
