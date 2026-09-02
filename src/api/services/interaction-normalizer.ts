@@ -20,6 +20,12 @@ function contextId(node: any): string | undefined {
   return node?.contextInfo?.stanzaId || node?.context?.id || node?.context?.message_id || undefined;
 }
 
+function normalizedText(value: unknown) {
+  const text = String(value || '').trim();
+  if (!text || text.length > 500) return '';
+  return text;
+}
+
 function fromBaileysNode(node: any): NormalizedInteraction | null {
   if (!node || typeof node !== 'object') return null;
 
@@ -89,6 +95,17 @@ function fromBaileysNode(node: any): NormalizedInteraction | null {
     }
   }
 
+  const text = normalizedText(node.conversation || node.extendedTextMessage?.text);
+  if (text) {
+    return {
+      type: 'text_reply',
+      id: text,
+      title: text,
+      contextMessageId: contextId(node.extendedTextMessage || node),
+      payload: { text },
+    };
+  }
+
   for (const value of Object.values(node)) {
     if (!value || typeof value !== 'object') continue;
     const nested = fromBaileysNode(value);
@@ -132,6 +149,17 @@ export function extractMetaInteraction(message: any): NormalizedInteraction | nu
         payload: button,
       };
     }
+  }
+
+  const text = normalizedText(message.text?.body || message.text);
+  if (text) {
+    return {
+      type: 'text_reply',
+      id: text,
+      title: text,
+      contextMessageId: message.context?.id,
+      payload: { text },
+    };
   }
 
   return null;

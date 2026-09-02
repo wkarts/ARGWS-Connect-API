@@ -35,6 +35,14 @@ const nativeFlow = extractBaileysInteraction({
 assert.equal(nativeFlow?.id, 'reschedule');
 assert.equal(nativeFlow?.title, 'Reagendar');
 
+const textFallback = extractBaileysInteraction({ conversation: 'Confirmar' });
+assert.equal(textFallback?.type, 'text_reply');
+assert.equal(textFallback?.id, 'Confirmar');
+
+const metaTextFallback = extractMetaInteraction({ type: 'text', text: { body: 'Cancelar' } });
+assert.equal(metaTextFallback?.type, 'text_reply');
+assert.equal(metaTextFallback?.title, 'Cancelar');
+
 const engine = fs.readFileSync('src/api/services/interaction-engine.service.ts', 'utf8');
 assert.match(engine, /templateInteractionSession/);
 assert.match(engine, /binding\.type === 'RECIPE'/);
@@ -45,11 +53,24 @@ assert.match(engine, /WAITING_STRONG_CONFIRMATION/);
 const templateEngine = fs.readFileSync('src/api/services/template-engine.service.ts', 'utf8');
 assert.match(templateEngine, /registerInteractionSession/);
 assert.match(templateEngine, /interactionTtlSeconds/);
+assert.match(templateEngine, /TEXT_FALLBACK/);
+assert.match(templateEngine, /templateExecution/);
 
 const editor = fs.readFileSync('manager/dist/assets/template-editor.js', 'utf8');
 assert.match(editor, /\/template\/find\//);
 assert.match(editor, /\/action\/find\//);
 assert.match(editor, /\/recipe\/find\//);
 assert.match(editor, /\/message\/sendTemplate\//);
+
+const editorV2 = fs.readFileSync('manager/dist/assets/template-editor-v2.js', 'utf8');
+assert.match(editorV2, /\/action\/create\//);
+assert.match(editorV2, /\/recipe\/create\//);
+assert.match(editorV2, /dryRun: true/);
+assert.match(editorV2, /templateExecution/);
+
+const editorHtml = fs.readFileSync('manager/dist/template-editor.html', 'utf8');
+assert.match(editorHtml, /data-tab="integrations"/);
+assert.match(editorHtml, /Integration Registry/);
+assert.match(editorHtml, /testDiagnostic/);
 
 console.log('interaction engine foundation: ok');
