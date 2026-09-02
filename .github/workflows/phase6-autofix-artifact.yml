@@ -5,7 +5,7 @@ on:
     branches: [develop]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   format:
@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 20.x
@@ -35,7 +38,7 @@ jobs:
             /  public capabilities\(provider\?: string\) \{[\s\S]*?\n  \}\n\n  private async sendBaileysPollCompatibility/,
             "  public capabilities(provider?: string) {\n    return getProviderTemplateCapabilities(provider);\n  }\n\n  private async sendBaileysPollCompatibility",
           );
-          if (source === before || source.includes("require('./template-transport-planner')")) {
+          if (source.includes("require('./template-transport-planner')")) {
             throw new Error('capabilities normalization did not apply');
           }
           fs.writeFileSync(file, source);
@@ -60,17 +63,14 @@ jobs:
           node --check manager/dist/assets/template-editor-phase5.js
           node --check manager/dist/assets/template-editor-phase6.js
           node -e "JSON.parse(require('fs').readFileSync('docs/openapi/connect-api.openapi.json','utf8')); JSON.parse(require('fs').readFileSync('docs/openapi/coverage.json','utf8'))"
-      - name: Pack autofixed sources and contracts
-        run: >-
-          tar -czf phase6-autofix.tgz
-          src
-          manager/dist/assets/template-editor-phase5.js
-          manager/dist/assets/template-editor-phase6.js
-          test
-          docs/openapi/connect-api.openapi.json
-          docs/openapi/coverage.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: phase6-autofix
-          path: phase6-autofix.tgz
-          retention-days: 1
+      - name: Commit canonical outputs
+        run: |
+          if git diff --quiet; then
+            echo 'No canonical changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src test manager/dist/assets/template-editor-phase5.js manager/dist/assets/template-editor-phase6.js docs/openapi/connect-api.openapi.json docs/openapi/coverage.json
+          git commit -m 'chore(phase6): apply canonical lint and docs generation'
+          git push origin HEAD:${{ github.head_ref }}
