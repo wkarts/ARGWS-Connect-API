@@ -24,6 +24,7 @@ export class ActionExecuteDto {
   input?: Record<string, unknown>;
   confirmed?: boolean;
   dryRun?: boolean;
+  recipeKey?: string;
 }
 
 export class ActionDeleteDto {
