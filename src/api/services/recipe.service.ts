@@ -63,7 +63,7 @@ export class RecipeService {
       where: { instanceId_recipeKey: { instanceId, recipeKey: data.recipeKey } },
     });
     if (!recipe || !recipe.enabled) throw new BadRequestException(`Recipe ${data.recipeKey} is unavailable.`);
-    if (recipe.confirmation !== 'NONE' && !data.confirmed) {
+    if (!data.dryRun && recipe.confirmation !== 'NONE' && !data.confirmed) {
       throw new BadRequestException(`Recipe ${data.recipeKey} requires confirmation: ${recipe.confirmation}.`);
     }
 
@@ -78,6 +78,7 @@ export class RecipeService {
         input: resolvedInput,
         confirmed: data.confirmed,
         dryRun: data.dryRun,
+        recipeKey: recipe.recipeKey,
       };
 
       try {
@@ -110,12 +111,16 @@ export class RecipeService {
 
   private validateDefinition(data: RecipeDto) {
     if (!RECIPE_KEY.test(data.recipeKey || '')) throw new BadRequestException('Invalid recipeKey.');
-    if (!Array.isArray(data.steps) || data.steps.length === 0) throw new BadRequestException('Recipe requires at least one step.');
+    if (!Array.isArray(data.steps) || data.steps.length === 0) {
+      throw new BadRequestException('Recipe requires at least one step.');
+    }
 
     const ids = new Set<string>();
     for (const step of data.steps) {
       if (!step?.id || !RECIPE_KEY.test(step.id)) throw new BadRequestException('Every recipe step needs a valid id.');
-      if (!step?.action || !RECIPE_KEY.test(step.action)) throw new BadRequestException(`Step ${step.id} needs a valid action key.`);
+      if (!step?.action || !RECIPE_KEY.test(step.action)) {
+        throw new BadRequestException(`Step ${step.id} needs a valid action key.`);
+      }
       if (ids.has(step.id)) throw new BadRequestException(`Duplicate recipe step id: ${step.id}.`);
       ids.add(step.id);
     }
