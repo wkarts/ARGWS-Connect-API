@@ -1,6 +1,7 @@
 import { InstanceDto } from '@api/dto/instance.dto';
 import { TemplateDeleteDto, TemplateDto, TemplateEditDto, TemplatePreviewDto } from '@api/dto/template.dto';
 import { renderInteractionModelV2 } from '@api/services/template-interaction-model';
+import { mergePolicyInteractionBindings } from '@api/services/template-policy-bindings';
 import { TemplateService } from '@api/services/template.service';
 import { planTemplateTransport } from '@api/services/template-transport-planner';
 
@@ -8,6 +9,7 @@ export class TemplateController {
   constructor(private readonly templateService: TemplateService) {}
 
   public async createTemplate(instance: InstanceDto, data: TemplateDto) {
+    data.actions = mergePolicyInteractionBindings(data.actions, data.policy);
     return this.templateService.create(instance, data);
   }
 
@@ -49,6 +51,9 @@ export class TemplateController {
   }
 
   public async editTemplate(instance: InstanceDto, data: TemplateEditDto) {
+    if (data.policy !== undefined || data.actions !== undefined) {
+      data.actions = mergePolicyInteractionBindings(data.actions, data.policy);
+    }
     return this.templateService.edit(instance, data);
   }
 
