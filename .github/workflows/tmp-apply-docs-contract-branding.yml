@@ -1,0 +1,81 @@
+name: TEMP Apply DOCs Contract Branding
+
+on:
+  push:
+    branches: [feat/docs-contract-branding]
+    paths:
+      - .github/workflows/tmp-apply-docs-contract-branding.yml
+      - scripts/tmp-apply-docs-contract-branding.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/docs-contract-branding
+          fetch-depth: 0
+
+      - name: Apply branding presentation changes
+        run: |
+          set -euo pipefail
+          python scripts/tmp-apply-docs-contract-branding.py
+          node docs/scripts/generate-openapi.mjs
+
+      - name: Validate contracts and uploaded images
+        run: |
+          set -euo pipefail
+          npm run docs:check
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('.')
+          native = json.loads((root/'docs/openapi/connect-api.openapi.json').read_text())
+          graph = json.loads((root/'docs/openapi/meta-compatible.openapi.json').read_text())
+          events = json.loads((root/'docs/asyncapi/connect-api-events.asyncapi.json').read_text())
+          assert native['info']['title'] == 'Connect|API — REST API'
+          assert graph['info']['title'] == 'Connect|API — Meta Compatible /graph'
+          assert events['info']['title'] == 'Connect|API — Eventos'
+          assert 'connect-api-rest-light.png' in native['info']['description']
+          assert 'connect-api-meta-light.png' in graph['info']['description']
+          assert 'connect-api-events-light.png' in events['info']['description']
+          print('contract branding: ok')
+          PY
+          for asset in \
+            public/branding/connect-api/docs/connect-api-rest-light.png \
+            public/branding/connect-api/docs/connect-api-rest-dark.png \
+            public/branding/connect-api/docs/connect-api-meta-light.png \
+            public/branding/connect-api/docs/connect-api-meta-dark.png \
+            public/branding/connect-api/docs/connect-api-events-light.png \
+            public/branding/connect-api/docs/connect-api-events-dark.png; do
+            test -s "$asset"
+            file "$asset" | grep -q 'PNG image data'
+          done
+          grep -q 'redundantDocumentTitles' docs/pwa/index.html
+          grep -q 'connect-api-rest-light.png' docs/pwa/index.html
+          grep -q 'connect-api-meta-light.png' docs/pwa/index.html
+          grep -q 'connect-api-events-light.png' docs/pwa/index.html
+
+      - name: Commit generated contracts and presentation
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            docs/scripts/generate-openapi.mjs \
+            docs/openapi/connect-api.openapi.json \
+            docs/openapi/meta-compatible.openapi.json \
+            docs/asyncapi/connect-api-events.asyncapi.json \
+            docs/pwa/index.html \
+            .github/workflows/docs-integrity.yml
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+          else
+            git commit -m "docs(branding): aplica identidade por contrato na DOCs"
+          fi
+          git push --no-verify origin HEAD:feat/docs-contract-branding
