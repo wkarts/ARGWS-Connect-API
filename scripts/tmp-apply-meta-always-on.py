@@ -1,0 +1,214 @@
+from pathlib import Path
+
+
+def replace(path, old, new, count=None):
+    p = Path(path)
+    text = p.read_text()
+    if old not in text:
+        raise SystemExit(f"expected text not found in {path}: {old[:120]!r}")
+    if count is None:
+        text = text.replace(old, new)
+    else:
+        actual = text.count(old)
+        if actual != count:
+            raise SystemExit(f"{path}: expected {count} occurrences, found {actual}")
+        text = text.replace(old, new)
+    p.write_text(text)
+
+
+# /graph is a native capability: remove the hidden per-instance enable gate.
+replace(
+    "src/api/compat/meta-cloud/meta-cloud-graph.controller.ts",
+    "import { PrismaRepository } from '@api/repository/repository.service';\n",
+    "",
+)
+replace(
+    "src/api/compat/meta-cloud/meta-cloud-graph.controller.ts",
+    "    private readonly prisma: PrismaRepository,\n",
+    "",
+)
+replace(
+    "src/api/compat/meta-cloud/meta-cloud-graph.controller.ts",
+    "    await this.assertEnabled(identity);\n",
+    "",
+    count=4,
+)
+replace(
+    "src/api/compat/meta-cloud/meta-cloud-graph.controller.ts",
+    "  private async assertEnabled(identity: MetaCloudIdentity) {\n    const config = await this.prisma.metaCompatibility.findUnique({ where: { instanceId: identity.instanceId } });\n    if (!config?.enabled)\n      throw new MetaCloudGraphError(404, `Meta Cloud compatibility is not enabled for ${identity.instanceName}.`);\n  }\n\n",
+    "",
+)
+replace(
+    "src/api/server.module.ts",
+    "export const metaCloudGraphController = new MetaCloudGraphController(\n  prismaRepository,\n",
+    "export const metaCloudGraphController = new MetaCloudGraphController(\n",
+)
+
+# Meta webhook delivery depends only on a configured webhook URL.
+replace(
+    "src/api/compat/meta-cloud/meta-cloud-webhook.dispatcher.ts",
+    "      if (!config?.enabled || !config.webhookUrl) return;\n",
+    "      if (!config?.webhookUrl) return;\n",
+)
+
+# Keep the legacy enabled field in the API/database for compatibility, but force it true.
+Path("src/api/compat/meta-cloud/meta-cloud.controller.ts").write_text(
+    """import { PrismaRepository } from '@api/repository/repository.service';
+import { configService } from '@config/env.config';
+
+import { MetaCloudGraphError } from './meta-cloud.error';
+import { MetaCloudIdentityResolver } from './meta-cloud-identity.resolver';
+
+export class MetaCloudController {
+  constructor(
+    private readonly prisma: PrismaRepository,
+    private readonly identityResolver: MetaCloudIdentityResolver,
+  ) {}
+
+  public async getCompatibility(instanceName: string) {
+    const identity = await this.identityResolver.resolveByInstanceName(instanceName);
+    const config = await this.prisma.metaCompatibility.findUnique({ where: { instanceId: identity.instanceId } });
+    return this.serializeConfig(identity, config);
+  }
+
+  public async setCompatibility(
+    instanceName: string,
+    data: { enabled?: boolean; webhookUrl?: string | null },
+  ) {
+    const identity = await this.identityResolver.resolveByInstanceName(instanceName);
+    if (data.webhookUrl && !/^https?:\\/\\//i.test(data.webhookUrl)) {
+      throw new MetaCloudGraphError(400, 'webhookUrl must be an absolute HTTP(S) URL.');
+    }
+
+    const current = await this.prisma.metaCompatibility.findUnique({ where: { instanceId: identity.instanceId } });
+    const config = await this.prisma.metaCompatibility.upsert({
+      where: { instanceId: identity.instanceId },
+      create: {
+        instanceId: identity.instanceId,
+        enabled: true,
+        webhookUrl: data.webhookUrl ?? null,
+      },
+      update: {
+        enabled: true,
+        webhookUrl: data.webhookUrl === undefined ? (current?.webhookUrl ?? null) : data.webhookUrl,
+      },
+    });
+    return this.serializeConfig(identity, config);
+  }
+
+  private serializeConfig(identity: any, config: any) {
+    const serverUrl = String(configService.get<any>('SERVER')?.URL || '').replace(/\\/$/, '');
+    return {
+      // Kept for wire compatibility. Meta Compatible is always available for addressable instances.
+      enabled: true,
+      instanceName: identity.instanceName,
+      provider: identity.provider,
+      phoneNumberId: identity.phoneNumberId,
+      businessAccountId: identity.businessAccountId,
+      displayPhoneNumber: identity.displayPhoneNumber,
+      graphUrl: `${serverUrl}/graph`,
+      webhookUrl: config?.webhookUrl ?? null,
+    };
+  }
+}
+"""
+)
+
+# Prisma model defaults must match the runtime/database rule.
+for schema in ["prisma/postgresql-schema.prisma", "prisma/psql_bouncer-schema.prisma"]:
+    replace(
+        schema,
+        "  enabled    Boolean  @default(false) @db.Boolean\n",
+        "  enabled    Boolean  @default(true) @db.Boolean\n",
+        count=1,
+    )
+replace(
+    "prisma/mysql-schema.prisma",
+    "  enabled    Boolean  @default(false)\n",
+    "  enabled    Boolean  @default(true)\n",
+    count=1,
+)
+
+# Documentation contract: no activation step and no enabled toggle.
+generator = "docs/scripts/generate-openapi.mjs"
+replace(
+    generator,
+    "schema: { type: 'object', properties: { enabled: { type: 'boolean' }, webhookUrl: { type: ['string', 'null'], format: 'uri' } } }, example: { enabled: true, webhookUrl: 'https://example.com/webhooks/meta' }",
+    "schema: { type: 'object', properties: { webhookUrl: { type: ['string', 'null'], format: 'uri' } } }, example: { webhookUrl: 'https://example.com/webhooks/meta' }",
+)
+replace(
+    generator,
+    "{ name: 'Meta Compatible Admin', description: 'Ativação e configuração da fachada Meta Compatible.' },",
+    "{ name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },",
+)
+replace(
+    generator,
+    "A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Antes do uso, habilite a instância em `PUT /compat/meta/{instanceName}`.",
+    "A camada `/graph` é uma fachada de protocolo sobre o mesmo núcleo do Connect|API. Não cria provider paralelo, não cria `wamid` virtual e retorna o ID real do provider. A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível e com identidade telefônica estável é Graph-addressable por padrão.",
+)
+replace(
+    generator,
+    "schema: { type: 'string' },\n      description: name === 'instanceName' ? 'Nome da instância Connect|API.' : `Parâmetro de rota ${name}.`,",
+    "schema: { type: 'string', minLength: 1 },\n      description: name === 'instanceName' ? 'Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição.' : `Parâmetro de rota ${name}.`,",
+)
+
+# Meta guide: always-on Graph; admin endpoint only configures optional webhook.
+guide = Path("docs/guides/meta-compatible.md")
+text = guide.read_text()
+start = text.index("## Ativação por instância")
+end = text.index("## Autenticação Graph")
+replacement = """## Disponibilidade por instância
+
+A compatibilidade `/graph` é uma capacidade nativa do Connect|API e não precisa ser habilitada por ENV, banco ou toggle no Manager.
+
+Uma instância `WHATSAPP-BUSINESS`, `WHATSAPP-BAILEYS` ou `CONNECT` com identidade telefônica estável fica Graph-addressable automaticamente.
+
+Consulte a identidade e configuração:
+
+```bash
+curl 'http://127.0.0.1:38080/compat/meta/minha-instancia' \\
+  -H 'apikey: <GLOBAL_API_KEY_OU_INSTANCE_TOKEN>'
+```
+
+O endpoint administrativo continua existindo para compatibilidade e para configurar apenas o webhook Meta opcional:
+
+```bash
+curl -X PUT 'http://127.0.0.1:38080/compat/meta/minha-instancia' \\
+  -H 'apikey: <GLOBAL_API_KEY_OU_INSTANCE_TOKEN>' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "webhookUrl": "https://example.com/webhooks/meta"
+  }'
+```
+
+O campo `enabled` pode continuar aparecendo em respostas legadas, mas é sempre `true` e não controla mais o acesso ao `/graph`.
+
+"""
+guide.write_text(text[:start] + replacement + text[end:])
+
+# Auth guide: make global-vs-instance scope explicit for tenants.
+auth = Path("docs/guides/authentication.md")
+auth_text = auth.read_text()
+needle = "A chave pode ser a credencial global configurada ou, conforme o endpoint/guard, o token da instância.\n"
+addition = needle + "\nA chave global é administrativa e não deve ser distribuída a tenants. Para endpoints vinculados a uma instância, prefira o token exclusivo daquela instância.\n"
+if needle not in auth_text:
+    raise SystemExit("authentication guide anchor not found")
+auth.write_text(auth_text.replace(needle, addition, 1))
+
+# Source-level regression assertions for always-on behavior.
+test = Path("test/meta-cloud/contract.test.ts")
+test_text = test.read_text()
+anchor = "  assert.doesNotMatch(dispatcherSource, /\\.message\\.create\\s*\\(/);\n"
+extra = anchor + "  assert.doesNotMatch(dispatcherSource, /config\\?\\.enabled/);\n\n  const graphControllerSource = fs.readFileSync(\n    'src/api/compat/meta-cloud/meta-cloud-graph.controller.ts',\n    'utf8',\n  );\n  assert.doesNotMatch(graphControllerSource, /assertEnabled|compatibility is not enabled/);\n"
+if anchor not in test_text:
+    raise SystemExit("meta contract test anchor not found")
+test.write_text(test_text.replace(anchor, extra, 1))
+
+# CI also verifies the native OpenAPI/runtime auth header cannot regress to `token`.
+wf = Path(".github/workflows/docs-integrity.yml")
+wf_text = wf.read_text()
+needle = "          node -e \"for (const f of ['/tmp/connect-api.openapi.json','/tmp/meta-compatible.openapi.json','/tmp/connect-api-events.asyncapi.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))\"\n"
+replacement = needle + "          node -e \"const s=JSON.parse(require('fs').readFileSync('/tmp/connect-api.openapi.json','utf8')); if(s.components?.securitySchemes?.apiKey?.name!=='apikey') throw new Error('native auth header must be apikey');\"\n"
+if needle not in wf_text:
+    raise SystemExit("docs integrity anchor not found")
+wf.write_text(wf_text.replace(needle, replacement, 1))
