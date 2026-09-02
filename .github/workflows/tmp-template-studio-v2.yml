@@ -32,6 +32,9 @@ jobs:
       - name: Format source
         run: npx eslint --ext .ts src --fix
 
+      - name: Generate Prisma Client
+        run: DATABASE_CONNECTION_URI='postgresql://argws:argws@127.0.0.1:5432/argws' npx prisma generate --schema prisma/postgresql-schema.prisma
+
       - name: Generate contracts
         run: npm run docs:generate
 
