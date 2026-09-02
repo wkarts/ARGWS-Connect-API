@@ -1,0 +1,57 @@
+name: Bootstrap Scalar Docs
+
+on:
+  push:
+    branches: [feat/connect-api-docs]
+    paths:
+      - .github/workflows/docs-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    name: Materialize Scalar stack and contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout docs branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/connect-api-docs
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply stack integration
+        run: node docs/scripts/apply-stack.mjs
+
+      - name: Generate OpenAPI and AsyncAPI
+        run: node docs/scripts/generate-openapi.mjs
+
+      - name: Validate generated contracts
+        run: node docs/scripts/generate-openapi.mjs --check
+
+      - name: Validate Docker Compose
+        run: docker compose --env-file .env.example config >/dev/null
+
+      - name: Remove bootstrap-only files
+        run: |
+          rm -f docs/scripts/apply-stack.mjs
+          rm -f .github/workflows/docs-bootstrap.yml
+
+      - name: Commit materialized documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to materialize."
+            exit 0
+          fi
+          git commit -m "docs(scalar): integra Scalar à stack e materializa contratos"
+          git push origin HEAD:feat/connect-api-docs
