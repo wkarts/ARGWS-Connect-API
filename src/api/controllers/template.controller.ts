@@ -1,9 +1,11 @@
 import { InstanceDto } from '@api/dto/instance.dto';
 import { TemplateDeleteDto, TemplateDto, TemplateEditDto, TemplatePreviewDto } from '@api/dto/template.dto';
 import { TemplateService } from '@api/services/template.service';
+import { containsProtectedTemplate } from '@api/services/template-deletion-policy';
 import { renderInteractionModelV2 } from '@api/services/template-interaction-model';
 import { mergePolicyInteractionBindings } from '@api/services/template-policy-bindings';
 import { planTemplateTransport } from '@api/services/template-transport-planner';
+import { BadRequestException, NotFoundException } from '@exceptions';
 
 export class TemplateController {
   constructor(private readonly templateService: TemplateService) {}
@@ -91,6 +93,34 @@ export class TemplateController {
   }
 
   public async deleteTemplate(instance: InstanceDto, data: TemplateDeleteDto) {
-    return this.templateService.delete(instance, data);
+    const instanceRow = await this.templateService.prismaRepository.instance.findUnique({
+      where: { name: instance.instanceName },
+      select: { id: true, integration: true },
+    });
+    if (!instanceRow) throw new NotFoundException(`Instance ${instance.instanceName} was not found.`);
+
+    if (instanceRow.integration === 'WHATSAPP-BUSINESS') {
+      return this.templateService.delete(instance, data);
+    }
+
+    const selector = data.hsmId
+      ? {
+          instanceId: instanceRow.id,
+          OR: [{ templateId: data.hsmId }, { externalTemplateId: data.hsmId }],
+        }
+      : { instanceId: instanceRow.id, name: data.name };
+    const targets = await this.templateService.prismaRepository.template.findMany({
+      where: selector,
+      select: { id: true, name: true, origin: true, isDefault: true },
+    });
+    if (!targets.length) throw new NotFoundException(`Template ${data.name} was not found.`);
+    if (containsProtectedTemplate(targets)) {
+      throw new BadRequestException('System/default templates cannot be deleted.');
+    }
+
+    const deleted = await this.templateService.prismaRepository.template.deleteMany({
+      where: { id: { in: targets.map((template) => template.id) } },
+    });
+    return { success: true, deleted: deleted.count, name: data.name };
   }
 }
