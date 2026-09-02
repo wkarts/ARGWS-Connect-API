@@ -1,0 +1,39 @@
+name: Phase 6 Autofix Artifact
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    if: github.head_ref == 'feat/conversational-application-studio-phase6'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: npm ci
+      - name: Autofix TypeScript
+        run: npm run lint
+      - name: Format Phase 6 tests and Manager assets
+        run: >-
+          npx prettier --write
+          test/template-engine/interaction-model-v2.test.ts
+          test/template-engine/policy-bindings.test.ts
+          test/interaction-engine/geolocation-policy.test.ts
+          test/micro-app/foundation.test.ts
+          test/phase6.test.ts
+          manager/dist/assets/template-editor-phase5.js
+          manager/dist/assets/template-editor-phase6.js
+      - name: Pack autofixed sources
+        run: tar -czf phase6-autofix.tgz src manager/dist/assets/template-editor-phase5.js manager/dist/assets/template-editor-phase6.js test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase6-autofix
+          path: phase6-autofix.tgz
+          retention-days: 1
