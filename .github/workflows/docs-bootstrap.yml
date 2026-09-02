@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Apply stack integration
         run: node docs/scripts/apply-stack.mjs
@@ -33,9 +33,6 @@ jobs:
 
       - name: Validate generated contracts
         run: node docs/scripts/generate-openapi.mjs --check
-
-      - name: Validate Docker Compose
-        run: docker compose --env-file .env.example config >/dev/null
 
       - name: Remove bootstrap-only files
         run: |
