@@ -44,7 +44,7 @@
     const { instanceId } = routeState();
     const params = new URLSearchParams();
     if (instanceId) params.set('instanceId', instanceId);
-    const target = `/template-editor.html${params.toString() ? `?${params}` : ''}`;
+    const target = `/manager/template-editor.html${params.toString() ? `?${params}` : ''}`;
     window.location.assign(target);
   });
 
