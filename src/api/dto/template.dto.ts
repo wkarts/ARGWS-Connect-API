@@ -35,4 +35,5 @@ export class TemplatePreviewDto {
   category?: 'AUTHENTICATION' | 'MARKETING' | 'UTILITY';
   components?: any[];
   variables?: Record<string, unknown>;
+  policy?: Record<string, unknown>;
 }
