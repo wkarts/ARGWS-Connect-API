@@ -1,0 +1,56 @@
+from pathlib import Path
+import re, json, shutil
+
+ROOT = Path('.')
+
+DOCS_CONFIG = '{"sources":[{"url":"/openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"/openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"/openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost","customCss":".light-mode{--scalar-color-accent:#2563eb;--scalar-background-1:#ffffff;--scalar-background-2:#f7f9fc;--scalar-background-3:#eef3f9;--scalar-color-1:#0f172a;--scalar-color-2:#475569;--scalar-color-3:#64748b;--scalar-border-color:#dbe4ef}.dark-mode{--scalar-color-accent:#2f6df6;--scalar-background-1:#0f172a;--scalar-background-2:#111827;--scalar-background-3:#172033;--scalar-color-1:#f8fafc;--scalar-color-2:#cbd5e1;--scalar-color-3:#94a3b8;--scalar-border-color:#263249}"}'
+
+stacks = {
+    'production': dict(compose='deploy/production/compose.yaml', envs=['deploy/production/env.example'], tag='latest', api_port=38080, docs_port=38180, suffix='argws-connect-production', network='argws-connect-production-net', style='suffix'),
+    'homologation': dict(compose='deploy/homologation/compose.yaml', envs=['deploy/homologation/env.example'], tag='develop', api_port=38081, docs_port=38181, suffix=None, network='argws-connect-net', style='plain'),
+    'develop': dict(compose='deploy/develop/compose.yaml', envs=['deploy/develop/env.example'], tag='develop', api_port=38082, docs_port=38182, suffix='argws-connect-develop', network='argws-connect-develop-net', style='suffix'),
+    'canonical': dict(compose='deploy/canonical/compose.yaml', envs=['deploy/canonical/env.example'], tag='1.0.16', api_port=38083, docs_port=38183, suffix='argws-connect-canonical', network='argws-connect-canonical-net', style='suffix'),
+    'cloudpanel': dict(compose='deploy/cloudpanel/docker-compose.yml', envs=['deploy/cloudpanel/env.example','deploy/cloudpanel/.env.example'], tag='latest', api_port=38080, docs_port=38180, suffix=None, network='argws-connect-net', style='container'),
+    'dockge': dict(compose='deploy/dockge/compose.yaml', envs=['deploy/dockge/env.example','deploy/dockge/.env.example'], tag='latest', api_port=38080, docs_port=38180, suffix=None, network='argws-connect-net', style='container'),
+}
+
+changed=[]
+
+def write(path, text):
+    p=ROOT/path
+    old=p.read_text()
+    if old != text:
+        p.write_text(text)
+        changed.append(path)
+
+def docs_block(cfg):
+    tag=cfg['tag']; port=cfg['docs_port']; network=cfg['network']
+    if cfg['style']=='suffix':
+        service=f"docs-{cfg['suffix']}"
+        container=service
+        networks=f"[{network}]"
+        return f'''  {service}:\n    image: ${{ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:{tag}}}\n    pull_policy: always\n    container_name: {container}\n    restart: unless-stopped\n    environment:\n      API_REFERENCE_CONFIG: >-\n        {DOCS_CONFIG}\n    ports:\n      - "${{ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}}:${{ARGWS_CONNECT_DOCS_HOST_PORT:-{port}}}:8080"\n    networks: {networks}\n    healthcheck:\n      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]\n      interval: 30s\n      timeout: 5s\n      retries: 10\n      start_period: 20s\n    logging: *default-logging\n\n'''
+    elif cfg['style']=='container':
+        return f'''  docs:\n    image: ${{ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:{tag}}}\n    pull_policy: always\n    container_name: argws_connect_docs\n    restart: unless-stopped\n    environment:\n      API_REFERENCE_CONFIG: >-\n        {DOCS_CONFIG}\n    ports:\n      - "${{ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}}:${{ARGWS_CONNECT_DOCS_HOST_PORT:-{port}}}:8080"\n    networks: [{network}]\n    healthcheck:\n      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]\n      interval: 30s\n      timeout: 5s\n      retries: 10\n      start_period: 20s\n    logging: *default-logging\n\n'''
+    else:
+        return f'''  docs:\n    image: ${{ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:{tag}}}\n    pull_policy: always\n    restart: unless-stopped\n    environment:\n      API_REFERENCE_CONFIG: >-\n        {DOCS_CONFIG}\n    ports:\n      - "${{ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}}:${{ARGWS_CONNECT_DOCS_HOST_PORT:-{port}}}:8080"\n    networks:\n      - {network}\n    healthcheck:\n      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]\n      interval: 30s\n      timeout: 5s\n      retries: 10\n      start_period: 20s\n    logging: *default-logging\n\n'''
+
+for name,cfg in stacks.items():
+    p=ROOT/cfg['compose']
+    text=p.read_text()
+    if re.search(r'^  docs(?:-|:)', text, re.M):
+        raise RuntimeError(f'docs already in {p}')
+    marker = '\n  postgres'
+    idx=text.find(marker)
+    if idx<0: raise RuntimeError(f'postgres marker missing {p}')
+    text=text[:idx+1] + docs_block(cfg) + text[idx+1:]
+    write(cfg['compose'], text)
+    for envfile in cfg['envs']:
+        p=ROOT/envfile; text=p.read_text()
+        text=text.replace('Uma unica porta publicada: API. Manager em /manager.', 'Duas portas locais publicadas: API e Connect|API DOCs. Manager permanece em /manager.')
+        text=text.replace('Uma única porta publicada: API. Manager em /manager.', 'Duas portas locais publicadas: API e Connect|API DOCs. Manager permanece em /manager.')
+        api_line=f"ARGWS_CONNECT_API_HOST_PORT={cfg['api_port']}"
+        if 'ARGWS_CONNECT_DOCS_HOST_PORT=' not in text:
+            text=text.replace(api_line, api_line+f"\nARGWS_CONNECT_DOCS_HOST_PORT={cfg['docs_port']}", 1)
+        api_image=f"ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:{cfg['tag']}"
+        if 'ARGWS_CONNECT_DOCS_IMAGE=' not in text:
