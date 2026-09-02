@@ -15,16 +15,16 @@ export class ActionExecutionService {
   constructor(private readonly prisma: PrismaRepository) {}
 
   public async execute(instance: InstanceDto, data: ActionExecuteDto) {
-    const instanceRow = await this.prisma.instance.findUnique({ where: { name: instance.instanceName }, select: { id: true } });
+    const instanceRow = await this.prisma.instance.findUnique({
+      where: { name: instance.instanceName },
+      select: { id: true },
+    });
     if (!instanceRow) throw new BadRequestException(`Instance ${instance.instanceName} was not found.`);
 
     const action = await this.prisma.integrationAction.findUnique({
       where: { instanceId_actionKey: { instanceId: instanceRow.id, actionKey: data.actionKey } },
     });
     if (!action || !action.enabled) throw new BadRequestException(`Action ${data.actionKey} is unavailable.`);
-    if (action.confirmation !== 'NONE' && !data.confirmed) {
-      throw new BadRequestException(`Action ${data.actionKey} requires confirmation: ${action.confirmation}.`);
-    }
 
     const context = { input: data.input || {} };
     const template = (action.requestTemplate || {}) as Record<string, unknown>;
@@ -38,10 +38,6 @@ export class ActionExecutionService {
     const method = action.method.toUpperCase();
     const params = resolvedTemplate?.query || (method === 'GET' ? data.input || {} : undefined);
     const body = resolvedTemplate?.body ?? (method === 'GET' ? undefined : data.input || {});
-    const headers = {
-      ...((action.headers || {}) as Record<string, string>),
-      ...this.resolveCredentialHeaders(action.credentialRef),
-    };
 
     const plan = {
       actionKey: action.actionKey,
@@ -55,11 +51,21 @@ export class ActionExecutionService {
     };
     if (data.dryRun) return { dryRun: true, plan };
 
+    if (action.confirmation !== 'NONE' && !data.confirmed) {
+      throw new BadRequestException(`Action ${data.actionKey} requires confirmation: ${action.confirmation}.`);
+    }
+
+    const headers = {
+      ...((action.headers || {}) as Record<string, string>),
+      ...this.resolveCredentialHeaders(action.credentialRef),
+    };
+
     const startedAt = new Date();
     const execution = await this.prisma.actionExecution.create({
       data: {
         instanceId: instanceRow.id,
         actionKey: action.actionKey,
+        recipeKey: data.recipeKey,
         status: 'RUNNING',
         requestMeta: {
           method,
@@ -165,10 +171,17 @@ export class ActionExecutionService {
   }
 
   private isPrivateAddress(address: string) {
-    if (address === '::1' || address === '::' || address.toLowerCase().startsWith('fc') || address.toLowerCase().startsWith('fd')) {
-      return true;
-    }
-    if (address.toLowerCase().startsWith('fe8') || address.toLowerCase().startsWith('fe9') || address.toLowerCase().startsWith('fea') || address.toLowerCase().startsWith('feb')) {
+    const normalized = address.toLowerCase();
+    if (
+      normalized === '::1' ||
+      normalized === '::' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe8') ||
+      normalized.startsWith('fe9') ||
+      normalized.startsWith('fea') ||
+      normalized.startsWith('feb')
+    ) {
       return true;
     }
     if (!net.isIPv4(address)) return false;
