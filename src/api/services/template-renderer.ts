@@ -59,7 +59,10 @@ function interpolate(text: string, positional: any[], variables: Record<string, 
   });
 
   rendered = rendered.replace(/\{\{\s*([A-Za-z_$][A-Za-z0-9_$.[\]'"-]*)\s*\}\}/g, (_match, key) => {
-    const value = resolveDataPath(variables, String(key));
+    const variableKey = String(key);
+    const value = Object.prototype.hasOwnProperty.call(variables || {}, variableKey)
+      ? variables[variableKey]
+      : resolveDataPath(variables, variableKey);
     return value === undefined || value === null ? '' : stringifyParameter(value);
   });
 
