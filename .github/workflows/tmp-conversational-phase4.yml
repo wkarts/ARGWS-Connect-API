@@ -24,7 +24,11 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Apply Phase 4
-        run: python scripts/tmp-apply-conversational-phase4.py
+        run: |
+          python scripts/tmp-apply-conversational-phase4.py
+          # O helper insere após a declaração de lastError, que já usa @db.Text.
+          # Normaliza o sufixo remanescente sem alterar o modelo canônico.
+          sed -i 's/@db.Text[[:space:]]\+@db.Text/@db.Text/g' prisma/postgresql-schema.prisma prisma/psql_bouncer-schema.prisma prisma/mysql-schema.prisma
       - name: Format TypeScript
         run: npx eslint --ext .ts src --fix
       - name: Validate PostgreSQL
@@ -40,8 +44,7 @@ jobs:
           if (clean('prisma/postgresql-schema.prisma') !== clean('prisma/psql_bouncer-schema.prisma')) throw new Error('PostgreSQL/PgBouncer schema parity failed');
           NODE
       - name: Validate MySQL
-        run: |
-          DATABASE_CONNECTION_URI='mysql://argws:argws@127.0.0.1:3306/argws' npx prisma validate --schema prisma/mysql-schema.prisma
+        run: DATABASE_CONNECTION_URI='mysql://argws:argws@127.0.0.1:3306/argws' npx prisma validate --schema prisma/mysql-schema.prisma
       - name: Generate contracts
         run: npm run docs:generate
       - name: Validate product
