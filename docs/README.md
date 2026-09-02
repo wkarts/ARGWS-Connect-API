@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../public/branding/connect-api/docs/connect-api-docs-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="../public/branding/connect-api/docs/connect-api-docs-light.png">
+    <img src="../public/branding/connect-api/docs/connect-api-docs-light.png" alt="Connect|API DOCs" width="100%">
+  </picture>
+</p>
+
 # Connect|API DOCs
 
 O `docs` é um service oficial da stack Connect|API baseado em **Scalar API Reference** e contratos OpenAPI/AsyncAPI versionados junto do código.
@@ -35,7 +43,7 @@ ghcr.io/wkarts/argws-connect-docs:latest
 ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
-O `docs/Dockerfile` deriva do Scalar API Reference e incorpora os contratos e os assets oficiais do Connect|API DOCs dentro da própria imagem. O deploy não depende de bind-mount do repositório.
+O `docs/Dockerfile` deriva do Scalar API Reference e incorpora os contratos e os assets oficiais do **Connect|API DOCs** dentro da própria imagem. O deploy não depende de bind-mount do repositório.
 
 Healthcheck do container:
 
@@ -53,16 +61,34 @@ docs/asyncapi/connect-api-events.asyncapi.json
 
 O Scalar recebe múltiplas sources e permite alternar entre REST nativo, Meta Compatible e Eventos.
 
-## Branding
+## Branding — Connect|API DOCs
 
-A imagem incorpora os assets canônicos:
+A documentação utiliza a identidade visual própria **Connect|API DOCs**, preservando a identidade principal do produto **Connect|API**.
+
+Assets canônicos:
 
 ```text
-public/branding/connect-api/docs/
+public/branding/connect-api/docs/connect-api-docs-light.png
+public/branding/connect-api/docs/connect-api-docs-light.jpg
+public/branding/connect-api/docs/connect-api-docs-light.svg
+public/branding/connect-api/docs/connect-api-docs-dark.png
+public/branding/connect-api/docs/connect-api-docs-dark.jpg
+public/branding/connect-api/docs/connect-api-docs-dark.svg
+```
+
+Assets compartilhados do produto:
+
+```text
 public/branding/connect-api/core/
 ```
 
-A apresentação inicial é clara, com dark mode opcional.
+Regras de apresentação:
+
+- **light** é a apresentação principal e padrão;
+- **dark** é uma variante opcional/adaptativa;
+- READMEs usam `<picture>` para respeitar o tema do GitHub sem tornar dark o padrão;
+- a imagem Docker de DOCs incorpora `core/` e `docs/`, evitando dependência de bind-mount;
+- nomes técnicos de imagem, service, paths e registry permanecem inalterados.
 
 ## Geração
 
@@ -85,7 +111,7 @@ O check falha quando:
 - um arquivo gerado obrigatório não existe;
 - o inventário de cobertura não corresponde ao código atual.
 
-O workflow `Docs Integrity` também constrói a imagem `docs/Dockerfile`, valida o Compose, sobe o container Scalar, consulta `/health`, valida os três contratos publicados e confirma o asset oficial de branding.
+O workflow `Docs Integrity` também constrói a imagem `docs/Dockerfile`, valida o Compose, sobe o container Scalar, consulta `/health`, valida os três contratos publicados e confirma **as variantes light e dark do branding Connect|API DOCs**.
 
 ## Deploy automático de desenvolvimento
 
