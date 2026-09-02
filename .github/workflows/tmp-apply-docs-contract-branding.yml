@@ -71,8 +71,7 @@ jobs:
             docs/openapi/connect-api.openapi.json \
             docs/openapi/meta-compatible.openapi.json \
             docs/asyncapi/connect-api-events.asyncapi.json \
-            docs/pwa/index.html \
-            .github/workflows/docs-integrity.yml
+            docs/pwa/index.html
           if git diff --cached --quiet; then
             echo "No generated changes to commit"
           else
