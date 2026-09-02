@@ -1,0 +1,45 @@
+text=text.replace('ghcr.io/wkarts/argws-connect-api:develop\n```','ghcr.io/wkarts/argws-connect-api:develop\nghcr.io/wkarts/argws-connect-docs:develop\n```',1)
+write(path,text)
+
+# CloudPanel README
+path='deploy/cloudpanel/README.md'; text=(ROOT/path).read_text()
+text=text.replace('## Uma única porta\n\nSomente a API publica porta no host:', '## Portas locais\n\nAPI e Connect|API DOCs publicam portas locais dedicadas no host:')
+text=text.replace('127.0.0.1:${ARGWS_CONNECT_API_HOST_PORT:-38080} -> container:8080\n```', '127.0.0.1:${ARGWS_CONNECT_API_HOST_PORT:-38080} -> API container:8080\n127.0.0.1:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180} -> DOCs container:8080\n```',1)
+text=text.replace('No CloudPanel crie **um único Reverse Proxy** apontando para:', 'No CloudPanel mantenha o Reverse Proxy da API apontando para:')
+text=text.replace('O snippet `nginx/api-location.conf.example` já contém headers', 'Para expor o Connect|API DOCs, crie um segundo Reverse Proxy/hostname apontando para `http://127.0.0.1:38180`.\n\nO snippet `nginx/api-location.conf.example` já contém headers')
+text=text.replace('- API;\n- PostgreSQL;', '- API;\n- Connect|API DOCs;\n- PostgreSQL;')
+text=text.replace('ARGWS_CONNECT_API_HOST_PORT=38080\n```','ARGWS_CONNECT_API_HOST_PORT=38080\nARGWS_CONNECT_DOCS_HOST_PORT=38180\n```')
+write(path,text)
+
+# Dockge README
+path='deploy/dockge/README.md'; text=(ROOT/path).read_text()
+text=text.replace('Somente `api` possui `ports:`. PostgreSQL, Redis, RabbitMQ, MinIO e serviços opcionais ficam exclusivamente na rede `argws-connect-net`.', '`api` e `docs` possuem `ports:` dedicadas. PostgreSQL, Redis, RabbitMQ, MinIO e serviços opcionais ficam exclusivamente na rede `argws-connect-net`.')
+text=text.replace('O Deploy/Up normal inicia API, PostgreSQL, Redis, RabbitMQ e MinIO.', 'O Deploy/Up normal inicia API, Connect|API DOCs, PostgreSQL, Redis, RabbitMQ e MinIO.')
+text=text.replace('ARGWS_CONNECT_API_HOST_PORT=38080\nSERVER_PORT=8080', 'ARGWS_CONNECT_API_HOST_PORT=38080\nARGWS_CONNECT_DOCS_HOST_PORT=38180\nSERVER_PORT=8080')
+write(path,text)
+
+# deploy README
+path='deploy/README.md'; text=(ROOT/path).read_text()
+text=text.replace('## Regra de porta única\n\nSomente a API publica porta no host:\n\n- Produção: `https://api.connect.argws.com.br` → `127.0.0.1:38080`\n- Homologação: `https://h.api.connect.argws.com.br` → `127.0.0.1:38081`\n\nO mesmo endpoint atende `/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da API.', '## Portas locais oficiais\n\nCada stack publica duas portas de aplicação: API e Connect|API DOCs. A infraestrutura continua interna.\n\n- Produção: API `127.0.0.1:38080` | DOCs `127.0.0.1:38180`\n- Homologação: API `127.0.0.1:38081` | DOCs `127.0.0.1:38181`\n- Develop: API `127.0.0.1:38082` | DOCs `127.0.0.1:38182`\n- Canonical: API `127.0.0.1:38083` | DOCs `127.0.0.1:38183`\n\n`/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da aplicação continuam no endpoint da API. O Scalar roda no service `docs`.')
+text=text.replace('- API;\n- PostgreSQL;', '- API;\n- Connect|API DOCs;\n- PostgreSQL;')
+write(path,text)
+
+# GHCR README: docs channels
+path='deploy/ghcr/README.md'; text=(ROOT/path).read_text()
+text=text.replace('ghcr.io/wkarts/argws-connect-api:develop\n```', 'ghcr.io/wkarts/argws-connect-api:develop\nghcr.io/wkarts/argws-connect-docs:develop\n```',1)
+text=text.replace('ghcr.io/wkarts/argws-connect-api:latest\n```', 'ghcr.io/wkarts/argws-connect-api:latest\nghcr.io/wkarts/argws-connect-docs:X.Y.Z\nghcr.io/wkarts/argws-connect-docs:X.Y\nghcr.io/wkarts/argws-connect-docs:X\nghcr.io/wkarts/argws-connect-docs:latest\n```',1)
+write(path,text)
+
+# docs deployment guide
+path='docs/guides/deployment.md'; text=(ROOT/path).read_text()
+text=text.replace('O Scalar é parte oficial da stack e roda como service `docs` no mesmo `docker-compose.yaml`.', 'O Scalar é parte oficial da stack e roda como service `docs` no Compose raiz e em todos os deployments oficiais (`production`, `homologation`, `develop`, `canonical`, `cloudpanel` e `dockge`).')
+text=text.replace('O container usa a imagem oficial do Scalar API Reference e monta os contratos gerados como volumes somente leitura.', 'O container usa a imagem GHCR `ghcr.io/wkarts/argws-connect-docs`, derivada do Scalar API Reference e com contratos/branding incorporados na própria imagem.')
+text=text.replace('ARGWS_CONNECT_DOCS_IMAGE=scalarapi/api-reference:latest','ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest')
+text=text.replace('## Subir somente documentação', '## Portas por deployment\n\n```text\nproduction   38180\nhomologation 38181\ndevelop      38182\ncanonical    38183\ncloudpanel   38180\ndockge       38180\n```\n\nO Compose raiz continua usando `38082` por compatibilidade local.\n\n## Subir somente documentação')
+write(path,text)
+
+# apply-version: pin canonical docs in lockstep
+path='.github/scripts/apply-version.mjs'; text=(ROOT/path).read_text()
+text=text.replace('const canonicalImage = `ghcr.io/wkarts/argws-connect-api:${version}`;', 'const canonicalImage = `ghcr.io/wkarts/argws-connect-api:${version}`;\nconst canonicalDocsImage = `ghcr.io/wkarts/argws-connect-docs:${version}`;')
+insert='''\nreplaceRequired(\n  'deploy/canonical/env.example',\n  /^ARGWS_CONNECT_DOCS_IMAGE=ghcr\\.io\/wkarts\/argws-connect-docs:\\d+\\.\\d+\\.\\d+$/m,\n  `ARGWS_CONNECT_DOCS_IMAGE=${canonicalDocsImage}`,\n);\nreplaceRequired(\n  'deploy/canonical/compose.yaml',\n  /ghcr\\.io\/wkarts\/argws-connect-docs:\\d+\\.\\d+\\.\\d+/,\n  canonicalDocsImage,\n);\n'''
+text=text.replace("\nconsole.log(`ARGWS Connect API version set to ${version}`);", insert+"\nconsole.log(`ARGWS Connect API version set to ${version}`);")
