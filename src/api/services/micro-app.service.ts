@@ -10,7 +10,7 @@ import { resolveActionValue } from './action-value-resolver';
 import { CacheService } from './cache.service';
 import { CapturedLocation, evaluateLocationPolicy, LocationPolicy } from './geolocation-policy';
 import { RecipeService } from './recipe.service';
-import { TemplateEngineService } from './template-engine.service';
+import type { TemplateEngineService } from './template-engine.service';
 import { resolveDataPath } from './template-interaction-model';
 
 type MicroAppOperation = {
