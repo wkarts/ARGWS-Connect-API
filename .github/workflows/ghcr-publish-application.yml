@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager]
+        component: [api, manager, docs]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -69,6 +69,10 @@ jobs:
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
+          - component: docs
+            context: .
+            dockerfile: ./docs/Dockerfile
+            image: argws-connect-docs
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout develop
@@ -113,7 +117,7 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.metadata.outputs.version }}
           labels: |
-            org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
+            org.opencontainers.image.title=Connect|API ${{ matrix.component }}
             org.opencontainers.image.version=develop
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -147,6 +151,8 @@ jobs:
             image: argws-connect-api
           - component: manager
             image: argws-connect-manager
+          - component: docs
+            image: argws-connect-docs
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5
