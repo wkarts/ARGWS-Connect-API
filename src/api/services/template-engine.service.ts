@@ -4,14 +4,15 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
+import { WAMonitoringService } from './monitor.service';
 import {
   interactionTextFallback,
   RenderedTemplateInteraction,
   renderInteractionModelV2,
 } from './template-interaction-model';
-import { WAMonitoringService } from './monitor.service';
 import { RenderedTemplate, renderTemplateDefinition } from './template-renderer';
 import {
+  getProviderTemplateCapabilities,
   planTemplateTransport,
   TemplateRenderEnvelope,
   TemplateTransportPlan,
@@ -68,15 +69,7 @@ export class TemplateEngineService {
         fallback: false,
       });
       await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
-      await this.sendRenderedInteractions(
-        instanceRow.id,
-        runtime,
-        data,
-        provider,
-        template,
-        rendered,
-        transport,
-      );
+      await this.sendRenderedInteractions(instanceRow.id, runtime, data, provider, template, rendered, transport);
       return result;
     }
 
@@ -197,9 +190,7 @@ export class TemplateEngineService {
   }
 
   public capabilities(provider?: string) {
-    return planTemplateTransport(provider, { text: '', buttons: [], interactions: [] }).provider
-      ? require('./template-transport-planner').getProviderTemplateCapabilities(provider)
-      : null;
+    return getProviderTemplateCapabilities(provider);
   }
 
   private async sendBaileysPollCompatibility(
@@ -505,8 +496,10 @@ export class TemplateEngineService {
   }
 
   private interactionPrompt(interaction: RenderedTemplateInteraction) {
-    return ([interaction.title, interaction.body, interaction.footer].filter(Boolean) as string[]).join('\n\n').trim() ||
-      'Escolha uma opção';
+    return (
+      ([interaction.title, interaction.body, interaction.footer].filter(Boolean) as string[]).join('\n\n').trim() ||
+      'Escolha uma opção'
+    );
   }
 
   private textFallback(rendered: RenderedTemplate) {
@@ -571,7 +564,8 @@ export class TemplateEngineService {
       }
     }
     for (const interaction of rendered?.interactions || []) {
-      const rows = interaction.type === 'list' ? interaction.sections.flatMap((section) => section.rows) : interaction.options;
+      const rows =
+        interaction.type === 'list' ? interaction.sections.flatMap((section) => section.rows) : interaction.options;
       for (const row of rows) {
         if (row.id && row.title) labels.set(String(row.id), String(row.title));
       }

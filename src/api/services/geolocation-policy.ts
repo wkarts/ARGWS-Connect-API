@@ -73,8 +73,7 @@ export function distanceMeters(origin: GeoPoint, target: GeoPoint): number {
   const lat2 = radians(target.latitude);
   const deltaLat = radians(target.latitude - origin.latitude);
   const deltaLon = radians(target.longitude - origin.longitude);
-  const haversine =
-    Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+  const haversine = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   const angularDistance = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
   return EARTH_RADIUS_METERS * angularDistance;
 }

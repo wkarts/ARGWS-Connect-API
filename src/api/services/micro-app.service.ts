@@ -1,17 +1,17 @@
-import { MicroAppSessionDto, MicroAppSubmitDto } from '@api/dto/micro-app.dto';
 import { InstanceDto } from '@api/dto/instance.dto';
+import { MicroAppSessionDto, MicroAppSubmitDto } from '@api/dto/micro-app.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Auth, ConfigService, HttpServer } from '@config/env.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
 import { ActionExecutionService } from './action-execution.service';
+import { resolveActionValue } from './action-value-resolver';
 import { CacheService } from './cache.service';
 import { CapturedLocation, evaluateLocationPolicy, LocationPolicy } from './geolocation-policy';
-import { resolveActionValue } from './action-value-resolver';
-import { resolveDataPath } from './template-interaction-model';
 import { RecipeService } from './recipe.service';
 import { TemplateEngineService } from './template-engine.service';
+import { resolveDataPath } from './template-interaction-model';
 
 type MicroAppOperation = {
   type: 'ACTION' | 'RECIPE';

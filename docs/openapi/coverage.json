@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-02T13:31:48.145Z",
+  "generatedAt": "2026-09-02T17:36:27.842Z",
   "version": "1.0.16",
-  "sourceDigest": "a095e5970d1d2538fd12bdb70d397894bf71122ebf3970cf5a5516e76584b239",
+  "sourceDigest": "02016cef0ecb320bdd08527c2bae8f5d350cba26aa2967b9ce25edadf4067476",
   "operations": [
     {
       "method": "GET",
@@ -662,6 +662,31 @@
       "method": "GET",
       "path": "/metrics",
       "source": "src/api/routes/index.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/micro-app/{token}",
+      "source": "src/api/routes/micro-app.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/micro-app/runtime.js",
+      "source": "src/api/routes/micro-app.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/micro-app/session/{instanceName}",
+      "source": "src/api/routes/micro-app.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/micro-app/state/{token}",
+      "source": "src/api/routes/micro-app.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/micro-app/submit/{token}",
+      "source": "src/api/routes/micro-app.router.ts"
     },
     {
       "method": "POST",

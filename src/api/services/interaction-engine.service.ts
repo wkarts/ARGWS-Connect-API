@@ -206,22 +206,17 @@ export class InteractionEngineService {
 
       if (binding.onError) {
         try {
-          await this.sendConfiguredResponse(
-            instance,
-            session.remoteJid,
-            binding.onError,
-            {
-              session: {
-                id: session.id,
-                templateName: session.templateName,
-                language: session.language,
-                variables: (session.variables as any) || {},
-                remoteJid: session.remoteJid,
-              },
-              interaction,
-              error: { message: messageText },
+          await this.sendConfiguredResponse(instance, session.remoteJid, binding.onError, {
+            session: {
+              id: session.id,
+              templateName: session.templateName,
+              language: session.language,
+              variables: (session.variables as any) || {},
+              remoteJid: session.remoteJid,
             },
-          );
+            interaction,
+            error: { message: messageText },
+          });
         } catch (responseError) {
           this.logger.error(`Interaction error response failed: ${String(responseError)}`);
         }
@@ -416,13 +411,13 @@ export class InteractionEngineService {
     const title = String(interaction?.title || '')
       .trim()
       .toLowerCase();
-    const type = String(interaction?.type || '').trim().toLowerCase();
+    const type = String(interaction?.type || '')
+      .trim()
+      .toLowerCase();
     const bindings = this.bindings(actions);
     return (
       bindings.find((binding) => String(binding.id || '') === id) ||
-      bindings.find(
-        (binding) => binding.matchTitle && String(binding.matchTitle).trim().toLowerCase() === title,
-      ) ||
+      bindings.find((binding) => binding.matchTitle && String(binding.matchTitle).trim().toLowerCase() === title) ||
       bindings.find(
         (binding) => binding.interactionType && String(binding.interactionType).trim().toLowerCase() === type,
       ) ||

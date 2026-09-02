@@ -229,12 +229,14 @@ export function renderInteractionModelV2(
 
 export function interactionTextFallback(interaction: RenderedTemplateInteraction): string {
   const lines = [interaction.title, interaction.body].filter(Boolean) as string[];
-  const rows = interaction.type === 'list' ? interaction.sections.flatMap((section) => section.rows) : interaction.options;
+  const rows =
+    interaction.type === 'list' ? interaction.sections.flatMap((section) => section.rows) : interaction.options;
   if (rows.length) {
     lines.push(
-      ['Responda com o nome da opção:', ...rows.map((row) => `• ${row.title}${row.description ? ` — ${row.description}` : ''}`)].join(
-        '\n',
-      ),
+      [
+        'Responda com o nome da opção:',
+        ...rows.map((row) => `• ${row.title}${row.description ? ` — ${row.description}` : ''}`),
+      ].join('\n'),
     );
   }
   if (interaction.footer) lines.push(interaction.footer);
