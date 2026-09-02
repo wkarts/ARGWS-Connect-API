@@ -22,6 +22,7 @@ import { ChatController } from './controllers/chat.controller';
 import { GroupController } from './controllers/group.controller';
 import { InstanceController } from './controllers/instance.controller';
 import { LabelController } from './controllers/label.controller';
+import { MicroAppController } from './controllers/micro-app.controller';
 import { ProxyController } from './controllers/proxy.controller';
 import { RecipeController } from './controllers/recipe.controller';
 import { SendMessageController } from './controllers/sendMessage.controller';
@@ -58,6 +59,7 @@ import { ActionExecutionService } from './services/action-execution.service';
 import { ActionRegistryService } from './services/action-registry.service';
 import { CacheService } from './services/cache.service';
 import { InteractionEngineService } from './services/interaction-engine.service';
+import { MicroAppService } from './services/micro-app.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { RecipeService } from './services/recipe.service';
@@ -113,6 +115,15 @@ export const s3Controller = new S3Controller(s3Service);
 const templateService = new TemplateService(waMonitor, prismaRepository, configService);
 export const templateController = new TemplateController(templateService);
 export const templateEngine = new TemplateEngineService(waMonitor, prismaRepository);
+export const microAppService = new MicroAppService(
+  prismaRepository,
+  cache,
+  configService,
+  actionExecutionService,
+  recipeService,
+  templateEngine,
+);
+export const microAppController = new MicroAppController(microAppService);
 export const interactionEngine = new InteractionEngineService(
   prismaRepository,
   actionExecutionService,
