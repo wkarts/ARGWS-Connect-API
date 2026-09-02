@@ -95,7 +95,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src manager/dist docs test package.json
+          git add src manager/dist docs package.json
+          git add -f test/template-engine/foundation.test.ts test/interaction-engine/foundation.test.ts
           if ! git diff --cached --quiet; then
             git commit -m "fix(templates): valida envio e refina Template Studio v2"
             git push --no-verify origin HEAD:fix/template-studio-v2
