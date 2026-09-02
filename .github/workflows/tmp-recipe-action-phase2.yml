@@ -1,0 +1,105 @@
+name: TEMP Recipe Action Phase 2
+
+on:
+  push:
+    branches: [feat/recipe-action-engine-phase2]
+    paths:
+      - .github/workflows/tmp-recipe-action-phase2.yml
+      - scripts/tmp-apply-recipe-action-phase2.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/recipe-action-engine-phase2
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Apply schema and wiring changes
+        run: python scripts/tmp-apply-recipe-action-phase2.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format TypeScript source
+        run: npx eslint --ext .ts src test/recipe-action --fix
+
+      - name: Generate Prisma client
+        run: npx prisma generate --schema prisma/postgresql-schema.prisma
+
+      - name: Generate documentation contracts
+        run: npm run docs:generate
+
+      - name: Validate implementation
+        run: |
+          set -euo pipefail
+          npm run docs:check
+          npm run test:compat
+          npm run build
+          npm run lint:check
+          node - <<'NODE'
+          const fs = require('fs')
+          const native = JSON.parse(fs.readFileSync('docs/openapi/connect-api.openapi.json', 'utf8'))
+          const required = [
+            '/action/create/{instanceName}',
+            '/action/find/{instanceName}',
+            '/action/execute/{instanceName}',
+            '/action/delete/{instanceName}',
+            '/recipe/create/{instanceName}',
+            '/recipe/find/{instanceName}',
+            '/recipe/execute/{instanceName}',
+            '/recipe/delete/{instanceName}',
+          ]
+          for (const route of required) {
+            if (!native.paths[route]) throw new Error(`Missing generated route: ${route}`)
+          }
+          console.log('recipe/action OpenAPI paths: ok')
+          NODE
+
+      - name: Commit validated phase
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            package.json \
+            prisma/postgresql-schema.prisma \
+            prisma/psql_bouncer-schema.prisma \
+            prisma/mysql-schema.prisma \
+            src/api/server.module.ts \
+            src/api/routes/index.router.ts \
+            src/validate/validate.schema.ts \
+            src/api/dto/action.dto.ts \
+            src/api/dto/recipe.dto.ts \
+            src/api/controllers/action.controller.ts \
+            src/api/controllers/recipe.controller.ts \
+            src/api/routes/action.router.ts \
+            src/api/routes/recipe.router.ts \
+            src/api/services/action-value-resolver.ts \
+            src/api/services/action-registry.service.ts \
+            src/api/services/action-execution.service.ts \
+            src/api/services/recipe.service.ts \
+            src/validate/action.schema.ts \
+            src/validate/recipe.schema.ts \
+            test/recipe-action/foundation.test.ts \
+            docs/README.md \
+            docs/guides/recipes-actions.md \
+            docs/openapi/connect-api.openapi.json \
+            docs/openapi/coverage.json \
+            docs/asyncapi/connect-api-events.asyncapi.json
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(recipes): materializa action registry e recipe engine"
+          fi
+          git push --no-verify origin HEAD:feat/recipe-action-engine-phase2
