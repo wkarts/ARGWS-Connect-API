@@ -18,7 +18,8 @@ O `docs` é um service oficial da stack Connect|API baseado em **Scalar API Refe
 - exemplos de autenticação e uso;
 - documentação versionada junto da aplicação;
 - validação automática para impedir drift entre código e docs;
-- imagem Docker própria, atualizada junto da stack.
+- imagem Docker própria, atualizada junto da stack;
+- experiência PWA instalável, com identidade visual própria do Connect|API DOCs.
 
 ## Service
 
@@ -43,7 +44,7 @@ ghcr.io/wkarts/argws-connect-docs:latest
 ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
-O `docs/Dockerfile` deriva do Scalar API Reference e incorpora os contratos e os assets oficiais do **Connect|API DOCs** dentro da própria imagem. O deploy não depende de bind-mount do repositório.
+O `docs/Dockerfile` deriva do Scalar API Reference e incorpora os contratos, a shell PWA e os assets oficiais do **Connect|API DOCs** dentro da própria imagem. O deploy não depende de bind-mount do repositório.
 
 Healthcheck do container:
 
@@ -87,8 +88,53 @@ Regras de apresentação:
 - **light** é a apresentação principal e padrão;
 - **dark** é uma variante opcional/adaptativa;
 - READMEs usam `<picture>` para respeitar o tema do GitHub sem tornar dark o padrão;
-- a imagem Docker de DOCs incorpora `core/` e `docs/`, evitando dependência de bind-mount;
+- a aplicação DOCs exibe o wordmark próprio **Connect|API DOCs**;
+- favicon e ícone PWA reutilizam o símbolo compacto canônico da família Connect|API;
+- a imagem Docker de DOCs incorpora `core/`, `docs/` e a shell PWA, evitando dependência de bind-mount;
 - nomes técnicos de imagem, service, paths e registry permanecem inalterados.
+
+## PWA
+
+A documentação é instalável como aplicação independente em desktop e mobile.
+
+A shell PWA é mantida em:
+
+```text
+docs/pwa/index.html
+docs/pwa/manifest.webmanifest
+docs/pwa/sw.js
+docs/pwa/icons/
+```
+
+A imagem DOCs publica diretamente:
+
+```text
+/manifest.webmanifest
+/sw.js
+/favicon.svg
+/favicon.ico
+/apple-touch-icon.png
+/icons/icon-192x192.png
+/icons/icon-512x512.png
+/icons/icon-maskable-192x192.png
+/icons/icon-maskable-512x512.png
+/branding/connect-api-docs-light.png
+/branding/connect-api-docs-dark.png
+```
+
+O manifest define:
+
+```text
+name: Connect|API DOCs
+short_name: Connect|API DOCs
+display: standalone
+background_color: #ffffff
+theme_color: #1F5FD6
+```
+
+`start_url`, `scope`, ícones e registro do service worker utilizam caminhos relativos. Isso permite que a mesma imagem funcione tanto na raiz de `docs.connect.argws.com.br` / `d.docs.connect.argws.com.br` quanto, opcionalmente, sob `/docs/` em um reverse proxy.
+
+O service worker não intercepta chamadas externas da API. O cache é restrito a requisições `GET` da própria origem da documentação; contratos OpenAPI e navegação usam estratégia network-first para reduzir risco de documentação stale.
 
 ## Geração
 
@@ -111,7 +157,7 @@ O check falha quando:
 - um arquivo gerado obrigatório não existe;
 - o inventário de cobertura não corresponde ao código atual.
 
-O workflow `Docs Integrity` também constrói a imagem `docs/Dockerfile`, valida o Compose, sobe o container Scalar, consulta `/health`, valida os três contratos publicados e confirma **as variantes light e dark do branding Connect|API DOCs**.
+O workflow `Docs Integrity` também constrói a imagem `docs/Dockerfile`, valida o Compose, sobe o container Scalar, consulta `/health`, valida os três contratos publicados, confirma **as variantes light e dark do branding Connect|API DOCs** e testa em runtime manifest, service worker, favicon, Apple Touch Icon, ícones 192/512 e variantes maskable.
 
 ## Deploy automático de desenvolvimento
 
@@ -130,6 +176,16 @@ docs/
 ├── Dockerfile
 ├── DOCUMENTATION-CONTRACT.md
 ├── README.md
+├── pwa/
+│   ├── index.html
+│   ├── manifest.webmanifest
+│   ├── sw.js
+│   └── icons/
+│       ├── apple-touch-icon.png
+│       ├── icon-192x192.png
+│       ├── icon-512x512.png
+│       ├── icon-maskable-192x192.png
+│       └── icon-maskable-512x512.png
 ├── scripts/
 │   ├── generate-openapi.mjs
 │   └── check-docs-impact.mjs
@@ -153,7 +209,6 @@ docs/
 ## Regra de manutenção
 
 Leia `DOCUMENTATION-CONTRACT.md` antes de finalizar mudanças públicas. Documentação é parte do Definition of Done do Connect|API.
-
 
 ## Endpoint público
 

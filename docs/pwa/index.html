@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1F5FD6" />
+    <meta name="application-name" content="Connect|API DOCs" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Connect|API DOCs" />
+    <meta name="description" content="Documentação oficial do Connect|API: REST, Meta Compatible e Eventos." />
+    <meta property="og:title" content="Connect|API DOCs" />
+    <meta property="og:description" content="Documentação oficial do Connect|API: REST, Meta Compatible e Eventos." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="branding/connect-api-docs-light.png" />
+    <title>Connect|API DOCs</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="alternate icon" href="favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #ffffff;
+      }
+
+      .connect-docs-brandbar {
+        box-sizing: border-box;
+        min-height: 58px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 8px 18px;
+        border-bottom: 1px solid #e5e7eb;
+        background: rgba(255, 255, 255, 0.97);
+        position: relative;
+        z-index: 100;
+      }
+
+      .connect-docs-brandbar picture,
+      .connect-docs-brandbar img {
+        display: block;
+      }
+
+      .connect-docs-brandbar img {
+        height: 38px;
+        width: auto;
+        max-width: min(440px, 72vw);
+        object-fit: contain;
+      }
+
+      .connect-docs-brandbar__label {
+        color: #64748b;
+        font: 500 12px/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      #app {
+        min-height: calc(100vh - 58px);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #0b1220;
+        }
+
+        .connect-docs-brandbar {
+          border-bottom-color: #243042;
+          background: rgba(11, 18, 32, 0.97);
+        }
+
+        .connect-docs-brandbar__label {
+          color: #94a3b8;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .connect-docs-brandbar {
+          min-height: 52px;
+          padding: 7px 10px;
+        }
+
+        .connect-docs-brandbar img {
+          height: 32px;
+          max-width: 80vw;
+        }
+
+        .connect-docs-brandbar__label {
+          display: none;
+        }
+
+        #app {
+          min-height: calc(100vh - 52px);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header class="connect-docs-brandbar" aria-label="Connect|API DOCs">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="branding/connect-api-docs-dark.png" />
+        <img src="branding/connect-api-docs-light.png" alt="Connect|API DOCs" />
+      </picture>
+      <span class="connect-docs-brandbar__label">API Reference</span>
+    </header>
+
+    <div id="app"></div>
+    <script src="{{env "CDN_URL"}}"></script>
+    <script>
+      const basePath = '{{env "BASE_PATH" | js}}'.replace(/\/$/, '')
+
+      async function init() {
+        let mountedDocuments = []
+
+        try {
+          const response = await fetch(`${basePath}/configuration.json`)
+
+          if (response.ok) {
+            const mountedConfig = await response.json()
+
+            if (mountedConfig && mountedConfig.sources && mountedConfig.sources.length > 0) {
+              mountedDocuments = mountedConfig.sources
+            }
+          }
+        } catch (error) {
+          // No mounted documents found.
+        }
+
+        const configuration = {{env "API_REFERENCE_CONFIG"}}
+
+        if (mountedDocuments.length > 0) {
+          const mergedConfiguration = Object.assign({}, configuration || {}, { sources: mountedDocuments })
+          Scalar.createApiReference('#app', mergedConfiguration)
+        } else if (configuration) {
+          Scalar.createApiReference('#app', configuration)
+        } else {
+          showErrorMessage(
+            'Configuration Missing',
+            'Add the <code>API_REFERENCE_CONFIG</code> environment variable or mount OpenAPI documents to <code>/docs</code>.',
+          )
+        }
+      }
+
+      function showErrorMessage(title, message) {
+        document.getElementById('app').innerHTML = `
+          <div class="scalar-app" style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 58px);">
+            <div style="max-width:500px;border:1px solid var(--scalar-border-color);border-radius:var(--scalar-radius);">
+              <div class="markdown" style="background-color:var(--scalar-background-2);padding:.75rem 1rem;border-bottom:1px solid var(--scalar-border-color)">
+                <strong>${title}</strong>
+              </div>
+              <div style="padding:1rem;">
+                <div class="markdown"><p>${message}</p></div>
+              </div>
+            </div>
+          </div>
+        `
+      }
+
+      init()
+
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js', { scope: './' }).catch((error) => {
+            console.warn('[Connect|API DOCs] Service Worker registration failed:', error)
+          })
+        })
+      }
+    </script>
+  </body>
+</html>
