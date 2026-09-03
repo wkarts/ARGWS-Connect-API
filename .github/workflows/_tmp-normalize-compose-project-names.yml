@@ -1,4 +1,4 @@
-name: Temporary Compose Project Name Normalizer
+name: Temporary Deployment Naming Normalizer
 
 on:
   push:
@@ -16,79 +16,274 @@ jobs:
         with:
           ref: fix/deploy-compose-project-names
 
-      - name: Normalize deployment project/network names
+      - name: Normalize project, network, service and container names
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          def replace(path, replacements, additions=()):
-              file = Path(path)
-              text = file.read_text(encoding='utf-8')
-              original = text
-              for old, new in replacements:
-                  if old not in text:
-                      raise SystemExit(f'{path}: expected token not found: {old}')
-                  text = text.replace(old, new)
-              for marker, line in additions:
-                  if line not in text:
-                      if marker not in text:
-                          raise SystemExit(f'{path}: marker not found: {marker}')
-                      text = text.replace(marker, marker + line)
-              if text == original:
-                  raise SystemExit(f'{path}: no changes produced')
-              file.write_text(text, encoding='utf-8')
+          RESOURCES = ('api','docs','postgres','redis','rabbitmq','minio','nats','zookeeper','kafka','mysql')
 
-          replace('deploy/platform/compose.yaml', [
-              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}'),
-              ('name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-net}', 'name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-platform-net}'),
-          ])
-          replace('deploy/platform/env.example', [
-              ('COMPOSE_PROJECT_NAME=argws-connect-api', 'COMPOSE_PROJECT_NAME=argws-connect-platform'),
-          ], additions=[('TZ=America/Bahia\n', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-net\n')])
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
 
-          replace('deploy/cloudpanel/docker-compose.yml', [
-              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-cloudpanel}'),
-          ])
-          for path in ('deploy/cloudpanel/env.example', 'deploy/cloudpanel/.env.example'):
-              replace(path, [
-                  ('COMPOSE_PROJECT_NAME=argws-connect-api', 'COMPOSE_PROJECT_NAME=argws-connect-cloudpanel'),
-                  ('ARGWS_CONNECT_NETWORK_NAME=argws-connect-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-cloudpanel-net'),
-              ])
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
 
-          replace('deploy/dockge/compose.yaml', [
-              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-dockge}'),
-          ])
-          for path in ('deploy/dockge/env.example', 'deploy/dockge/.env.example'):
-              replace(path, [
-                  ('COMPOSE_PROJECT_NAME=argws-connect-api', 'COMPOSE_PROJECT_NAME=argws-connect-dockge'),
-                  ('ARGWS_CONNECT_NETWORK_NAME=argws-connect-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-dockge-net'),
-              ])
+          def replace_required(text, old, new, path):
+              if old not in text:
+                  raise SystemExit(f'{path}: expected token not found: {old}')
+              return text.replace(old, new)
 
-          replace('deploy/homologation/compose.yaml', [
-              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-homolog}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-homologation}'),
-              ('argws-connect-homolog-net', 'argws-connect-homologation-net'),
-          ])
-          replace('deploy/homologation/env.example', [
-              ('COMPOSE_PROJECT_NAME=argws-connect-homolog', 'COMPOSE_PROJECT_NAME=argws-connect-homologation'),
-              ('ARGWS_CONNECT_NETWORK_NAME=argws-connect-homolog-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-homologation-net'),
-          ])
+          def rename_key_and_refs(text, old, new):
+              text = text.replace(f'\n  {old}:\n', f'\n  {new}:\n')
+              text = text.replace(f'\n      {old}:\n', f'\n      {new}:\n')
+              text = text.replace(f'\n      {old}: {{condition:', f'\n      {new}: {{condition:')
+              text = text.replace(f'depends_on: [{old}]', f'depends_on: [{new}]')
+              return text
 
-          guide = Path('docs/guides/platform-runtime-modes.md')
-          text = guide.read_text(encoding='utf-8')
-          marker = '## Convenção de project name dos deployments'
-          if marker not in text:
-              text += '''\n\n## Convenção de project name dos deployments\n\nTodo deployment Compose independente do Connect|API deve declarar `name: ${COMPOSE_PROJECT_NAME:-...}` e manter o mesmo valor em `env.example`. O padrão canônico é `argws-connect-<deployment>`; quando houver rede dedicada, use `argws-connect-<deployment>-net`.\n\n| Deployment | Project name | Network |\n| --- | --- | --- |\n| canonical | `argws-connect-canonical` | `argws-connect-canonical-net` |\n| develop | `argws-connect-develop` | `argws-connect-develop-net` |\n| homologation | `argws-connect-homologation` | `argws-connect-homologation-net` |\n| production | `argws-connect-production` | `argws-connect-production-net` |\n| docs | `argws-connect-docs` | gerenciada pelo próprio compose |\n| docs-develop | `argws-connect-docs-develop` | gerenciada pelo próprio compose |\n| cloudpanel | `argws-connect-cloudpanel` | `argws-connect-cloudpanel-net` |\n| dockge | `argws-connect-dockge` | `argws-connect-dockge-net` |\n| platform | `argws-connect-platform` | `argws-connect-platform-net` |\n\nArquivos overlay, como `deploy/develop/compose.platform.yaml` e `deploy/platform/compose.local-build.yaml`, **não declaram outro project name**: eles herdam obrigatoriamente o projeto do compose base para permanecer na mesma stack.\n'''
-              guide.write_text(text, encoding='utf-8')
+          def add_container_name(text, service):
+              marker = f'\n  {service}:\n'
+              if marker not in text:
+                  raise SystemExit(f'service not found while adding container_name: {service}')
+              block_start = text.index(marker) + 1
+              next_match = re.search(r'(?m)^  [a-z0-9][a-z0-9_-]*:\s*$', text[block_start + len(marker)-1:])
+              # Service keys are unique; only inspect a small prefix for an existing container_name.
+              head = text[block_start:block_start + 500]
+              if re.search(r'(?m)^    container_name:', head):
+                  return text
+              return text.replace(marker, marker + f'    container_name: {service}\n', 1)
+
+          def set_container_name(text, old_container, service):
+              token = f'container_name: {old_container}'
+              if token in text:
+                  return text.replace(token, f'container_name: {service}')
+              return add_container_name(text, service)
+
+          def service_block(text, service):
+              start_marker = f'\n  {service}:\n'
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f'service block not found: {service}')
+              start += 1
+              service_section_end = text.find('\nnetworks:\n', start)
+              if service_section_end < 0:
+                  service_section_end = len(text)
+              match = re.search(r'(?m)^  [a-z0-9][a-z0-9_-]*:\s*$', text[start + len(f'  {service}:\n'):service_section_end])
+              if match:
+                  end = start + len(f'  {service}:\n') + match.start()
+              else:
+                  end = service_section_end
+              return start, end
+
+          def set_network_aliases(text, service, network, aliases):
+              start, end = service_block(text, service)
+              block = text[start:end]
+              aliases_text = ', '.join(aliases)
+              list_form = f'    networks: [{network}]'
+              map_form = f'    networks:\n      {network}:'
+              if list_form in block:
+                  block = block.replace(list_form, f'    networks:\n      {network}:\n        aliases: [{aliases_text}]', 1)
+              elif map_form in block:
+                  alias_match = re.search(rf'(?m)^        aliases: \[([^\]]*)\]$', block)
+                  if alias_match:
+                      existing = [item.strip() for item in alias_match.group(1).split(',') if item.strip()]
+                      merged = existing + [item for item in aliases if item not in existing]
+                      block = block[:alias_match.start()] + f'        aliases: [{", ".join(merged)}]' + block[alias_match.end():]
+                  else:
+                      block = block.replace(map_form, map_form + f'\n        aliases: [{aliases_text}]', 1)
+              else:
+                  block = block.rstrip() + f'\n    networks:\n      {network}:\n        aliases: [{aliases_text}]\n'
+              return text[:start] + block + text[end:]
+
+          def normalize_generic_stack(path, deployment, *, existing_container_names):
+              text = read(path)
+              network = f'argws-connect-{deployment}-net'
+              text = text.replace('argws-connect-net', network)
+              for old in RESOURCES:
+                  new = f'{old}-argws-connect-{deployment}'
+                  if f'\n  {old}:\n' not in text:
+                      continue
+                  text = rename_key_and_refs(text, old, new)
+                  if existing_container_names:
+                      text = set_container_name(text, f'argws_connect_{old}', new)
+                  else:
+                      text = add_container_name(text, new)
+              write(path, text)
+
+          # Root/default API deployment.
+          root = read('docker-compose.yaml')
+          root = root.replace('argws-connect-net', 'argws-connect-api-net')
+          for old in RESOURCES:
+              new = f'{old}-argws-connect-api'
+              if f'\n  {old}:\n' not in root:
+                  continue
+              root = rename_key_and_refs(root, old, new)
+              root = set_container_name(root, f'argws_connect_{old}', new)
+          write('docker-compose.yaml', root)
+          env = read('.env.example').replace('ARGWS_CONNECT_NETWORK_NAME=argws-connect-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-api-net')
+          write('.env.example', env)
+
+          # Full auxiliary deployments.
+          normalize_generic_stack('deploy/cloudpanel/docker-compose.yml', 'cloudpanel', existing_container_names=True)
+          normalize_generic_stack('deploy/dockge/compose.yaml', 'dockge', existing_container_names=True)
+          normalize_generic_stack('deploy/homologation/compose.yaml', 'homologation', existing_container_names=False)
+
+          # Standalone DOCs deployments.
+          docs = read('deploy/docs/compose.yaml')
+          docs = docs.replace('docs-argws-connect-standalone', 'docs-argws-connect-docs')
+          write('deploy/docs/compose.yaml', docs)
+          docs_dev = read('deploy/docs-develop/compose.yaml')
+          docs_dev = docs_dev.replace('docs-argws-connect-standalone-develop', 'docs-argws-connect-docs-develop')
+          write('deploy/docs-develop/compose.yaml', docs_dev)
+
+          # Independent Platform deployment.
+          platform_map = {
+              'connect-engine': 'api-argws-connect-platform',
+              'connect-docs': 'docs-argws-connect-platform',
+              'connect-engine-postgres': 'postgres-argws-connect-platform',
+              'connect-redis': 'redis-argws-connect-platform',
+              'connect-rabbitmq': 'rabbitmq-argws-connect-platform',
+              'connect-minio': 'minio-argws-connect-platform',
+              'connect-platform-postgres': 'platform-postgres-argws-connect-platform',
+              'connect-platform-migrate': 'platform-migrate-argws-connect-platform',
+              'connect-platform-migrate-tenants': 'platform-migrate-tenants-argws-connect-platform',
+              'connect-platform-bootstrap': 'platform-bootstrap-argws-connect-platform',
+              'connect-platform-api': 'platform-api-argws-connect-platform',
+              'connect-platform-worker': 'platform-worker-argws-connect-platform',
+              'connect-platform-scheduler': 'platform-scheduler-argws-connect-platform',
+              'connect-platform-web': 'platform-web-argws-connect-platform',
+              'connect-gateway': 'platform-gateway-argws-connect-platform',
+          }
+          text = read('deploy/platform/compose.yaml').replace('connect-internal', 'argws-connect-platform-net')
+          for old, new in platform_map.items():
+              text = rename_key_and_refs(text, old, new)
+          for service in platform_map.values():
+              text = add_container_name(text, service)
+          text = set_network_aliases(text, platform_map['connect-engine'], 'argws-connect-platform-net', ['connect-engine','argws-connect-api'])
+          text = set_network_aliases(text, platform_map['connect-docs'], 'argws-connect-platform-net', ['connect-docs'])
+          text = set_network_aliases(text, platform_map['connect-engine-postgres'], 'argws-connect-platform-net', ['connect-engine-postgres','argws-connect-postgres'])
+          text = set_network_aliases(text, platform_map['connect-redis'], 'argws-connect-platform-net', ['connect-redis','argws-connect-redis'])
+          text = set_network_aliases(text, platform_map['connect-rabbitmq'], 'argws-connect-platform-net', ['connect-rabbitmq','argws-connect-rabbitmq'])
+          text = set_network_aliases(text, platform_map['connect-minio'], 'argws-connect-platform-net', ['connect-minio','argws-connect-minio'])
+          text = set_network_aliases(text, platform_map['connect-platform-postgres'], 'argws-connect-platform-net', ['connect-platform-postgres'])
+          text = set_network_aliases(text, platform_map['connect-platform-api'], 'argws-connect-platform-net', ['connect-platform-api'])
+          text = set_network_aliases(text, platform_map['connect-platform-web'], 'argws-connect-platform-net', ['connect-platform-web'])
+          write('deploy/platform/compose.yaml', text)
+
+          local_build = read('deploy/platform/compose.local-build.yaml')
+          for old in ('connect-engine','connect-docs','connect-platform-api','connect-platform-web','connect-gateway'):
+              local_build = rename_key_and_refs(local_build, old, platform_map[old])
+          write('deploy/platform/compose.local-build.yaml', local_build)
+
+          # Platform overlay over the existing develop stack: same project, same network,
+          # only the newly-added Platform services receive the develop suffix.
+          develop_map = {
+              'connect-platform-postgres': 'platform-postgres-argws-connect-develop',
+              'connect-platform-migrate': 'platform-migrate-argws-connect-develop',
+              'connect-platform-migrate-tenants': 'platform-migrate-tenants-argws-connect-develop',
+              'connect-platform-bootstrap': 'platform-bootstrap-argws-connect-develop',
+              'connect-platform-api': 'platform-api-argws-connect-develop',
+              'connect-platform-worker': 'platform-worker-argws-connect-develop',
+              'connect-platform-scheduler': 'platform-scheduler-argws-connect-develop',
+              'connect-platform-web': 'platform-web-argws-connect-develop',
+              'connect-gateway': 'platform-gateway-argws-connect-develop',
+          }
+          overlay = read('deploy/develop/compose.platform.yaml')
+          for old, new in develop_map.items():
+              overlay = rename_key_and_refs(overlay, old, new)
+          for service in develop_map.values():
+              overlay = add_container_name(overlay, service)
+          overlay = set_network_aliases(overlay, develop_map['connect-platform-postgres'], 'argws-connect-develop-net', ['connect-platform-postgres'])
+          overlay = set_network_aliases(overlay, develop_map['connect-platform-api'], 'argws-connect-develop-net', ['connect-platform-api'])
+          overlay = set_network_aliases(overlay, develop_map['connect-platform-web'], 'argws-connect-develop-net', ['connect-platform-web'])
+          write('deploy/develop/compose.platform.yaml', overlay)
+
+          # Platform contract tests/validators.
+          tests = read('platform/control-api/tests/connect_platform/test_integrated_foundation.py')
+          for old, new in {
+              '"connect-engine:"': '"api-argws-connect-platform:"',
+              '"connect-platform-api:"': '"platform-api-argws-connect-platform:"',
+              '"connect-platform-web:"': '"platform-web-argws-connect-platform:"',
+              '"connect-gateway:"': '"platform-gateway-argws-connect-platform:"',
+              '"connect-platform-postgres:"': '"platform-postgres-argws-connect-develop:"',
+          }.items():
+              tests = tests.replace(old, new)
+          write('platform/control-api/tests/connect_platform/test_integrated_foundation.py', tests)
+
+          validator = read('platform/scripts/validate_platform_integration.py')
+          validator = validator.replace(
+              '("connect-engine", "connect-docs", "connect-platform-api", "connect-platform-web", "connect-gateway")',
+              '("api-argws-connect-platform", "docs-argws-connect-platform", "platform-api-argws-connect-platform", "platform-web-argws-connect-platform", "platform-gateway-argws-connect-platform")'
+          )
+          write('platform/scripts/validate_platform_integration.py', validator)
+
+          # Platform CI must assert the canonical service names after rendering overlays.
+          platform_ci = read('.github/workflows/platform-integrity.yml')
+          platform_ci = platform_ci.replace("grep -q 'connect-platform-api:'", "grep -q 'platform-api-argws-connect-develop:'")
+          platform_ci = platform_ci.replace("grep -q 'connect-platform-web:'", "grep -q 'platform-web-argws-connect-develop:'")
+          platform_ci = platform_ci.replace("grep -q 'connect-platform-postgres:'", "grep -q 'platform-postgres-argws-connect-develop:'")
+          write('.github/workflows/platform-integrity.yml', platform_ci)
+
+          # Deployment Integrity auxiliary DOCs service keys.
+          deployment_ci = read('.github/workflows/deployment-integrity.yml')
+          deployment_ci = deployment_ci.replace(
+              "('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs', 38181,",
+              "('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs-argws-connect-homologation', 38181,"
+          )
+          deployment_ci = deployment_ci.replace(
+              "('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs', 38180,",
+              "('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs-argws-connect-cloudpanel', 38180,"
+          )
+          deployment_ci = deployment_ci.replace(
+              "('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs', 38180,",
+              "('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs-argws-connect-dockge', 38180,"
+          )
+          prepare_marker = '          cp deploy/dockge/env.example deploy/dockge/.env\n'
+          if 'cp deploy/platform/env.example deploy/platform/.env' not in deployment_ci:
+              deployment_ci = deployment_ci.replace(prepare_marker, prepare_marker + '          cp deploy/platform/env.example deploy/platform/.env\n')
+          naming_step = '''\n      - name: Enforce project, service, container and network naming contract\n        shell: bash\n        run: |\n          set -euo pipefail\n          python3 - <<'PY'\n          import json\n          import subprocess\n          from pathlib import Path\n\n          cases = [\n              ('api', 'docker-compose.yaml', '.env.example', 'argws-connect-api'),\n              ('production', 'deploy/production/compose.yaml', 'deploy/production/env.example', 'argws-connect-production'),\n              ('develop', 'deploy/develop/compose.yaml', 'deploy/develop/env.example', 'argws-connect-develop'),\n              ('canonical', 'deploy/canonical/compose.yaml', 'deploy/canonical/env.example', 'argws-connect-canonical'),\n              ('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'argws-connect-homologation'),\n              ('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'argws-connect-cloudpanel'),\n              ('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'argws-connect-dockge'),\n              ('docs', 'deploy/docs/compose.yaml', 'deploy/docs/env.example', 'argws-connect-docs'),\n              ('docs-develop', 'deploy/docs-develop/compose.yaml', 'deploy/docs-develop/env.example', 'argws-connect-docs-develop'),\n              ('platform', 'deploy/platform/compose.yaml', 'deploy/platform/env.example', 'argws-connect-platform'),\n          ]\n\n          def env_values(path):\n              values = {}\n              for raw in Path(path).read_text().splitlines():\n                  line = raw.strip()\n                  if line and not line.startswith('#') and '=' in line:\n                      key, value = line.split('=', 1)\n                      values[key] = value\n              return values\n\n          for deployment, compose, envfile, project in cases:\n              env = env_values(envfile)\n              assert env.get('COMPOSE_PROJECT_NAME') == project, f'{deployment}: COMPOSE_PROJECT_NAME inválido'\n              cmd = ['docker','compose','--env-file',envfile,'--profile','*','-f',compose,'config','--format','json']\n              cfg = json.loads(subprocess.check_output(cmd, text=True))\n              assert cfg.get('name') == project, f'{deployment}: Compose name inválido: {cfg.get("name")}'\n              suffix = project\n              for service, service_cfg in cfg.get('services', {}).items():\n                  assert service.endswith('-' + suffix), f'{deployment}: service fora do padrão: {service}'\n                  assert service_cfg.get('container_name') == service, f'{deployment}: container_name deve ser igual ao service: {service}'\n              network_names = {item.get('name') for item in cfg.get('networks', {}).values()}\n              expected_network = project + '-net'\n              assert expected_network in network_names, f'{deployment}: network {expected_network} ausente: {sorted(network_names)}'\n\n          print('Deployment naming contract OK')\n          PY\n'''
+          marker = '      - name: Enforce official deployment contract\n'
+          if 'Enforce project, service, container and network naming contract' not in deployment_ci:
+              deployment_ci = deployment_ci.replace(marker, naming_step + '\n' + marker)
+          write('.github/workflows/deployment-integrity.yml', deployment_ci)
+
+          # Canonical naming documentation.
+          guide = read('docs/guides/platform-runtime-modes.md')
+          if '### Convenção dos services' not in guide:
+              guide += '''\n\n### Convenção dos services\n\nTodo service de um deployment independente segue `recurso-argws-connect-deployment`, e o `container_name` deve ser idêntico ao service. Exemplos: `api-argws-connect-develop`, `docs-argws-connect-platform`, `platform-api-argws-connect-platform`. Aliases internos estáveis (`connect-engine`, `connect-platform-api`, `argws-connect-postgres` etc.) podem existir para desacoplar comunicação interna da nomenclatura física.\n\nNo overlay `deploy/develop/compose.platform.yaml`, os serviços já existentes mantêm seus nomes `*-argws-connect-develop` e os novos componentes usam `platform-*-argws-connect-develop`.\n'''
+          write('docs/guides/platform-runtime-modes.md', guide)
+
+          deploy_readme = read('deploy/README.md')
+          if '## Convenção canônica de nomenclatura' not in deploy_readme:
+              deploy_readme += '''\n\n## Convenção canônica de nomenclatura\n\n- project: `argws-connect-<deployment>`\n- network: `argws-connect-<deployment>-net`\n- service: `<recurso>-argws-connect-<deployment>`\n- `container_name`: idêntico ao service\n- overlays não criam novo project name; herdam a stack-base.\n'''
+          write('deploy/README.md', deploy_readme)
           PY
+
+      - name: Validate generated naming locally
+        run: |
+          set -euo pipefail
+          cp deploy/platform/env.example deploy/platform/.env
+          for spec in \
+            'docker-compose.yaml|.env.example' \
+            'deploy/production/compose.yaml|deploy/production/env.example' \
+            'deploy/develop/compose.yaml|deploy/develop/env.example' \
+            'deploy/canonical/compose.yaml|deploy/canonical/env.example' \
+            'deploy/homologation/compose.yaml|deploy/homologation/env.example' \
+            'deploy/cloudpanel/docker-compose.yml|deploy/cloudpanel/env.example' \
+            'deploy/dockge/compose.yaml|deploy/dockge/env.example' \
+            'deploy/docs/compose.yaml|deploy/docs/env.example' \
+            'deploy/docs-develop/compose.yaml|deploy/docs-develop/env.example' \
+            'deploy/platform/compose.yaml|deploy/platform/env.example'; do
+            compose="${spec%%|*}"; envfile="${spec##*|}"
+            docker compose --env-file "$envfile" --profile '*' -f "$compose" config >/dev/null
+          done
+          rm -f deploy/platform/.env
 
       - name: Commit normalized deployment contract
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deploy/platform/compose.yaml deploy/platform/env.example \
-                  deploy/cloudpanel/docker-compose.yml deploy/cloudpanel/env.example deploy/cloudpanel/.env.example \
-                  deploy/dockge/compose.yaml deploy/dockge/env.example deploy/dockge/.env.example \
-                  deploy/homologation/compose.yaml deploy/homologation/env.example \
-                  docs/guides/platform-runtime-modes.md
-          git commit -m "fix(deploy): standardize compose project names"
+          git add -A
+          git commit -m "fix(deploy): standardize project and service naming"
           git push origin HEAD:fix/deploy-compose-project-names
