@@ -2,16 +2,19 @@
   "product": "ARGWS Connect API",
   "package": "argws-connect-api",
   "version": "1.0.16",
-  "revision_date": "2026-08-31",
-  "source_files_excluding_node_modules": 430,
-  "typescript_files_in_src": 186,
+  "revision_date": "2026-09-03",
+  "source_files_excluding_node_modules": 1473,
+  "typescript_files_in_src": 246,
   "distribution": {
     "registry": "ghcr.io",
     "owner": "wkarts",
     "runtime_policy": "GHCR-only for production and homologation",
     "application_images": [
       "ghcr.io/wkarts/argws-connect-api",
-      "ghcr.io/wkarts/argws-connect-manager"
+      "ghcr.io/wkarts/argws-connect-docs",
+      "ghcr.io/wkarts/argws-connect-platform-api",
+      "ghcr.io/wkarts/argws-connect-platform-web",
+      "ghcr.io/wkarts/argws-connect-platform-gateway"
     ],
     "infrastructure_images": [
       "ghcr.io/wkarts/argws-connect-node:24-alpine",
@@ -23,7 +26,9 @@
       "ghcr.io/wkarts/argws-connect-mysql:8.0",
       "ghcr.io/wkarts/argws-connect-kafka:7.5.0",
       "ghcr.io/wkarts/argws-connect-zookeeper:7.5.0",
-      "ghcr.io/wkarts/argws-connect-pgadmin:latest"
+      "ghcr.io/wkarts/argws-connect-pgadmin:latest",
+      "ghcr.io/wkarts/argws-connect-python:3.13-slim",
+      "ghcr.io/wkarts/argws-connect-postgres:17"
     ],
     "deployments": [
       "CloudPanel",
@@ -31,7 +36,12 @@
       "Docker Compose",
       "Docker Swarm"
     ],
-    "runtime_branding_embedded_in_images": true
+    "runtime_branding_embedded_in_images": true,
+    "deployment_profiles": [
+      "api",
+      "docs",
+      "platform"
+    ]
   },
   "dependency_policy": {
     "runtime": 60,
@@ -51,26 +61,32 @@
   "branding": {
     "name": "ARGWS Connect API",
     "runtime_assets_paths": [
-      "manager/dist",
-      "public"
+      "public",
+      "platform/web/public",
+      "platform/branding/official"
     ]
   },
   "deployment_env": {
     "unique_variables": 363,
     "cloudpanel": "deploy/cloudpanel/.env.example",
-    "dockge": "deploy/dockge/.env.example"
+    "dockge": "deploy/dockge/.env.example",
+    "platform": "deploy/platform/env.example"
   },
   "validation": {
     "yaml_errors": 0,
     "json_errors": 0,
     "runtime_non_ghcr_image_references": 0,
     "missing_runtime_env_variables": 0,
-    "application_source_changed": false,
+    "application_source_changed": true,
     "prisma_changed": false,
     "package_manifest_changed": true,
     "package_lock_changed": true,
     "automatic_release_workflow_yaml_valid": true,
-    "release_scripts_smoke_tested": true
+    "release_scripts_smoke_tested": true,
+    "platform_integrated_validator": true,
+    "legacy_manager_removed": true,
+    "platform_web_static_syntax_valid": true,
+    "platform_control_api_tests_passed": true
   },
   "release_automation": {
     "enabled": true,
@@ -89,7 +105,9 @@
       "VERSION",
       "package.json",
       "package-lock.json",
-      "RELEASE-MANIFEST.json"
+      "RELEASE-MANIFEST.json",
+      "platform/control-api/pyproject.toml",
+      "deploy/platform/env.example"
     ],
     "ghcr_release_tags": [
       "X.Y.Z",
@@ -97,6 +115,18 @@
       "X",
       "latest",
       "sha-<commit>"
-    ]
+    ],
+    "platform_uses_root_version": true
+  },
+  "platform": {
+    "included": true,
+    "foundation_origin": "Connect-API-Platform v1.0.0-rc.34",
+    "independent_versioning": false,
+    "control_api": "platform/control-api",
+    "web": "platform/web",
+    "gateway": "platform/gateway",
+    "engine_bridge": "tenant-scoped/server-side",
+    "legacy_manager_removed": true,
+    "reference_financial_domain_enabled_by_default": false
   }
 }

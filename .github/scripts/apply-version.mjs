@@ -42,6 +42,23 @@ if (fs.existsSync('RELEASE-MANIFEST.json')) {
 
 fs.writeFileSync('VERSION', `${version}\n`);
 
+// Connect|API Platform shares the canonical root version. The Platform does
+// not own an independent release lifecycle.
+if (fs.existsSync('platform/control-api/pyproject.toml')) {
+  replaceRequired(
+    'platform/control-api/pyproject.toml',
+    /^version = "[^"]+"$/m,
+    `version = "${version}"`,
+  );
+}
+if (fs.existsSync('deploy/platform/env.example')) {
+  replaceRequired(
+    'deploy/platform/env.example',
+    /^CONNECT_API_VERSION=.*$/m,
+    `CONNECT_API_VERSION=${version}`,
+  );
+}
+
 const canonicalImage = `ghcr.io/wkarts/argws-connect-api:${version}`;
 const canonicalDocsImage = `ghcr.io/wkarts/argws-connect-docs:${version}`;
 replaceRequired(

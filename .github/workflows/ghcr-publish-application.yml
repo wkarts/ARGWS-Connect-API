@@ -45,6 +45,7 @@ jobs:
           set -euo pipefail
           skopeo copy --all docker://docker.io/library/node:24-alpine docker://ghcr.io/${OWNER}/argws-connect-node:24-alpine
           skopeo copy --all docker://docker.io/library/nginx:1.27-alpine docker://ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
+          skopeo copy --all docker://docker.io/library/python:3.13-slim docker://ghcr.io/${OWNER}/argws-connect-python:3.13-slim
 
   build-native:
     name: Build develop ${{ matrix.component }} / ${{ matrix.arch }}
@@ -52,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager]
+        component: [api, platform-api, platform-web, platform-gateway]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -65,10 +66,18 @@ jobs:
             context: .
             dockerfile: ./Dockerfile
             image: argws-connect-api
-          - component: manager
-            context: ./manager
-            dockerfile: ./manager/Dockerfile
-            image: argws-connect-manager
+          - component: platform-api
+            context: .
+            dockerfile: ./platform/control-api/Dockerfile
+            image: argws-connect-platform-api
+          - component: platform-web
+            context: .
+            dockerfile: ./platform/web/Dockerfile
+            image: argws-connect-platform-web
+          - component: platform-gateway
+            context: .
+            dockerfile: ./platform/gateway/Dockerfile
+            image: argws-connect-platform-gateway
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout develop
@@ -145,8 +154,12 @@ jobs:
         include:
           - component: api
             image: argws-connect-api
-          - component: manager
-            image: argws-connect-manager
+          - component: platform-api
+            image: argws-connect-platform-api
+          - component: platform-web
+            image: argws-connect-platform-web
+          - component: platform-gateway
+            image: argws-connect-platform-gateway
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5
