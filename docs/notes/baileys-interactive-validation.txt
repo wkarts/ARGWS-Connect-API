@@ -1,0 +1,10 @@
+Baileys interactive provider targeted validation passed before PR cleanup.
+
+Validated on canonical branch output:
+- ESLint provider/planner/engine: success
+- Baileys native interactive contract: success
+- test:compat: success
+- docs:check: success
+- git diff --check: success
+
+This note is intentionally concise and contains no runtime secrets.
