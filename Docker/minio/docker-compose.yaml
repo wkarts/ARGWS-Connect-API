@@ -1,9 +1,11 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-minio}
+
 services:
-  minio:
-    container_name: argws_connect_minio
+  minio-argws-connect-minio:
+    container_name: minio-argws-connect-minio
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
-    networks: [connect-net]
+    networks: [argws-connect-minio-net]
     command: server /data --console-address ":9001"
     restart: unless-stopped
     ports:
@@ -21,6 +23,6 @@ volumes:
   minio_data:
 
 networks:
-  connect-net:
-    name: connect-net
+  argws-connect-minio-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-minio-net}
     driver: bridge
