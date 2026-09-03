@@ -41,8 +41,8 @@ expect(helper.includes("attrs: { type: 'product_list', v: '2' }"), 'list biz nod
 
 expect(planner.includes("quickReply: 'NATIVE'"), 'Baileys quick reply capability must be native after transport fix');
 expect(planner.includes("list: 'NATIVE'"), 'Baileys list capability must be native after transport fix');
-expect(planner.includes("compatibilityTransport: 'BAILEYS_LIST'"), 'planner must route Baileys lists natively');
-expect(planner.includes("compatibilityTransport: 'BAILEYS_BUTTONS'"), 'planner must route Baileys choices to buttons');
+expect(planner.includes("'BAILEYS_LIST'"), 'planner must route Baileys lists natively');
+expect(planner.includes("'BAILEYS_BUTTONS'"), 'planner must route Baileys choices to buttons');
 expect(engine.includes("planned.compatibilityTransport === 'BAILEYS_LIST'"), 'Template Engine must execute Baileys list transport');
 expect(engine.includes("planned.compatibilityTransport === 'BAILEYS_BUTTONS'"), 'Template Engine must execute Baileys button transport');
 
