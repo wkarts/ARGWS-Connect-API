@@ -58,6 +58,7 @@ jobs:
 
       - name: Validate Platform contracts
         run: |
+          python3 -m pip install --disable-pip-version-check -q pytest
           python3 platform/scripts/validate_platform_integration.py
           PYTHONPATH=platform/control-api python3 -m pytest -q platform/control-api/tests/connect_platform/test_integrated_foundation.py
 
