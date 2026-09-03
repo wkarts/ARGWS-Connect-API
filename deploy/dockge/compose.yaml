@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-dockge}
 
 x-logging: &default-logging
   driver: json-file

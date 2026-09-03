@@ -94,3 +94,22 @@ O primeiro release contendo a Platform continuará a sequência SemVer existente
 Não há migração destrutiva do banco do Engine nesta frente. A Platform usa seu próprio banco para tenants, parceiros, usuários, RBAC, branding, domínios, provisioning, auditoria e bindings com instâncias do Engine.
 
 Para uma instalação existente, atualize o Engine pelo fluxo normal e depois ative a Platform usando o overlay correspondente ao deployment que já está em uso. Em `deploy/develop`, use `compose.platform.yaml` para manter a mesma stack e os mesmos volumes.
+
+
+## Convenção de project name dos deployments
+
+Todo deployment Compose independente do Connect|API deve declarar `name: ${COMPOSE_PROJECT_NAME:-...}` e manter o mesmo valor em `env.example`. O padrão canônico é `argws-connect-<deployment>`; quando houver rede dedicada, use `argws-connect-<deployment>-net`.
+
+| Deployment | Project name | Network |
+| --- | --- | --- |
+| canonical | `argws-connect-canonical` | `argws-connect-canonical-net` |
+| develop | `argws-connect-develop` | `argws-connect-develop-net` |
+| homologation | `argws-connect-homologation` | `argws-connect-homologation-net` |
+| production | `argws-connect-production` | `argws-connect-production-net` |
+| docs | `argws-connect-docs` | gerenciada pelo próprio compose |
+| docs-develop | `argws-connect-docs-develop` | gerenciada pelo próprio compose |
+| cloudpanel | `argws-connect-cloudpanel` | `argws-connect-cloudpanel-net` |
+| dockge | `argws-connect-dockge` | `argws-connect-dockge-net` |
+| platform | `argws-connect-platform` | `argws-connect-platform-net` |
+
+Arquivos overlay, como `deploy/develop/compose.platform.yaml` e `deploy/platform/compose.local-build.yaml`, **não declaram outro project name**: eles herdam obrigatoriamente o projeto do compose base para permanecer na mesma stack.

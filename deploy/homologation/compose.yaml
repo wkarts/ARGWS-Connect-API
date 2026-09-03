@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-homolog}
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-homologation}
 
 x-logging: &default-logging
   driver: json-file
@@ -207,5 +207,5 @@ services:
 
 networks:
   argws-connect-net:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-homolog-net}
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-homologation-net}
     driver: bridge
