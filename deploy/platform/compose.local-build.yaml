@@ -1,0 +1,39 @@
+services:
+  connect-engine:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${CONNECT_API_VERSION:-1.0.16}
+    pull_policy: never
+
+  connect-docs:
+    build:
+      context: ../..
+      dockerfile: docs/Dockerfile
+    pull_policy: never
+
+  connect-platform-api:
+    build:
+      context: ../..
+      dockerfile: platform/control-api/Dockerfile
+      args:
+        APP_VERSION: ${CONNECT_API_VERSION:-1.0.16}
+    pull_policy: never
+
+  connect-platform-web:
+    build:
+      context: ../..
+      dockerfile: platform/web/Dockerfile
+      args:
+        APP_VERSION: ${CONNECT_API_VERSION:-1.0.16}
+        VITE_CONTROL_PLANE_HOST: ${CONTROL_PLANE_HOST:-control.connect.example.com}
+        VITE_PARTNER_PLANE_HOST: ${PARTNER_PLANE_HOST:-partner.connect.example.com}
+        VITE_API_BASE_URL: /api
+    pull_policy: never
+
+  connect-gateway:
+    build:
+      context: ../..
+      dockerfile: platform/gateway/Dockerfile
+    pull_policy: never

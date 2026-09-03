@@ -1,0 +1,16 @@
+d279222c094922a8c809693b6c61463c0913d8ecc476811a7ec804b92d96e48c  01_SVG/connect-api-docs-logo-dark.svg
+451a87db2700c4d4150cdfcc14a59063a2d177b3108c45701e8c728e47611c36  01_SVG/connect-api-docs-logo-light.svg
+c605200613074be3fb0db289cd0fc247844941155fef74139dde25b6886e17f0  01_SVG/connect-api-docs-readme-header-dark.svg
+f82fa89eda4e6b5d0bad491429d6129ecc2a3b6e2e46a882893fa72040d075cd  01_SVG/connect-api-docs-readme-header-light.svg
+0af26ff7ca2132c0164feb7a5b381e8e635adedc0105257495f740bb95285cea  02_PNG/connect-api-docs-logo-dark-1356x400.png
+657f3068a0902d37c5b2a67db1c5efb02da5e5b4fc2a7468a2911a44d88e052f  02_PNG/connect-api-docs-logo-dark-2712x800.png
+62948a46bbc247f9fd8af555d41ef1d705cb68139a72c654ce21cb27cc5a117e  02_PNG/connect-api-docs-logo-light-1356x400.png
+e7dfe80e7cc8283d464b38f537c2039ff689967a1c3f8f8523031b89d773d926  02_PNG/connect-api-docs-logo-light-2712x800.png
+7376598685558e59f4c5fb3b0625ec098fe7ef2b3292bcf0d0ba57ed2cf27513  02_PNG/connect-api-docs-readme-header-dark-1600x400.png
+04c849b0a5ca47ad06f61c673b3632ee42667782ed51f321e41cb71d7bca660a  02_PNG/connect-api-docs-readme-header-dark-3200x800.png
+ce81af979e56e3299bc7ed0927a1870f50eea3ef6a92f8102e925c0ac826d5c8  02_PNG/connect-api-docs-readme-header-light-1600x400.png
+9b2fedad732fef5ef63aeaaef9e68a193f674269b36590271befec17ffa0cb1a  02_PNG/connect-api-docs-readme-header-light-3200x800.png
+8af8d795b8e7fb78834b31ffb22a80e51dcb729b4d988dcc37039e17caa99758  03_JPEG/connect-api-docs-readme-header-dark-1600x400.jpg
+07857f14c654e7160e0ecce1a1425def7372a70baeeaa498f353ceeefed4ca21  03_JPEG/connect-api-docs-readme-header-light-1600x400.jpg
+668c6f27758c7ace3017c7fc9b47dd9efc1ccc3c799cb4797f18e63d998aa4ef  04_Preview/connect-api-docs-readme-header-preview.png
+7fdd5833b62ac7bac93b47b7b2c5f0d25af22c7fbe73c56a7cf329c700641723  README.md

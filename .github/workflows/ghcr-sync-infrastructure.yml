@@ -44,9 +44,11 @@ jobs:
           # Build bases used by the application images.
           sync docker.io/library/node:24-alpine              ghcr.io/${OWNER}/argws-connect-node:24-alpine
           sync docker.io/library/nginx:1.27-alpine           ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
+          sync docker.io/library/python:3.13-slim             ghcr.io/${OWNER}/argws-connect-python:3.13-slim
 
           # Core runtime used by every official stack.
           sync docker.io/library/postgres:15                 ghcr.io/${OWNER}/argws-connect-postgres:15
+          sync docker.io/library/postgres:17-alpine          ghcr.io/${OWNER}/argws-connect-postgres:17
           sync docker.io/library/redis:latest                ghcr.io/${OWNER}/argws-connect-redis:latest
           sync docker.io/library/rabbitmq:management         ghcr.io/${OWNER}/argws-connect-rabbitmq:management
           sync quay.io/minio/minio:latest                    ghcr.io/${OWNER}/argws-connect-minio:latest

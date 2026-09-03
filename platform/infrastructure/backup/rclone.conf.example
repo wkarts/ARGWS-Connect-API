@@ -1,0 +1,10 @@
+# Não contém credenciais. Crie seu rclone.conf real fora do repositório:
+#   rclone config
+# E defina RCLONE_CONFIG_PATH=/caminho/seguro/rclone.conf no .env.
+#
+# Remotes esperados por padrão:
+#   [gdrive]
+#   type = drive
+#
+#   [dropbox]
+#   type = dropbox

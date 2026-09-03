@@ -1,0 +1,10 @@
+:root {
+  --connect-api-blue: #2563EB;
+  --connect-api-cyan: #06B6D4;
+  --connect-api-navy: #0F172A;
+  --connect-api-slate: #64748B;
+  --connect-api-mist: #F1F5F9;
+  --connect-api-white: #FFFFFF;
+  --connect-api-success: #10B981;
+  --connect-api-gradient: linear-gradient(135deg, var(--connect-api-cyan), var(--connect-api-blue));
+}

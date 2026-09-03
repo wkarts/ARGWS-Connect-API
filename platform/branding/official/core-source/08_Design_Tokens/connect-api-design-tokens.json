@@ -1,0 +1,23 @@
+{
+  "brand": "Connect|API",
+  "colors": {
+    "primary": "#2563EB",
+    "accent": "#06B6D4",
+    "ink": "#0F172A",
+    "muted": "#64748B",
+    "surface": "#F1F5F9",
+    "white": "#FFFFFF",
+    "success": "#10B981"
+  },
+  "typography": {
+    "recommended_primary": "Space Grotesk",
+    "compatible_system_font": "Inter",
+    "fallback": "system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+  },
+  "logo": {
+    "official_name": "Connect|API",
+    "minimum_width_px": 180,
+    "minimum_symbol_px": 24,
+    "clear_space": "1 diâmetro do nó circular ao redor da assinatura"
+  }
+}

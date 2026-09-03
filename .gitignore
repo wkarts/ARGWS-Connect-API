@@ -46,3 +46,13 @@ lerna-debug.log*
 .tool-versions
 
 /prisma/migrations/*
+
+# Connect|API Platform local artifacts
+/platform/control-api/.pytest_cache/
+/platform/control-api/**/__pycache__/
+/platform/web/node_modules/
+/platform/web/dist/
+/platform/web/.vite/
+/platform/web/coverage/
+/deploy/platform/.env
+/deploy/platform/volumes/

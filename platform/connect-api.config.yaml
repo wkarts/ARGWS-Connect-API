@@ -1,0 +1,96 @@
+# Configuração canônica — Connect|API Platform
+project:
+  name: "Connect|API Platform"
+  slug: "connect-api-platform"
+  description: "Communication & Integration Platform multitenant com Control Plane"
+  vendor: "Connect|API"
+  repository_owner: "YOUR_ORG"
+  repository_name: "connect-api-platform"
+  version: "1.0.0-rc.32"
+
+branding:
+  product_name: "Connect|API Platform"
+  short_name: "Connect|API"
+  legal_name: ""
+  tagline: "Communication & Integration Platform"
+  primary_color: "#2563EB"
+  accent_color: "#06B6D4"
+  navy_color: "#0F172A"
+  muted_color: "#64748B"
+  surface_color: "#F1F5F9"
+  light_mode_default: true
+  assets_dir: "branding"
+  logo_light: "branding/official/core/svg/connect-api-logo-horizontal-color.svg"
+  logo_dark: "branding/official/core/svg/connect-api-logo-horizontal-inverse.svg"
+  icon_png: "branding/official/core/pwa/icon-512x512.png"
+  favicon_ico: "branding/official/core/favicon/favicon.ico"
+  apple_touch_icon: "branding/official/core/favicon/apple-touch-icon.png"
+  pwa_icon_192: "branding/official/core/pwa/icon-192x192.png"
+  pwa_icon_512: "branding/official/core/pwa/icon-512x512.png"
+  pwa_maskable_512: "branding/official/core/pwa/maskable-icon-512x512.png"
+
+network:
+  # Troque example.com antes de produção. O caractere | nunca é usado em DNS.
+  root_domain: "example.com"
+  public_host: "connect-api.example.com"
+  control_host: "control.connect-api.example.com"
+  admin_host: "admin.connect-api.example.com"
+  api_host: "api.connect-api.example.com"
+  demo_host: "demo.connect-api.example.com"
+  tenant_domain_root: "connect-api.example.com"
+  tenant_hostname_pattern: "{slug}.connect-api.example.com"
+  public_scheme: "https"
+
+containers:
+  compose_project_name: "connect-api-platform"
+  registry: "ghcr.io/YOUR_ORG"
+  api_image: "connect-api-platform-api"
+  web_image: "connect-api-platform-web"
+  gateway_image: "connect-api-platform-gateway"
+  acme_image: "connect-api-platform-acme"
+  cloudpanel_agent_image: "connect-api-platform-cloudpanel-agent"
+
+persistence:
+  platform_database: "connect_api_platform"
+  platform_database_user: "connect_api_admin"
+  tenant_database_prefix: "connect_api_tenant"
+  tenant_database_user_prefix: "connect_api_t"
+  s3_bucket_prefix: "connect-api-tenant"
+  backup_namespace: "connect-api-platform"
+
+observability:
+  service_prefix: "connect-api"
+  log_source: "backend"
+  log_retention_days: 30
+  prometheus_job: "connect-api"
+
+features:
+  control_plane: true
+  database_per_tenant: true
+  tenant_custom_domains: true
+  landing_builder: true
+  whatsapp: true
+  smtp: true
+  s3: true
+  redis: true
+  rabbitmq: true
+  celery: true
+  backups: true
+  observability: true
+  two_factor_control_plane: true
+  pbx: true
+  voip: true
+  reference_financial_domain: false
+
+domain:
+  name: "communication-integration"
+  modules:
+    - channels
+    - instances
+    - messages
+    - events
+    - webhooks
+    - automations
+    - integrations
+    - pbx
+    - voip

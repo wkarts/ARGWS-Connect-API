@@ -56,21 +56,6 @@ assert.match(templateEngine, /interactionTtlSeconds/);
 assert.match(templateEngine, /TEXT_FALLBACK/);
 assert.match(templateEngine, /templateExecution/);
 
-const editor = fs.readFileSync('manager/dist/assets/template-editor.js', 'utf8');
-assert.match(editor, /\/template\/find\//);
-assert.match(editor, /\/action\/find\//);
-assert.match(editor, /\/recipe\/find\//);
-assert.match(editor, /\/message\/sendTemplate\//);
-
-const editorV2 = fs.readFileSync('manager/dist/assets/template-editor-v2.js', 'utf8');
-assert.match(editorV2, /\/action\/create\//);
-assert.match(editorV2, /\/recipe\/create\//);
-assert.match(editorV2, /dryRun: true/);
-assert.match(editorV2, /templateExecution/);
-
-const editorHtml = fs.readFileSync('manager/dist/template-editor.html', 'utf8');
-assert.match(editorHtml, /data-tab="integrations"/);
-assert.match(editorHtml, /Integration Registry/);
-assert.match(editorHtml, /testDiagnostic/);
-
+// UI contracts are validated by Platform Integrity. The legacy Manager assets
+// were intentionally retired; this foundation test now covers Engine behavior only.
 console.log('interaction engine foundation: ok');

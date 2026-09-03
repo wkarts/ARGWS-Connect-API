@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#081722">
+  <title>Connect|API Platform</title>
+  <meta name="description" content="Communication & Integration Platform.">
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  <style id="base-style">
+    :root{--page:#f8fafc;--text:#0f172a;--primary:#0f766e;--accent:#53d5b0;--radius:18px;--width:1120px;--font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--page);color:var(--text);font-family:var(--font);line-height:1.55;-webkit-font-smoothing:antialiased}a{color:inherit;text-decoration:none}img{max-width:100%;display:block}.lp-wrap{width:min(var(--width),calc(100% - 32px));margin:auto}.lp-brandbar{border-bottom:1px solid rgba(148,163,184,.18);background:#081722;color:#fff}.lp-brandbar>.lp-wrap{min-height:68px;display:flex;align-items:center;gap:12px}.lp-mark{display:grid;width:38px;height:38px;place-items:center;border-radius:12px;background:var(--accent);color:#062019;font-weight:900}.lp-brand{font-weight:800;letter-spacing:-.02em}.lp-section{position:relative;overflow:hidden}.lp-content{width:min(var(--width),calc(100% - 32px));margin:auto}.lp-eyebrow{font-size:12px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}.lp-title{margin:12px 0 0;font-size:clamp(32px,5vw,64px);line-height:1.04;letter-spacing:-.045em}.lp-section-title{margin:0;font-size:clamp(28px,4vw,44px);line-height:1.08;letter-spacing:-.04em}.lp-lead{max-width:780px;margin:18px 0 0;font-size:clamp(16px,2vw,20px);opacity:.78}.lp-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}.lp-btn{display:inline-flex;min-height:46px;align-items:center;justify-content:center;border-radius:12px;padding:11px 18px;font-weight:800;border:1px solid rgba(148,163,184,.3)}.lp-btn.primary{background:var(--accent);color:#062019;border-color:transparent}.lp-grid{display:grid;gap:16px}.lp-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.lp-grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.lp-card{border:1px solid rgba(148,163,184,.22);border-radius:var(--radius);padding:22px;background:rgba(255,255,255,.75);box-shadow:0 18px 50px rgba(15,23,42,.06)}.lp-card h3{margin:0;font-size:18px}.lp-card p{margin:8px 0 0;opacity:.72}.lp-price{margin-top:18px;font-size:28px;font-weight:900}.lp-price small{font-size:12px;font-weight:600;opacity:.6}.lp-image{border-radius:var(--radius);overflow:hidden}.lp-image img{width:100%;height:auto}.lp-caption{margin-top:8px;font-size:12px;opacity:.65}.lp-gallery figure{margin:0}.lp-divider{height:1px;background:rgba(148,163,184,.28)}.lp-disabled{min-height:100vh;display:grid;place-items:center;padding:24px;background:#081722;color:#fff}.lp-disabled>div{max-width:520px;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:28px;background:#0d2231}.lp-disabled h1{margin:0;font-size:24px}.lp-disabled p{margin:10px 0 0;color:#9eb0bd}.lp-html>*:first-child{margin-top:0}.lp-html>*:last-child{margin-bottom:0}@media(max-width:820px){.lp-grid.cols-3,.lp-grid.cols-2{grid-template-columns:1fr}.lp-title{font-size:clamp(36px,11vw,54px)}}@media(max-width:520px){.lp-wrap,.lp-content{width:min(100% - 22px,var(--width))}.lp-actions{display:grid}.lp-btn{width:100%}}
+  </style>
+</head>
+<body>
+  <div id="app"><div class="lp-disabled"><div><h1>Carregando apresentação</h1><p>Aguarde um instante.</p></div></div></div>
+  <script>
+    'use strict'
+    const app=document.getElementById('app')
+    if(!app)throw new Error('landing_root_missing')
+
+    const ALLOWED_STYLES={background:'background',color:'color',padding:'padding',minHeight:'min-height',textAlign:'text-align',borderRadius:'border-radius',margin:'margin',maxWidth:'max-width',fontSize:'font-size',fontWeight:'font-weight',display:'display',alignItems:'align-items',justifyContent:'justify-content',gap:'gap'}
+    const ALLOWED_TAGS=new Set(['div','p','h1','h2','h3','h4','h5','h6','span','strong','em','b','i','u','ul','ol','li','blockquote','br','hr','a','img','figure','figcaption','section','article'])
+    const DROP_TAGS=new Set(['script','style','iframe','object','embed','svg','math','template','form','input','button','link','meta','base'])
+
+    const money=value=>Number(value||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})
+    const safeUrl=value=>{
+      const raw=String(value??'').trim()
+      if(!raw)return''
+      if(raw.startsWith('#')||raw.startsWith('/'))return raw
+      try{const parsed=new URL(raw,window.location.origin);return['http:','https:','mailto:','tel:'].includes(parsed.protocol.toLowerCase())?raw:''}catch{return''}
+    }
+    const safeCssValue=(value,fallback='')=>{
+      const raw=String(value??'').trim()
+      if(!raw)return fallback
+      if(/[;{}<>]/.test(raw)||/@import\b|expression\s*\(|javascript\s*:/i.test(raw))return fallback
+      return raw
+    }
+    const safeCssText=value=>String(value??'').replace(/@import\b[^;]*;?/gi,'').replace(/expression\s*\(/gi,'').replace(/javascript\s*:/gi,'').replace(/[<>]/g,'')
+    const safeDimension=(value,fallback='48px')=>{const raw=String(value??'').trim();return /^\d+(?:\.\d+)?(?:px|rem|em|vh|vw|%)$/i.test(raw)?raw:fallback}
+    const safeClass=value=>String(value??'').split(/\s+/).filter(token=>/^[A-Za-z0-9_-]{1,64}$/.test(token)).join(' ')
+
+    function applyBlockStyle(element,style){
+      for(const [key,value] of Object.entries(style||{})){
+        const property=ALLOWED_STYLES[key]
+        if(!property)continue
+        const safe=safeCssValue(value)
+        if(safe)element.style.setProperty(property,safe)
+      }
+    }
+
+    function appendSanitizedChildren(source,target){
+      for(const child of Array.from(source.childNodes)){
+        if(child.nodeType===3){target.appendChild(document.createTextNode(child.textContent||''));continue}
+        if(child.nodeType!==1)continue
+        const sourceElement=child
+        const tag=sourceElement.tagName.toLowerCase()
+        if(DROP_TAGS.has(tag))continue
+        if(!ALLOWED_TAGS.has(tag)){appendSanitizedChildren(sourceElement,target);continue}
+
+        const clone=document.createElement(tag)
+        const className=safeClass(sourceElement.getAttribute('class'))
+        if(className)clone.className=className
+        const title=sourceElement.getAttribute('title');if(title)clone.setAttribute('title',title)
+        const ariaLabel=sourceElement.getAttribute('aria-label');if(ariaLabel)clone.setAttribute('aria-label',ariaLabel)
+
+        if(tag==='a'){
+          const href=safeUrl(sourceElement.getAttribute('href'))
+          if(href){clone.setAttribute('href',href);if(/^https?:\/\//i.test(href)){clone.target='_blank';clone.rel='noopener noreferrer'}}
+        }
+        if(tag==='img'){
+          const src=safeUrl(sourceElement.getAttribute('src'))
+          if(!src)continue
+          clone.setAttribute('src',src);clone.alt=sourceElement.getAttribute('alt')||'';clone.loading='lazy'
+          const width=sourceElement.getAttribute('width');const height=sourceElement.getAttribute('height')
+          if(width&&/^\d{1,4}$/.test(width))clone.setAttribute('width',width)
+          if(height&&/^\d{1,4}$/.test(height))clone.setAttribute('height',height)
+        }
+        appendSanitizedChildren(sourceElement,clone)
+        target.appendChild(clone)
+      }
+    }
+
+    function sanitizedFragment(value){
+      const fragment=document.createDocumentFragment()
+      const parsed=new DOMParser().parseFromString(String(value??''),'text/html')
+      appendSanitizedChildren(parsed.body,fragment)
+      return fragment
+    }
+
+    function element(tag,className='',text){
+      const node=document.createElement(tag)
+      if(className)node.className=className
+      if(text!==undefined&&text!==null)node.textContent=String(text)
+      return node
+    }
+
+    function sectionWithContent(style,extraClass=''){
+      const section=element('section',`lp-section${extraClass?` ${extraClass}`:''}`)
+      applyBlockStyle(section,style||{})
+      const content=element('div','lp-content')
+      section.appendChild(content)
+      return{section,content}
+    }
+
+    function appendLead(parent,value){if(!value)return;parent.appendChild(element('p','lp-lead',value))}
+
+    function button(label,url,primary=true){
+      const href=safeUrl(url)
+      if(!label||!href)return null
+      const anchor=element('a',`lp-btn${primary?' primary':''}`,label)
+      anchor.setAttribute('href',href)
+      if(/^https?:\/\//i.test(href)){anchor.target='_blank';anchor.rel='noopener noreferrer'}
+      return anchor
+    }
+
+    function blockNode(block,plans){
+      const p=block?.props||{},s=block?.style||{},type=String(block?.type||'')
+      if(type==='hero'){
+        const {section,content}=sectionWithContent(s)
+        if(p.eyebrow)content.appendChild(element('div','lp-eyebrow',p.eyebrow))
+        content.appendChild(element('h1','lp-title',p.title||''));appendLead(content,p.text)
+        const actions=element('div','lp-actions');const primary=button(p.button_label,p.button_url,true);const secondary=button(p.secondary_label,p.secondary_url,false);if(primary)actions.appendChild(primary);if(secondary)actions.appendChild(secondary);content.appendChild(actions)
+        return section
+      }
+      if(type==='text'){
+        const {section,content}=sectionWithContent(s);if(p.title)content.appendChild(element('h2','lp-section-title',p.title));appendLead(content,p.text);return section
+      }
+      if(type==='features'){
+        const {section,content}=sectionWithContent(s);content.appendChild(element('h2','lp-section-title',p.title||'Benefícios'));appendLead(content,p.text)
+        const grid=element('div','lp-grid cols-3');grid.style.marginTop='28px';const items=Array.isArray(p.items)?p.items:[]
+        items.forEach((item,index)=>{const obj=item&&typeof item==='object'?item:{title:String(item),text:''};const card=element('article','lp-card');card.appendChild(element('h3','',obj.title||`Benefício ${index+1}`));if(obj.text)card.appendChild(element('p','',obj.text));grid.appendChild(card)})
+        content.appendChild(grid);return section
+      }
+      if(type==='plans'){
+        const {section,content}=sectionWithContent(s);content.appendChild(element('h2','lp-section-title',p.title||'Planos'));appendLead(content,p.text)
+        const grid=element('div','lp-grid cols-3');grid.style.marginTop='28px'
+        ;(Array.isArray(plans)?plans:[]).forEach(plan=>{const card=element('article','lp-card');card.appendChild(element('h3','',plan.name||'Plano'));if(plan.description)card.appendChild(element('p','',plan.description));const price=Number(plan.monthly_price||0);const priceNode=element('div','lp-price',price>0?money(price):'Sob consulta');if(price>0)priceNode.appendChild(element('small','',' / mês'));card.appendChild(priceNode);grid.appendChild(card)})
+        content.appendChild(grid);return section
+      }
+      if(type==='image'){
+        const url=safeUrl(p.url);if(!url)return null
+        const {section,content}=sectionWithContent(s);const wrap=element('div','lp-image');const image=document.createElement('img');image.setAttribute('src',url);image.alt=String(p.alt||'Imagem');image.loading='lazy';wrap.appendChild(image)
+        const link=safeUrl(p.link_url);if(link){const anchor=document.createElement('a');anchor.setAttribute('href',link);if(/^https?:\/\//i.test(link)){anchor.target='_blank';anchor.rel='noopener noreferrer'}anchor.appendChild(wrap);content.appendChild(anchor)}else content.appendChild(wrap)
+        if(p.caption)content.appendChild(element('div','lp-caption',p.caption));return section
+      }
+      if(type==='gallery'){
+        const {section,content}=sectionWithContent(s);if(p.title)content.appendChild(element('h2','lp-section-title',p.title));const grid=element('div','lp-grid cols-2 lp-gallery');grid.style.marginTop='28px'
+        const items=Array.isArray(p.items)?p.items:[];items.forEach(item=>{const obj=item&&typeof item==='object'?item:{url:String(item),caption:''};const url=safeUrl(obj.url);if(!url)return;const figure=document.createElement('figure');const wrap=element('div','lp-image');const image=document.createElement('img');image.setAttribute('src',url);image.alt=String(obj.caption||'Imagem da plataforma');image.loading='lazy';wrap.appendChild(image);figure.appendChild(wrap);if(obj.caption)figure.appendChild(element('figcaption','lp-caption',obj.caption));grid.appendChild(figure)})
+        content.appendChild(grid);return section
+      }
+      if(type==='cta'){
+        const {section,content}=sectionWithContent(s);content.appendChild(element('h2','lp-section-title',p.title||''));appendLead(content,p.text);const actions=element('div','lp-actions');const action=button(p.button_label,p.button_url,true);if(action)actions.appendChild(action);content.appendChild(actions);return section
+      }
+      if(type==='divider'){
+        const {section,content}=sectionWithContent(s);content.appendChild(element('div','lp-divider'));return section
+      }
+      if(type==='spacer'){
+        const spacer=document.createElement('div');spacer.setAttribute('aria-hidden','true');spacer.style.height=safeDimension(p.height);return spacer
+      }
+      if(type==='html'){
+        const {section,content}=sectionWithContent(s,'lp-html');content.appendChild(sanitizedFragment(p.html));return section
+      }
+      return null
+    }
+
+    function renderDisabled(title,message){
+      const outer=element('div','lp-disabled');const inner=document.createElement('div');inner.append(element('h1','',title),element('p','',message));outer.appendChild(inner);app.replaceChildren(outer)
+    }
+
+    function applyTheme(documentData){
+      const theme=documentData?.theme||{},root=document.documentElement.style
+      root.setProperty('--page',safeCssValue(theme.page_background,'#f8fafc'))
+      root.setProperty('--text',safeCssValue(theme.text_color,'#0f172a'))
+      root.setProperty('--primary',safeCssValue(theme.primary_color,'#0f766e'))
+      root.setProperty('--accent',safeCssValue(theme.accent_color,'#53d5b0'))
+      root.setProperty('--radius',safeCssValue(theme.radius,'18px'))
+      root.setProperty('--width',safeCssValue(theme.content_width,'1120px'))
+      root.setProperty('--font',safeCssValue(theme.font_family,'Inter,ui-sans-serif,system-ui,sans-serif'))
+    }
+
+    function renderLanding(meta,blocks,plans){
+      const fragment=document.createDocumentFragment()
+      if(meta.show_brand!==false){
+        const nav=element('nav','lp-brandbar');const wrap=element('div','lp-wrap');wrap.append(element('span','lp-mark','C|'),element('span','lp-brand',meta.brand_name||'Connect|API Platform'));nav.appendChild(wrap);fragment.appendChild(nav)
+      }
+      const main=document.createElement('main')
+      for(const block of blocks){const rendered=blockNode(block,plans);if(rendered)main.appendChild(rendered)}
+      fragment.appendChild(main);app.replaceChildren(fragment)
+    }
+
+    async function bootstrap(){
+      try{
+        const response=await fetch('/api/public/platform/landing',{headers:{Accept:'application/json'},cache:'no-store'})
+        if(!response.ok)throw new Error('landing_config_unavailable')
+        const cfg=(await response.json()).data||{}
+        if(cfg.enabled===false){renderDisabled('Página pública indisponível','A apresentação pública desta plataforma está desativada.');return}
+        const doc=cfg.document||{},meta=doc.meta||{},blocks=Array.isArray(doc.blocks)?doc.blocks:[]
+        applyTheme(doc)
+        const language=String(meta.language||'pt-BR');document.documentElement.lang=/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(language)?language:'pt-BR'
+        document.title=String(meta.seo_title||meta.brand_name||'Connect|API Platform')
+        const description=document.querySelector('meta[name="description"]');if(description)description.setAttribute('content',String(meta.seo_description||'Communication & Integration Platform.'))
+        const oldCustom=document.getElementById('landing-custom-css');if(oldCustom)oldCustom.remove()
+        const custom=document.createElement('style');custom.id='landing-custom-css';custom.textContent=safeCssText(cfg.custom_css);document.head.appendChild(custom)
+        renderLanding(meta,blocks,cfg.plans||[])
+      }catch(error){console.error('landing_bootstrap_failed',error);renderDisabled('Página pública indisponível','Não foi possível carregar a apresentação neste momento.')}
+    }
+    bootstrap()
+  </script>
+</body>
+</html>

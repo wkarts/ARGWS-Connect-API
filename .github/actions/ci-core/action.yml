@@ -23,16 +23,7 @@ runs:
     - name: Check linting
       shell: bash
       run: npm run lint:check
-
-    - name: Check Manager runtime compatibility syntax
-      shell: bash
-      run: |
-        set -euo pipefail
-        if [[ -f manager/dist/assets/argws-runtime-fixes.js ]]; then
-          node --check manager/dist/assets/argws-runtime-fixes.js
-        fi
-
-    - name: Check legacy message compatibility
+    - name: Check compatibility contracts
       shell: bash
       run: npm run test:compat
 
