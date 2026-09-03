@@ -3,6 +3,8 @@ export type MicroAppAutoLaunchPolicy = {
   appKey?: string;
   ttlSeconds?: number;
   messageText?: string;
+  buttonText?: string;
+  launchMode?: 'BUTTON' | 'LINK';
   linkPreview?: boolean;
 };
 
@@ -34,7 +36,9 @@ export function resolveMicroAppAutoLaunch(policy: unknown): MicroAppAutoLaunchPo
     enabled: true,
     appKey,
     ttlSeconds: normalizeTtl(autoLaunch.ttlSeconds),
-    messageText: String(autoLaunch.messageText || '').trim() || 'Abrir Mini App',
+    messageText: String(autoLaunch.messageText || '').trim() || 'Mini App disponível',
+    buttonText: String(autoLaunch.buttonText || '').trim() || 'Abrir Mini App',
+    launchMode: String(autoLaunch.launchMode || '').toUpperCase() === 'LINK' ? 'LINK' : 'BUTTON',
     linkPreview: autoLaunch.linkPreview !== false,
   };
 }
