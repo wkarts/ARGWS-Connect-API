@@ -93,6 +93,40 @@ def test_platform_develop_is_standalone_and_complete() -> None:
     assert "profiles: [platform]" not in compose
 
 
+def test_platform_production_is_standalone_and_complete() -> None:
+    classic = REPO / "deploy" / "production"
+    standalone = REPO / "deploy" / "platform-production"
+    compose = (standalone / "compose.yaml").read_text(encoding="utf-8")
+    env = (standalone / "env.example").read_text(encoding="utf-8")
+
+    assert (classic / "compose.yaml").is_file()
+    assert compose.startswith("name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform-production}\n")
+    assert "COMPOSE_PROJECT_NAME=argws-connect-platform-production" in env
+    assert "ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-production-net" in env
+    assert "ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:latest" in env
+    assert "ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest" in env
+    assert "ARGWS_CONNECT_PLATFORM_API_IMAGE=ghcr.io/wkarts/argws-connect-platform-api:latest" in env
+    assert "ARGWS_CONNECT_PLATFORM_WEB_IMAGE=ghcr.io/wkarts/argws-connect-platform-web:latest" in env
+    assert "ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE=ghcr.io/wkarts/argws-connect-platform-gateway:latest" in env
+    assert "SERVER_URL=https://api.connect.argws.com.br" in env
+    assert "ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.argws.com.br" in env
+    assert "PLATFORM_DOMAIN=connect.argws.com.br" in env
+    assert "CONTROL_PLANE_HOST=control.connect.argws.com.br" in env
+    assert "PARTNER_PLANE_HOST=partner.connect.argws.com.br" in env
+    assert "DEMO_HOST=demo.connect.argws.com.br" in env
+    assert "BOOTSTRAP_DEMO_TENANT=false" in env
+    assert "api-argws-connect-platform-production:" in compose
+    assert "docs-argws-connect-platform-production:" in compose
+    assert "postgres-argws-connect-platform-production:" in compose
+    assert "platform-postgres-argws-connect-platform-production:" in compose
+    assert "platform-api-argws-connect-platform-production:" in compose
+    assert "platform-worker-argws-connect-platform-production:" in compose
+    assert "platform-scheduler-argws-connect-platform-production:" in compose
+    assert "platform-web-argws-connect-platform-production:" in compose
+    assert "platform-gateway-argws-connect-platform-production:" in compose
+    assert "profiles: [platform]" not in compose
+
+
 def test_running_engine_instances_can_be_adopted_without_recreation() -> None:
     route = (PLATFORM / "control-api" / "app" / "api" / "routes" / "tenant_connect.py").read_text(encoding="utf-8")
     frontend = (PLATFORM / "web" / "src" / "api" / "connectEngine.ts").read_text(encoding="utf-8")
