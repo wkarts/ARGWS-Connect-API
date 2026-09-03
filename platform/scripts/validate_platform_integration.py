@@ -88,7 +88,7 @@ def main() -> int:
         fail(f"RELEASE-MANIFEST missing application images: {sorted(expected_images - images)}")
 
     compose = (ROOT / "deploy/platform/compose.yaml").read_text(encoding="utf-8")
-    for service in ("connect-engine", "connect-docs", "connect-platform-api", "connect-platform-web", "connect-gateway"):
+    for service in ("api-argws-connect-platform", "docs-argws-connect-platform", "platform-api-argws-connect-platform", "platform-web-argws-connect-platform", "platform-gateway-argws-connect-platform"):
         if f"  {service}:" not in compose:
             fail(f"platform compose missing service {service}")
     if "profiles: [platform]" not in compose or "profiles: [docs, platform]" not in compose:

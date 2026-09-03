@@ -7,7 +7,8 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  api:
+  api-argws-connect-homologation:
+    container_name: api-argws-connect-homologation
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
     pull_policy: always
     restart: unless-stopped
@@ -21,20 +22,20 @@ services:
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
-      postgres:
+      postgres-argws-connect-homologation:
         condition: service_healthy
-      redis:
+      redis-argws-connect-homologation:
         condition: service_healthy
-      rabbitmq:
+      rabbitmq-argws-connect-homologation:
         condition: service_healthy
-      minio:
+      minio-argws-connect-homologation:
         condition: service_healthy
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38081}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
     networks:
-      - argws-connect-net
+      - argws-connect-homologation-net
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -43,7 +44,8 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  docs:
+  docs-argws-connect-homologation:
+    container_name: docs-argws-connect-homologation
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:develop}
     pull_policy: always
     restart: unless-stopped
@@ -53,7 +55,7 @@ services:
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38181}:8080"
     networks:
-      - argws-connect-net
+      - argws-connect-homologation-net
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
       interval: 30s
@@ -62,7 +64,8 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  postgres:
+  postgres-argws-connect-homologation:
+    container_name: postgres-argws-connect-homologation
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
     restart: unless-stopped
@@ -76,7 +79,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U '${POSTGRES_USERNAME:-argws_connect}' -d '${POSTGRES_DATABASE:-argws_connect_homolog}'"]
@@ -86,7 +89,8 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  redis:
+  redis-argws-connect-homologation:
+    container_name: redis-argws-connect-homologation
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
     restart: unless-stopped
@@ -97,7 +101,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-redis]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
@@ -107,7 +111,8 @@ services:
       start_period: 10s
     logging: *default-logging
 
-  rabbitmq:
+  rabbitmq-argws-connect-homologation:
+    container_name: rabbitmq-argws-connect-homologation
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
     restart: unless-stopped
@@ -119,7 +124,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-rabbitmq]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -129,7 +134,8 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  minio:
+  minio-argws-connect-homologation:
+    container_name: minio-argws-connect-homologation
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
     restart: unless-stopped
@@ -141,7 +147,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-minio]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
@@ -151,7 +157,8 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  nats:
+  nats-argws-connect-homologation:
+    container_name: nats-argws-connect-homologation
     profiles: ["nats", "extended"]
     image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
     pull_policy: always
@@ -161,11 +168,12 @@ services:
     volumes:
       - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-nats]
     logging: *default-logging
 
-  zookeeper:
+  zookeeper-argws-connect-homologation:
+    container_name: zookeeper-argws-connect-homologation
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
@@ -178,16 +186,17 @@ services:
       - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
       - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-zookeeper]
     logging: *default-logging
 
-  kafka:
+  kafka-argws-connect-homologation:
+    container_name: kafka-argws-connect-homologation
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
     pull_policy: always
     restart: unless-stopped
-    depends_on: [zookeeper]
+    depends_on: [zookeeper-argws-connect-homologation]
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: argws-connect-zookeeper:2181
@@ -201,11 +210,11 @@ services:
     volumes:
       - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
     networks:
-      argws-connect-net:
+      argws-connect-homologation-net:
         aliases: [argws-connect-kafka]
     logging: *default-logging
 
 networks:
-  argws-connect-net:
+  argws-connect-homologation-net:
     name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-homologation-net}
     driver: bridge

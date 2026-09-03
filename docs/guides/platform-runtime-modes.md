@@ -113,3 +113,10 @@ Todo deployment Compose independente do Connect|API deve declarar `name: ${COMPO
 | platform | `argws-connect-platform` | `argws-connect-platform-net` |
 
 Arquivos overlay, como `deploy/develop/compose.platform.yaml` e `deploy/platform/compose.local-build.yaml`, **não declaram outro project name**: eles herdam obrigatoriamente o projeto do compose base para permanecer na mesma stack.
+
+
+### Convenção dos services
+
+Todo service de um deployment independente segue `recurso-argws-connect-deployment`, e o `container_name` deve ser idêntico ao service. Exemplos: `api-argws-connect-develop`, `docs-argws-connect-platform`, `platform-api-argws-connect-platform`. Aliases internos estáveis (`connect-engine`, `connect-platform-api`, `argws-connect-postgres` etc.) podem existir para desacoplar a comunicação interna da nomenclatura física.
+
+No overlay `deploy/develop/compose.platform.yaml`, os serviços já existentes mantêm seus nomes `*-argws-connect-develop` e os novos componentes usam `platform-*-argws-connect-develop`.

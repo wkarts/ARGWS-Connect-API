@@ -1,5 +1,5 @@
 services:
-  connect-engine:
+  api-argws-connect-platform:
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -7,13 +7,13 @@ services:
         APP_VERSION: ${CONNECT_API_VERSION:-1.0.16}
     pull_policy: never
 
-  connect-docs:
+  docs-argws-connect-platform:
     build:
       context: ../..
       dockerfile: docs/Dockerfile
     pull_policy: never
 
-  connect-platform-api:
+  platform-api-argws-connect-platform:
     build:
       context: ../..
       dockerfile: platform/control-api/Dockerfile
@@ -21,7 +21,7 @@ services:
         APP_VERSION: ${CONNECT_API_VERSION:-1.0.16}
     pull_policy: never
 
-  connect-platform-web:
+  platform-web-argws-connect-platform:
     build:
       context: ../..
       dockerfile: platform/web/Dockerfile
@@ -32,7 +32,7 @@ services:
         VITE_API_BASE_URL: /api
     pull_policy: never
 
-  connect-gateway:
+  platform-gateway-argws-connect-platform:
     build:
       context: ../..
       dockerfile: platform/gateway/Dockerfile

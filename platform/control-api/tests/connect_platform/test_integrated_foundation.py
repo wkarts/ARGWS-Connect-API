@@ -35,10 +35,10 @@ def test_deployment_profiles_exist() -> None:
     compose = (REPO / "deploy" / "platform" / "compose.yaml").read_text(encoding="utf-8")
     assert "profiles: [docs, platform]" in compose
     assert "profiles: [platform]" in compose
-    assert "connect-engine:" in compose
-    assert "connect-platform-api:" in compose
-    assert "connect-platform-web:" in compose
-    assert "connect-gateway:" in compose
+    assert "api-argws-connect-platform:" in compose
+    assert "platform-api-argws-connect-platform:" in compose
+    assert "platform-web-argws-connect-platform:" in compose
+    assert "platform-gateway-argws-connect-platform:" in compose
 
 
 def test_reference_financial_domain_is_disabled_by_default() -> None:
@@ -56,7 +56,7 @@ def test_existing_develop_stack_can_be_upgraded_in_place() -> None:
     assert "./volumes/instances" in base
     assert "api-argws-connect-develop:" in overlay
     assert "aliases: [connect-engine, argws-connect-api]" in overlay
-    assert "connect-platform-postgres:" in overlay
+    assert "platform-postgres-argws-connect-develop:" in overlay
     assert "\n  connect-engine:\n" not in overlay
     assert "BOOTSTRAP_DEMO_TENANT=false" in env
 

@@ -95,7 +95,8 @@ services:
 
   # Banco NOVO somente para governanca/control-plane da Platform.
   # O PostgreSQL do Engine existente permanece intacto.
-  connect-platform-postgres:
+  platform-postgres-argws-connect-develop:
+    container_name: platform-postgres-argws-connect-develop
     image: ${ARGWS_CONNECT_PLATFORM_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:17}
     pull_policy: always
     profiles: [platform]
@@ -107,79 +108,93 @@ services:
       TZ: ${TZ:-America/Bahia}
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_POSTGRES_DATA_PATH:-./volumes/platform-postgres}:/var/lib/postgresql/data
-    networks: [argws-connect-develop-net]
+    networks:
+      argws-connect-develop-net:
+        aliases: [connect-platform-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
       interval: 10s
       timeout: 5s
       retries: 30
 
-  connect-platform-migrate:
+  platform-migrate-argws-connect-develop:
+    container_name: platform-migrate-argws-connect-develop
     <<: *platform-app
     restart: "no"
     command: ["python", "-m", "app.cli", "migrate-platform"]
     depends_on:
-      connect-platform-postgres: {condition: service_healthy}
+      platform-postgres-argws-connect-develop: {condition: service_healthy}
 
-  connect-platform-migrate-tenants:
+  platform-migrate-tenants-argws-connect-develop:
+    container_name: platform-migrate-tenants-argws-connect-develop
     <<: *platform-app
     restart: "no"
     command: ["python", "-m", "app.cli", "migrate-all-tenants"]
     depends_on:
-      connect-platform-migrate: {condition: service_completed_successfully}
+      platform-migrate-argws-connect-develop: {condition: service_completed_successfully}
 
-  connect-platform-bootstrap:
+  platform-bootstrap-argws-connect-develop:
+    container_name: platform-bootstrap-argws-connect-develop
     <<: *platform-app
     restart: "no"
     command: ["python", "-m", "app.cli", "bootstrap"]
     depends_on:
-      connect-platform-migrate-tenants: {condition: service_completed_successfully}
+      platform-migrate-tenants-argws-connect-develop: {condition: service_completed_successfully}
       api-argws-connect-develop: {condition: service_healthy}
       redis-argws-connect-develop: {condition: service_healthy}
       rabbitmq-argws-connect-develop: {condition: service_healthy}
       minio-argws-connect-develop: {condition: service_healthy}
 
-  connect-platform-api:
+  platform-api-argws-connect-develop:
+    container_name: platform-api-argws-connect-develop
     <<: *platform-app
     command: ["gunicorn", "app.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "${PLATFORM_API_WORKERS:-2}", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-"]
     depends_on:
-      connect-platform-bootstrap: {condition: service_completed_successfully}
+      platform-bootstrap-argws-connect-develop: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=5).read()\""]
       interval: 20s
       timeout: 8s
       retries: 20
       start_period: 30s
-
-  connect-platform-worker:
+    networks:
+      argws-connect-develop-net:
+        aliases: [connect-platform-api]
+  platform-worker-argws-connect-develop:
+    container_name: platform-worker-argws-connect-develop
     <<: *platform-app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "-Q", "connect.default,connect.provisioning,connect.events,connect.automations,connect.webhooks", "--loglevel=INFO", "--concurrency=${PLATFORM_CELERY_CONCURRENCY:-2}", "--without-gossip", "--without-mingle", "--without-heartbeat"]
     depends_on:
-      connect-platform-api: {condition: service_healthy}
+      platform-api-argws-connect-develop: {condition: service_healthy}
 
-  connect-platform-scheduler:
+  platform-scheduler-argws-connect-develop:
+    container_name: platform-scheduler-argws-connect-develop
     <<: *platform-app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/var/lib/celery/celerybeat-schedule", "--pidfile=/tmp/celerybeat.pid"]
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_CELERY_DATA_PATH:-./volumes/platform-celery}:/var/lib/celery
     depends_on:
-      connect-platform-api: {condition: service_healthy}
+      platform-api-argws-connect-develop: {condition: service_healthy}
 
-  connect-platform-web:
+  platform-web-argws-connect-develop:
+    container_name: platform-web-argws-connect-develop
     image: ${ARGWS_CONNECT_PLATFORM_WEB_IMAGE:-ghcr.io/wkarts/argws-connect-platform-web:develop}
     pull_policy: always
     profiles: [platform]
     restart: unless-stopped
     depends_on:
-      connect-platform-api: {condition: service_healthy}
-    networks: [argws-connect-develop-net]
+      platform-api-argws-connect-develop: {condition: service_healthy}
+    networks:
+      argws-connect-develop-net:
+        aliases: [connect-platform-web]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 20s
       timeout: 5s
       retries: 10
 
-  connect-gateway:
+  platform-gateway-argws-connect-develop:
+    container_name: platform-gateway-argws-connect-develop
     image: ${ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE:-ghcr.io/wkarts/argws-connect-platform-gateway:develop}
     pull_policy: always
     profiles: [platform]
@@ -196,8 +211,8 @@ services:
     depends_on:
       api-argws-connect-develop: {condition: service_healthy}
       docs-argws-connect-develop: {condition: service_healthy}
-      connect-platform-api: {condition: service_healthy}
-      connect-platform-web: {condition: service_healthy}
+      platform-api-argws-connect-develop: {condition: service_healthy}
+      platform-web-argws-connect-develop: {condition: service_healthy}
     ports:
       - "${PLATFORM_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_GATEWAY_PORT:-38800}:80"
     networks: [argws-connect-develop-net]
