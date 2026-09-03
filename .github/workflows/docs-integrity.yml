@@ -114,7 +114,7 @@ jobs:
       - name: Start Scalar docs service
         env:
           ARGWS_CONNECT_DOCS_IMAGE: connect-api-docs-ci:local
-        run: docker compose --env-file .env.example up -d --pull never docs
+        run: docker compose --env-file .env.example up -d --pull never docs-argws-connect-api
 
       - name: Wait for Scalar healthcheck
         shell: bash
@@ -126,7 +126,7 @@ jobs:
             fi
             sleep 2
           done
-          docker compose --env-file .env.example logs docs
+          docker compose --env-file .env.example logs docs-argws-connect-api
           exit 1
 
       - name: Validate Scalar document endpoints
@@ -184,7 +184,7 @@ jobs:
 
       - name: Scalar logs on failure
         if: failure()
-        run: docker compose --env-file .env.example logs docs || true
+        run: docker compose --env-file .env.example logs docs-argws-connect-api || true
 
       - name: Stop Scalar docs service
         if: always()
