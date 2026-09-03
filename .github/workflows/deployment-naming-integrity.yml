@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           cp .env.example .env
-          for dir in production develop platform-develop canonical homologation cloudpanel dockge docs docs-develop platform; do
+          for dir in production platform-production develop platform-develop canonical homologation cloudpanel dockge docs docs-develop platform; do
             cp "deploy/${dir}/env.example" "deploy/${dir}/.env"
           done
 
@@ -58,6 +58,7 @@ jobs:
         run: |
           rm -f .env \
             deploy/production/.env \
+            deploy/platform-production/.env \
             deploy/develop/.env \
             deploy/platform-develop/.env \
             deploy/canonical/.env \
