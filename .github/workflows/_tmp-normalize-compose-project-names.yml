@@ -1,0 +1,94 @@
+name: Temporary Compose Project Name Normalizer
+
+on:
+  push:
+    branches: [fix/deploy-compose-project-names]
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/deploy-compose-project-names
+
+      - name: Normalize deployment project/network names
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, replacements, additions=()):
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              original = text
+              for old, new in replacements:
+                  if old not in text:
+                      raise SystemExit(f'{path}: expected token not found: {old}')
+                  text = text.replace(old, new)
+              for marker, line in additions:
+                  if line not in text:
+                      if marker not in text:
+                          raise SystemExit(f'{path}: marker not found: {marker}')
+                      text = text.replace(marker, marker + line)
+              if text == original:
+                  raise SystemExit(f'{path}: no changes produced')
+              file.write_text(text, encoding='utf-8')
+
+          replace('deploy/platform/compose.yaml', [
+              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}'),
+              ('name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-net}', 'name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-platform-net}'),
+          ])
+          replace('deploy/platform/env.example', [
+              ('COMPOSE_PROJECT_NAME=argws-connect-api', 'COMPOSE_PROJECT_NAME=argws-connect-platform'),
+          ], additions=[('TZ=America/Bahia\n', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-net\n')])
+
+          replace('deploy/cloudpanel/docker-compose.yml', [
+              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-cloudpanel}'),
+          ])
+          for path in ('deploy/cloudpanel/env.example', 'deploy/cloudpanel/.env.example'):
+              replace(path, [
+                  ('COMPOSE_PROJECT_NAME=argws-connect-api', 'COMPOSE_PROJECT_NAME=argws-connect-cloudpanel'),
+                  ('ARGWS_CONNECT_NETWORK_NAME=argws-connect-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-cloudpanel-net'),
+              ])
+
+          replace('deploy/dockge/compose.yaml', [
+              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-dockge}'),
+          ])
+          for path in ('deploy/dockge/env.example', 'deploy/dockge/.env.example'):
+              replace(path, [
+                  ('COMPOSE_PROJECT_NAME=argws-connect-api', 'COMPOSE_PROJECT_NAME=argws-connect-dockge'),
+                  ('ARGWS_CONNECT_NETWORK_NAME=argws-connect-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-dockge-net'),
+              ])
+
+          replace('deploy/homologation/compose.yaml', [
+              ('name: ${COMPOSE_PROJECT_NAME:-argws-connect-homolog}', 'name: ${COMPOSE_PROJECT_NAME:-argws-connect-homologation}'),
+              ('argws-connect-homolog-net', 'argws-connect-homologation-net'),
+          ])
+          replace('deploy/homologation/env.example', [
+              ('COMPOSE_PROJECT_NAME=argws-connect-homolog', 'COMPOSE_PROJECT_NAME=argws-connect-homologation'),
+              ('ARGWS_CONNECT_NETWORK_NAME=argws-connect-homolog-net', 'ARGWS_CONNECT_NETWORK_NAME=argws-connect-homologation-net'),
+          ])
+
+          guide = Path('docs/guides/platform-runtime-modes.md')
+          text = guide.read_text(encoding='utf-8')
+          marker = '## Convenção de project name dos deployments'
+          if marker not in text:
+              text += '''\n\n## Convenção de project name dos deployments\n\nTodo deployment Compose independente do Connect|API deve declarar `name: ${COMPOSE_PROJECT_NAME:-...}` e manter o mesmo valor em `env.example`. O padrão canônico é `argws-connect-<deployment>`; quando houver rede dedicada, use `argws-connect-<deployment>-net`.\n\n| Deployment | Project name | Network |\n| --- | --- | --- |\n| canonical | `argws-connect-canonical` | `argws-connect-canonical-net` |\n| develop | `argws-connect-develop` | `argws-connect-develop-net` |\n| homologation | `argws-connect-homologation` | `argws-connect-homologation-net` |\n| production | `argws-connect-production` | `argws-connect-production-net` |\n| docs | `argws-connect-docs` | gerenciada pelo próprio compose |\n| docs-develop | `argws-connect-docs-develop` | gerenciada pelo próprio compose |\n| cloudpanel | `argws-connect-cloudpanel` | `argws-connect-cloudpanel-net` |\n| dockge | `argws-connect-dockge` | `argws-connect-dockge-net` |\n| platform | `argws-connect-platform` | `argws-connect-platform-net` |\n\nArquivos overlay, como `deploy/develop/compose.platform.yaml` e `deploy/platform/compose.local-build.yaml`, **não declaram outro project name**: eles herdam obrigatoriamente o projeto do compose base para permanecer na mesma stack.\n'''
+              guide.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit normalized deployment contract
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/platform/compose.yaml deploy/platform/env.example \
+                  deploy/cloudpanel/docker-compose.yml deploy/cloudpanel/env.example deploy/cloudpanel/.env.example \
+                  deploy/dockge/compose.yaml deploy/dockge/env.example deploy/dockge/.env.example \
+                  deploy/homologation/compose.yaml deploy/homologation/env.example \
+                  docs/guides/platform-runtime-modes.md
+          git commit -m "fix(deploy): standardize compose project names"
+          git push origin HEAD:fix/deploy-compose-project-names
