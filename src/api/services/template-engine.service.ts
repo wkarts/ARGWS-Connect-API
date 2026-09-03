@@ -1,9 +1,17 @@
 import { InstanceDto } from '@api/dto/instance.dto';
+import type { MicroAppSessionDto } from '@api/dto/micro-app.dto';
 import { SendTemplateDto } from '@api/dto/sendMessage.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
+import {
+  buildMicroAppRuntimeContext,
+  candidateRemoteJids,
+  mergeRuntimeVariables,
+  normalizeWhatsappNumber,
+  resolveMicroAppAutoLaunch,
+} from './micro-app-auto-launch';
 import { WAMonitoringService } from './monitor.service';
 import {
   interactionTextFallback,
@@ -20,6 +28,20 @@ import {
 
 export class TemplateEngineService {
   private readonly logger = new Logger('TemplateEngineService');
+
+  private microAppSessionCreator?: (
+    instance: InstanceDto,
+    data: MicroAppSessionDto,
+  ) => Promise<{ url: string; appKey: string; pageKey: string; expiresAt?: string; token?: string }>;
+
+  public setMicroAppSessionCreator(
+    creator: (
+      instance: InstanceDto,
+      data: MicroAppSessionDto,
+    ) => Promise<{ url: string; appKey: string; pageKey: string; expiresAt?: string; token?: string }>,
+  ) {
+    this.microAppSessionCreator = creator;
+  }
 
   constructor(
     private readonly waMonitor: WAMonitoringService,
@@ -46,7 +68,10 @@ export class TemplateEngineService {
         enabled: true,
       },
     });
-    const variables = (data.variables || {}) as Record<string, unknown>;
+    let variables = (data.variables || {}) as Record<string, unknown>;
+    const autoLaunch = await this.prepareMicroAppAutoLaunch(instance, instanceRow.id, template, data, variables);
+    if (autoLaunch) variables = autoLaunch.variables;
+    data.variables = variables;
     const interactions = renderInteractionModelV2(template?.policy, variables);
 
     let result: any;
@@ -70,6 +95,7 @@ export class TemplateEngineService {
       });
       await this.registerInteractionSession(instanceRow.id, template, data, result, rendered);
       await this.sendRenderedInteractions(instanceRow.id, runtime, data, provider, template, rendered, transport);
+      await this.sendMicroAppAutoLaunch(runtime, data, autoLaunch);
       return result;
     }
 
@@ -138,7 +164,88 @@ export class TemplateEngineService {
     }
 
     await this.sendRenderedInteractions(instanceRow.id, runtime, data, provider, template, rendered, transport);
+    await this.sendMicroAppAutoLaunch(runtime, data, autoLaunch);
     return result;
+  }
+
+  private async prepareMicroAppAutoLaunch(
+    instance: InstanceDto,
+    instanceId: string,
+    template: any,
+    data: SendTemplateDto,
+    baseVariables: Record<string, unknown>,
+  ) {
+    const policy = resolveMicroAppAutoLaunch(template?.policy);
+    if (!policy || !this.microAppSessionCreator || !template) return null;
+
+    const contact = await this.resolveWhatsappContact(instanceId, data.number);
+    const initialContext = buildMicroAppRuntimeContext({
+      appKey: policy.appKey,
+      url: '',
+      number: data.number,
+      contactName: contact.name,
+      remoteJid: contact.remoteJid,
+    });
+    const sessionVariables = mergeRuntimeVariables(baseVariables, initialContext);
+    const session = await this.microAppSessionCreator(instance, {
+      templateName: data.name,
+      language: data.language || 'pt_BR',
+      appKey: policy.appKey,
+      number: data.number,
+      variables: sessionVariables,
+      ttlSeconds: policy.ttlSeconds,
+    });
+    const runtimeContext = buildMicroAppRuntimeContext({
+      appKey: policy.appKey,
+      url: session.url,
+      expiresAt: session.expiresAt,
+      number: data.number,
+      contactName: contact.name,
+      remoteJid: contact.remoteJid,
+    });
+    return {
+      policy,
+      session,
+      variables: mergeRuntimeVariables(sessionVariables, runtimeContext),
+    };
+  }
+
+  private async resolveWhatsappContact(instanceId: string, number: string) {
+    const normalized = normalizeWhatsappNumber(number);
+    if (!normalized) return { name: 'Contato WhatsApp', remoteJid: undefined as string | undefined };
+    const candidates = candidateRemoteJids(number);
+    const contact = await this.prisma.contact.findFirst({
+      where: {
+        instanceId,
+        OR: [{ remoteJid: { in: candidates } }, { remoteJid: { startsWith: normalized } }],
+      },
+      select: { pushName: true, remoteJid: true },
+    });
+    const chat = await this.prisma.chat.findFirst({
+      where: {
+        instanceId,
+        OR: [{ remoteJid: { in: candidates } }, { remoteJid: { startsWith: normalized } }],
+      },
+      select: { name: true, remoteJid: true },
+    });
+    return {
+      name: contact?.pushName || chat?.name || normalized,
+      remoteJid: contact?.remoteJid || chat?.remoteJid || candidates[0],
+    };
+  }
+
+  private async sendMicroAppAutoLaunch(runtime: any, data: SendTemplateDto, autoLaunch: any) {
+    if (!autoLaunch?.session?.url) return;
+    await runtime.textMessage({
+      number: data.number,
+      text: `${autoLaunch.policy.messageText}
+${autoLaunch.session.url}`,
+      delay: data.delay,
+      quoted: data.quoted,
+      linkPreview: autoLaunch.policy.linkPreview,
+      mentionsEveryOne: data.mentionsEveryOne,
+      mentioned: data.mentioned,
+    });
   }
 
   public async preview(instance: InstanceDto, data: any) {

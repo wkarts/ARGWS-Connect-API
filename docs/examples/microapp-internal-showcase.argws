@@ -1,0 +1,189 @@
+{
+  "schema": "argws.connect.studio.bundle",
+  "version": 1,
+  "source": {
+    "product": "Connect|API Template Studio",
+    "purpose": "Self-contained Micro App showcase without external integrations"
+  },
+  "templates": [
+    {
+      "kind": "TEMPLATE",
+      "name": "microapp_internal_showcase",
+      "language": "pt_BR",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "🧪 Olá {{contact.name}}!\n\nMini App interno do Connect|API pronto para teste.\nWhatsApp: {{contact.whatsapp}}\nGerado em: {{system.dateTime}}\n\nO link é criado automaticamente pelo próprio Connect|API."
+        }
+      ],
+      "actions": { "bindings": [] },
+      "policy": {
+        "interactionTtlSeconds": 1800,
+        "microApps": {
+          "version": 1,
+          "autoLaunch": {
+            "enabled": true,
+            "appKey": "internal_showcase",
+            "ttlSeconds": 1800,
+            "messageText": "🌐 Abrir Mini App de demonstração",
+            "linkPreview": true
+          },
+          "apps": []
+        }
+      },
+      "enabled": true
+    },
+    {
+      "kind": "TEMPLATE",
+      "name": "microapp_internal_showcase_done",
+      "language": "pt_BR",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "✅ {{contact.name}}, o Mini App interno foi concluído.\n\nWhatsApp: {{contact.whatsapp}}\nFinalizado com sucesso pelo Connect|API."
+        }
+      ],
+      "actions": { "bindings": [] },
+      "policy": { "interactionTtlSeconds": 1800 },
+      "enabled": true
+    }
+  ],
+  "actions": [],
+  "recipes": [],
+  "microApps": [
+    {
+      "kind": "MICRO_APP",
+      "templateRef": "microapp_internal_showcase:pt_BR",
+      "app": {
+        "key": "internal_showcase",
+        "title": "Connect|API — Mini App Interno",
+        "description": "Demonstração autocontida, sem API externa.",
+        "startPage": "inicio",
+        "ttlSeconds": 1800,
+        "accessMode": "CONVERSATION_SESSION",
+        "offline": {
+          "enabled": true,
+          "persistDraft": true,
+          "queueSubmit": true
+        },
+        "pages": [
+          {
+            "key": "inicio",
+            "title": "Painel do contato",
+            "description": "Informações fornecidas pelo contexto do próprio Connect|API.",
+            "components": [
+              {
+                "type": "CONTACT",
+                "id": "contact",
+                "label": "Contato WhatsApp",
+                "text": "{{contact.name}} · +{{contact.whatsapp}}"
+              },
+              { "type": "CLOCK", "id": "clock", "label": "Relógio" },
+              { "type": "STATUS", "id": "network", "label": "Conectividade" },
+              {
+                "type": "TEXT",
+                "text": "Sessão iniciada em {{system.dateTime}} · {{system.timezone}}"
+              }
+            ],
+            "next": "offline"
+          },
+          {
+            "key": "offline",
+            "title": "Rascunho offline",
+            "description": "Digite algo e experimente desligar a conexão antes de continuar.",
+            "captureRoot": "demo.offline",
+            "components": [
+              {
+                "type": "INPUT",
+                "id": "note",
+                "label": "Anotação de teste",
+                "placeholder": "Este texto é preservado localmente..."
+              },
+              {
+                "type": "CHECKBOX",
+                "id": "remember",
+                "label": "Manter rascunho neste dispositivo enquanto a sessão estiver válida"
+              },
+              { "type": "STATUS", "id": "network", "label": "Status da conexão" }
+            ],
+            "next": "preferencias"
+          },
+          {
+            "key": "preferencias",
+            "title": "Recursos de formulário",
+            "description": "Componentes locais sem integração externa.",
+            "captureRoot": "demo.preferences",
+            "components": [
+              {
+                "type": "SELECT",
+                "id": "option",
+                "label": "Escolha uma opção",
+                "options": [
+                  { "value": "a", "label": "Opção A" },
+                  { "value": "b", "label": "Opção B" },
+                  { "value": "c", "label": "Opção C" }
+                ]
+              },
+              { "type": "DATE", "id": "date", "label": "Data" },
+              { "type": "TIME", "id": "time", "label": "Hora" },
+              { "type": "CLOCK", "id": "clock", "label": "Hora atual" }
+            ],
+            "next": "localizacao"
+          },
+          {
+            "key": "localizacao",
+            "title": "GPS opcional",
+            "description": "A localização não é obrigatória neste showcase.",
+            "location": {
+              "mode": "OPTIONAL",
+              "capturePath": "demo.location",
+              "policy": {
+                "enabled": true,
+                "allowedSources": ["MICRO_APP_GPS"],
+                "maxAccuracyMeters": 1000,
+                "geofences": [],
+                "outsideGeofence": "ALLOW"
+              }
+            },
+            "components": [
+              { "type": "LOCATION", "id": "location", "label": "Minha localização" },
+              { "type": "STATUS", "id": "network", "label": "Conectividade" }
+            ],
+            "next": "resumo"
+          },
+          {
+            "key": "resumo",
+            "title": "Resumo do teste",
+            "description": "Última página antes de retornar ao WhatsApp.",
+            "components": [
+              {
+                "type": "CONTACT",
+                "id": "contact",
+                "label": "Contato",
+                "text": "{{contact.name}} · +{{contact.whatsapp}}"
+              },
+              { "type": "CLOCK", "id": "clock", "label": "Relógio ao vivo" },
+              { "type": "STATUS", "id": "network", "label": "Rede" },
+              {
+                "type": "TEXT",
+                "text": "Anotação: {{demo.offline.note}}"
+              },
+              {
+                "type": "TEXT",
+                "text": "Opção: {{demo.preferences.option}} · Data: {{demo.preferences.date}} · Hora: {{demo.preferences.time}}"
+              }
+            ]
+          }
+        ],
+        "completion": {
+          "template": {
+            "name": "microapp_internal_showcase_done",
+            "language": "pt_BR"
+          }
+        }
+      }
+    }
+  ]
+}

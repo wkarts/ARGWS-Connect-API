@@ -123,6 +123,7 @@ export const microAppService = new MicroAppService(
   recipeService,
   templateEngine,
 );
+templateEngine.setMicroAppSessionCreator((instance, data) => microAppService.createSession(instance, data));
 export const microAppController = new MicroAppController(microAppService);
 export const interactionEngine = new InteractionEngineService(
   prismaRepository,
