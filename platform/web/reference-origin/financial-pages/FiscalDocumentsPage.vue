@@ -1,0 +1,36 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { Download, FileCheck2, Plus, Receipt, RefreshCw } from 'lucide-vue-next'
+import { api, apiError } from '../api/client'
+import type { ApiResponse, Paginated, Payment, Receivable } from '../types'
+import PageHeader from '../components/PageHeader.vue'
+import ModalDialog from '../components/ModalDialog.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+
+interface FiscalDocument { id:string;receivable_id?:string|null;provider:string;number?:string|null;verification_code?:string|null;amount:string;status:string;issued_at?:string|null;pdf_url?:string|null;xml_url?:string|null;last_error?:string|null }
+interface ReceiptItem { id:string;number:string;receivable_id:string;payment_id:string;amount:string;issued_at:string;download_url?:string|null }
+const fiscal = ref<FiscalDocument[]>([])
+const receipts = ref<ReceiptItem[]>([])
+const receivables = ref<Receivable[]>([])
+const payments = ref<Payment[]>([])
+const modal = ref<'fiscal'|'receipt'|''>('')
+const error = ref('')
+const message = ref('')
+const loading = ref(false)
+const form = reactive({ receivable_id:'', payment_id:'', provider:'SANDBOX' })
+const money=(value:string|number)=>Number(value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})
+const paidReceivables = computed(()=>receivables.value.filter(item=>['PAID','PARTIALLY_PAID','REGISTERED','OPEN','OVERDUE'].includes(item.status)))
+
+async function load(){loading.value=true;error.value='';try{const [f,r,rec,pay]=await Promise.all([api.get<ApiResponse<FiscalDocument[]>>('/v1/fiscal-documents'),api.get<ApiResponse<ReceiptItem[]>>('/v1/receipts'),api.get<Paginated<Receivable>>('/v1/receivables',{params:{per_page:100}}),api.get<ApiResponse<Payment[]>>('/v1/payments')]);fiscal.value=f.data.data;receipts.value=r.data.data;receivables.value=rec.data.data;payments.value=pay.data.data}catch(exception){error.value=apiError(exception)}finally{loading.value=false}}
+async function issueFiscal(){error.value='';try{const response=await api.post<ApiResponse<{number:string;status:string}>>('/v1/fiscal-documents',{receivable_id:form.receivable_id,provider:form.provider});message.value=`NFS-e ${response.data.data.number} processada com status ${response.data.data.status}.`;modal.value='';await load()}catch(exception){error.value=apiError(exception)}}
+async function issueReceipt(){error.value='';try{const response=await api.post<ApiResponse<{number:string}>>('/v1/receipts',{payment_id:form.payment_id});message.value=`Recibo ${response.data.data.number} emitido.`;modal.value='';await load()}catch(exception){error.value=apiError(exception)}}
+onMounted(load)
+</script>
+<template>
+<PageHeader title="Fiscal e recibos" subtitle="Emissão fiscal por provider, documentos imutáveis e recibos vinculados aos pagamentos."><button class="btn-secondary" :disabled="loading" @click="load"><RefreshCw :size="18" :class="loading?'animate-spin':''"/> Atualizar</button><button class="btn-secondary" @click="modal='receipt'"><Receipt :size="18"/> Emitir recibo</button><button class="btn-primary" @click="modal='fiscal'"><Plus :size="18"/> Emitir NFS-e</button></PageHeader>
+<p v-if="error" class="mb-5 rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{{error}}</p><p v-if="message" class="mb-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">{{message}}</p>
+<section><h2 class="mb-3 text-lg font-semibold">Documentos fiscais</h2><div class="table-wrap"><table class="table"><thead><tr><th>Número</th><th>Provider</th><th>Recebível</th><th>Valor</th><th>Emissão</th><th>Status</th><th>Arquivos</th></tr></thead><tbody><tr v-for="item in fiscal" :key="item.id"><td><p class="font-semibold">{{item.number||'Processando'}}</p><p class="text-xs text-slate-400">{{item.verification_code||'—'}}</p></td><td>{{item.provider}}</td><td class="max-w-xs truncate text-xs">{{item.receivable_id||'—'}}</td><td class="font-semibold">{{money(item.amount)}}</td><td>{{item.issued_at?new Date(item.issued_at).toLocaleString('pt-BR'):'—'}}</td><td><StatusBadge :status="item.status"/></td><td><div class="flex gap-2"><a v-if="item.pdf_url" class="text-xs font-semibold text-teal-700" :href="item.pdf_url" target="_blank"><Download :size="15" class="inline"/> PDF</a><a v-if="item.xml_url" class="text-xs font-semibold text-blue-700" :href="item.xml_url" target="_blank"><Download :size="15" class="inline"/> XML</a></div></td></tr><tr v-if="!fiscal.length"><td colspan="7" class="py-10 text-center text-slate-400">Nenhum documento fiscal.</td></tr></tbody></table></div></section>
+<section class="mt-7"><h2 class="mb-3 text-lg font-semibold">Recibos</h2><div class="table-wrap"><table class="table"><thead><tr><th>Número</th><th>Pagamento</th><th>Recebível</th><th>Valor</th><th>Emissão</th><th>Arquivo</th></tr></thead><tbody><tr v-for="item in receipts" :key="item.id"><td class="font-semibold">{{item.number}}</td><td class="max-w-xs truncate text-xs">{{item.payment_id}}</td><td class="max-w-xs truncate text-xs">{{item.receivable_id}}</td><td class="font-semibold">{{money(item.amount)}}</td><td>{{new Date(item.issued_at).toLocaleString('pt-BR')}}</td><td><a v-if="item.download_url" class="text-xs font-semibold text-teal-700" :href="item.download_url" target="_blank"><Download :size="15" class="inline"/> Baixar PDF</a></td></tr><tr v-if="!receipts.length"><td colspan="6" class="py-10 text-center text-slate-400">Nenhum recibo emitido.</td></tr></tbody></table></div></section>
+<ModalDialog :open="modal==='fiscal'" title="Emitir NFS-e" @close="modal='' "><form class="space-y-4" @submit.prevent="issueFiscal"><div><label class="label">Recebível</label><select v-model="form.receivable_id" class="select" required><option value="" disabled>Selecione</option><option v-for="item in paidReceivables" :key="item.id" :value="item.id">{{item.document_number}} · {{money(item.original_amount)}} · {{item.description}}</option></select></div><div><label class="label">Provider</label><select v-model="form.provider" class="select"><option value="SANDBOX">SANDBOX — fluxo funcional sem valor fiscal</option></select><p class="mt-2 text-xs text-amber-700">Providers municipais/nacional exigem credenciais e homologação do ambiente fiscal correspondente.</p></div><div class="flex justify-end gap-2"><button type="button" class="btn-secondary" @click="modal=''">Cancelar</button><button class="btn-primary"><FileCheck2 :size="18"/> Emitir</button></div></form></ModalDialog>
+<ModalDialog :open="modal==='receipt'" title="Emitir recibo" @close="modal='' "><form class="space-y-4" @submit.prevent="issueReceipt"><div><label class="label">Pagamento confirmado</label><select v-model="form.payment_id" class="select" required><option value="" disabled>Selecione</option><option v-for="item in payments.filter(p=>p.status==='CONFIRMED')" :key="item.id" :value="item.id">{{new Date(item.paid_at).toLocaleDateString('pt-BR')}} · {{money(item.amount)}} · {{item.external_id}}</option></select></div><div class="flex justify-end gap-2"><button type="button" class="btn-secondary" @click="modal=''">Cancelar</button><button class="btn-primary"><Receipt :size="18"/> Gerar recibo</button></div></form></ModalDialog>
+</template>

@@ -23,7 +23,6 @@ RUN npm ci --silent
 COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
-COPY ./manager ./manager
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
@@ -51,7 +50,6 @@ COPY --from=builder /argws-connect/package-lock.json ./package-lock.json
 COPY --from=builder /argws-connect/node_modules ./node_modules
 COPY --from=builder /argws-connect/dist ./dist
 COPY --from=builder /argws-connect/prisma ./prisma
-COPY --from=builder /argws-connect/manager ./manager
 COPY --from=builder /argws-connect/public ./public
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
