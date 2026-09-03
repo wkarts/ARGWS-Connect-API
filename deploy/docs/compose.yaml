@@ -7,10 +7,10 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  docs-argws-connect-standalone:
+  docs-argws-connect-docs:
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
     pull_policy: always
-    container_name: docs-argws-connect-standalone
+    container_name: docs-argws-connect-docs
     restart: unless-stopped
     environment:
       API_REFERENCE_CONFIG: >-

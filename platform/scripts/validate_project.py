@@ -146,8 +146,13 @@ def validate_deployments() -> None:
     if 'SERVER_DISABLE_MANAGER: "true"' not in compose:
         error("Deployment Platform não desativa Manager legado")
     required_services = [
-        "connect-engine:", "connect-docs:", "connect-platform-api:", "connect-platform-web:",
-        "connect-platform-worker:", "connect-platform-scheduler:", "connect-gateway:",
+        "api-argws-connect-platform:",
+        "docs-argws-connect-platform:",
+        "platform-api-argws-connect-platform:",
+        "platform-web-argws-connect-platform:",
+        "platform-worker-argws-connect-platform:",
+        "platform-scheduler-argws-connect-platform:",
+        "platform-gateway-argws-connect-platform:",
     ]
     for service in required_services:
         if service not in compose:
@@ -156,6 +161,18 @@ def validate_deployments() -> None:
         error("DOCs não está compartilhada entre profiles docs/platform")
     if "CONNECT_API_VERSION=" not in env:
         error("env.example da Platform não declara CONNECT_API_VERSION")
+    if "COMPOSE_PROJECT_NAME=argws-connect-platform" not in env:
+        error("env.example da Platform não usa project name canônico")
+    if "ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-net" not in env:
+        error("env.example da Platform não usa network canônica")
+    for alias in (
+        "connect-engine",
+        "connect-platform-api",
+        "connect-platform-postgres",
+        "connect-platform-web",
+    ):
+        if alias not in compose:
+            error(f"Alias interno estável ausente no deployment Platform: {alias}")
 
 
 def validate_specialization() -> None:
@@ -214,7 +231,18 @@ def main() -> int:
     validate_bridge()
     validate_manager_deprecation()
     validate_cache_cleanliness()
-    print(json.dumps({"status": "PASS" if not ERRORS else "FAIL", "metrics": METRICS, "warnings": WARNINGS, "errors": ERRORS}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "PASS" if not ERRORS else "FAIL",
+                "metrics": METRICS,
+                "warnings": WARNINGS,
+                "errors": ERRORS,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 1 if ERRORS else 0
 
 

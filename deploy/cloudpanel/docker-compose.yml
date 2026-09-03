@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-cloudpanel}
 
 x-logging: &default-logging
   driver: json-file
@@ -7,10 +7,10 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  api:
+  api-argws-connect-cloudpanel:
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
     pull_policy: always
-    container_name: argws_connect_api
+    container_name: api-argws-connect-cloudpanel
     restart: unless-stopped
     env_file:
       - .env
@@ -22,20 +22,20 @@ services:
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
-      postgres:
+      postgres-argws-connect-cloudpanel:
         condition: service_healthy
-      redis:
+      redis-argws-connect-cloudpanel:
         condition: service_healthy
-      rabbitmq:
+      rabbitmq-argws-connect-cloudpanel:
         condition: service_healthy
-      minio:
+      minio-argws-connect-cloudpanel:
         condition: service_healthy
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
     networks:
-      - argws-connect-net
+      - argws-connect-cloudpanel-net
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -44,17 +44,17 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  docs:
+  docs-argws-connect-cloudpanel:
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
     pull_policy: always
-    container_name: argws_connect_docs
+    container_name: docs-argws-connect-cloudpanel
     restart: unless-stopped
     environment:
       API_REFERENCE_CONFIG: >-
         {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost","customCss":".light-mode{--scalar-color-accent:#2563eb;--scalar-background-1:#ffffff;--scalar-background-2:#f7f9fc;--scalar-background-3:#eef3f9;--scalar-color-1:#0f172a;--scalar-color-2:#475569;--scalar-color-3:#64748b;--scalar-border-color:#dbe4ef}.dark-mode{--scalar-color-accent:#2f6df6;--scalar-background-1:#0f172a;--scalar-background-2:#111827;--scalar-background-3:#172033;--scalar-color-1:#f8fafc;--scalar-color-2:#cbd5e1;--scalar-color-3:#94a3b8;--scalar-border-color:#263249}"}
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180}:8080"
-    networks: [argws-connect-net]
+    networks: [argws-connect-cloudpanel-net]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
       interval: 30s
@@ -63,10 +63,10 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  postgres:
+  postgres-argws-connect-cloudpanel:
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
-    container_name: argws_connect_postgres
+    container_name: postgres-argws-connect-cloudpanel
     restart: unless-stopped
     command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "listen_addresses=*"]
     environment:
@@ -79,7 +79,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases:
           - argws-connect-postgres
     healthcheck:
@@ -90,10 +90,10 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  redis:
+  redis-argws-connect-cloudpanel:
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
-    container_name: argws_connect_redis
+    container_name: redis-argws-connect-cloudpanel
     restart: unless-stopped
     command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}"]
     environment:
@@ -103,7 +103,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases:
           - argws-connect-redis
     healthcheck:
@@ -114,10 +114,10 @@ services:
       start_period: 10s
     logging: *default-logging
 
-  rabbitmq:
+  rabbitmq-argws-connect-cloudpanel:
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
-    container_name: argws_connect_rabbitmq
+    container_name: rabbitmq-argws-connect-cloudpanel
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-argws_connect}
@@ -129,7 +129,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases:
           - argws-connect-rabbitmq
     healthcheck:
@@ -140,10 +140,10 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  minio:
+  minio-argws-connect-cloudpanel:
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
-    container_name: argws_connect_minio
+    container_name: minio-argws-connect-cloudpanel
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -155,7 +155,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases:
           - argws-connect-minio
     healthcheck:
@@ -166,26 +166,26 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  nats:
+  nats-argws-connect-cloudpanel:
     profiles: ["nats", "extended"]
     image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
     pull_policy: always
-    container_name: argws_connect_nats
+    container_name: nats-argws-connect-cloudpanel
     restart: unless-stopped
     command: ["-js", "-m", "8222", "--store_dir", "/data"]
     expose: ["4222", "8222"]
     volumes:
       - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases: [argws-connect-nats]
     logging: *default-logging
 
-  zookeeper:
+  zookeeper-argws-connect-cloudpanel:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
-    container_name: argws_connect_zookeeper
+    container_name: zookeeper-argws-connect-cloudpanel
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -195,17 +195,17 @@ services:
       - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
       - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases: [argws-connect-zookeeper]
     logging: *default-logging
 
-  kafka:
+  kafka-argws-connect-cloudpanel:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
     pull_policy: always
-    container_name: argws_connect_kafka
+    container_name: kafka-argws-connect-cloudpanel
     restart: unless-stopped
-    depends_on: [zookeeper]
+    depends_on: [zookeeper-argws-connect-cloudpanel]
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: argws-connect-zookeeper:2181
@@ -219,15 +219,15 @@ services:
     volumes:
       - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases: [argws-connect-kafka]
     logging: *default-logging
 
-  mysql:
+  mysql-argws-connect-cloudpanel:
     profiles: ["mysql"]
     image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
     pull_policy: always
-    container_name: argws_connect_mysql
+    container_name: mysql-argws-connect-cloudpanel
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
@@ -239,7 +239,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/var/lib/mysql
     networks:
-      argws-connect-net:
+      argws-connect-cloudpanel-net:
         aliases: [argws-connect-mysql]
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p'$${MYSQL_ROOT_PASSWORD}' --silent"]
@@ -250,6 +250,6 @@ services:
     logging: *default-logging
 
 networks:
-  argws-connect-net:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-net}
+  argws-connect-cloudpanel-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-cloudpanel-net}
     driver: bridge

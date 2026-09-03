@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}
 
 # Connect|API — deployment canônico multi-perfil.
 # Sem profile: API-only.
@@ -70,14 +70,15 @@ x-platform-app: &platform-app
   restart: unless-stopped
   profiles: [platform]
   environment: *platform-env
-  networks: [connect-internal]
+  networks: [argws-connect-platform-net]
   logging: *default-logging
 
 services:
   # --------------------------------------------------------------------------
   # Canonical Connect|API Engine — always enabled (API-only baseline)
   # --------------------------------------------------------------------------
-  connect-engine:
+  api-argws-connect-platform:
+    container_name: api-argws-connect-platform
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
     pull_policy: always
     restart: unless-stopped
@@ -94,17 +95,17 @@ services:
       S3_ENDPOINT: connect-minio
       S3_PORT: "9000"
     depends_on:
-      connect-engine-postgres: {condition: service_healthy}
-      connect-redis: {condition: service_healthy}
-      connect-rabbitmq: {condition: service_healthy}
-      connect-minio: {condition: service_healthy}
+      postgres-argws-connect-platform: {condition: service_healthy}
+      redis-argws-connect-platform: {condition: service_healthy}
+      rabbitmq-argws-connect-platform: {condition: service_healthy}
+      minio-argws-connect-platform: {condition: service_healthy}
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
     networks:
-      connect-internal:
-        aliases: [argws-connect-api]
+      argws-connect-platform-net:
+        aliases: [argws-connect-api, connect-engine]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -113,14 +114,17 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  connect-docs:
+  docs-argws-connect-platform:
+    container_name: docs-argws-connect-platform
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
     pull_policy: always
     restart: unless-stopped
     profiles: [docs, platform]
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38082}:8080"
-    networks: [connect-internal]
+    networks:
+      argws-connect-platform-net:
+        aliases: [connect-docs]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
       interval: 30s
@@ -129,7 +133,8 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  connect-engine-postgres:
+  postgres-argws-connect-platform:
+    container_name: postgres-argws-connect-platform
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
     restart: unless-stopped
@@ -141,8 +146,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
-      connect-internal:
-        aliases: [argws-connect-postgres]
+      argws-connect-platform-net:
+        aliases: [argws-connect-postgres, connect-engine-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
       interval: 10s
@@ -150,7 +155,8 @@ services:
       retries: 20
     logging: *default-logging
 
-  connect-redis:
+  redis-argws-connect-platform:
+    container_name: redis-argws-connect-platform
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
     restart: unless-stopped
@@ -160,8 +166,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
-      connect-internal:
-        aliases: [argws-connect-redis]
+      argws-connect-platform-net:
+        aliases: [argws-connect-redis, connect-redis]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
       interval: 10s
@@ -169,7 +175,8 @@ services:
       retries: 20
     logging: *default-logging
 
-  connect-rabbitmq:
+  rabbitmq-argws-connect-platform:
+    container_name: rabbitmq-argws-connect-platform
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
     restart: unless-stopped
@@ -180,8 +187,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
-      connect-internal:
-        aliases: [argws-connect-rabbitmq]
+      argws-connect-platform-net:
+        aliases: [argws-connect-rabbitmq, connect-rabbitmq]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 15s
@@ -189,7 +196,8 @@ services:
       retries: 20
     logging: *default-logging
 
-  connect-minio:
+  minio-argws-connect-platform:
+    container_name: minio-argws-connect-platform
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
     restart: unless-stopped
@@ -200,8 +208,8 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
-      connect-internal:
-        aliases: [argws-connect-minio]
+      argws-connect-platform-net:
+        aliases: [argws-connect-minio, connect-minio]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
       interval: 15s
@@ -212,7 +220,8 @@ services:
   # --------------------------------------------------------------------------
   # Connect|API Platform — enabled only with --profile platform
   # --------------------------------------------------------------------------
-  connect-platform-postgres:
+  platform-postgres-argws-connect-platform:
+    container_name: platform-postgres-argws-connect-platform
     image: ${ARGWS_CONNECT_PLATFORM_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:17}
     profiles: [platform]
     restart: unless-stopped
@@ -223,7 +232,9 @@ services:
       TZ: ${TZ:-America/Bahia}
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_POSTGRES_DATA_PATH:-./volumes/platform-postgres}:/var/lib/postgresql/data
-    networks: [connect-internal]
+    networks:
+      argws-connect-platform-net:
+        aliases: [connect-platform-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
       interval: 10s
@@ -231,65 +242,76 @@ services:
       retries: 30
     logging: *default-logging
 
-  connect-platform-migrate:
+  platform-migrate-argws-connect-platform:
+    container_name: platform-migrate-argws-connect-platform
     <<: *platform-app
     restart: "no"
     command: ["python", "-m", "app.cli", "migrate-platform"]
     depends_on:
-      connect-platform-postgres: {condition: service_healthy}
+      platform-postgres-argws-connect-platform: {condition: service_healthy}
 
-  connect-platform-migrate-tenants:
+  platform-migrate-tenants-argws-connect-platform:
+    container_name: platform-migrate-tenants-argws-connect-platform
     <<: *platform-app
     restart: "no"
     command: ["python", "-m", "app.cli", "migrate-all-tenants"]
     depends_on:
-      connect-platform-migrate: {condition: service_completed_successfully}
+      platform-migrate-argws-connect-platform: {condition: service_completed_successfully}
 
-  connect-platform-bootstrap:
+  platform-bootstrap-argws-connect-platform:
+    container_name: platform-bootstrap-argws-connect-platform
     <<: *platform-app
     restart: "no"
     command: ["python", "-m", "app.cli", "bootstrap"]
     depends_on:
-      connect-platform-migrate-tenants: {condition: service_completed_successfully}
-      connect-engine: {condition: service_healthy}
-      connect-redis: {condition: service_healthy}
-      connect-rabbitmq: {condition: service_healthy}
-      connect-minio: {condition: service_healthy}
+      platform-migrate-tenants-argws-connect-platform: {condition: service_completed_successfully}
+      api-argws-connect-platform: {condition: service_healthy}
+      redis-argws-connect-platform: {condition: service_healthy}
+      rabbitmq-argws-connect-platform: {condition: service_healthy}
+      minio-argws-connect-platform: {condition: service_healthy}
 
-  connect-platform-api:
+  platform-api-argws-connect-platform:
+    container_name: platform-api-argws-connect-platform
     <<: *platform-app
     command: ["gunicorn", "app.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "${PLATFORM_API_WORKERS:-2}", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-"]
     depends_on:
-      connect-platform-bootstrap: {condition: service_completed_successfully}
+      platform-bootstrap-argws-connect-platform: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=5).read()\""]
       interval: 20s
       timeout: 8s
       retries: 20
       start_period: 30s
-
-  connect-platform-worker:
+    networks:
+      argws-connect-platform-net:
+        aliases: [connect-platform-api]
+  platform-worker-argws-connect-platform:
+    container_name: platform-worker-argws-connect-platform
     <<: *platform-app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "-Q", "connect.default,connect.provisioning,connect.events,connect.automations,connect.webhooks", "--loglevel=INFO", "--concurrency=${PLATFORM_CELERY_CONCURRENCY:-2}", "--without-gossip", "--without-mingle", "--without-heartbeat"]
     depends_on:
-      connect-platform-api: {condition: service_healthy}
+      platform-api-argws-connect-platform: {condition: service_healthy}
 
-  connect-platform-scheduler:
+  platform-scheduler-argws-connect-platform:
+    container_name: platform-scheduler-argws-connect-platform
     <<: *platform-app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/var/lib/celery/celerybeat-schedule", "--pidfile=/tmp/celerybeat.pid"]
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_CELERY_DATA_PATH:-./volumes/platform-celery}:/var/lib/celery
     depends_on:
-      connect-platform-api: {condition: service_healthy}
+      platform-api-argws-connect-platform: {condition: service_healthy}
 
-  connect-platform-web:
+  platform-web-argws-connect-platform:
+    container_name: platform-web-argws-connect-platform
     image: ${ARGWS_CONNECT_PLATFORM_WEB_IMAGE:-ghcr.io/wkarts/argws-connect-platform-web:latest}
     pull_policy: always
     profiles: [platform]
     restart: unless-stopped
     depends_on:
-      connect-platform-api: {condition: service_healthy}
-    networks: [connect-internal]
+      platform-api-argws-connect-platform: {condition: service_healthy}
+    networks:
+      argws-connect-platform-net:
+        aliases: [connect-platform-web]
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 20s
@@ -297,7 +319,8 @@ services:
       retries: 10
     logging: *default-logging
 
-  connect-gateway:
+  platform-gateway-argws-connect-platform:
+    container_name: platform-gateway-argws-connect-platform
     image: ${ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE:-ghcr.io/wkarts/argws-connect-platform-gateway:latest}
     pull_policy: always
     profiles: [platform]
@@ -312,16 +335,16 @@ services:
       DEMO_HOST: ${DEMO_HOST:-demo.connect.example.com}
       TENANT_DOMAIN_ROOT: ${TENANT_DOMAIN_ROOT:-connect.example.com}
     depends_on:
-      connect-engine: {condition: service_healthy}
-      connect-platform-api: {condition: service_healthy}
-      connect-platform-web: {condition: service_healthy}
-      connect-docs: {condition: service_healthy}
+      api-argws-connect-platform: {condition: service_healthy}
+      platform-api-argws-connect-platform: {condition: service_healthy}
+      platform-web-argws-connect-platform: {condition: service_healthy}
+      docs-argws-connect-platform: {condition: service_healthy}
     ports:
       - "${PLATFORM_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_GATEWAY_PORT:-38800}:80"
-    networks: [connect-internal]
+    networks: [argws-connect-platform-net]
     logging: *default-logging
 
 networks:
-  connect-internal:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-net}
+  argws-connect-platform-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-platform-net}
     driver: bridge

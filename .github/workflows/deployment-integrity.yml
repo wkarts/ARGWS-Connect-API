@@ -20,25 +20,91 @@ jobs:
 
       - name: Prepare official environments
         run: |
+          set -euo pipefail
+          cp .env.example .env
           cp deploy/production/env.example deploy/production/.env
           cp deploy/develop/env.example deploy/develop/.env
           cp deploy/canonical/env.example deploy/canonical/.env
           cp deploy/homologation/env.example deploy/homologation/.env
           cp deploy/cloudpanel/env.example deploy/cloudpanel/.env
           cp deploy/dockge/env.example deploy/dockge/.env
+          cp deploy/docs/env.example deploy/docs/.env
+          cp deploy/docs-develop/env.example deploy/docs-develop/.env
+          cp deploy/platform/env.example deploy/platform/.env
 
       - name: Validate Compose syntax
         run: |
           set -euo pipefail
+          docker compose --env-file .env.example -f docker-compose.yaml config >/dev/null
+          docker compose --env-file .env.example --profile '*' -f docker-compose.yaml config >/dev/null
           for stack in production develop canonical homologation; do
             compose_file="deploy/${stack}/compose.yaml"
-            docker compose -f "$compose_file" config >/dev/null
-            docker compose --profile '*' -f "$compose_file" config >/dev/null
+            env_file="deploy/${stack}/env.example"
+            docker compose --env-file "$env_file" -f "$compose_file" config >/dev/null
+            docker compose --env-file "$env_file" --profile '*' -f "$compose_file" config >/dev/null
           done
-          docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
-          docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
-          docker compose -f deploy/dockge/compose.yaml config >/dev/null
-          docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --env-file deploy/cloudpanel/env.example -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --env-file deploy/cloudpanel/env.example --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --env-file deploy/dockge/env.example -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --env-file deploy/dockge/env.example --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --env-file deploy/docs/env.example -f deploy/docs/compose.yaml config >/dev/null
+          docker compose --env-file deploy/docs-develop/env.example -f deploy/docs-develop/compose.yaml config >/dev/null
+          docker compose --env-file deploy/platform/env.example --profile '*' -f deploy/platform/compose.yaml config >/dev/null
+
+      - name: Enforce project, service, container and network naming contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          cases = [
+              ('api', 'docker-compose.yaml', '.env.example', 'argws-connect-api'),
+              ('production', 'deploy/production/compose.yaml', 'deploy/production/env.example', 'argws-connect-production'),
+              ('develop', 'deploy/develop/compose.yaml', 'deploy/develop/env.example', 'argws-connect-develop'),
+              ('canonical', 'deploy/canonical/compose.yaml', 'deploy/canonical/env.example', 'argws-connect-canonical'),
+              ('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'argws-connect-homologation'),
+              ('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'argws-connect-cloudpanel'),
+              ('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'argws-connect-dockge'),
+              ('docs', 'deploy/docs/compose.yaml', 'deploy/docs/env.example', 'argws-connect-docs'),
+              ('docs-develop', 'deploy/docs-develop/compose.yaml', 'deploy/docs-develop/env.example', 'argws-connect-docs-develop'),
+              ('platform', 'deploy/platform/compose.yaml', 'deploy/platform/env.example', 'argws-connect-platform'),
+          ]
+
+          def env_values(path):
+              values = {}
+              for raw in Path(path).read_text(encoding='utf-8').splitlines():
+                  line = raw.strip()
+                  if line and not line.startswith('#') and '=' in line:
+                      key, value = line.split('=', 1)
+                      values[key] = value
+              return values
+
+          for deployment, compose, envfile, project in cases:
+              env = env_values(envfile)
+              assert env.get('COMPOSE_PROJECT_NAME') == project, (
+                  f'{deployment}: COMPOSE_PROJECT_NAME esperado {project}, obtido {env.get("COMPOSE_PROJECT_NAME")}'
+              )
+              cfg = json.loads(subprocess.check_output([
+                  'docker', 'compose', '--env-file', envfile, '--profile', '*',
+                  '-f', compose, 'config', '--format', 'json'
+              ], text=True))
+              assert cfg.get('name') == project, f'{deployment}: Compose name inválido: {cfg.get("name")}'
+              for service, service_cfg in cfg.get('services', {}).items():
+                  assert service.endswith('-' + project), f'{deployment}: service fora do padrão: {service}'
+                  assert service_cfg.get('container_name') == service, (
+                      f'{deployment}: container_name deve ser idêntico ao service: {service}'
+                  )
+              network_names = {item.get('name') for item in cfg.get('networks', {}).values()}
+              expected_network = project + '-net'
+              assert expected_network in network_names, (
+                  f'{deployment}: network {expected_network} ausente: {sorted(network_names)}'
+              )
+
+          print('Deployment naming contract OK')
+          PY
 
       - name: Enforce official deployment contract
         shell: bash
@@ -87,7 +153,7 @@ jobs:
 
           def env_values(path):
               values = {}
-              for raw in Path(path).read_text().splitlines():
+              for raw in Path(path).read_text(encoding='utf-8').splitlines():
                   line = raw.strip()
                   if line and not line.startswith('#') and '=' in line:
                       key, value = line.split('=', 1)
@@ -100,7 +166,7 @@ jobs:
               env = env_values(env_path)
 
               def compose_json(all_profiles=False):
-                  cmd = ['docker', 'compose']
+                  cmd = ['docker', 'compose', '--env-file', env_path]
                   if all_profiles:
                       cmd += ['--profile', '*']
                   cmd += ['-f', compose_path, 'config', '--format', 'json']
@@ -112,12 +178,8 @@ jobs:
               core = {f'{r}-{suffix}' for r in core_resources}
               optional = {f'{r}-{suffix}' for r in optional_resources}
 
-              assert set(default['services']) == core, (
-                  f'{stack}: core incorreto: {sorted(default["services"])}'
-              )
-              assert set(full['services']) == core | optional, (
-                  f'{stack}: services completos incorretos: {sorted(full["services"])}'
-              )
+              assert set(default['services']) == core, f'{stack}: core incorreto: {sorted(default["services"])}'
+              assert set(full['services']) == core | optional, f'{stack}: services completos incorretos: {sorted(full["services"])}'
 
               for service_name, cfg in full['services'].items():
                   assert cfg.get('container_name') == service_name, (
@@ -127,47 +189,29 @@ jobs:
                   if service_name == f'api-{suffix}':
                       assert len(ports) == 1, f'{stack}: API deve publicar exatamente uma porta'
                       assert int(ports[0]['target']) == 8080, f'{stack}: target API deve ser 8080'
-                      assert int(ports[0]['published']) == contract['port'], (
-                          f'{stack}: porta API esperada {contract["port"]}'
-                      )
+                      assert int(ports[0]['published']) == contract['port'], f'{stack}: porta API incorreta'
                   elif service_name == f'docs-{suffix}':
                       assert len(ports) == 1, f'{stack}: DOCs deve publicar exatamente uma porta'
                       assert int(ports[0]['target']) == 8080, f'{stack}: target DOCs deve ser 8080'
-                      assert int(ports[0]['published']) == contract['docs_port'], (
-                          f'{stack}: porta DOCs esperada {contract["docs_port"]}'
-                      )
+                      assert int(ports[0]['published']) == contract['docs_port'], f'{stack}: porta DOCs incorreta'
                   else:
                       assert not ports, f'{stack}: infraestrutura não pode publicar porta: {service_name}'
-
                   for mount in cfg.get('volumes', []):
                       assert mount.get('type') == 'bind', f'{stack}: {service_name} deve usar bind mount'
 
-              api_service = full['services'][f'api-{suffix}']
-              api_image = api_service['image']
+              api_image = full['services'][f'api-{suffix}']['image']
+              docs_image = full['services'][f'docs-{suffix}']['image']
               if 'image' in contract:
                   assert api_image == contract['image'], f'{stack}: imagem API incorreta: {api_image}'
-              else:
-                  assert re.fullmatch(contract['image_regex'], api_image), (
-                      f'{stack}: canonical deve usar SemVer: {api_image}'
-                  )
-
-              docs_service = full['services'][f'docs-{suffix}']
-              docs_image = docs_service['image']
-              if 'docs_image' in contract:
                   assert docs_image == contract['docs_image'], f'{stack}: imagem DOCs incorreta: {docs_image}'
               else:
-                  assert re.fullmatch(contract['docs_image_regex'], docs_image), (
-                      f'{stack}: canonical DOCs deve usar SemVer: {docs_image}'
-                  )
-                  assert api_image.rsplit(':', 1)[1] == docs_image.rsplit(':', 1)[1], (
-                      f'{stack}: API e DOCs canonical devem usar a mesma SemVer'
-                  )
+                  assert re.fullmatch(contract['image_regex'], api_image), f'{stack}: canonical deve usar SemVer: {api_image}'
+                  assert re.fullmatch(contract['docs_image_regex'], docs_image), f'{stack}: canonical DOCs deve usar SemVer: {docs_image}'
+                  assert api_image.rsplit(':', 1)[1] == docs_image.rsplit(':', 1)[1]
 
               for resource, expected_image in infra_images.items():
                   service = full['services'][f'{resource}-{suffix}']
-                  assert service['image'] == expected_image, (
-                      f'{stack}: imagem de {resource} deve ser global no GHCR: {service["image"]}'
-                  )
+                  assert service['image'] == expected_image, f'{stack}: imagem de {resource} incorreta: {service["image"]}'
 
               assert env['COMPOSE_PROJECT_NAME'] == suffix
               assert env['ARGWS_CONNECT_NETWORK_NAME'] == f'{suffix}-net'
@@ -175,9 +219,9 @@ jobs:
               assert int(env['ARGWS_CONNECT_DOCS_HOST_PORT']) == contract['docs_port']
               assert env['SERVER_URL'] == contract['url']
 
-              raw_compose = Path(compose_path).read_text()
+              raw_compose = Path(compose_path).read_text(encoding='utf-8')
               assert 'pg_isready -U \\"$${POSTGRES_USER}\\" -d \\"$${POSTGRES_DB}\\"' in raw_compose, (
-                  f'{stack}: healthcheck PostgreSQL deve expandir POSTGRES_USER/POSTGRES_DB no container'
+                  f'{stack}: healthcheck PostgreSQL deve expandir variáveis no container'
               )
               assert "'$${POSTGRES_USER}'" not in raw_compose
 
@@ -194,7 +238,7 @@ jobs:
 
           def values(path):
               out = {}
-              for raw in Path(path).read_text().splitlines():
+              for raw in Path(path).read_text(encoding='utf-8').splitlines():
                   line = raw.strip()
                   if line and not line.startswith('#') and '=' in line:
                       k, v = line.split('=', 1)
@@ -204,17 +248,17 @@ jobs:
           prod = values('deploy/production/env.example')
           dev = values('deploy/develop/env.example')
           canonical = values('deploy/canonical/env.example')
-
           required = {
               'COMPOSE_PROJECT_NAME', 'ARGWS_CONNECT_NETWORK_NAME', 'ARGWS_CONNECT_API_HOST_PORT',
-              'ARGWS_CONNECT_DOCS_HOST_PORT', 'ARGWS_CONNECT_API_IMAGE', 'ARGWS_CONNECT_DOCS_IMAGE', 'ARGWS_CONNECT_POSTGRES_IMAGE', 'ARGWS_CONNECT_REDIS_IMAGE',
-              'ARGWS_CONNECT_RABBITMQ_IMAGE', 'ARGWS_CONNECT_MINIO_IMAGE', 'SERVER_URL',
-              'DATABASE_CONNECTION_URI', 'CACHE_REDIS_URI', 'RABBITMQ_URI', 'S3_ENDPOINT',
-              'POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'RABBITMQ_DEFAULT_PASS', 'MINIO_ROOT_PASSWORD',
+              'ARGWS_CONNECT_DOCS_HOST_PORT', 'ARGWS_CONNECT_API_IMAGE', 'ARGWS_CONNECT_DOCS_IMAGE',
+              'ARGWS_CONNECT_POSTGRES_IMAGE', 'ARGWS_CONNECT_REDIS_IMAGE', 'ARGWS_CONNECT_RABBITMQ_IMAGE',
+              'ARGWS_CONNECT_MINIO_IMAGE', 'SERVER_URL', 'DATABASE_CONNECTION_URI', 'CACHE_REDIS_URI',
+              'RABBITMQ_URI', 'S3_ENDPOINT', 'POSTGRES_PASSWORD', 'REDIS_PASSWORD',
+              'RABBITMQ_DEFAULT_PASS', 'MINIO_ROOT_PASSWORD',
           }
           for name, env in [('production', prod), ('develop', dev), ('canonical', canonical)]:
               missing = required - set(env)
-              assert not missing, f'{name}: variaveis ausentes: {sorted(missing)}'
+              assert not missing, f'{name}: variáveis ausentes: {sorted(missing)}'
 
           assert prod['ARGWS_CONNECT_API_IMAGE'] == 'ghcr.io/wkarts/argws-connect-api:latest'
           assert prod['ARGWS_CONNECT_DOCS_IMAGE'] == 'ghcr.io/wkarts/argws-connect-docs:latest'
@@ -238,30 +282,38 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, subprocess
+          import json
+          import subprocess
           from pathlib import Path
 
           cases = [
-              ('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs', 38181, 'ghcr.io/wkarts/argws-connect-docs:develop'),
-              ('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs', 38180, 'ghcr.io/wkarts/argws-connect-docs:latest'),
-              ('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs', 38180, 'ghcr.io/wkarts/argws-connect-docs:latest'),
+              ('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs-argws-connect-homologation', 38181, 'ghcr.io/wkarts/argws-connect-docs:develop'),
+              ('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs-argws-connect-cloudpanel', 38180, 'ghcr.io/wkarts/argws-connect-docs:latest'),
+              ('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs-argws-connect-dockge', 38180, 'ghcr.io/wkarts/argws-connect-docs:latest'),
           ]
+
           def env_values(path):
               out = {}
-              for raw in Path(path).read_text().splitlines():
+              for raw in Path(path).read_text(encoding='utf-8').splitlines():
                   line = raw.strip()
                   if line and not line.startswith('#') and '=' in line:
-                      k,v=line.split('=',1); out[k]=v
+                      k, v = line.split('=', 1)
+                      out[k] = v
               return out
+
           for name, compose, envfile, service, port, image in cases:
-              cfg=json.loads(subprocess.check_output(['docker','compose','-f',compose,'config','--format','json'], text=True))
-              docs=cfg['services'][service]
-              ports=docs.get('ports',[])
-              assert len(ports)==1 and int(ports[0]['target'])==8080 and int(ports[0]['published'])==port, f'{name}: porta DOCs inválida'
-              assert docs['image']==image, f'{name}: imagem DOCs inválida: {docs["image"]}'
-              env=env_values(envfile)
-              assert int(env['ARGWS_CONNECT_DOCS_HOST_PORT'])==port
-              assert env['ARGWS_CONNECT_DOCS_IMAGE']==image
+              cfg = json.loads(subprocess.check_output([
+                  'docker', 'compose', '--env-file', envfile, '-f', compose, 'config', '--format', 'json'
+              ], text=True))
+              docs = cfg['services'][service]
+              ports = docs.get('ports', [])
+              assert len(ports) == 1 and int(ports[0]['target']) == 8080 and int(ports[0]['published']) == port, (
+                  f'{name}: porta DOCs inválida'
+              )
+              assert docs['image'] == image, f'{name}: imagem DOCs inválida: {docs["image"]}'
+              env = env_values(envfile)
+              assert int(env['ARGWS_CONNECT_DOCS_HOST_PORT']) == port
+              assert env['ARGWS_CONNECT_DOCS_IMAGE'] == image
           print('Auxiliary DOCs deployment contract OK')
           PY
 

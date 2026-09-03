@@ -89,9 +89,9 @@ jobs:
             -f compose.yaml -f compose.platform.yaml --profile platform config >/dev/null
           rendered="$(docker compose --env-file .env --env-file .platform.env -f compose.yaml -f compose.platform.yaml --profile platform config)"
           grep -q 'api-argws-connect-develop:' <<<"$rendered"
-          grep -q 'connect-platform-api:' <<<"$rendered"
-          grep -q 'connect-platform-web:' <<<"$rendered"
-          grep -q 'connect-platform-postgres:' <<<"$rendered"
+          grep -q 'platform-api-argws-connect-develop:' <<<"$rendered"
+          grep -q 'platform-web-argws-connect-develop:' <<<"$rendered"
+          grep -q 'platform-postgres-argws-connect-develop:' <<<"$rendered"
           test "$(grep -c '^  connect-engine:' <<<"$rendered" || true)" -eq 0
 
       - name: Validate Platform operational scripts
