@@ -77,7 +77,7 @@ def main() -> int:
         ComposeCase("root-api-dev", ("docker-compose.dev.yaml",), "argws-connect-api-dev", (".env.example",)),
         ComposeCase("production", ("deploy/production/compose.yaml",), "argws-connect-production", ("deploy/production/env.example",)),
         ComposeCase("develop", ("deploy/develop/compose.yaml",), "argws-connect-develop", ("deploy/develop/env.example",)),
-        ComposeCase("develop-platform", ("deploy/develop/compose.yaml", "deploy/develop/compose.platform.yaml"), "argws-connect-develop", ("deploy/develop/env.example", "deploy/develop/platform.env.example")),
+        ComposeCase("platform-develop", ("deploy/platform-develop/compose.yaml",), "argws-connect-platform-develop", ("deploy/platform-develop/env.example",)),
         ComposeCase("canonical", ("deploy/canonical/compose.yaml",), "argws-connect-canonical", ("deploy/canonical/env.example",)),
         ComposeCase("homologation", ("deploy/homologation/compose.yaml",), "argws-connect-homologation", ("deploy/homologation/env.example",)),
         ComposeCase("cloudpanel", ("deploy/cloudpanel/docker-compose.yml",), "argws-connect-cloudpanel", ("deploy/cloudpanel/env.example",)),
