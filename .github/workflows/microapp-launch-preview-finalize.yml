@@ -2,7 +2,8 @@ name: Micro App Launch Preview Finalize
 
 on:
   push:
-    branches: [fix/microapp-launch-preview-ux]
+    branches:
+      - fix/microapp-launch-preview-ux
 
 permissions:
   contents: write
@@ -20,130 +21,8 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: npm ci
-      - name: Patch launch CTA, Studio wiring and test contract
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          helper_path = Path('src/api/services/micro-app-auto-launch.ts')
-          helper = helper_path.read_text()
-          if "buttonText?: string;" not in helper:
-              helper = helper.replace(
-                  "  messageText?: string;\n  linkPreview?: boolean;\n",
-                  "  messageText?: string;\n  buttonText?: string;\n  launchMode?: 'BUTTON' | 'LINK';\n  linkPreview?: boolean;\n",
-                  1,
-              )
-          if "buttonText: String(autoLaunch.buttonText" not in helper:
-              helper = helper.replace(
-                  "    messageText: String(autoLaunch.messageText || '').trim() || 'Abrir Mini App',\n    linkPreview: autoLaunch.linkPreview !== false,\n",
-                  "    messageText: String(autoLaunch.messageText || '').trim() || 'Mini App disponível',\n    buttonText: String(autoLaunch.buttonText || '').trim() || 'Abrir Mini App',\n    launchMode: String(autoLaunch.launchMode || '').toUpperCase() === 'LINK' ? 'LINK' : 'BUTTON',\n    linkPreview: autoLaunch.linkPreview !== false,\n",
-                  1,
-              )
-          helper_path.write_text(helper)
-
-          engine_path = Path('src/api/services/template-engine.service.ts')
-          engine = engine_path.read_text()
-          old = """  private async sendMicroAppAutoLaunch(runtime: any, data: SendTemplateDto, autoLaunch: any) {
-    if (!autoLaunch?.session?.url) return;
-    await runtime.textMessage({
-      number: data.number,
-      text: `${autoLaunch.policy.messageText}\n${autoLaunch.session.url}`,
-      delay: data.delay,
-      quoted: data.quoted,
-      linkPreview: autoLaunch.policy.linkPreview,
-      mentionsEveryOne: data.mentionsEveryOne,
-      mentioned: data.mentioned,
-    });
-  }
-"""
-          new = """  private async sendMicroAppAutoLaunch(runtime: any, data: SendTemplateDto, autoLaunch: any) {
-    if (!autoLaunch?.session?.url) return;
-
-    if (autoLaunch.policy.launchMode !== 'LINK' && typeof runtime.buttonMessage === 'function') {
-      try {
-        return await runtime.buttonMessage({
-          number: data.number,
-          title: autoLaunch.policy.messageText || 'Mini App disponível',
-          description: 'Abra a experiência segura do Connect|API.',
-          footer: 'Connect|API',
-          buttons: [
-            {
-              type: 'url',
-              displayText: autoLaunch.policy.buttonText || 'Abrir Mini App',
-              url: autoLaunch.session.url,
-            },
-          ],
-          delay: data.delay,
-          quoted: data.quoted,
-          mentionsEveryOne: data.mentionsEveryOne,
-          mentioned: data.mentioned,
-        });
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`MICRO_APP_CTA_FALLBACK: ${reason}`);
-      }
-    }
-
-    return runtime.textMessage({
-      number: data.number,
-      text: `${autoLaunch.policy.messageText}\n${autoLaunch.session.url}`,
-      delay: data.delay,
-      quoted: data.quoted,
-      linkPreview: autoLaunch.policy.linkPreview,
-      mentionsEveryOne: data.mentionsEveryOne,
-      mentioned: data.mentioned,
-    });
-  }
-"""
-          if old in engine:
-              engine = engine.replace(old, new, 1)
-          elif 'MICRO_APP_CTA_FALLBACK' not in engine:
-              raise SystemExit('sendMicroAppAutoLaunch marker not found')
-          engine_path.write_text(engine)
-
-          html_path = Path('manager/dist/template-editor.html')
-          html = html_path.read_text()
-          script = '    <script src="/assets/template-studio-microapp-preview.js"></script>\n'
-          if script not in html:
-              marker = '    <script src="/assets/template-studio-transfer.js"></script>\n'
-              if marker not in html: raise SystemExit('template transfer script marker not found')
-              html = html.replace(marker, marker + script, 1)
-          html_path.write_text(html)
-
-          package_path = Path('package.json')
-          package = package_path.read_text()
-          test = 'tsx ./test/template-studio/microapp-preview.test.ts'
-          if test not in package:
-              marker = 'tsx ./test/template-studio/transfer-center.test.ts'
-              if marker not in package: raise SystemExit('test:compat marker not found')
-              package = package.replace(marker, marker + ' && ' + test, 1)
-          package_path.write_text(package)
-
-          guide_path = Path('docs/guides/micro-app-auto-launch-demo.md')
-          guide = guide_path.read_text()
-          if '## Experiência de lançamento' not in guide:
-              guide += """
-
-## Experiência de lançamento
-
-Por padrão, `autoLaunch` usa `launchMode: \"BUTTON\"`. Quando o provider expõe `buttonMessage`, o Connect|API envia um CTA com `buttonText` (padrão `Abrir Mini App`) e mantém a URL fora do texto da mensagem. Se o provider não suportar o CTA ou rejeitar o envio, o runtime registra `MICRO_APP_CTA_FALLBACK` e envia o link textual como fallback.
-
-```json
-{
-  "autoLaunch": {
-    "enabled": true,
-    "appKey": "internal_showcase",
-    "launchMode": "BUTTON",
-    "messageText": "Mini App disponível",
-    "buttonText": "Abrir Mini App"
-  }
-}
-```
-
-O Template Studio também apresenta uma prévia visual das páginas e componentes do Micro App ao lado do Live Preview do WhatsApp. Essa prévia não cria sessão, não solicita GPS e não executa Actions/Recipes.
-"""
-          guide_path.write_text(guide)
-          PY
+      - name: Apply patch
+        run: python3 scripts/apply-microapp-launch-preview.py
       - name: Validate
         run: |
           npx eslint --fix src/api/services/micro-app-auto-launch.ts src/api/services/template-engine.service.ts
@@ -158,7 +37,7 @@ O Template Studio também apresenta uma prévia visual das páginas e componente
           if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/api/services/micro-app-auto-launch.ts src/api/services/template-engine.service.ts manager/dist/template-editor.html manager/dist/assets/template-studio-microapp-preview.js package.json docs/guides/micro-app-auto-launch-demo.md
+          git add src/api/services/micro-app-auto-launch.ts src/api/services/template-engine.service.ts manager/dist/template-editor.html manager/dist/assets/template-studio-microapp-preview.js package.json
           git add -f test/template-studio/microapp-preview.test.ts
           git commit --no-verify -m 'fix(microapp): preview app and prefer CTA launch'
           git push --no-verify origin HEAD:fix/microapp-launch-preview-ux
