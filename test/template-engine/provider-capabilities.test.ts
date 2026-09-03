@@ -25,10 +25,10 @@ const utility = renderTemplateDefinition(
 );
 
 const baileys = planTemplateTransport('WHATSAPP-BAILEYS', utility);
-assert.equal(baileys.mode, 'POLL_COMPAT');
-assert.equal(baileys.compatibilityTransport, 'BAILEYS_OFFICIAL_POLL');
-assert.deepEqual(baileys.buttons.map((button) => button.transport), ['POLL_OPTION', 'POLL_OPTION']);
-assert.equal(baileys.degraded, true);
+assert.equal(baileys.mode, 'INTERACTIVE');
+assert.equal(baileys.compatibilityTransport, 'BAILEYS_NATIVE_INTERACTIVE');
+assert.deepEqual(baileys.buttons.map((button) => button.transport), ['NATIVE_BUTTON', 'NATIVE_BUTTON']);
+assert.equal(baileys.degraded, false);
 
 const meta = planTemplateTransport('WHATSAPP-BUSINESS', utility);
 assert.equal(meta.mode, 'PROVIDER_NATIVE');
@@ -51,8 +51,10 @@ const withUrl = renderTemplateDefinition(
   {},
 );
 const baileysUrl = planTemplateTransport('WHATSAPP-BAILEYS', withUrl);
-assert.equal(baileysUrl.mode, 'TEXT_COMPAT');
-assert.equal(baileysUrl.buttons[0]?.transport, 'TEXT_LINK');
+assert.equal(baileysUrl.mode, 'INTERACTIVE');
+assert.equal(baileysUrl.compatibilityTransport, 'BAILEYS_NATIVE_INTERACTIVE');
+assert.equal(baileysUrl.buttons[0]?.transport, 'NATIVE_BUTTON');
+assert.equal(baileysUrl.degraded, false);
 
 const mixed = renderTemplateDefinition(
   {
@@ -79,8 +81,13 @@ assert.equal(planTemplateTransport('WHATSAPP-BAILEYS', plain).mode, 'TEXT');
 assert.equal(planTemplateTransport('CONNECT', plain).mode, 'TEXT');
 
 const baileysCapabilities = getProviderTemplateCapabilities('WHATSAPP-BAILEYS');
-assert.equal(baileysCapabilities.quickReply, 'POLL_COMPAT');
-assert.equal(baileysCapabilities.urlButton, 'TEXT_COMPAT');
+assert.equal(baileysCapabilities.quickReply, 'NATIVE');
+assert.equal(baileysCapabilities.urlButton, 'NATIVE');
+assert.equal(baileysCapabilities.phoneButton, 'NATIVE');
+assert.equal(baileysCapabilities.copyCodeButton, 'NATIVE');
+assert.equal(baileysCapabilities.list, 'NATIVE');
+assert.equal(baileysCapabilities.choice, 'NATIVE');
+assert.equal(baileysCapabilities.microApp, 'NATIVE');
 assert.equal(getProviderTemplateCapabilities('WHATSAPP-BUSINESS').quickReply, 'NATIVE');
 
 const connectCapabilities = getProviderTemplateCapabilities('CONNECT');
