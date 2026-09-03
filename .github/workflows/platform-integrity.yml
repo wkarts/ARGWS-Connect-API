@@ -6,12 +6,16 @@ on:
     paths:
       - "platform/**"
       - "deploy/platform/**"
+      - "deploy/develop/compose.platform.yaml"
+      - "deploy/develop/platform.env.example"
       - ".github/workflows/platform-integrity.yml"
   push:
     branches: [develop]
     paths:
       - "platform/**"
       - "deploy/platform/**"
+      - "deploy/develop/compose.platform.yaml"
+      - "deploy/develop/platform.env.example"
       - ".github/workflows/platform-integrity.yml"
 
 permissions:
@@ -63,7 +67,10 @@ jobs:
           npm run build
 
       - name: Prepare disposable Platform environment
-        run: cp deploy/platform/env.example deploy/platform/.env
+        run: |
+          cp deploy/platform/env.example deploy/platform/.env
+          cp deploy/develop/env.example deploy/develop/.env
+          cp deploy/develop/platform.env.example deploy/develop/.platform.env
 
       - name: Validate Platform deployment profiles
         run: |
@@ -73,6 +80,19 @@ jobs:
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile platform config >/dev/null
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile platform --profile observability config >/dev/null
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml -f deploy/platform/compose.local-build.yaml --profile platform config >/dev/null
+
+      - name: Validate in-place develop to Platform upgrade
+        working-directory: deploy/develop
+        run: |
+          set -euo pipefail
+          docker compose --env-file .env --env-file .platform.env \
+            -f compose.yaml -f compose.platform.yaml --profile platform config >/dev/null
+          rendered="$(docker compose --env-file .env --env-file .platform.env -f compose.yaml -f compose.platform.yaml --profile platform config)"
+          grep -q 'api-argws-connect-develop:' <<<"$rendered"
+          grep -q 'connect-platform-api:' <<<"$rendered"
+          grep -q 'connect-platform-web:' <<<"$rendered"
+          grep -q 'connect-platform-postgres:' <<<"$rendered"
+          test "$(grep -c '^  connect-engine:' <<<"$rendered" || true)" -eq 0
 
       - name: Validate Platform operational scripts
         run: |
