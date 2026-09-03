@@ -82,11 +82,9 @@ Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws
 
 `production/` e `homologation/` são as referências canônicas para o provisionamento futuro do Control Plane; CloudPanel e Dockge continuam como integrações operacionais.
 
-
 ## DOCs standalone / always-on
 
 `deploy/docs/` mantém o Connect|API DOCs online de forma independente na porta local `38280`. O reverse proxy recomendado publica a documentação em `/docs/` no mesmo hostname da API.
-
 
 ## Connect|API DOCs — hostnames públicos
 
@@ -95,11 +93,12 @@ Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws
 
 As stacks completas mantêm DOCs integrados nas portas `38180` a `38183`. A variável `ARGWS_CONNECT_DOCS_PUBLIC_URL` define o destino público usado pela aplicação; somente o deployment `develop` usa por padrão `d.docs.connect.argws.com.br`.
 
-
 ## Convenção canônica de nomenclatura
 
 - project: `argws-connect-<deployment>`
 - network: `argws-connect-<deployment>-net`
 - service: `<recurso>-argws-connect-<deployment>`
 - `container_name`: idêntico ao service
-- overlays não criam novo project name; herdam a stack-base.
+- overlays operacionais declaram explicitamente o mesmo `COMPOSE_PROJECT_NAME` e a mesma network da stack-base; nunca criam um project paralelo.
+
+No caso de `deploy/develop/compose.platform.yaml`, o contrato explícito é `argws-connect-develop` / `argws-connect-develop-net`, repetido em `deploy/develop/platform.env.example` para evitar divergência acidental.
