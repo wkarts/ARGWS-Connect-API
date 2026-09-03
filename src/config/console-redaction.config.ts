@@ -1,5 +1,6 @@
 const SESSION_PREFIXES = ['Closing session:', 'Removing old closed session:'];
-const SENSITIVE_KEY = /(privkey|rootkey|identitykey|remotekey|prekey|basekey|secret|password|authorization|cookie|token|credential|apikey|api_key|mediakey|chainkey)/i;
+const SENSITIVE_KEY =
+  /(privkey|rootkey|identitykey|remotekey|prekey|basekey|secret|password|authorization|cookie|token|credential|apikey|api_key|mediakey|chainkey)/i;
 const MAX_DEPTH = 5;
 
 function sanitizeValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
@@ -46,7 +47,8 @@ export function installSensitiveConsoleGuard(): void {
   const methods: Array<'log' | 'info' | 'warn' | 'error' | 'debug'> = ['log', 'info', 'warn', 'error', 'debug'];
   for (const method of methods) {
     const original = console[method].bind(console);
-    console[method] = ((...args: unknown[]) => original(...sanitizeConsoleArgs(args))) as typeof console[typeof method];
+    console[method] = ((...args: unknown[]) =>
+      original(...sanitizeConsoleArgs(args))) as (typeof console)[typeof method];
   }
 }
 
