@@ -6,13 +6,14 @@ O Connect|API mantém deployments independentes para produção, homologação, 
 
 As stacks completas publicam portas separadas para API e Connect|API DOCs; a infraestrutura permanece somente nas redes Docker internas.
 
-- Produção: API `127.0.0.1:38080` | DOCs `127.0.0.1:38180`
+- Produção clássica: API `127.0.0.1:38080` | DOCs `127.0.0.1:38180`
+- Platform production: API `127.0.0.1:38080` | DOCs `127.0.0.1:38180` | Gateway `127.0.0.1:38800`
 - Homologação: API `127.0.0.1:38081` | DOCs `127.0.0.1:38181`
 - Develop clássico: API `127.0.0.1:38082` | DOCs `127.0.0.1:38182`
-- Canonical: API `127.0.0.1:38083` | DOCs `127.0.0.1:38183`
 - Platform develop: API `127.0.0.1:38082` | DOCs `127.0.0.1:38182` | Gateway `127.0.0.1:38802`
+- Canonical: API `127.0.0.1:38083` | DOCs `127.0.0.1:38183`
 
-A Platform develop preserva as portas API/DOCs do develop clássico para permitir substituição sem alterar esses dois reverse proxies. Por isso, `argws-connect-develop` e `argws-connect-platform-develop` não devem subir simultaneamente usando as portas padrão. Para operação paralela, altere as portas da Platform develop em sua `.env`.
+As stacks Platform preservam as portas API/DOCs do ambiente clássico correspondente para permitir substituição sem alterar esses reverse proxies. Por isso, a stack clássica e a stack Platform do mesmo ambiente não devem subir simultaneamente usando as portas padrão. Para operação paralela, altere as portas da stack Platform em sua `.env`.
 
 `/health`, `/metrics`, WebSocket, webhooks e demais rotas do Engine permanecem no endpoint da API. O DOCs/Scalar usa o service físico `docs-argws-connect-<deployment>` correspondente.
 
@@ -29,18 +30,18 @@ As stacks operacionais clássicas sobem:
 
 PostgreSQL é o banco oficial do Engine, Redis é cache/estado rápido, RabbitMQ é o event bus/fila padrão e MinIO é o storage S3 local.
 
-## Platform develop completa
+## Platform completa por ambiente
 
-`deploy/platform-develop/` é a stack develop completa da Connect|API Platform e **não é overlay** de `deploy/develop/`.
-
-Identidade:
+A Platform completa possui stacks próprias e independentes:
 
 ```text
-project: argws-connect-platform-develop
-network: argws-connect-platform-develop-net
+deploy/platform-production/  → argws-connect-platform-production
+deploy/platform-develop/     → argws-connect-platform-develop
 ```
 
-Ela sobe por padrão:
+Nenhuma delas é overlay das stacks clássicas `deploy/production/` ou `deploy/develop/`.
+
+Ambas sobem por padrão:
 
 - Engine e DOCs;
 - PostgreSQL operacional, Redis, RabbitMQ e MinIO;
@@ -52,7 +53,56 @@ Ela sobe por padrão:
 - frontend Vue/PWA;
 - gateway da Platform.
 
-Domínios develop:
+### Platform production
+
+Identidade:
+
+```text
+project: argws-connect-platform-production
+network: argws-connect-platform-production-net
+```
+
+Domínios:
+
+```text
+connect.argws.com.br
+control.connect.argws.com.br
+admin.connect.argws.com.br
+partner.connect.argws.com.br
+api.connect.argws.com.br
+docs.connect.argws.com.br
+demo.connect.argws.com.br
+<tenant>.connect.argws.com.br
+```
+
+Hosts da Platform/tenants → `127.0.0.1:38800`.
+
+Lifecycle de imagens:
+
+```text
+Engine/DOCs/Platform → :latest
+SemVer imutável       → mesma VERSION do Connect|API
+```
+
+Primeiro deploy:
+
+```bash
+cd deploy/platform-production
+bash prepare-env.sh
+bash preflight.sh
+bash deploy.sh
+```
+
+### Platform develop
+
+Identidade:
+
+```text
+project: argws-connect-platform-develop
+network: argws-connect-platform-develop-net
+```
+
+Domínios:
 
 ```text
 d.connect.argws.com.br
@@ -65,7 +115,13 @@ d.demo.connect.argws.com.br
 <tenant>.d.connect.argws.com.br
 ```
 
-Os hosts da Platform e wildcard de tenants devem apontar para `127.0.0.1:38802` no reverse proxy. A API e o DOCs continuam em `38082` e `38182` por padrão.
+Hosts da Platform/tenants → `127.0.0.1:38802`.
+
+Lifecycle de imagens:
+
+```text
+Engine/DOCs/Platform → :develop
+```
 
 Primeiro deploy:
 
@@ -94,14 +150,14 @@ O Manager histórico foi aposentado. O Engine não serve mais `/manager`; a inte
 
 Nos deployments que possuem `prepare-env.sh`, a primeira execução cria `.env` a partir de `env.example`, gera ou exige segredos fortes localmente e mantém o arquivo fora do Git.
 
-A Platform develop gera automaticamente valores fortes para todos os placeholders `CHANGE_ME_*` e sincroniza `CONNECT_API_VERSION` com o arquivo `VERSION` da raiz.
+As stacks Platform geram automaticamente valores fortes para placeholders `CHANGE_ME_*` e sincronizam `CONNECT_API_VERSION` com o arquivo `VERSION` da raiz.
 
 ## Persistência
 
-As stacks oficiais sob `deploy/` usam bind mounts locais. Na Platform develop:
+Cada stack Platform tem persistência própria:
 
 ```text
-deploy/platform-develop/volumes/
+volumes/
 ├── instances/
 ├── postgres/
 ├── redis/
@@ -111,15 +167,16 @@ deploy/platform-develop/volumes/
 └── platform-celery/
 ```
 
-Nenhum volume de `deploy/develop` é compartilhado automaticamente.
+Nenhum volume das stacks clássicas é compartilhado automaticamente.
 
-Os Compose auxiliares históricos sob `Docker/` são executáveis isolados de componentes e podem continuar usando named volumes próprios; eles também obedecem ao contrato global de project/service/container/network.
+Os Compose auxiliares históricos sob `Docker/` são executáveis isolados de componentes e também obedecem ao contrato global de project/service/container/network.
 
 ## GHCR
 
 Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`. As imagens de Engine, DOCs, Platform e infraestrutura seguem o lifecycle canônico do Connect|API.
 
-A Platform develop usa o canal `develop` para Engine, DOCs, Control API, Web e Gateway.
+- Platform production usa `latest`/SemVer;
+- Platform develop usa `develop`.
 
 ## DOCs standalone / always-on
 
@@ -144,11 +201,12 @@ Exemplos:
 api-argws-connect-develop
 api-argws-connect-platform-develop
 platform-api-argws-connect-platform-develop
+api-argws-connect-platform-production
+platform-web-argws-connect-platform-production
 postgres-argws-connect-production
-platform-web-argws-connect-platform
 ```
 
-A Platform develop é um deployment independente, não overlay. O overlay oficial da Platform permanece apenas:
+Platform production e Platform develop são deployments independentes, não overlays. O overlay oficial da Platform permanece apenas:
 
 - `deploy/platform/compose.local-build.yaml` → `argws-connect-platform` / `argws-connect-platform-net`.
 

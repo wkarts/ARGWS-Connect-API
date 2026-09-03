@@ -4,17 +4,17 @@ A Platform é uma nova superfície de produto do **mesmo Connect|API**. O Engine
 
 > Platform controla. Engine executa.
 
-## Perfis oficiais
+## Perfis genéricos
+
+`deploy/platform/` continua existindo como deployment genérico multi-perfil para API-only, API+DOCs e Platform completa.
 
 ### API-only
 
-É o deployment headless e continua plenamente suportado. Inclui o Connect|API Engine e a infraestrutura necessária para REST, Webhooks, Events e providers. Não inclui frontend administrativo.
-
-No compose unificado da Platform (`deploy/platform/compose.yaml`), é o perfil padrão, sem `--profile` adicional.
+```bash
+docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml up -d
+```
 
 ### API + DOCs
-
-Adiciona o Connect|API DOCs/Scalar ao deployment API-only.
 
 ```bash
 docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile docs up -d
@@ -22,30 +22,63 @@ docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml -
 
 ### Platform completa
 
-Adiciona Control API, frontend Vue/PWA, banco de governança da Platform, workers/scheduler e gateway. O Engine permanece como serviço especializado e mantém seu banco operacional separado.
-
 ```bash
 docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile platform up -d
 ```
 
-## Platform develop independente
+## Stacks Platform por ambiente
 
-O ambiente develop da Platform possui agora um deployment próprio e completo em:
+Os ambientes operacionais completos da Platform são stacks independentes. Eles não são overlays das stacks clássicas de API.
 
 ```text
+deploy/platform-production/
+project: argws-connect-platform-production
+network: argws-connect-platform-production-net
+
 deploy/platform-develop/
-```
-
-Ele **não é overlay** de `deploy/develop/` e não depende de outro Compose para funcionar.
-
-Identidade física:
-
-```text
 project: argws-connect-platform-develop
 network: argws-connect-platform-develop-net
 ```
 
-A stack sobe por padrão todos os componentes necessários: Engine, DOCs, PostgreSQL operacional, Redis, RabbitMQ, MinIO, PostgreSQL da Platform, migrations, bootstrap, Control API, worker, scheduler, Web e gateway.
+Ambas sobem por padrão todos os componentes necessários: Engine, DOCs, PostgreSQL operacional, Redis, RabbitMQ, MinIO, PostgreSQL da Platform, migrations, bootstrap, Control API, worker, scheduler, Web e gateway.
+
+Não é necessário `--profile platform` nesses dois deployments.
+
+## Platform production
+
+```bash
+cd deploy/platform-production
+bash prepare-env.sh
+bash preflight.sh
+bash deploy.sh
+```
+
+### Domínios production
+
+| Superfície | Host |
+| --- | --- |
+| Platform | `connect.argws.com.br` |
+| Control Plane | `control.connect.argws.com.br` |
+| Admin | `admin.connect.argws.com.br` |
+| Partner Plane | `partner.connect.argws.com.br` |
+| API | `api.connect.argws.com.br` |
+| DOCs | `docs.connect.argws.com.br` |
+| Demo | `demo.connect.argws.com.br` |
+| Tenants | `<tenant>.connect.argws.com.br` |
+
+Portas locais padrão:
+
+```text
+API Engine : 127.0.0.1:38080
+DOCs       : 127.0.0.1:38180
+Gateway    : 127.0.0.1:38800
+```
+
+A stack usa `latest` no deployment operacional e a mesma SemVer imutável do Connect|API nas releases.
+
+`argws-connect-production` e `argws-connect-platform-production` não devem usar simultaneamente as portas padrão. Para substituição, pare a stack clássica e suba a Platform Production. Para execução paralela, altere as portas da Platform Production em sua `.env`.
+
+## Platform develop
 
 ```bash
 cd deploy/platform-develop
@@ -53,8 +86,6 @@ bash prepare-env.sh
 bash preflight.sh
 bash deploy.sh
 ```
-
-Não é necessário `--profile platform` neste deployment.
 
 ### Domínios develop
 
@@ -77,17 +108,17 @@ DOCs       : 127.0.0.1:38182
 Gateway    : 127.0.0.1:38802
 ```
 
-A API e o DOCs preservam as portas usadas pelo develop clássico para permitir troca de stack sem mudar esses dois reverse proxies. Consequentemente, `argws-connect-develop` e `argws-connect-platform-develop` não devem operar ao mesmo tempo com as portas padrão. Se for necessário executar ambos simultaneamente, altere as portas da Platform develop em sua `.env`.
+A stack usa o canal `develop` para Engine, DOCs, Control API, Web e Gateway.
 
-Os hosts `d.connect`, `d.control`, `d.admin`, `d.partner`, `d.demo` e o wildcard de tenants devem apontar para o gateway local da Platform develop.
+`argws-connect-develop` e `argws-connect-platform-develop` também não devem usar simultaneamente as portas padrão. Para operação paralela, altere as portas em `deploy/platform-develop/.env`.
 
 ## Isolamento e persistência
 
-`deploy/platform-develop` usa seus próprios bind mounts em `deploy/platform-develop/volumes/`. Nenhum volume de `deploy/develop` é compartilhado automaticamente.
+Cada stack Platform usa seus próprios bind mounts sob o respectivo diretório `volumes/`. Nenhum volume das stacks clássicas é compartilhado automaticamente.
 
-Isso evita que uma atualização da Platform altere sessões, banco ou infraestrutura da stack develop clássica sem uma migração intencional.
+Isso evita que uma atualização da Platform altere sessões, banco ou infraestrutura de uma stack clássica sem uma migração intencional.
 
-Se houver sessões WhatsApp existentes em `deploy/develop/volumes/instances`, a migração deve ocorrer com a stack antiga parada e de forma controlada. Não use o mesmo diretório de sessões simultaneamente entre dois projects.
+Se houver sessões WhatsApp existentes em uma stack clássica, a migração de arquivos/sessões deve ocorrer de forma controlada com a origem parada. Nunca use o mesmo diretório de sessão simultaneamente em dois projects diferentes.
 
 ## Adoção de instâncias existentes
 
@@ -105,7 +136,7 @@ Uma instância adotada tem origem `ADOPTED_EXISTING`. Ao removê-la da Platform,
 
 ## Manager legado
 
-O frontend histórico em `manager/dist` foi aposentado nesta frente. A imagem do Engine usa `SERVER_DISABLE_MANAGER=true`; a superfície administrativa passa a ser `platform/web`.
+O frontend histórico em `manager/dist` foi aposentado. A imagem do Engine usa `SERVER_DISABLE_MANAGER=true`; a superfície administrativa passa a ser `platform/web`.
 
 A retirada do Manager não remove endpoints REST, Templates, Actions, Recipes, Micro Apps, providers, Webhooks ou Events do Engine.
 
@@ -116,7 +147,7 @@ A Platform não possui versão independente. Platform API, Platform Web e Gatewa
 - `develop` para a branch `develop`;
 - SemVer e `latest` somente pelo release canônico em `main`.
 
-O deployment `platform-develop` usa explicitamente:
+Platform develop:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
@@ -124,6 +155,16 @@ ghcr.io/wkarts/argws-connect-docs:develop
 ghcr.io/wkarts/argws-connect-platform-api:develop
 ghcr.io/wkarts/argws-connect-platform-web:develop
 ghcr.io/wkarts/argws-connect-platform-gateway:develop
+```
+
+Platform production:
+
+```text
+ghcr.io/wkarts/argws-connect-api:latest
+ghcr.io/wkarts/argws-connect-docs:latest
+ghcr.io/wkarts/argws-connect-platform-api:latest
+ghcr.io/wkarts/argws-connect-platform-web:latest
+ghcr.io/wkarts/argws-connect-platform-gateway:latest
 ```
 
 ## Convenção de project name dos deployments
@@ -137,6 +178,7 @@ Todo deployment Compose independente do Connect|API deve declarar `name: ${COMPO
 | platform-develop | `argws-connect-platform-develop` | `argws-connect-platform-develop-net` |
 | homologation | `argws-connect-homologation` | `argws-connect-homologation-net` |
 | production | `argws-connect-production` | `argws-connect-production-net` |
+| platform-production | `argws-connect-platform-production` | `argws-connect-platform-production-net` |
 | docs | `argws-connect-docs` | gerenciada pelo próprio compose |
 | docs-develop | `argws-connect-docs-develop` | gerenciada pelo próprio compose |
 | cloudpanel | `argws-connect-cloudpanel` | `argws-connect-cloudpanel-net` |
@@ -155,7 +197,9 @@ Exemplos:
 api-argws-connect-develop
 api-argws-connect-platform-develop
 platform-api-argws-connect-platform-develop
-platform-web-argws-connect-platform
+api-argws-connect-platform-production
+platform-api-argws-connect-platform-production
+platform-web-argws-connect-platform-production
 ```
 
 Aliases internos estáveis (`connect-engine`, `connect-platform-api`, `argws-connect-postgres` etc.) podem existir para desacoplar a comunicação interna da nomenclatura física.
