@@ -1,0 +1,37 @@
+name: Temporary Naming Validator Patcher
+
+on:
+  push:
+    branches: [fix/deploy-compose-project-names]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/deploy-compose-project-names
+      - name: Patch temporary validator
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/_tmp-normalize-compose-project-names.yml')
+          text = path.read_text(encoding='utf-8')
+          old = "          cp deploy/platform/env.example deploy/platform/.env\n"
+          new = "          cp .env.example .env\n          cp deploy/platform/env.example deploy/platform/.env\n"
+          if new not in text:
+              if old not in text:
+                  raise SystemExit('validation marker not found')
+              text = text.replace(old, new, 1)
+          text = text.replace("          rm -f deploy/platform/.env\n", "          rm -f .env deploy/platform/.env\n", 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/_tmp-normalize-compose-project-names.yml
+          git commit -m "fix(ci): prepare root compose env during naming validation"
+          git push origin HEAD:fix/deploy-compose-project-names
