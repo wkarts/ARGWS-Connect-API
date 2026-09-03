@@ -75,11 +75,14 @@ jobs:
       - name: Validate Platform deployment profiles
         run: |
           set -euo pipefail
+          grep -q '^name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}$' deploy/platform/compose.yaml
+          grep -q '^name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}$' deploy/platform/compose.local-build.yaml
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml config >/dev/null
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile docs config >/dev/null
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile platform config >/dev/null
           docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml --profile platform --profile observability config >/dev/null
-          docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml -f deploy/platform/compose.local-build.yaml --profile platform config >/dev/null
+          local_build_json="$(docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml -f deploy/platform/compose.local-build.yaml --profile platform config --format json)"
+          jq -e '.name == "argws-connect-platform"' <<<"$local_build_json" >/dev/null
 
       - name: Validate in-place develop to Platform upgrade
         working-directory: deploy/develop
