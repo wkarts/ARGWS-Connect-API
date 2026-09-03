@@ -110,12 +110,15 @@ export function mergeRuntimeVariables(
 }
 
 export function interpolateRuntimeString(value: unknown, variables: Record<string, unknown>) {
-  return String(value ?? '').replace(/{{\s*([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)\s*}}/g, (_match, path) => {
-    const resolved = String(path)
-      .split('.')
-      .reduce<any>((current, key) => (current == null ? undefined : current[key]), variables);
-    return resolved === undefined || resolved === null ? '' : String(resolved);
-  });
+  return String(value ?? '').replace(
+    /{{\s*([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)\s*}}/g,
+    (_match, path) => {
+      const resolved = String(path)
+        .split('.')
+        .reduce<any>((current, key) => (current == null ? undefined : current[key]), variables);
+      return resolved === undefined || resolved === null ? '' : String(resolved);
+    },
+  );
 }
 
 function normalizeTtl(value: unknown) {
