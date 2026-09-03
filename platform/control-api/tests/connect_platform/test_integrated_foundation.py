@@ -54,6 +54,9 @@ def test_existing_develop_stack_can_be_upgraded_in_place() -> None:
     env = (REPO / "deploy" / "develop" / "platform.env.example").read_text(encoding="utf-8")
     assert "api-argws-connect-develop:" in base
     assert "./volumes/instances" in base
+    assert overlay.startswith("name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}\n")
+    assert "COMPOSE_PROJECT_NAME=argws-connect-develop" in env
+    assert "ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net" in env
     assert "api-argws-connect-develop:" in overlay
     assert "aliases: [connect-engine, argws-connect-api]" in overlay
     assert "platform-postgres-argws-connect-develop:" in overlay
