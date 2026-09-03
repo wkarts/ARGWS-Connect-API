@@ -81,14 +81,36 @@ function interactionPlans(provider: string, rendered: TemplateRenderEnvelope): P
       };
     }
 
+    if (provider === 'WHATSAPP-BAILEYS' && interaction.type === 'list') {
+      return {
+        id: interaction.id,
+        type: interaction.type,
+        mode: 'INTERACTIVE',
+        compatibilityTransport: 'BAILEYS_LIST',
+        degraded: false,
+        warnings: [],
+      };
+    }
+
     if (provider === 'WHATSAPP-BAILEYS' && interaction.type === 'choice' && interaction.mode === 'SINGLE') {
+      return {
+        id: interaction.id,
+        type: interaction.type,
+        mode: 'INTERACTIVE',
+        compatibilityTransport: interaction.options.length <= 3 ? 'BAILEYS_BUTTONS' : 'BAILEYS_LIST',
+        degraded: false,
+        warnings: [],
+      };
+    }
+
+    if (provider === 'WHATSAPP-BAILEYS' && interaction.type === 'choice') {
       return {
         id: interaction.id,
         type: interaction.type,
         mode: 'POLL_COMPAT',
         compatibilityTransport: 'BAILEYS_OFFICIAL_POLL',
         degraded: true,
-        warnings: ['A escolha única será exibida como enquete para compatibilidade real neste provider.'],
+        warnings: ['Escolhas múltiplas continuam usando poll oficial do Baileys.'],
       };
     }
 
@@ -164,17 +186,17 @@ export function getProviderTemplateCapabilities(provider?: string): ProviderTemp
       provider: normalized,
       providerNativeTemplates: false,
       canonicalTemplateContract: true,
-      quickReply: 'POLL_COMPAT',
-      urlButton: 'TEXT_COMPAT',
-      phoneButton: 'TEXT_COMPAT',
-      copyCodeButton: 'TEXT_COMPAT',
-      list: 'TEXT_COMPAT',
-      choice: 'POLL_COMPAT',
+      quickReply: 'NATIVE',
+      urlButton: 'NATIVE',
+      phoneButton: 'NATIVE',
+      copyCodeButton: 'NATIVE',
+      list: 'NATIVE',
+      choice: 'NATIVE',
       microApp: 'NATIVE',
       transportNotes: [
-        'Quick replies e escolhas únicas usam poll de escolha única para compatibilidade real com WhatsApp Desktop e mobile.',
-        'Listas, URL, telefone, copiar código e combinações não representáveis são preservados como conteúdo textual funcional.',
-        'Micro Apps são abertos por URL segura e independem do transporte interativo do Baileys.',
+        'Botões usam interactiveMessage direto com o nó biz/native_flow exigido pelo WhatsApp Web/Desktop.',
+        'Listas usam listMessage SINGLE_SELECT com o nó biz/list para compatibilidade Web/Desktop e mobile.',
+        'Escolhas múltiplas podem continuar usando poll oficial; falhas reais degradam pelo fallback do Template Engine.',
       ],
     };
   }
@@ -255,24 +277,23 @@ export function planTemplateTransport(
   }
 
   if (normalized === 'WHATSAPP-BAILEYS') {
-    const replies = buttons.filter((button) => button.type === 'reply' && button.displayText);
-    const replyOnly = replies.length > 0 && replies.length === buttons.length;
-    if (replyOnly) {
+    const replyOnly = buttons.every((button) => button.type === 'reply' && button.displayText);
+    const ctaOnly = buttons.every((button) => ['url', 'call', 'copy'].includes(button.type) && button.displayText);
+    const supportedInteractive = (replyOnly && buttons.length <= 3) || (ctaOnly && buttons.length <= 2);
+
+    if (supportedInteractive) {
       return {
         provider: normalized,
-        mode: 'POLL_COMPAT',
-        compatibilityTransport: 'BAILEYS_OFFICIAL_POLL',
-        degraded: true,
-        warnings: [
-          'Quick replies serão exibidos como enquete de escolha única neste provider.',
-          ...interactions.flatMap((item) => item.warnings),
-        ],
-        buttons: replies.map((button) => ({
+        mode: 'INTERACTIVE',
+        compatibilityTransport: 'BAILEYS_NATIVE_INTERACTIVE',
+        degraded: interactions.some((item) => item.degraded),
+        warnings: interactions.flatMap((item) => item.warnings),
+        buttons: buttons.map((button) => ({
           id: button.id,
           title: String(button.displayText || ''),
           canonicalType: button.type,
-          transport: 'POLL_OPTION',
-          degraded: true,
+          transport: 'NATIVE_BUTTON',
+          degraded: false,
         })),
         interactions,
       };
@@ -282,7 +303,7 @@ export function planTemplateTransport(
       normalized,
       rendered,
       'BAILEYS_TEXT',
-      'Este conjunto de interações será convertido para conteúdo textual funcional neste provider.',
+      'Combinação de botões não representável com segurança; usando fallback textual.',
     );
   }
 
