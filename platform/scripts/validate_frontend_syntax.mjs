@@ -3,23 +3,28 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 
-const require = createRequire(import.meta.url)
-const candidates = [
-  'typescript',
-  '/opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/typescript.js',
-  '/usr/local/lib/node_modules/typescript/lib/typescript.js',
+const workspacePackage = path.join(process.cwd(), 'package.json')
+const workspaceRequire = createRequire(fs.existsSync(workspacePackage) ? workspacePackage : import.meta.url)
+const scriptRequire = createRequire(import.meta.url)
+
+const resolvers = [
+  () => workspaceRequire('typescript'),
+  () => scriptRequire('typescript'),
+  () => scriptRequire('/usr/local/lib/node_modules/typescript/lib/typescript.js'),
 ]
+
 let ts = null
-for (const candidate of candidates) {
+for (const resolve of resolvers) {
   try {
-    ts = require(candidate)
+    ts = resolve()
     break
   } catch {
-    // tenta o próximo caminho conhecido
+    // tenta o próximo resolver conhecido
   }
 }
+
 if (!ts) {
-  console.error('TypeScript não está instalado local ou globalmente.')
+  console.error(`TypeScript não está disponível para o workspace ${process.cwd()}.`)
   process.exit(2)
 }
 
