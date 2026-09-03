@@ -12,6 +12,23 @@ export interface EngineInstance {
   created_at?: string | null
 }
 
+export interface DiscoverableEngineInstance {
+  instance_name: string
+  engine_id?: string | null
+  provider: string
+  state?: string | null
+  number?: string | null
+  profile_name?: string | null
+  owner_jid?: string | null
+  counts: { messages: number; contacts: number; chats: number }
+  suggested_alias: string
+}
+
+export interface EngineInstanceDiscovery {
+  available: DiscoverableEngineInstance[]
+  adopted: Array<{ binding_id: string; instance_name: string }>
+}
+
 interface Envelope<T> { data: T }
 
 export async function engineStatus() {
@@ -20,6 +37,18 @@ export async function engineStatus() {
 
 export async function listEngineInstances(): Promise<EngineInstance[]> {
   return (await api.get<Envelope<EngineInstance[]>>('/v1/connect/instances')).data.data
+}
+
+export async function discoverEngineInstances(): Promise<EngineInstanceDiscovery> {
+  return (await api.get<Envelope<EngineInstanceDiscovery>>('/v1/connect/instances/discover')).data.data
+}
+
+export async function adoptEngineInstance(payload: { instance_name: string; alias?: string }) {
+  return (await api.post<Envelope<Record<string, unknown>>>('/v1/connect/instances/adopt', payload)).data.data
+}
+
+export async function detachEngineInstance(id: string) {
+  return (await api.delete<Envelope<Record<string, unknown>>>(`/v1/connect/instances/${id}/detach`)).data.data
 }
 
 export async function createEngineInstance(payload: Record<string, unknown>) {
