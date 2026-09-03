@@ -85,31 +85,299 @@ export function makeBlock(type:LandingBlockType):LandingBlock{
 
 export function cloneDocument<T>(value:T):T{return JSON.parse(JSON.stringify(value)) as T}
 
-function esc(value:unknown):string{return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]||char))}
-function safeUrl(value:unknown):string{const url=String(value||'').trim();return /^(https?:\/\/|\/|#|mailto:|tel:)/i.test(url)?url:''}
-function styleText(style:Record<string,unknown>):string{return Object.entries(style||{}).filter(([,value])=>value!==undefined&&value!==null&&String(value)!=='').map(([key,value])=>`${key.replace(/[A-Z]/g,m=>'-'+m.toLowerCase())}:${String(value).replace(/[;{}<>]/g,'')}`).join(';')}
-function btn(label:unknown,url:unknown,primary=true):string{const href=safeUrl(url);if(!label||!href)return'';return`<a class="lp-btn ${primary?'primary':''}" href="${esc(href)}">${esc(label)}</a>`}
+const ALLOWED_BLOCK_STYLES:Record<string,string>={
+  background:'background',color:'color',padding:'padding',minHeight:'min-height',textAlign:'text-align',
+  borderRadius:'border-radius',margin:'margin',maxWidth:'max-width',fontSize:'font-size',fontWeight:'font-weight',
+  display:'display',alignItems:'align-items',justifyContent:'justify-content',gap:'gap',
+}
+const ALLOWED_HTML_TAGS=new Set(['div','p','h1','h2','h3','h4','h5','h6','span','strong','em','b','i','u','ul','ol','li','blockquote','br','hr','a','img','figure','figcaption','section','article'])
+const DROP_HTML_TAGS=new Set(['script','style','iframe','object','embed','svg','math','template','form','input','button','link','meta','base'])
+
+function safeUrl(value:unknown):string{
+  const raw=String(value??'').trim()
+  if(!raw)return''
+  if(raw.startsWith('#')||raw.startsWith('/'))return raw
+  try{
+    const parsed=new URL(raw,'https://connect.invalid')
+    return ['http:','https:','mailto:','tel:'].includes(parsed.protocol.toLowerCase())?raw:''
+  }catch{return''}
+}
+
+function safeCssValue(value:unknown,fallback=''):string{
+  const raw=String(value??'').trim()
+  if(!raw)return fallback
+  if(/[;{}<>]/.test(raw)||/@import\b|expression\s*\(|javascript\s*:/i.test(raw))return fallback
+  return raw
+}
+
+function safeCustomCss(value:unknown):string{
+  return String(value??'')
+    .replace(/@import\b[^;]*;?/gi,'')
+    .replace(/expression\s*\(/gi,'')
+    .replace(/javascript\s*:/gi,'')
+    .replace(/[<>]/g,'')
+}
+
+function safeDimension(value:unknown,fallback='48px'):string{
+  const raw=String(value??'').trim()
+  return /^\d+(?:\.\d+)?(?:px|rem|em|vh|vw|%)$/i.test(raw)?raw:fallback
+}
+
+function applyBlockStyle(element:HTMLElement,style:Record<string,unknown>):void{
+  for(const [key,value] of Object.entries(style||{})){
+    const property=ALLOWED_BLOCK_STYLES[key]
+    if(!property)continue
+    const safe=safeCssValue(value)
+    if(safe)element.style.setProperty(property,safe)
+  }
+}
+
+function sanitizeClass(value:string|null):string{
+  return String(value??'').split(/\s+/).filter(token=>/^[A-Za-z0-9_-]{1,64}$/.test(token)).join(' ')
+}
+
+function appendSanitizedChildren(source:Node,target:Node,doc:Document):void{
+  for(const child of Array.from(source.childNodes)){
+    if(child.nodeType===3){
+      target.appendChild(doc.createTextNode(child.textContent||''))
+      continue
+    }
+    if(child.nodeType!==1)continue
+    const element=child as Element
+    const tag=element.tagName.toLowerCase()
+    if(DROP_HTML_TAGS.has(tag))continue
+    if(!ALLOWED_HTML_TAGS.has(tag)){
+      appendSanitizedChildren(element,target,doc)
+      continue
+    }
+
+    const clone=doc.createElement(tag)
+    const className=sanitizeClass(element.getAttribute('class'))
+    if(className)clone.className=className
+    const title=element.getAttribute('title')
+    if(title)clone.setAttribute('title',title)
+    const ariaLabel=element.getAttribute('aria-label')
+    if(ariaLabel)clone.setAttribute('aria-label',ariaLabel)
+
+    if(tag==='a'){
+      const href=safeUrl(element.getAttribute('href'))
+      if(href){
+        const anchor=clone as HTMLAnchorElement
+        anchor.setAttribute('href',href)
+        if(/^https?:\/\//i.test(href)){
+          anchor.target='_blank'
+          anchor.rel='noopener noreferrer'
+        }
+      }
+    }
+
+    if(tag==='img'){
+      const src=safeUrl(element.getAttribute('src'))
+      if(!src)continue
+      const image=clone as HTMLImageElement
+      image.setAttribute('src',src)
+      image.alt=element.getAttribute('alt')||''
+      image.loading='lazy'
+      const width=element.getAttribute('width')
+      const height=element.getAttribute('height')
+      if(width&&/^\d{1,4}$/.test(width))image.setAttribute('width',width)
+      if(height&&/^\d{1,4}$/.test(height))image.setAttribute('height',height)
+    }
+
+    appendSanitizedChildren(element,clone,doc)
+    target.appendChild(clone)
+  }
+}
+
+function sanitizedHtmlFragment(doc:Document,value:unknown):DocumentFragment{
+  const fragment=doc.createDocumentFragment()
+  const parsed=new DOMParser().parseFromString(String(value??''),'text/html')
+  appendSanitizedChildren(parsed.body,fragment,doc)
+  return fragment
+}
+
+function sectionWithContent(doc:Document,style:Record<string,unknown>,extraClass=''):{section:HTMLElement;content:HTMLElement}{
+  const section=doc.createElement('section')
+  section.className=`lp-section${extraClass?` ${extraClass}`:''}`
+  applyBlockStyle(section,style)
+  const content=doc.createElement('div')
+  content.className='lp-content'
+  section.appendChild(content)
+  return{section,content}
+}
+
+function appendLead(doc:Document,parent:HTMLElement,value:unknown):void{
+  if(!value)return
+  const paragraph=doc.createElement('p')
+  paragraph.className='lp-lead'
+  paragraph.textContent=String(value)
+  parent.appendChild(paragraph)
+}
+
+function appendButton(doc:Document,parent:HTMLElement,label:unknown,url:unknown,primary=true):void{
+  const href=safeUrl(url)
+  if(!label||!href)return
+  const anchor=doc.createElement('a')
+  anchor.className=`lp-btn${primary?' primary':''}`
+  anchor.setAttribute('href',href)
+  if(/^https?:\/\//i.test(href)){
+    anchor.target='_blank'
+    anchor.rel='noopener noreferrer'
+  }
+  anchor.textContent=String(label)
+  parent.appendChild(anchor)
+}
+
+function renderBlock(doc:Document,block:LandingBlock,plans:Array<Record<string,unknown>>,money:(value:unknown)=>string):HTMLElement|null{
+  const p=block.props||{}
+  const s=block.style||{}
+
+  if(block.type==='hero'){
+    const {section,content}=sectionWithContent(doc,s)
+    if(p.eyebrow){const eyebrow=doc.createElement('div');eyebrow.className='lp-eyebrow';eyebrow.textContent=String(p.eyebrow);content.appendChild(eyebrow)}
+    const title=doc.createElement('h1');title.className='lp-title';title.textContent=String(p.title??'');content.appendChild(title)
+    appendLead(doc,content,p.text)
+    const actions=doc.createElement('div');actions.className='lp-actions';appendButton(doc,actions,p.button_label,p.button_url,true);appendButton(doc,actions,p.secondary_label,p.secondary_url,false);content.appendChild(actions)
+    return section
+  }
+
+  if(block.type==='text'){
+    const {section,content}=sectionWithContent(doc,s)
+    if(p.title){const title=doc.createElement('h2');title.className='lp-section-title';title.textContent=String(p.title);content.appendChild(title)}
+    appendLead(doc,content,p.text)
+    return section
+  }
+
+  if(block.type==='features'){
+    const {section,content}=sectionWithContent(doc,s)
+    const title=doc.createElement('h2');title.className='lp-section-title';title.textContent=String(p.title??'Benefícios');content.appendChild(title)
+    appendLead(doc,content,p.text)
+    const grid=doc.createElement('div');grid.className='lp-grid cols-3';grid.style.marginTop='28px'
+    const items=Array.isArray(p.items)?p.items:[]
+    items.forEach((item,index)=>{
+      const obj=item&&typeof item==='object'?item as Record<string,unknown>:{title:item,text:''}
+      const card=doc.createElement('article');card.className='lp-card'
+      const heading=doc.createElement('h3');heading.textContent=String(obj.title??`Benefício ${index+1}`);card.appendChild(heading)
+      if(obj.text){const text=doc.createElement('p');text.textContent=String(obj.text);card.appendChild(text)}
+      grid.appendChild(card)
+    })
+    content.appendChild(grid)
+    return section
+  }
+
+  if(block.type==='plans'){
+    const {section,content}=sectionWithContent(doc,s)
+    const title=doc.createElement('h2');title.className='lp-section-title';title.textContent=String(p.title??'Planos');content.appendChild(title)
+    appendLead(doc,content,p.text)
+    const grid=doc.createElement('div');grid.className='lp-grid cols-3';grid.style.marginTop='28px'
+    plans.forEach(plan=>{
+      const card=doc.createElement('article');card.className='lp-card'
+      const heading=doc.createElement('h3');heading.textContent=String(plan.name??'Plano');card.appendChild(heading)
+      if(plan.description){const text=doc.createElement('p');text.textContent=String(plan.description);card.appendChild(text)}
+      const price=doc.createElement('div');price.className='lp-price';price.textContent=Number(plan.monthly_price)>0?money(plan.monthly_price):'Sob consulta';card.appendChild(price)
+      grid.appendChild(card)
+    })
+    content.appendChild(grid)
+    return section
+  }
+
+  if(block.type==='image'){
+    const url=safeUrl(p.url)
+    if(!url)return null
+    const {section,content}=sectionWithContent(doc,s)
+    const imageWrap=doc.createElement('div');imageWrap.className='lp-image'
+    const image=doc.createElement('img');image.setAttribute('src',url);image.alt=String(p.alt??'Imagem');image.loading='lazy';imageWrap.appendChild(image)
+    const link=safeUrl(p.link_url)
+    if(link){const anchor=doc.createElement('a');anchor.setAttribute('href',link);if(/^https?:\/\//i.test(link)){anchor.target='_blank';anchor.rel='noopener noreferrer'};anchor.appendChild(imageWrap);content.appendChild(anchor)}else content.appendChild(imageWrap)
+    if(p.caption){const caption=doc.createElement('div');caption.className='lp-caption';caption.textContent=String(p.caption);content.appendChild(caption)}
+    return section
+  }
+
+  if(block.type==='gallery'){
+    const {section,content}=sectionWithContent(doc,s)
+    if(p.title){const title=doc.createElement('h2');title.className='lp-section-title';title.textContent=String(p.title);content.appendChild(title)}
+    const grid=doc.createElement('div');grid.className='lp-grid cols-2';grid.style.marginTop='28px'
+    const items=Array.isArray(p.items)?p.items:[]
+    items.forEach(item=>{
+      const obj=item&&typeof item==='object'?item as Record<string,unknown>:{url:item,caption:''}
+      const url=safeUrl(obj.url)
+      if(!url)return
+      const figure=doc.createElement('figure')
+      const wrap=doc.createElement('div');wrap.className='lp-image'
+      const image=doc.createElement('img');image.setAttribute('src',url);image.alt=String(obj.caption??'Imagem da plataforma');image.loading='lazy';wrap.appendChild(image);figure.appendChild(wrap)
+      if(obj.caption){const caption=doc.createElement('figcaption');caption.className='lp-caption';caption.textContent=String(obj.caption);figure.appendChild(caption)}
+      grid.appendChild(figure)
+    })
+    content.appendChild(grid)
+    return section
+  }
+
+  if(block.type==='cta'){
+    const {section,content}=sectionWithContent(doc,s)
+    const title=doc.createElement('h2');title.className='lp-section-title';title.textContent=String(p.title??'');content.appendChild(title)
+    appendLead(doc,content,p.text)
+    const actions=doc.createElement('div');actions.className='lp-actions';appendButton(doc,actions,p.button_label,p.button_url,true);content.appendChild(actions)
+    return section
+  }
+
+  if(block.type==='divider'){
+    const {section,content}=sectionWithContent(doc,s)
+    const divider=doc.createElement('div');divider.className='lp-divider';content.appendChild(divider)
+    return section
+  }
+
+  if(block.type==='spacer'){
+    const spacer=doc.createElement('div');spacer.setAttribute('aria-hidden','true');spacer.style.height=safeDimension(p.height);return spacer
+  }
+
+  if(block.type==='html'){
+    const {section,content}=sectionWithContent(doc,s,'lp-html')
+    content.appendChild(sanitizedHtmlFragment(doc,p.html))
+    return section
+  }
+
+  return null
+}
+
+const BASE_PREVIEW_CSS=`
+*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--text);font-family:var(--font);line-height:1.55}.lp-wrap,.lp-content{width:min(var(--width),calc(100% - 32px));margin:auto}.lp-brandbar{background:#081722;color:white}.lp-brandbar>.lp-wrap{height:64px;display:flex;align-items:center;gap:10px}.lp-mark{display:grid;width:36px;height:36px;place-items:center;border-radius:11px;background:var(--accent);color:#062019;font-weight:900}.lp-brand{font-weight:800}.lp-section{overflow:hidden}.lp-eyebrow{font-size:12px;font-weight:900;letter-spacing:.14em;color:var(--accent)}.lp-title{margin:12px 0 0;font-size:clamp(34px,5vw,64px);line-height:1.04;letter-spacing:-.045em}.lp-section-title{margin:0;font-size:clamp(26px,4vw,42px)}.lp-lead{max-width:760px;margin:18px 0 0;font-size:18px;opacity:.78}.lp-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}.lp-btn{display:inline-flex;padding:11px 18px;border:1px solid #cbd5e1;border-radius:12px;font-weight:800;text-decoration:none;color:inherit}.lp-btn.primary{background:var(--accent);color:#062019;border-color:transparent}.lp-grid{display:grid;gap:16px}.lp-grid.cols-3{grid-template-columns:repeat(3,1fr)}.lp-grid.cols-2{grid-template-columns:repeat(2,1fr)}.lp-card{border:1px solid #e2e8f0;border-radius:var(--radius);padding:22px;background:rgba(255,255,255,.82)}.lp-card h3{margin:0}.lp-card p{opacity:.72}.lp-price{font-size:26px;font-weight:900;margin-top:16px}.lp-image{overflow:hidden;border-radius:var(--radius)}.lp-image img{display:block;width:100%}.lp-caption{font-size:12px;opacity:.6;margin-top:8px}.lp-divider{height:1px;background:#cbd5e1}@media(max-width:760px){.lp-grid.cols-3,.lp-grid.cols-2{grid-template-columns:1fr}}
+`
 
 export function renderPreview(documentData:LandingDocument,customCss:string,plans:Array<Record<string,unknown>>=[]):string{
-  const theme=documentData.theme||{},meta=documentData.meta||{}
-  const css=`
-  :root{--page:${theme.page_background||'#f8fafc'};--text:${theme.text_color||'#0f172a'};--primary:${theme.primary_color||'#0f766e'};--accent:${theme.accent_color||'#53d5b0'};--radius:${theme.radius||'18px'};--width:${theme.content_width||'1120px'};--font:${theme.font_family||'Inter,ui-sans-serif,system-ui,sans-serif'}}
-  *{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--text);font-family:var(--font);line-height:1.55}.lp-wrap,.lp-content{width:min(var(--width),calc(100% - 32px));margin:auto}.lp-brandbar{background:#081722;color:white}.lp-brandbar>.lp-wrap{height:64px;display:flex;align-items:center;gap:10px}.lp-mark{display:grid;width:36px;height:36px;place-items:center;border-radius:11px;background:var(--accent);color:#062019;font-weight:900}.lp-brand{font-weight:800}.lp-section{overflow:hidden}.lp-eyebrow{font-size:12px;font-weight:900;letter-spacing:.14em;color:var(--accent)}.lp-title{margin:12px 0 0;font-size:clamp(34px,5vw,64px);line-height:1.04;letter-spacing:-.045em}.lp-section-title{margin:0;font-size:clamp(26px,4vw,42px)}.lp-lead{max-width:760px;margin:18px 0 0;font-size:18px;opacity:.78}.lp-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}.lp-btn{display:inline-flex;padding:11px 18px;border:1px solid #cbd5e1;border-radius:12px;font-weight:800;text-decoration:none;color:inherit}.lp-btn.primary{background:var(--accent);color:#062019;border-color:transparent}.lp-grid{display:grid;gap:16px}.lp-grid.cols-3{grid-template-columns:repeat(3,1fr)}.lp-grid.cols-2{grid-template-columns:repeat(2,1fr)}.lp-card{border:1px solid #e2e8f0;border-radius:var(--radius);padding:22px;background:rgba(255,255,255,.82)}.lp-card h3{margin:0}.lp-card p{opacity:.72}.lp-price{font-size:26px;font-weight:900;margin-top:16px}.lp-image{overflow:hidden;border-radius:var(--radius)}.lp-image img{display:block;width:100%}.lp-caption{font-size:12px;opacity:.6;margin-top:8px}.lp-divider{height:1px;background:#cbd5e1}@media(max-width:760px){.lp-grid.cols-3,.lp-grid.cols-2{grid-template-columns:1fr}}
-  ${customCss||''}`
+  const doc=document.implementation.createHTMLDocument('Connect|API Platform')
+  doc.documentElement.lang='pt-BR'
+  const theme=documentData.theme||{}
+  const meta=documentData.meta||{}
+
+  const charset=doc.createElement('meta');charset.setAttribute('charset','utf-8')
+  const viewport=doc.createElement('meta');viewport.name='viewport';viewport.content='width=device-width,initial-scale=1'
+  const baseStyle=doc.createElement('style');baseStyle.textContent=BASE_PREVIEW_CSS
+  const customStyle=doc.createElement('style');customStyle.textContent=safeCustomCss(customCss)
+  doc.head.replaceChildren(charset,viewport,baseStyle,customStyle)
+  doc.title=String(meta.seo_title||meta.brand_name||'Connect|API Platform')
+
+  const rootStyle=doc.documentElement.style
+  rootStyle.setProperty('--page',safeCssValue(theme.page_background,'#f8fafc'))
+  rootStyle.setProperty('--text',safeCssValue(theme.text_color,'#0f172a'))
+  rootStyle.setProperty('--primary',safeCssValue(theme.primary_color,'#0f766e'))
+  rootStyle.setProperty('--accent',safeCssValue(theme.accent_color,'#53d5b0'))
+  rootStyle.setProperty('--radius',safeCssValue(theme.radius,'18px'))
+  rootStyle.setProperty('--width',safeCssValue(theme.content_width,'1120px'))
+  rootStyle.setProperty('--font',safeCssValue(theme.font_family,'Inter,ui-sans-serif,system-ui,sans-serif'))
+
+  doc.body.replaceChildren()
+  if(meta.show_brand!==false){
+    const nav=doc.createElement('nav');nav.className='lp-brandbar'
+    const wrap=doc.createElement('div');wrap.className='lp-wrap'
+    const mark=doc.createElement('span');mark.className='lp-mark';mark.textContent='C|'
+    const brand=doc.createElement('span');brand.className='lp-brand';brand.textContent=String(meta.brand_name||'Connect|API Platform')
+    wrap.append(mark,brand);nav.appendChild(wrap);doc.body.appendChild(nav)
+  }
+
+  const main=doc.createElement('main')
   const money=(value:unknown)=>Number(value||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})
-  const blocks=documentData.blocks.map(block=>{
-    const p=block.props||{},s=block.style||{},style=styleText(s)
-    if(block.type==='hero')return`<section class="lp-section" style="${style}"><div class="lp-content">${p.eyebrow?`<div class="lp-eyebrow">${esc(p.eyebrow)}</div>`:''}<h1 class="lp-title">${esc(p.title)}</h1>${p.text?`<p class="lp-lead">${esc(p.text)}</p>`:''}<div class="lp-actions">${btn(p.button_label,p.button_url,true)}${btn(p.secondary_label,p.secondary_url,false)}</div></div></section>`
-    if(block.type==='text')return`<section class="lp-section" style="${style}"><div class="lp-content">${p.title?`<h2 class="lp-section-title">${esc(p.title)}</h2>`:''}${p.text?`<p class="lp-lead">${esc(p.text)}</p>`:''}</div></section>`
-    if(block.type==='features'){const items=Array.isArray(p.items)?p.items:[];return`<section class="lp-section" style="${style}"><div class="lp-content"><h2 class="lp-section-title">${esc(p.title)}</h2>${p.text?`<p class="lp-lead">${esc(p.text)}</p>`:''}<div class="lp-grid cols-3" style="margin-top:28px">${items.map(item=>`<article class="lp-card"><h3>${esc(typeof item==='object'?(item as Record<string,unknown>).title:item)}</h3>${typeof item==='object'&&(item as Record<string,unknown>).text?`<p>${esc((item as Record<string,unknown>).text)}</p>`:''}</article>`).join('')}</div></div></section>`}
-    if(block.type==='plans')return`<section class="lp-section" style="${style}"><div class="lp-content"><h2 class="lp-section-title">${esc(p.title)}</h2><div class="lp-grid cols-3" style="margin-top:28px">${plans.map(plan=>`<article class="lp-card"><h3>${esc(plan.name)}</h3><p>${esc(plan.description)}</p><div class="lp-price">${Number(plan.monthly_price)>0?money(plan.monthly_price):'Sob consulta'}</div></article>`).join('')}</div></div></section>`
-    if(block.type==='image'){const url=safeUrl(p.url);return url?`<section class="lp-section" style="${style}"><div class="lp-content"><div class="lp-image"><img src="${esc(url)}" alt="${esc(p.alt)}"></div>${p.caption?`<div class="lp-caption">${esc(p.caption)}</div>`:''}</div></section>`:''}
-    if(block.type==='gallery'){const items=Array.isArray(p.items)?p.items:[];return`<section class="lp-section" style="${style}"><div class="lp-content"><h2 class="lp-section-title">${esc(p.title)}</h2><div class="lp-grid cols-2" style="margin-top:28px">${items.map(item=>{const obj=typeof item==='object'?item as Record<string,unknown>:{url:item,caption:''};const url=safeUrl(obj.url);return url?`<figure><div class="lp-image"><img src="${esc(url)}"></div><figcaption class="lp-caption">${esc(obj.caption)}</figcaption></figure>`:''}).join('')}</div></div></section>`}
-    if(block.type==='cta')return`<section class="lp-section" style="${style}"><div class="lp-content"><h2 class="lp-section-title">${esc(p.title)}</h2>${p.text?`<p class="lp-lead">${esc(p.text)}</p>`:''}<div class="lp-actions">${btn(p.button_label,p.button_url,true)}</div></div></section>`
-    if(block.type==='divider')return`<section class="lp-section" style="${style}"><div class="lp-content"><div class="lp-divider"></div></div></section>`
-    if(block.type==='spacer')return`<div style="height:${esc(String(p.height||'48px'))}"></div>`
-    if(block.type==='html')return`<section class="lp-section" style="${style}"><div class="lp-content">${String(p.html||'')}</div></section>`
-    return''
-  }).join('')
-  return`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body>${meta.show_brand===false?'':`<nav class="lp-brandbar"><div class="lp-wrap"><span class="lp-mark">AF</span><span class="lp-brand">${esc(meta.brand_name||'Connect|API Platform')}</span></div></nav>`}<main>${blocks}</main></body></html>`
+  for(const block of documentData.blocks||[]){const rendered=renderBlock(doc,block,plans,money);if(rendered)main.appendChild(rendered)}
+  doc.body.appendChild(main)
+
+  return`<!doctype html>\n${doc.documentElement.outerHTML}`
 }
