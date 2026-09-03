@@ -1,9 +1,11 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-mysql}
+
 services:
-  mysql:
-    container_name: argws_connect_mysql
+  mysql-argws-connect-mysql:
+    container_name: mysql-argws-connect-mysql
     image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
     pull_policy: always
-    networks: [connect-net]
+    networks: [argws-connect-mysql-net]
     restart: unless-stopped
     ports:
       - "${MYSQL_BIND_ADDRESS:-127.0.0.1}:${MYSQL_HOST_PORT:-3306}:3306"
@@ -17,6 +19,6 @@ volumes:
   mysql_data:
 
 networks:
-  connect-net:
-    name: connect-net
+  argws-connect-mysql-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-mysql-net}
     driver: bridge
