@@ -59,20 +59,38 @@ def test_reference_financial_domain_is_disabled_by_default() -> None:
     assert "if settings.enable_reference_financial_domain:" in main
 
 
-def test_existing_develop_stack_can_be_upgraded_in_place() -> None:
-    base = (REPO / "deploy" / "develop" / "compose.yaml").read_text(encoding="utf-8")
-    overlay = (REPO / "deploy" / "develop" / "compose.platform.yaml").read_text(encoding="utf-8")
-    env = (REPO / "deploy" / "develop" / "platform.env.example").read_text(encoding="utf-8")
-    assert "api-argws-connect-develop:" in base
-    assert "./volumes/instances" in base
-    assert overlay.startswith("name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}\n")
-    assert "COMPOSE_PROJECT_NAME=argws-connect-develop" in env
-    assert "ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net" in env
-    assert "api-argws-connect-develop:" in overlay
-    assert "aliases: [connect-engine, argws-connect-api]" in overlay
-    assert "platform-postgres-argws-connect-develop:" in overlay
-    assert "\n  connect-engine:\n" not in overlay
-    assert "BOOTSTRAP_DEMO_TENANT=false" in env
+def test_platform_develop_is_standalone_and_complete() -> None:
+    classic = REPO / "deploy" / "develop"
+    standalone = REPO / "deploy" / "platform-develop"
+    compose = (standalone / "compose.yaml").read_text(encoding="utf-8")
+    env = (standalone / "env.example").read_text(encoding="utf-8")
+
+    assert not (classic / "compose.platform.yaml").exists()
+    assert not (classic / "platform.env.example").exists()
+    assert compose.startswith("name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform-develop}\n")
+    assert "COMPOSE_PROJECT_NAME=argws-connect-platform-develop" in env
+    assert "ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-develop-net" in env
+    assert "ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:develop" in env
+    assert "ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:develop" in env
+    assert "ARGWS_CONNECT_PLATFORM_API_IMAGE=ghcr.io/wkarts/argws-connect-platform-api:develop" in env
+    assert "ARGWS_CONNECT_PLATFORM_WEB_IMAGE=ghcr.io/wkarts/argws-connect-platform-web:develop" in env
+    assert "ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE=ghcr.io/wkarts/argws-connect-platform-gateway:develop" in env
+    assert "SERVER_URL=https://d.api.connect.argws.com.br" in env
+    assert "ARGWS_CONNECT_DOCS_PUBLIC_URL=https://d.docs.connect.argws.com.br" in env
+    assert "PLATFORM_DOMAIN=d.connect.argws.com.br" in env
+    assert "CONTROL_PLANE_HOST=d.control.connect.argws.com.br" in env
+    assert "PARTNER_PLANE_HOST=d.partner.connect.argws.com.br" in env
+    assert "DEMO_HOST=d.demo.connect.argws.com.br" in env
+    assert "api-argws-connect-platform-develop:" in compose
+    assert "docs-argws-connect-platform-develop:" in compose
+    assert "postgres-argws-connect-platform-develop:" in compose
+    assert "platform-postgres-argws-connect-platform-develop:" in compose
+    assert "platform-api-argws-connect-platform-develop:" in compose
+    assert "platform-worker-argws-connect-platform-develop:" in compose
+    assert "platform-scheduler-argws-connect-platform-develop:" in compose
+    assert "platform-web-argws-connect-platform-develop:" in compose
+    assert "platform-gateway-argws-connect-platform-develop:" in compose
+    assert "profiles: [platform]" not in compose
 
 
 def test_running_engine_instances_can_be_adopted_without_recreation() -> None:

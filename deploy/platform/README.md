@@ -34,6 +34,18 @@ Produto completo: Engine, DOCs, Platform Control API, Vue frontend, worker, sche
 ./deploy/platform/deploy.sh platform
 ```
 
+## Develop completo independente
+
+Para o ambiente operacional `develop`, use a stack própria:
+
+```text
+deploy/platform-develop/
+project = argws-connect-platform-develop
+network = argws-connect-platform-develop-net
+```
+
+Ela não usa `deploy/develop` como base e sobe Engine + DOCs + Platform completa por padrão, sempre com imagens `:develop` da aplicação. Consulte `deploy/platform-develop/README.md`.
+
 ## Atualizar / status
 
 ```bash
