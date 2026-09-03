@@ -6,6 +6,7 @@ on:
     paths:
       - "platform/**"
       - "deploy/platform/**"
+      - "deploy/platform-develop/**"
       - "deploy/develop/compose.platform.yaml"
       - "deploy/develop/platform.env.example"
       - ".github/workflows/platform-integrity.yml"
@@ -14,6 +15,7 @@ on:
     paths:
       - "platform/**"
       - "deploy/platform/**"
+      - "deploy/platform-develop/**"
       - "deploy/develop/compose.platform.yaml"
       - "deploy/develop/platform.env.example"
       - ".github/workflows/platform-integrity.yml"
@@ -66,11 +68,10 @@ jobs:
           npm run test:run
           npm run build
 
-      - name: Prepare disposable Platform environment
+      - name: Prepare disposable Platform environments
         run: |
           cp deploy/platform/env.example deploy/platform/.env
-          cp deploy/develop/env.example deploy/develop/.env
-          cp deploy/develop/platform.env.example deploy/develop/.platform.env
+          cp deploy/platform-develop/env.example deploy/platform-develop/.env
 
       - name: Validate Platform deployment profiles
         run: |
@@ -84,27 +85,45 @@ jobs:
           local_build_json="$(docker compose --env-file deploy/platform/.env -f deploy/platform/compose.yaml -f deploy/platform/compose.local-build.yaml --profile platform config --format json)"
           jq -e '.name == "argws-connect-platform"' <<<"$local_build_json" >/dev/null
 
-      - name: Validate in-place develop to Platform upgrade
-        working-directory: deploy/develop
+      - name: Validate standalone Platform develop stack
         run: |
           set -euo pipefail
-          grep -q '^name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}$' compose.platform.yaml
-          grep -q '^COMPOSE_PROJECT_NAME=argws-connect-develop$' .platform.env
-          grep -q '^ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net$' .platform.env
-          docker compose --env-file .env --env-file .platform.env \
-            -f compose.yaml -f compose.platform.yaml --profile platform config >/dev/null
-          rendered="$(docker compose --env-file .env --env-file .platform.env -f compose.yaml -f compose.platform.yaml --profile platform config)"
-          rendered_json="$(docker compose --env-file .env --env-file .platform.env -f compose.yaml -f compose.platform.yaml --profile platform config --format json)"
-          grep -q 'api-argws-connect-develop:' <<<"$rendered"
-          grep -q 'platform-api-argws-connect-develop:' <<<"$rendered"
-          grep -q 'platform-web-argws-connect-develop:' <<<"$rendered"
-          grep -q 'platform-postgres-argws-connect-develop:' <<<"$rendered"
-          jq -e '.name == "argws-connect-develop"' <<<"$rendered_json" >/dev/null
-          test "$(grep -c '^  connect-engine:' <<<"$rendered" || true)" -eq 0
+          test ! -e deploy/develop/compose.platform.yaml
+          test ! -e deploy/develop/platform.env.example
+          grep -q '^name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform-develop}$' deploy/platform-develop/compose.yaml
+          grep -q '^COMPOSE_PROJECT_NAME=argws-connect-platform-develop$' deploy/platform-develop/.env
+          grep -q '^ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-develop-net$' deploy/platform-develop/.env
+          grep -q '^ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:develop$' deploy/platform-develop/.env
+          grep -q '^ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:develop$' deploy/platform-develop/.env
+          grep -q '^ARGWS_CONNECT_PLATFORM_API_IMAGE=ghcr.io/wkarts/argws-connect-platform-api:develop$' deploy/platform-develop/.env
+          grep -q '^ARGWS_CONNECT_PLATFORM_WEB_IMAGE=ghcr.io/wkarts/argws-connect-platform-web:develop$' deploy/platform-develop/.env
+          grep -q '^ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE=ghcr.io/wkarts/argws-connect-platform-gateway:develop$' deploy/platform-develop/.env
+          rendered="$(docker compose --env-file deploy/platform-develop/.env -f deploy/platform-develop/compose.yaml config)"
+          rendered_json="$(docker compose --env-file deploy/platform-develop/.env -f deploy/platform-develop/compose.yaml config --format json)"
+          jq -e '.name == "argws-connect-platform-develop"' <<<"$rendered_json" >/dev/null
+          for service in \
+            api-argws-connect-platform-develop \
+            docs-argws-connect-platform-develop \
+            postgres-argws-connect-platform-develop \
+            redis-argws-connect-platform-develop \
+            rabbitmq-argws-connect-platform-develop \
+            minio-argws-connect-platform-develop \
+            platform-postgres-argws-connect-platform-develop \
+            platform-api-argws-connect-platform-develop \
+            platform-worker-argws-connect-platform-develop \
+            platform-scheduler-argws-connect-platform-develop \
+            platform-web-argws-connect-platform-develop \
+            platform-gateway-argws-connect-platform-develop; do
+            grep -q "^  ${service}:" <<<"$rendered"
+          done
+          grep -q 'argws-connect-platform-develop-net' <<<"$rendered"
 
       - name: Validate Platform operational scripts
         run: |
           set -euo pipefail
           for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh profile.sh; do
             bash -n "deploy/platform/$script"
+          done
+          for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh; do
+            bash -n "deploy/platform-develop/$script"
           done
