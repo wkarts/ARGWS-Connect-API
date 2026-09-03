@@ -236,7 +236,33 @@ export class TemplateEngineService {
 
   private async sendMicroAppAutoLaunch(runtime: any, data: SendTemplateDto, autoLaunch: any) {
     if (!autoLaunch?.session?.url) return;
-    await runtime.textMessage({
+
+    if (autoLaunch.policy.launchMode !== 'LINK' && typeof runtime.buttonMessage === 'function') {
+      try {
+        return await runtime.buttonMessage({
+          number: data.number,
+          title: autoLaunch.policy.messageText || 'Mini App disponível',
+          description: 'Abra a experiência segura do Connect|API.',
+          footer: 'Connect|API',
+          buttons: [
+            {
+              type: 'url',
+              displayText: autoLaunch.policy.buttonText || 'Abrir Mini App',
+              url: autoLaunch.session.url,
+            },
+          ],
+          delay: data.delay,
+          quoted: data.quoted,
+          mentionsEveryOne: data.mentionsEveryOne,
+          mentioned: data.mentioned,
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`MICRO_APP_CTA_FALLBACK: ${reason}`);
+      }
+    }
+
+    return runtime.textMessage({
       number: data.number,
       text: `${autoLaunch.policy.messageText}
 ${autoLaunch.session.url}`,
