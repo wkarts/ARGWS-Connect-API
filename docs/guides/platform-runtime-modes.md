@@ -113,7 +113,12 @@ Todo deployment Compose independente do Connect|API deve declarar `name: ${COMPO
 | dockge | `argws-connect-dockge` | `argws-connect-dockge-net` |
 | platform | `argws-connect-platform` | `argws-connect-platform-net` |
 
-Overlays operacionais também declaram explicitamente o **mesmo** project name da stack-base. Portanto `deploy/develop/compose.platform.yaml` usa `name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}` e `deploy/develop/platform.env.example` define `COMPOSE_PROJECT_NAME=argws-connect-develop` e `ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net`. Isso não cria outro projeto; ao contrário, impede divergência acidental e documenta de forma verificável que o overlay pertence à mesma stack.
+Overlays operacionais também declaram explicitamente o **mesmo** project name da stack-base. Portanto:
+
+- `deploy/develop/compose.platform.yaml` usa `name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}` e `deploy/develop/platform.env.example` define `COMPOSE_PROJECT_NAME=argws-connect-develop` e `ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net`;
+- `deploy/platform/compose.local-build.yaml` usa `name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}`, igual ao `deploy/platform/compose.yaml` e ao `deploy/platform/env.example`.
+
+Isso não cria projetos adicionais; ao contrário, impede divergência acidental e documenta de forma verificável a identidade da stack em cada combinação de Compose.
 
 ### Convenção dos services
 
