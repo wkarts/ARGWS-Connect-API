@@ -34,6 +34,8 @@ A observabilidade completa permanece opt-in com o profile `observability`.
 
 Uma instalação develop que já possui Engine, banco e sessões WhatsApp **não precisa ser migrada para um segundo stack**. O arquivo `deploy/develop/compose.platform.yaml` é um overlay do compose já utilizado e reaproveita os serviços/volumes atuais.
 
+O overlay declara explicitamente o mesmo project e a mesma network da stack-base: `argws-connect-develop` e `argws-connect-develop-net`. O arquivo `platform.env.example` repete esses valores de forma intencional para tornar o contrato auditável e impedir que a Platform seja iniciada acidentalmente como um segundo projeto Compose.
+
 ```bash
 cd deploy/develop
 cp platform.env.example .platform.env
@@ -95,7 +97,6 @@ Não há migração destrutiva do banco do Engine nesta frente. A Platform usa s
 
 Para uma instalação existente, atualize o Engine pelo fluxo normal e depois ative a Platform usando o overlay correspondente ao deployment que já está em uso. Em `deploy/develop`, use `compose.platform.yaml` para manter a mesma stack e os mesmos volumes.
 
-
 ## Convenção de project name dos deployments
 
 Todo deployment Compose independente do Connect|API deve declarar `name: ${COMPOSE_PROJECT_NAME:-...}` e manter o mesmo valor em `env.example`. O padrão canônico é `argws-connect-<deployment>`; quando houver rede dedicada, use `argws-connect-<deployment>-net`.
@@ -112,8 +113,7 @@ Todo deployment Compose independente do Connect|API deve declarar `name: ${COMPO
 | dockge | `argws-connect-dockge` | `argws-connect-dockge-net` |
 | platform | `argws-connect-platform` | `argws-connect-platform-net` |
 
-Arquivos overlay, como `deploy/develop/compose.platform.yaml` e `deploy/platform/compose.local-build.yaml`, **não declaram outro project name**: eles herdam obrigatoriamente o projeto do compose base para permanecer na mesma stack.
-
+Overlays operacionais também declaram explicitamente o **mesmo** project name da stack-base. Portanto `deploy/develop/compose.platform.yaml` usa `name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}` e `deploy/develop/platform.env.example` define `COMPOSE_PROJECT_NAME=argws-connect-develop` e `ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net`. Isso não cria outro projeto; ao contrário, impede divergência acidental e documenta de forma verificável que o overlay pertence à mesma stack.
 
 ### Convenção dos services
 
