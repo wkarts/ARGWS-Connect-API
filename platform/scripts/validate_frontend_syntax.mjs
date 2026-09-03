@@ -51,6 +51,76 @@ function validateScript(file, source, kind = ts.ScriptKind.TS) {
   checked += 1
 }
 
+function isTagBoundary(char) {
+  return char === undefined || char === '>' || /\s/.test(char)
+}
+
+function findClosingTag(sourceLower, tagName, fromIndex) {
+  const needle = `</${tagName}`
+  let cursor = fromIndex
+  while (cursor < sourceLower.length) {
+    const start = sourceLower.indexOf(needle, cursor)
+    if (start < 0) return null
+    let end = start + needle.length
+    if (!isTagBoundary(sourceLower[end])) {
+      cursor = end
+      continue
+    }
+    while (end < sourceLower.length && /\s/.test(sourceLower[end])) end += 1
+    if (sourceLower[end] === '>') return { start, end }
+    cursor = end + 1
+  }
+  return null
+}
+
+function extractVueScripts(file, source) {
+  const lower = source.toLowerCase()
+  let cursor = 0
+  let scriptIndex = 0
+
+  while (cursor < lower.length) {
+    const start = lower.indexOf('<script', cursor)
+    if (start < 0) break
+    const boundary = lower[start + '<script'.length]
+    if (!isTagBoundary(boundary)) {
+      cursor = start + '<script'.length
+      continue
+    }
+
+    const openEnd = lower.indexOf('>', start + '<script'.length)
+    if (openEnd < 0) {
+      errors.push(`${file}: bloco <script> sem fechamento do cabeçalho`)
+      return
+    }
+
+    const closing = findClosingTag(lower, 'script', openEnd + 1)
+    if (!closing) {
+      errors.push(`${file}: bloco <script> sem </script> correspondente`)
+      return
+    }
+
+    scriptIndex += 1
+    validateScript(`${file}.script-${scriptIndex}.ts`, source.slice(openEnd + 1, closing.start))
+    cursor = closing.end + 1
+  }
+}
+
+function countTags(source, tagName, closing = false) {
+  const lower = source.toLowerCase()
+  const needle = closing ? `</${tagName}` : `<${tagName}`
+  let cursor = 0
+  let count = 0
+
+  while (cursor < lower.length) {
+    const start = lower.indexOf(needle, cursor)
+    if (start < 0) break
+    const boundary = lower[start + needle.length]
+    if (isTagBoundary(boundary)) count += 1
+    cursor = start + needle.length
+  }
+  return count
+}
+
 for (const file of walk(root).sort()) {
   const ext = path.extname(file)
   if (!['.ts', '.tsx', '.vue'].includes(ext)) continue
@@ -61,14 +131,11 @@ for (const file of walk(root).sort()) {
     continue
   }
 
-  const scriptRegex = /<script(?:\s+setup)?(?:\s+lang=["'](?:ts|tsx)["'])?[^>]*>([\s\S]*?)<\/script>/gi
-  const scripts = [...source.matchAll(scriptRegex)]
-  scripts.forEach((match, index) => validateScript(`${file}.script-${index + 1}.ts`, match[1]))
+  extractVueScripts(file, source)
 
-  const withoutScripts = source.replace(scriptRegex, '')
-  const templateOpen = (withoutScripts.match(/<template(?:\s[^>]*)?>/gi) ?? []).length
-  const templateClose = (withoutScripts.match(/<\/template>/gi) ?? []).length
-  if (templateOpen < 1 || templateClose < 1) {
+  const templateOpen = countTags(source, 'template')
+  const templateClose = countTags(source, 'template', true)
+  if (templateOpen < 1 || templateClose < 1 || templateOpen !== templateClose) {
     errors.push(`${file}: bloco <template> principal ausente ou incompleto`)
   }
 }
