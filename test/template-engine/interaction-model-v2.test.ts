@@ -81,9 +81,10 @@ assert.equal(meta.interactions[0]?.compatibilityTransport, 'META_LIST');
 assert.equal(meta.interactions[1]?.compatibilityTransport, 'META_INTERACTIVE_CHOICE');
 
 const baileys = planTemplateTransport('WHATSAPP-BAILEYS', envelope);
-assert.equal(baileys.interactions[0]?.mode, 'TEXT_COMPAT');
-assert.equal(baileys.interactions[1]?.mode, 'POLL_COMPAT');
-assert.equal(baileys.interactions[1]?.compatibilityTransport, 'BAILEYS_OFFICIAL_POLL');
+assert.equal(baileys.interactions[0]?.mode, 'INTERACTIVE');
+assert.equal(baileys.interactions[0]?.compatibilityTransport, 'BAILEYS_LIST');
+assert.equal(baileys.interactions[1]?.mode, 'INTERACTIVE');
+assert.equal(baileys.interactions[1]?.compatibilityTransport, 'BAILEYS_BUTTONS');
 
 const connect = planTemplateTransport('CONNECT', envelope);
 assert.equal(connect.interactions[0]?.mode, 'TEXT_COMPAT');

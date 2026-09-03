@@ -492,10 +492,14 @@ ${autoLaunch.session.url}`,
       let fallback = false;
       let fallbackReason: string | undefined;
       try {
-        if (planned.compatibilityTransport === 'META_LIST' && interaction.type === 'list') {
+        if (
+          (planned.compatibilityTransport === 'META_LIST' || planned.compatibilityTransport === 'BAILEYS_LIST') &&
+          interaction.type === 'list'
+        ) {
           result = await runtime.listMessage(this.listPayload(data, interaction));
         } else if (
-          planned.compatibilityTransport === 'META_INTERACTIVE_CHOICE' &&
+          (planned.compatibilityTransport === 'META_INTERACTIVE_CHOICE' ||
+            planned.compatibilityTransport === 'BAILEYS_LIST') &&
           interaction.type === 'choice' &&
           interaction.options.length > 3 &&
           typeof runtime.listMessage === 'function'
@@ -503,7 +507,8 @@ ${autoLaunch.session.url}`,
           result = await runtime.listMessage(this.choiceAsListPayload(data, interaction));
         } else if (
           (planned.compatibilityTransport === 'META_INTERACTIVE_CHOICE' ||
-            planned.compatibilityTransport === 'CONNECT_BUTTONS') &&
+            planned.compatibilityTransport === 'CONNECT_BUTTONS' ||
+            planned.compatibilityTransport === 'BAILEYS_BUTTONS') &&
           interaction.type === 'choice' &&
           typeof runtime.buttonMessage === 'function'
         ) {

@@ -12,8 +12,11 @@ assert.match(engineSource, /planTemplateTransport\(provider, rendered\)/);
 assert.match(engineSource, /transport\.mode === 'POLL_COMPAT'/);
 assert.match(engineSource, /sendBaileysPollCompatibility/);
 assert.match(engineSource, /runtime\.pollMessage/);
+assert.match(engineSource, /BAILEYS_BUTTONS/);
+assert.match(engineSource, /BAILEYS_LIST/);
 assert.match(plannerSource, /normalized === 'WHATSAPP-BAILEYS'/);
-assert.match(plannerSource, /mode: 'POLL_COMPAT'/);
+assert.match(plannerSource, /mode: 'INTERACTIVE'/);
+assert.match(plannerSource, /compatibilityTransport: 'BAILEYS_NATIVE_INTERACTIVE'/);
 assert.match(plannerSource, /compatibilityTransport: 'BAILEYS_OFFICIAL_POLL'/);
 assert.match(plannerSource, /mode: 'TEXT_COMPAT'/);
 
@@ -41,10 +44,12 @@ assert.deepEqual(
 );
 
 const planned = planTemplateTransport('WHATSAPP-BAILEYS', rendered);
-assert.equal(planned.mode, 'POLL_COMPAT');
-assert.equal(planned.compatibilityTransport, 'BAILEYS_OFFICIAL_POLL');
-assert.deepEqual(planned.buttons.map((button) => button.transport), ['POLL_OPTION', 'POLL_OPTION']);
+assert.equal(planned.mode, 'INTERACTIVE');
+assert.equal(planned.compatibilityTransport, 'BAILEYS_NATIVE_INTERACTIVE');
+assert.deepEqual(planned.buttons.map((button) => button.transport), ['NATIVE_BUTTON', 'NATIVE_BUTTON']);
+assert.equal(planned.degraded, false);
 
+// Poll normalization remains supported because multiple-choice interactions may still use the official Baileys poll transport.
 const normalized = extractBaileysPollInteraction({
   message: { pollUpdateMessage: { pollCreationMessageKey: { id: 'poll-outbound-1' } } },
   pollUpdates: [

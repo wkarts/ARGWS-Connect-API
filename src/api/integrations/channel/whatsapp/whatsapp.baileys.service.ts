@@ -94,6 +94,7 @@ import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-r
 import axios from 'axios';
 import makeWASocket, {
   AnyMessageContent,
+  BinaryNode,
   BufferedEventData,
   BufferJSON,
   CacheStore,
@@ -154,6 +155,7 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
+import { buildInteractiveBizNode, buildListBizNode } from './helpers/interactiveMessage.helper';
 import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
@@ -2240,6 +2242,7 @@ export class BaileysStartupService extends ChannelStartupService {
     messageId?: string,
     ephemeralExpiration?: number,
     contextInfo?: any,
+    additionalNodes?: BinaryNode[],
     // participants?: GroupParticipant[],
   ) {
     sender = sender.toLowerCase();
@@ -2259,14 +2262,17 @@ export class BaileysStartupService extends ChannelStartupService {
     // NOTE: NÃO DEVEMOS GERAR O messageId AQUI, SOMENTE SE VIER INFORMADO POR PARAMETRO. A GERAÇÃO ANTERIOR IMPEDE O WZAP DE IDENTIFICAR A SOURCE.
     if (messageId) option.messageId = messageId;
 
-    if (message['viewOnceMessage']) {
+    if (message['viewOnceMessage'] || message['interactiveMessage'] || message['listMessage']) {
       const m = generateWAMessageFromContent(sender, message, {
         timestamp: new Date(),
         userJid: this.instance.wuid,
         messageId,
         quoted,
       });
-      const id = await this.client.relayMessage(sender, message, { messageId });
+      const id = await this.client.relayMessage(sender, message, {
+        messageId,
+        ...(additionalNodes?.length ? { additionalNodes } : {}),
+      });
       m.key = { id: id, remoteJid: sender, participant: isPnUser(sender) ? sender : undefined, fromMe: true };
       for (const [key, value] of Object.entries(m)) {
         if (!value || (isArray(value) && value.length) === 0) {
@@ -2395,6 +2401,7 @@ export class BaileysStartupService extends ChannelStartupService {
     message: T,
     options?: Options,
     isIntegration = false,
+    additionalNodes?: BinaryNode[],
   ) {
     const isWA = (await this.whatsappNumber({ numbers: [number] }))?.shift();
 
@@ -2519,6 +2526,7 @@ export class BaileysStartupService extends ChannelStartupService {
           null,
           undefined,
           contextInfo,
+          additionalNodes,
         );
       }
 
@@ -3419,105 +3427,94 @@ export class BaileysStartupService extends ChannelStartupService {
   ]);
 
   public async buttonMessage(data: SendButtonsDto) {
-    if (data.buttons.length === 0) {
+    if (!data.buttons || data.buttons.length === 0) {
       throw new BadRequestException('At least one button is required');
     }
 
     const hasReplyButtons = data.buttons.some((btn) => btn.type === 'reply');
-
     const hasPixButton = data.buttons.some((btn) => btn.type === 'pix');
-
-    const hasOtherButtons = data.buttons.some((btn) => btn.type !== 'reply' && btn.type !== 'pix');
+    const hasCTAButtons = data.buttons.some((btn) => btn.type === 'url' || btn.type === 'call' || btn.type === 'copy');
 
     if (hasReplyButtons) {
-      if (data.buttons.length > 3) {
-        throw new BadRequestException('Maximum of 3 reply buttons allowed');
-      }
-      if (hasOtherButtons) {
-        throw new BadRequestException('Reply buttons cannot be mixed with other button types');
+      if (data.buttons.length > 3) throw new BadRequestException('Maximum of 3 reply buttons allowed');
+      if (hasCTAButtons || hasPixButton) {
+        throw new BadRequestException('Reply buttons cannot be mixed with CTA or PIX buttons');
       }
     }
 
     if (hasPixButton) {
-      if (data.buttons.length > 1) {
-        throw new BadRequestException('Only one PIX button is allowed');
-      }
-      if (hasOtherButtons) {
+      if (data.buttons.length > 1) throw new BadRequestException('Only one PIX button is allowed');
+      if (hasReplyButtons || hasCTAButtons) {
         throw new BadRequestException('PIX button cannot be mixed with other button types');
       }
 
       const message: proto.IMessage = {
-        viewOnceMessage: {
-          message: {
-            interactiveMessage: {
-              nativeFlowMessage: {
-                buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
-                messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
-              },
-            },
+        interactiveMessage: {
+          nativeFlowMessage: {
+            buttons: [{ name: this.mapType.get('pix'), buttonParamsJson: this.toJSONString(data.buttons[0]) }],
+            messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
           },
         },
       };
 
-      return await this.sendMessageWithTyping(data.number, message, {
+      return await this.sendMessageWithTyping(
+        data.number,
+        message,
+        {
+          delay: data?.delay,
+          presence: 'composing',
+          quoted: data?.quoted,
+          mentionsEveryOne: data?.mentionsEveryOne,
+          mentioned: data?.mentioned,
+        },
+        false,
+        [buildInteractiveBizNode()],
+      );
+    }
+
+    if (hasCTAButtons) {
+      if (data.buttons.length > 2) throw new BadRequestException('Maximum of 2 CTA buttons allowed');
+      if (hasReplyButtons) throw new BadRequestException('CTA buttons cannot be mixed with reply buttons');
+    }
+
+    const generatedMedia = data?.thumbnailUrl
+      ? await this.prepareMediaMessage({ mediatype: 'image', media: data.thumbnailUrl })
+      : null;
+
+    const buttons = data.buttons.map((btn) => ({
+      name: this.mapType.get(btn.type),
+      buttonParamsJson: this.toJSONString(btn),
+    }));
+
+    const message: proto.IMessage = {
+      interactiveMessage: {
+        body: {
+          text: [data.title ? `*${data.title}*` : '', data.description || ''].filter(Boolean).join('\n\n'),
+        },
+        footer: data?.footer ? { text: data.footer } : undefined,
+        header: generatedMedia?.message?.imageMessage
+          ? { hasMediaAttachment: true, imageMessage: generatedMedia.message.imageMessage }
+          : undefined,
+        nativeFlowMessage: {
+          buttons,
+          messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
+        },
+      },
+    };
+
+    return await this.sendMessageWithTyping(
+      data.number,
+      message,
+      {
         delay: data?.delay,
         presence: 'composing',
         quoted: data?.quoted,
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
-      });
-    }
-
-    const generate = await (async () => {
-      if (data?.thumbnailUrl) {
-        return await this.prepareMediaMessage({ mediatype: 'image', media: data.thumbnailUrl });
-      }
-    })();
-
-    const buttons = data.buttons.map((value) => {
-      return { name: this.mapType.get(value.type), buttonParamsJson: this.toJSONString(value) };
-    });
-
-    const message: proto.IMessage = {
-      viewOnceMessage: {
-        message: {
-          interactiveMessage: {
-            body: {
-              text: (() => {
-                let t = '*' + data.title + '*';
-                if (data?.description) {
-                  t += '\n\n';
-                  t += data.description;
-                  t += '\n';
-                }
-                return t;
-              })(),
-            },
-            footer: { text: data?.footer },
-            header: (() => {
-              if (generate?.message?.imageMessage) {
-                return {
-                  hasMediaAttachment: !!generate.message.imageMessage,
-                  imageMessage: generate.message.imageMessage,
-                };
-              }
-            })(),
-            nativeFlowMessage: {
-              buttons: buttons,
-              messageParamsJson: JSON.stringify({ from: 'api', templateId: v4() }),
-            },
-          },
-        },
       },
-    };
-
-    return await this.sendMessageWithTyping(data.number, message, {
-      delay: data?.delay,
-      presence: 'composing',
-      quoted: data?.quoted,
-      mentionsEveryOne: data?.mentionsEveryOne,
-      mentioned: data?.mentioned,
-    });
+      false,
+      [buildInteractiveBizNode()],
+    );
   }
 
   public async locationMessage(data: SendLocationDto) {
@@ -3542,18 +3539,27 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async listMessage(data: SendListDto) {
+    const message: proto.IMessage = {
+      listMessage: {
+        title: data.title || '',
+        description: data.description || '',
+        buttonText: data.buttonText || 'Ver Menu',
+        footerText: data.footerText || '',
+        listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,
+        sections: (data.sections || []).map((section) => ({
+          title: section.title || '',
+          rows: (section.rows || []).map((row) => ({
+            title: row.title || '',
+            description: row.description || '',
+            rowId: row.rowId || '',
+          })),
+        })),
+      },
+    };
+
     return await this.sendMessageWithTyping(
       data.number,
-      {
-        listMessage: {
-          title: data.title,
-          description: data.description,
-          buttonText: data?.buttonText,
-          footerText: data?.footerText,
-          sections: data.sections,
-          listType: 2,
-        },
-      },
+      message,
       {
         delay: data?.delay,
         presence: 'composing',
@@ -3561,6 +3567,8 @@ export class BaileysStartupService extends ChannelStartupService {
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
       },
+      false,
+      [buildListBizNode()],
     );
   }
 
