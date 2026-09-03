@@ -46,3 +46,32 @@ def test_reference_financial_domain_is_disabled_by_default() -> None:
     main = (PLATFORM / "control-api" / "app" / "main.py").read_text(encoding="utf-8")
     assert "enable_reference_financial_domain: bool = False" in cfg
     assert "if settings.enable_reference_financial_domain:" in main
+
+
+def test_existing_develop_stack_can_be_upgraded_in_place() -> None:
+    base = (REPO / "deploy" / "develop" / "compose.yaml").read_text(encoding="utf-8")
+    overlay = (REPO / "deploy" / "develop" / "compose.platform.yaml").read_text(encoding="utf-8")
+    env = (REPO / "deploy" / "develop" / "platform.env.example").read_text(encoding="utf-8")
+    assert "api-argws-connect-develop:" in base
+    assert "./volumes/instances" in base
+    assert "api-argws-connect-develop:" in overlay
+    assert "aliases: [connect-engine, argws-connect-api]" in overlay
+    assert "connect-platform-postgres:" in overlay
+    assert "connect-engine:" not in overlay
+    assert "BOOTSTRAP_DEMO_TENANT=false" in env
+
+
+def test_running_engine_instances_can_be_adopted_without_recreation() -> None:
+    route = (PLATFORM / "control-api" / "app" / "api" / "routes" / "tenant_connect.py").read_text(encoding="utf-8")
+    frontend = (PLATFORM / "web" / "src" / "api" / "connectEngine.ts").read_text(encoding="utf-8")
+    page = (PLATFORM / "web" / "src" / "pages" / "ConnectInstancesPage.vue").read_text(encoding="utf-8")
+    assert '/connect/instances/discover' in route
+    assert '/connect/instances/adopt' in route
+    assert '"origin": "ADOPTED_EXISTING"' in route
+    assert '"engine_mutated": False' in route
+    assert '/connect/instances/{binding_id}/detach' in route
+    assert "discoverEngineInstances" in frontend
+    assert "adoptEngineInstance" in frontend
+    assert "detachEngineInstance" in frontend
+    assert "Adotar existente" in page
+    assert "Adotar sem recriar" in page
