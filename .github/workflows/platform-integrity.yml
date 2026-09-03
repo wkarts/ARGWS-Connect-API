@@ -7,8 +7,7 @@ on:
       - "platform/**"
       - "deploy/platform/**"
       - "deploy/platform-develop/**"
-      - "deploy/develop/compose.platform.yaml"
-      - "deploy/develop/platform.env.example"
+      - "deploy/platform-production/**"
       - ".github/workflows/platform-integrity.yml"
   push:
     branches: [develop]
@@ -16,8 +15,7 @@ on:
       - "platform/**"
       - "deploy/platform/**"
       - "deploy/platform-develop/**"
-      - "deploy/develop/compose.platform.yaml"
-      - "deploy/develop/platform.env.example"
+      - "deploy/platform-production/**"
       - ".github/workflows/platform-integrity.yml"
 
 permissions:
@@ -25,7 +23,7 @@ permissions:
 
 jobs:
   platform:
-    name: Control API / Vue / Deployment Profiles
+    name: Control API / Vue / Platform Deployments
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -72,8 +70,9 @@ jobs:
         run: |
           cp deploy/platform/env.example deploy/platform/.env
           cp deploy/platform-develop/env.example deploy/platform-develop/.env
+          cp deploy/platform-production/env.example deploy/platform-production/.env
 
-      - name: Validate Platform deployment profiles
+      - name: Validate generic Platform deployment profiles
         run: |
           set -euo pipefail
           grep -q '^name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}$' deploy/platform/compose.yaml
@@ -118,12 +117,45 @@ jobs:
           done
           grep -q 'argws-connect-platform-develop-net' <<<"$rendered"
 
+      - name: Validate standalone Platform production stack
+        run: |
+          set -euo pipefail
+          grep -q '^name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform-production}$' deploy/platform-production/compose.yaml
+          grep -q '^COMPOSE_PROJECT_NAME=argws-connect-platform-production$' deploy/platform-production/.env
+          grep -q '^ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-production-net$' deploy/platform-production/.env
+          grep -q '^ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:latest$' deploy/platform-production/.env
+          grep -q '^ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest$' deploy/platform-production/.env
+          grep -q '^ARGWS_CONNECT_PLATFORM_API_IMAGE=ghcr.io/wkarts/argws-connect-platform-api:latest$' deploy/platform-production/.env
+          grep -q '^ARGWS_CONNECT_PLATFORM_WEB_IMAGE=ghcr.io/wkarts/argws-connect-platform-web:latest$' deploy/platform-production/.env
+          grep -q '^ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE=ghcr.io/wkarts/argws-connect-platform-gateway:latest$' deploy/platform-production/.env
+          rendered="$(docker compose --env-file deploy/platform-production/.env -f deploy/platform-production/compose.yaml config)"
+          rendered_json="$(docker compose --env-file deploy/platform-production/.env -f deploy/platform-production/compose.yaml config --format json)"
+          jq -e '.name == "argws-connect-platform-production"' <<<"$rendered_json" >/dev/null
+          for service in \
+            api-argws-connect-platform-production \
+            docs-argws-connect-platform-production \
+            postgres-argws-connect-platform-production \
+            redis-argws-connect-platform-production \
+            rabbitmq-argws-connect-platform-production \
+            minio-argws-connect-platform-production \
+            platform-postgres-argws-connect-platform-production \
+            platform-api-argws-connect-platform-production \
+            platform-worker-argws-connect-platform-production \
+            platform-scheduler-argws-connect-platform-production \
+            platform-web-argws-connect-platform-production \
+            platform-gateway-argws-connect-platform-production; do
+            grep -q "^  ${service}:" <<<"$rendered"
+          done
+          grep -q 'argws-connect-platform-production-net' <<<"$rendered"
+
       - name: Validate Platform operational scripts
         run: |
           set -euo pipefail
           for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh profile.sh; do
             bash -n "deploy/platform/$script"
           done
-          for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh; do
-            bash -n "deploy/platform-develop/$script"
+          for stack in platform-develop platform-production; do
+            for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh; do
+              bash -n "deploy/${stack}/$script"
+            done
           done
