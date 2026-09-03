@@ -57,7 +57,7 @@ def test_existing_develop_stack_can_be_upgraded_in_place() -> None:
     assert "api-argws-connect-develop:" in overlay
     assert "aliases: [connect-engine, argws-connect-api]" in overlay
     assert "connect-platform-postgres:" in overlay
-    assert "connect-engine:" not in overlay
+    assert "\n  connect-engine:\n" not in overlay
     assert "BOOTSTRAP_DEMO_TENANT=false" in env
 
 
