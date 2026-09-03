@@ -42,10 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           cp .env.example .env
-          for dir in production develop canonical homologation cloudpanel dockge docs docs-develop platform; do
+          for dir in production develop platform-develop canonical homologation cloudpanel dockge docs docs-develop platform; do
             cp "deploy/${dir}/env.example" "deploy/${dir}/.env"
           done
-          cp deploy/develop/platform.env.example deploy/develop/.platform.env
 
       - name: Validate repository-wide Compose naming contract
         run: |
@@ -59,7 +58,8 @@ jobs:
         run: |
           rm -f .env \
             deploy/production/.env \
-            deploy/develop/.env deploy/develop/.platform.env \
+            deploy/develop/.env \
+            deploy/platform-develop/.env \
             deploy/canonical/.env \
             deploy/homologation/.env \
             deploy/cloudpanel/.env \
