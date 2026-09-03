@@ -1,8 +1,11 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}
+
 # Connect|API develop -> Platform overlay
 #
 # Este arquivo NAO substitui deploy/develop/compose.yaml.
 # Ele adiciona a Platform ao stack develop existente, preservando o Engine,
 # PostgreSQL, Redis, RabbitMQ, MinIO e volumes/instances em uso.
+# O project name e a network devem ser os MESMOS do compose base develop.
 #
 # Uso:
 # docker compose --env-file .env --env-file .platform.env \
@@ -160,6 +163,7 @@ services:
     networks:
       argws-connect-develop-net:
         aliases: [connect-platform-api]
+
   platform-worker-argws-connect-develop:
     container_name: platform-worker-argws-connect-develop
     <<: *platform-app

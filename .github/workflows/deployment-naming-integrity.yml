@@ -1,0 +1,69 @@
+name: Deployment Naming Integrity
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "*compose*.yaml"
+      - "*compose*.yml"
+      - "**/*compose*.yaml"
+      - "**/*compose*.yml"
+      - ".env.example"
+      - "deploy/**/env.example"
+      - "deploy/**/.env.example"
+      - "scripts/validate-deployment-naming.py"
+      - ".github/workflows/deployment-naming-integrity.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "*compose*.yaml"
+      - "*compose*.yml"
+      - "**/*compose*.yaml"
+      - "**/*compose*.yml"
+      - ".env.example"
+      - "deploy/**/env.example"
+      - "deploy/**/.env.example"
+      - "scripts/validate-deployment-naming.py"
+      - ".github/workflows/deployment-naming-integrity.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  naming:
+    name: Projects / Services / Containers / Networks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare disposable Compose environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          for dir in production develop canonical homologation cloudpanel dockge docs docs-develop platform; do
+            cp "deploy/${dir}/env.example" "deploy/${dir}/.env"
+          done
+          cp deploy/develop/platform.env.example deploy/develop/.platform.env
+
+      - name: Validate repository-wide Compose naming contract
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/validate-deployment-naming.py
+          python3 scripts/validate-deployment-naming.py
+
+      - name: Cleanup disposable environments
+        if: always()
+        shell: bash
+        run: |
+          rm -f .env \
+            deploy/production/.env \
+            deploy/develop/.env deploy/develop/.platform.env \
+            deploy/canonical/.env \
+            deploy/homologation/.env \
+            deploy/cloudpanel/.env \
+            deploy/dockge/.env \
+            deploy/docs/.env \
+            deploy/docs-develop/.env \
+            deploy/platform/.env

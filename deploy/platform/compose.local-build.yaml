@@ -1,3 +1,9 @@
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}
+
+# Local-build overlay da Connect|API Platform.
+# Este arquivo pertence explicitamente ao MESMO projeto de deploy/platform/compose.yaml.
+# Ele troca apenas image/pull_policy por build local; não cria uma segunda stack.
+
 services:
   api-argws-connect-platform:
     build:

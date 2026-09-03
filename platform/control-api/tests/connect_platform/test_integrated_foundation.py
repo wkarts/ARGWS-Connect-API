@@ -41,6 +41,17 @@ def test_deployment_profiles_exist() -> None:
     assert "platform-gateway-argws-connect-platform:" in compose
 
 
+def test_platform_local_build_overlay_keeps_project_identity() -> None:
+    compose = (REPO / "deploy" / "platform" / "compose.yaml").read_text(encoding="utf-8")
+    overlay = (REPO / "deploy" / "platform" / "compose.local-build.yaml").read_text(encoding="utf-8")
+    env = (REPO / "deploy" / "platform" / "env.example").read_text(encoding="utf-8")
+    expected = "name: ${COMPOSE_PROJECT_NAME:-argws-connect-platform}\n"
+    assert compose.startswith(expected)
+    assert overlay.startswith(expected)
+    assert "COMPOSE_PROJECT_NAME=argws-connect-platform" in env
+    assert "ARGWS_CONNECT_NETWORK_NAME=argws-connect-platform-net" in env
+
+
 def test_reference_financial_domain_is_disabled_by_default() -> None:
     cfg = (PLATFORM / "control-api" / "app" / "core" / "config.py").read_text(encoding="utf-8")
     main = (PLATFORM / "control-api" / "app" / "main.py").read_text(encoding="utf-8")
@@ -54,6 +65,9 @@ def test_existing_develop_stack_can_be_upgraded_in_place() -> None:
     env = (REPO / "deploy" / "develop" / "platform.env.example").read_text(encoding="utf-8")
     assert "api-argws-connect-develop:" in base
     assert "./volumes/instances" in base
+    assert overlay.startswith("name: ${COMPOSE_PROJECT_NAME:-argws-connect-develop}\n")
+    assert "COMPOSE_PROJECT_NAME=argws-connect-develop" in env
+    assert "ARGWS_CONNECT_NETWORK_NAME=argws-connect-develop-net" in env
     assert "api-argws-connect-develop:" in overlay
     assert "aliases: [connect-engine, argws-connect-api]" in overlay
     assert "platform-postgres-argws-connect-develop:" in overlay

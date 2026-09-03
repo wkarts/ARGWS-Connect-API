@@ -1,7 +1,8 @@
 name: ${COMPOSE_PROJECT_NAME:-argws-connect-api-dev}
 
 services:
-  api:
+  api-argws-connect-api-dev:
+    container_name: api-argws-connect-api-dev
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
     pull_policy: always
     restart: unless-stopped
@@ -10,7 +11,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
     networks:
-      - argws-connect-dev-net
+      - argws-connect-api-dev-net
     env_file:
       - .env
     healthcheck:
@@ -21,6 +22,6 @@ services:
       start_period: 60s
 
 networks:
-  argws-connect-dev-net:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-dev-net}
+  argws-connect-api-dev-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-api-dev-net}
     driver: bridge
