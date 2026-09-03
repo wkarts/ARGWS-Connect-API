@@ -22,7 +22,12 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Apply provider transport patch
-        run: python3 scripts/apply-baileys-interactive-rendering.py
+        run: |
+          sed -i "s/text = button_pattern.sub(button_block, text, count=1)/text = button_pattern.sub(lambda _match: button_block, text, count=1)/" scripts/apply-baileys-interactive-rendering.py
+          sed -i "s/text = list_pattern.sub(list_block, text, count=1)/text = list_pattern.sub(lambda _match: list_block, text, count=1)/" scripts/apply-baileys-interactive-rendering.py
+          sed -i "s/text = cap_pattern.sub(cap_block, text, count=1)/text = cap_pattern.sub(lambda _match: cap_block, text, count=1)/" scripts/apply-baileys-interactive-rendering.py
+          sed -i "s/text = plan_pattern.sub(plan_block, text, count=1)/text = plan_pattern.sub(lambda _match: plan_block, text, count=1)/" scripts/apply-baileys-interactive-rendering.py
+          python3 scripts/apply-baileys-interactive-rendering.py
       - name: Validate targeted transport
         run: |
           npx eslint --fix src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts src/api/integrations/channel/whatsapp/helpers/interactiveMessage.helper.ts src/api/services/template-transport-planner.ts src/api/services/template-engine.service.ts
