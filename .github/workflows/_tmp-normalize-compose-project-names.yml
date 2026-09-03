@@ -98,7 +98,6 @@ jobs:
                   text = set_container_name(text, f'argws_connect_{old}', new) if existing_container_names else add_container_name(text, new)
               write(path, text)
 
-          # Root/default API deployment.
           root = read('docker-compose.yaml').replace('argws-connect-net', 'argws-connect-api-net')
           for old in RESOURCES:
               new = f'{old}-argws-connect-api'
@@ -113,10 +112,8 @@ jobs:
           normalize_generic_stack('deploy/dockge/compose.yaml', 'dockge', existing_container_names=True)
           normalize_generic_stack('deploy/homologation/compose.yaml', 'homologation', existing_container_names=False)
 
-          docs = read('deploy/docs/compose.yaml').replace('docs-argws-connect-standalone', 'docs-argws-connect-docs')
-          write('deploy/docs/compose.yaml', docs)
-          docs_dev = read('deploy/docs-develop/compose.yaml').replace('docs-argws-connect-standalone-develop', 'docs-argws-connect-docs-develop')
-          write('deploy/docs-develop/compose.yaml', docs_dev)
+          write('deploy/docs/compose.yaml', read('deploy/docs/compose.yaml').replace('docs-argws-connect-standalone', 'docs-argws-connect-docs'))
+          write('deploy/docs-develop/compose.yaml', read('deploy/docs-develop/compose.yaml').replace('docs-argws-connect-standalone-develop', 'docs-argws-connect-docs-develop'))
 
           platform_map = {
               'connect-engine': 'api-argws-connect-platform',
@@ -184,14 +181,13 @@ jobs:
           write('deploy/develop/compose.platform.yaml', overlay)
 
           tests = read('platform/control-api/tests/connect_platform/test_integrated_foundation.py')
-          replacements = {
+          for old, new in {
               '"connect-engine:"': '"api-argws-connect-platform:"',
               '"connect-platform-api:"': '"platform-api-argws-connect-platform:"',
               '"connect-platform-web:"': '"platform-web-argws-connect-platform:"',
               '"connect-gateway:"': '"platform-gateway-argws-connect-platform:"',
               '"connect-platform-postgres:"': '"platform-postgres-argws-connect-develop:"',
-          }
-          for old, new in replacements.items():
+          }.items():
               tests = tests.replace(old, new)
           write('platform/control-api/tests/connect_platform/test_integrated_foundation.py', tests)
 
@@ -200,32 +196,6 @@ jobs:
               '("api-argws-connect-platform", "docs-argws-connect-platform", "platform-api-argws-connect-platform", "platform-web-argws-connect-platform", "platform-gateway-argws-connect-platform")'
           )
           write('platform/scripts/validate_platform_integration.py', validator)
-
-          platform_ci = read('.github/workflows/platform-integrity.yml')
-          platform_ci = platform_ci.replace("grep -q 'connect-platform-api:'", "grep -q 'platform-api-argws-connect-develop:'")
-          platform_ci = platform_ci.replace("grep -q 'connect-platform-web:'", "grep -q 'platform-web-argws-connect-develop:'")
-          platform_ci = platform_ci.replace("grep -q 'connect-platform-postgres:'", "grep -q 'platform-postgres-argws-connect-develop:'")
-          write('.github/workflows/platform-integrity.yml', platform_ci)
-
-          deployment_ci = read('.github/workflows/deployment-integrity.yml')
-          deployment_ci = deployment_ci.replace(
-              "('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs', 38181,",
-              "('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'docs-argws-connect-homologation', 38181,"
-          ).replace(
-              "('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs', 38180,",
-              "('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'docs-argws-connect-cloudpanel', 38180,"
-          ).replace(
-              "('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs', 38180,",
-              "('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'docs-argws-connect-dockge', 38180,"
-          )
-          prepare_marker = '          cp deploy/dockge/env.example deploy/dockge/.env\n'
-          if 'cp deploy/platform/env.example deploy/platform/.env' not in deployment_ci:
-              deployment_ci = deployment_ci.replace(prepare_marker, prepare_marker + '          cp deploy/platform/env.example deploy/platform/.env\n')
-          naming_step = '''\n      - name: Enforce project, service, container and network naming contract\n        shell: bash\n        run: |\n          set -euo pipefail\n          python3 - <<'PY'\n          import json\n          import subprocess\n          from pathlib import Path\n\n          cases = [\n              ('api', 'docker-compose.yaml', '.env.example', 'argws-connect-api'),\n              ('production', 'deploy/production/compose.yaml', 'deploy/production/env.example', 'argws-connect-production'),\n              ('develop', 'deploy/develop/compose.yaml', 'deploy/develop/env.example', 'argws-connect-develop'),\n              ('canonical', 'deploy/canonical/compose.yaml', 'deploy/canonical/env.example', 'argws-connect-canonical'),\n              ('homologation', 'deploy/homologation/compose.yaml', 'deploy/homologation/env.example', 'argws-connect-homologation'),\n              ('cloudpanel', 'deploy/cloudpanel/docker-compose.yml', 'deploy/cloudpanel/env.example', 'argws-connect-cloudpanel'),\n              ('dockge', 'deploy/dockge/compose.yaml', 'deploy/dockge/env.example', 'argws-connect-dockge'),\n              ('docs', 'deploy/docs/compose.yaml', 'deploy/docs/env.example', 'argws-connect-docs'),\n              ('docs-develop', 'deploy/docs-develop/compose.yaml', 'deploy/docs-develop/env.example', 'argws-connect-docs-develop'),\n              ('platform', 'deploy/platform/compose.yaml', 'deploy/platform/env.example', 'argws-connect-platform'),\n          ]\n\n          def env_values(path):\n              values = {}\n              for raw in Path(path).read_text().splitlines():\n                  line = raw.strip()\n                  if line and not line.startswith('#') and '=' in line:\n                      key, value = line.split('=', 1)\n                      values[key] = value\n              return values\n\n          for deployment, compose, envfile, project in cases:\n              env = env_values(envfile)\n              assert env.get('COMPOSE_PROJECT_NAME') == project, f'{deployment}: COMPOSE_PROJECT_NAME inválido'\n              cfg = json.loads(subprocess.check_output(['docker','compose','--env-file',envfile,'--profile','*','-f',compose,'config','--format','json'], text=True))\n              assert cfg.get('name') == project, f'{deployment}: Compose name inválido: {cfg.get("name")}'\n              for service, service_cfg in cfg.get('services', {}).items():\n                  assert service.endswith('-' + project), f'{deployment}: service fora do padrão: {service}'\n                  assert service_cfg.get('container_name') == service, f'{deployment}: container_name deve ser igual ao service: {service}'\n              network_names = {item.get('name') for item in cfg.get('networks', {}).values()}\n              expected_network = project + '-net'\n              assert expected_network in network_names, f'{deployment}: network {expected_network} ausente: {sorted(network_names)}'\n\n          print('Deployment naming contract OK')\n          PY\n'''
-          marker = '      - name: Enforce official deployment contract\n'
-          if 'Enforce project, service, container and network naming contract' not in deployment_ci:
-              deployment_ci = deployment_ci.replace(marker, naming_step + '\n' + marker)
-          write('.github/workflows/deployment-integrity.yml', deployment_ci)
 
           guide = read('docs/guides/platform-runtime-modes.md')
           if '### Convenção dos services' not in guide:
@@ -241,6 +211,7 @@ jobs:
       - name: Validate generated naming locally
         run: |
           set -euo pipefail
+          cp .env.example .env
           cp deploy/platform/env.example deploy/platform/.env
           for spec in \
             'docker-compose.yaml|.env.example' \
@@ -256,12 +227,26 @@ jobs:
             compose="${spec%%|*}"; envfile="${spec##*|}"
             docker compose --env-file "$envfile" --profile '*' -f "$compose" config >/dev/null
           done
-          rm -f deploy/platform/.env
+          cp deploy/develop/env.example deploy/develop/.env
+          cp deploy/develop/platform.env.example deploy/develop/.platform.env
+          (cd deploy/develop && docker compose --env-file .env --env-file .platform.env -f compose.yaml -f compose.platform.yaml --profile platform config >/dev/null)
+          rm -f .env deploy/platform/.env deploy/develop/.env deploy/develop/.platform.env
 
-      - name: Commit normalized deployment contract
+      - name: Commit normalized deployment files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add \
+            .env.example docker-compose.yaml \
+            deploy/README.md \
+            deploy/platform/compose.yaml deploy/platform/compose.local-build.yaml deploy/platform/env.example \
+            deploy/develop/compose.platform.yaml \
+            deploy/homologation/compose.yaml deploy/homologation/env.example \
+            deploy/cloudpanel/docker-compose.yml deploy/cloudpanel/env.example deploy/cloudpanel/.env.example \
+            deploy/dockge/compose.yaml deploy/dockge/env.example deploy/dockge/.env.example \
+            deploy/docs/compose.yaml deploy/docs-develop/compose.yaml \
+            docs/guides/platform-runtime-modes.md \
+            platform/control-api/tests/connect_platform/test_integrated_foundation.py \
+            platform/scripts/validate_platform_integration.py
           git commit -m "fix(deploy): standardize project and service naming"
           git push origin HEAD:fix/deploy-compose-project-names
