@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8,19 +9,20 @@ STACKS = (
     ("deploy/platform-develop/compose.yaml", "argws-connect-platform-develop"),
     ("deploy/platform-production/compose.yaml", "argws-connect-platform-production"),
 )
+SERVICE_RE = re.compile(r"(?m)^  ([^\s:#][^:\n]*):\s*$")
 
 
 def service_block(text: str, service: str) -> tuple[int, int, str]:
-    marker = f"  {service}:\n"
-    start = text.find(marker)
-    if start < 0:
-        raise RuntimeError(f"Serviço não encontrado: {service}")
-    next_service = text.find("\n  ", start + len(marker))
-    if next_service < 0:
-        next_service = text.find("\nnetworks:\n", start + len(marker))
-    if next_service < 0:
-        next_service = len(text)
-    return start, next_service, text[start:next_service]
+    matches = list(SERVICE_RE.finditer(text))
+    for index, match in enumerate(matches):
+        if match.group(1) != service:
+            continue
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else text.find("\nnetworks:\n", match.end())
+        if end < 0:
+            end = len(text)
+        return start, end, text[start:end]
+    raise RuntimeError(f"Serviço não encontrado: {service}")
 
 
 for relative, suffix in STACKS:
