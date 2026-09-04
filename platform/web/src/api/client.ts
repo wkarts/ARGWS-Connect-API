@@ -1,13 +1,19 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import type { ApiResponse, AuthSession, TokenPair } from '../types'
 import { captureFrontendEvent, sanitizeTelemetry } from '../frontend-telemetry'
+import { resolveRuntimePlane } from '../config/plane'
 
 const hostKey = () => `multitenant-app-session:${window.location.hostname}`
 const controlHost = String(import.meta.env.VITE_CONTROL_PLANE_HOST || 'control.localhost').toLowerCase()
+const partnerHost = String(import.meta.env.VITE_PARTNER_PLANE_HOST || 'partner.localhost').toLowerCase()
 
 function isControlPlaneHost(): boolean {
-  const host = window.location.hostname.toLowerCase()
-  return host === controlHost || host.startsWith('control.') || host.startsWith('admin.') || new URLSearchParams(location.search).get('control') === '1'
+  return resolveRuntimePlane(
+    window.location.hostname,
+    window.location.search,
+    controlHost,
+    partnerHost,
+  ) === 'control'
 }
 
 function readSession(): AuthSession | null {
