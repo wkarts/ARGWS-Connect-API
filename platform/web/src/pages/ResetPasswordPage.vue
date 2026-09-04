@@ -71,7 +71,7 @@ async function submit() {
           </p>
           <h1 class="mt-3 text-3xl font-semibold tracking-[-.03em] text-slate-950">Definir nova senha</h1>
           <p class="mt-3 text-sm leading-6 text-slate-500">
-            Crie uma senha forte e exclusiva. Ao concluir, todas as sessões anteriores serão encerradas.
+            Crie uma senha forte e exclusiva. Ao concluir, as renovações de sessão anteriores serão revogadas; acessos já emitidos expiram no prazo normal.
           </p>
         </div>
 
