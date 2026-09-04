@@ -25,7 +25,7 @@ for relative_path, suffix in STACKS.items():
 
     api_dependency = f"      platform-api-{suffix}: {{condition: service_healthy}}\n"
     scheduler_start = text.index(scheduler_marker)
-    scheduler_end = text.find("\n  ", scheduler_start + len(scheduler_marker))
+    scheduler_end = text.find("\n  platform-", scheduler_start + len(scheduler_marker))
     if scheduler_end == -1:
         scheduler_end = len(text)
     scheduler_block = text[scheduler_start:scheduler_end]
