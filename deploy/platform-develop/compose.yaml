@@ -27,6 +27,20 @@ x-platform-env: &platform-env
   PUBLIC_SCHEME: ${PUBLIC_SCHEME:-https}
   TRUSTED_HOSTS: ${PLATFORM_TRUSTED_HOSTS:-d.connect.argws.com.br,d.control.connect.argws.com.br,d.admin.connect.argws.com.br,d.partner.connect.argws.com.br,d.api.connect.argws.com.br,d.docs.connect.argws.com.br,d.demo.connect.argws.com.br,.d.connect.argws.com.br,localhost,127.0.0.1}
   CORS_ORIGINS: ${PLATFORM_CORS_ORIGINS:-https://d.connect.argws.com.br,https://d.control.connect.argws.com.br,https://d.admin.connect.argws.com.br,https://d.partner.connect.argws.com.br,https://d.demo.connect.argws.com.br}
+  SMTP_ENABLED: "${SMTP_ENABLED:-false}"
+  SMTP_HOST: "${SMTP_HOST:-}"
+  SMTP_PORT: "${SMTP_PORT:-587}"
+  SMTP_USERNAME: "${SMTP_USERNAME:-}"
+  SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+  SMTP_SECURITY: "${SMTP_SECURITY:-starttls}"
+  SMTP_FROM_EMAIL: "${SMTP_FROM_EMAIL:-}"
+  SMTP_FROM_NAME: "${SMTP_FROM_NAME:-Connect|API Platform}"
+  SMTP_TIMEOUT_SECONDS: "${SMTP_TIMEOUT_SECONDS:-30}"
+  PASSWORD_RESET_URL: "${PASSWORD_RESET_URL:-https://d.control.connect.argws.com.br/reset-password}"
+  PASSWORD_RESET_TOKEN_TTL_MINUTES: "${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}"
+  PASSWORD_RESET_REQUESTS_PER_ACCOUNT_HOUR: "${PASSWORD_RESET_REQUESTS_PER_ACCOUNT_HOUR:-5}"
+  PASSWORD_RESET_REQUESTS_PER_IP_HOUR: "${PASSWORD_RESET_REQUESTS_PER_IP_HOUR:-30}"
+  PASSWORD_RESET_ATTEMPTS_PER_IP_HOUR: "${PASSWORD_RESET_ATTEMPTS_PER_IP_HOUR:-30}"
   POSTGRES_HOST: connect-platform-postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${PLATFORM_POSTGRES_DB:-connect_api_platform_develop}
