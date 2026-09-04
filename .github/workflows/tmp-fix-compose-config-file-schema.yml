@@ -1,0 +1,44 @@
+name: Temporary Fix Compose Config File Schema
+
+on:
+  push:
+    branches: [fix/platform-compose-config-file-schema]
+    paths:
+      - ".github/workflows/tmp-fix-compose-config-file-schema.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/platform-compose-config-file-schema
+          fetch-depth: 0
+
+      - name: Apply schema-compatible fix
+        run: python tools/tmp_fix_compose_config_file_schema.py
+
+      - name: Validate Compose schema and local config files
+        run: |
+          set -euo pipefail
+          for stack in platform platform-develop platform-production; do
+            cp "deploy/${stack}/env.example" "deploy/${stack}/.env"
+            test -f "deploy/${stack}/observability/prometheus/prometheus.yml"
+            test -f "deploy/${stack}/observability/grafana/provisioning/datasources/prometheus.yml"
+            test -f "deploy/${stack}/observability/grafana/provisioning/dashboards/dashboards.yml"
+            ! grep -q '^[[:space:]]*content:[[:space:]]*|' "deploy/${stack}/compose.yaml"
+            docker compose --env-file "deploy/${stack}/.env" -f "deploy/${stack}/compose.yaml" config >/dev/null
+          done
+
+      - name: Commit generated changes
+        run: |
+          set -euo pipefail
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add deploy/platform deploy/platform-develop deploy/platform-production
+          git commit -m "fix(platform): usa configs.file compatível com Dockge"
+          git push origin HEAD:fix/platform-compose-config-file-schema
