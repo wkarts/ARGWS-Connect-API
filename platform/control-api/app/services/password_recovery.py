@@ -242,7 +242,7 @@ class PasswordRecoveryService:
             entity_type="PlatformUser",
             entity_id=str(user.id),
             actor_id=str(user.id),
-            after={"sessions_revoked": True, "all_reset_tokens_invalidated": True},
+            after={"refresh_tokens_revoked": True, "all_reset_tokens_invalidated": True},
             context={"origin": "control-plane-auth", "token_logged": False, "password_logged": False},
         )
         await session.commit()
