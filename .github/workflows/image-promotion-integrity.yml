@@ -93,7 +93,7 @@ jobs:
 
           # main owns stable SemVer/latest for API, Platform and DOCs.
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
-          grep -q 'component: [api, docs, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent]' .github/workflows/auto-version-release.yml
+          grep -Fq 'component: [api, docs, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent]' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-api' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-platform-api' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-platform-web' .github/workflows/auto-version-release.yml
