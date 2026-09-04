@@ -59,6 +59,15 @@ async def _consume_limit(*, key: str, limit: int) -> tuple[bool, int]:
     return allowed, retry_after
 
 
+def _rate_limit_unavailable(exc: Exception) -> APIError:
+    logger.error("password_reset_rate_limit_unavailable", error=type(exc).__name__)
+    return APIError(
+        "PASSWORD_RESET_RATE_LIMIT_UNAVAILABLE",
+        "Não foi possível processar a recuperação de senha agora. Tente novamente mais tarde.",
+        503,
+    )
+
+
 async def enforce_password_reset_request_limit(request: Request, email: str) -> None:
     """Limita por origem e por conta sem persistir o endereço no Redis."""
 
@@ -88,7 +97,7 @@ async def enforce_password_reset_request_limit(request: Request, email: str) -> 
     except APIError:
         raise
     except Exception as exc:
-        logger.warning("password_reset_rate_limit_unavailable", error=type(exc).__name__)
+        raise _rate_limit_unavailable(exc) from exc
 
 
 async def enforce_password_reset_attempt_limit(request: Request) -> None:
@@ -109,7 +118,7 @@ async def enforce_password_reset_attempt_limit(request: Request) -> None:
     except APIError:
         raise
     except Exception as exc:
-        logger.warning("password_reset_attempt_limit_unavailable", error=type(exc).__name__)
+        raise _rate_limit_unavailable(exc) from exc
 
 
 class PasswordRecoveryService:
@@ -121,10 +130,12 @@ class PasswordRecoveryService:
     ) -> PasswordResetDelivery | None:
         normalized = email.strip().lower()
         result = await session.execute(
-            select(PlatformUser).where(
+            select(PlatformUser)
+            .where(
                 func.lower(PlatformUser.email) == normalized,
                 PlatformUser.is_active.is_(True),
             )
+            .with_for_update()
         )
         user = result.scalar_one_or_none()
         if user is None:
