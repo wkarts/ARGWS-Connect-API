@@ -218,7 +218,7 @@ async def provisioning_action(
     action = payload.action
 
     if action == "VALIDATE":
-        pass
+        await provisioning_service.validate_resources(session, tenant)
     elif action == "MIGRATE_DATABASE":
         if tenant.database is None:
             raise APIError(
@@ -255,6 +255,7 @@ async def provisioning_action(
         else:
             await domain_service.reconcile(session, primary)
     elif action == "ACTIVATE_IF_READY":
+        await provisioning_service.validate_resources(session, tenant)
         snapshot = _tenant_snapshot(tenant)
         if not snapshot["ready"]:
             raise APIError(

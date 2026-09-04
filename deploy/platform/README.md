@@ -7,7 +7,7 @@ O Manager legado não participa de nenhum perfil.
 
 ```bash
 ./deploy/platform/prepare-env.sh
-# editar deploy/platform/.env e remover todos os CHANGE_ME
+# o script sincroniza chaves novas e gera apenas placeholders CHANGE_ME, preservando valores existentes
 ```
 
 ## Perfil `api`
@@ -28,7 +28,7 @@ API-only + documentação oficial da mesma versão.
 
 ## Perfil `platform`
 
-Produto completo: Engine, DOCs, Platform Control API, Vue frontend, worker, scheduler, banco de governança e gateway.
+Produto completo: Engine, DOCs, Platform Control API, Vue frontend, workers, scheduler, banco de governança, backups, Log Agent, Prometheus/Grafana e gateway. ACME/CloudPanel permanecem opcionais pelo profile `cloudpanel`.
 
 ```bash
 ./deploy/platform/deploy.sh platform

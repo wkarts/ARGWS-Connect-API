@@ -36,7 +36,11 @@ expected = {
     'api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio',
     'platform-postgres', 'platform-migrate', 'platform-migrate-tenants',
     'platform-bootstrap', 'platform-api', 'platform-worker',
-    'platform-scheduler', 'platform-web', 'platform-gateway',
+    'platform-scheduler', 'platform-worker-backups',
+    'platform-docker-proxy', 'platform-log-agent',
+    'platform-prometheus', 'platform-grafana',
+    'platform-acme', 'platform-cloudpanel-agent',
+    'platform-web', 'platform-gateway',
 }
 actual = {name[:-len(suffix)] for name in cfg.get('services', {})}
 assert actual == expected, (sorted(expected - actual), sorted(actual - expected))
@@ -63,6 +67,18 @@ grep -q '^ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:develop$' "
 grep -q '^ARGWS_CONNECT_PLATFORM_API_IMAGE=ghcr.io/wkarts/argws-connect-platform-api:develop$' "$ENV_FILE"
 grep -q '^ARGWS_CONNECT_PLATFORM_WEB_IMAGE=ghcr.io/wkarts/argws-connect-platform-web:develop$' "$ENV_FILE"
 grep -q '^ARGWS_CONNECT_PLATFORM_GATEWAY_IMAGE=ghcr.io/wkarts/argws-connect-platform-gateway:develop$' "$ENV_FILE"
+grep -q '^ARGWS_CONNECT_DOCKER_PROXY_IMAGE=ghcr.io/wkarts/argws-connect-docker-proxy:v0.5.0$' "$ENV_FILE"
+grep -q '^ARGWS_CONNECT_PROMETHEUS_IMAGE=ghcr.io/wkarts/argws-connect-prometheus:v3.5.0$' "$ENV_FILE"
+grep -q '^ARGWS_CONNECT_GRAFANA_IMAGE=ghcr.io/wkarts/argws-connect-grafana:12.1.0$' "$ENV_FILE"
+grep -q '^ARGWS_CONNECT_PLATFORM_ACME_IMAGE=ghcr.io/wkarts/argws-connect-platform-acme:develop$' "$ENV_FILE"
+grep -q '^ARGWS_CONNECT_PLATFORM_CLOUDPANEL_AGENT_IMAGE=ghcr.io/wkarts/argws-connect-platform-cloudpanel-agent:develop$' "$ENV_FILE"
+
+if grep -Eqi '^CLOUDFLARE_ENABLED=(true|1|yes)$' "$ENV_FILE"; then
+  for key in CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_NAME CLOUDFLARE_TENANT_RECORD_TARGET; do
+    value="$(grep -E "^${key}=" "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+    [[ -n "$value" ]] || { echo "Cloudflare habilitado, mas ${key} está vazio." >&2; exit 1; }
+  done
+fi
 
 python3 "$ROOT_DIR/platform/scripts/validate_project.py" >/dev/null
 

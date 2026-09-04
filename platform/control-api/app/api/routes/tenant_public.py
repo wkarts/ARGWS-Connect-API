@@ -45,8 +45,8 @@ async def tenant_public_site(
                 "mode": mode,
                 "url": safe_external_url(features.get("landing_url")) if mode == "EXTERNAL" else "",
                 "title": str(features.get("landing_title") or (tenant.name if tenant else context.slug)),
-                "subtitle": str(features.get("landing_subtitle") or "Gestão financeira, cobranças e recebíveis em um só lugar."),
-                "cta_label": str(features.get("landing_cta_label") or "Acessar área financeira"),
+                "subtitle": str(features.get("landing_subtitle") or "Comunicação, integrações e automações em um único ambiente."),
+                "cta_label": str(features.get("landing_cta_label") or "Acessar plataforma"),
                 "cta_url": str(features.get("landing_cta_url") or "/login"),
             },
         }

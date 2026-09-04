@@ -107,12 +107,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', outside))
           :key="option.value"
           type="button"
           class="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left transition"
-          :class="[option.disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-slate-50', option.value === modelValue ? 'bg-teal-50 text-teal-900' : 'text-slate-700']"
+          :class="[option.disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-slate-50', option.value === modelValue ? 'bg-blue-50 text-blue-900' : 'text-slate-700']"
           :disabled="option.disabled"
           @click="choose(option)"
         >
           <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium">{{ option.label }}</span><span v-if="option.description" class="mt-0.5 block truncate text-xs text-slate-400">{{ option.description }}</span></span>
-          <Check v-if="option.value === modelValue" :size="16" class="mt-0.5 shrink-0 text-teal-700" />
+          <Check v-if="option.value === modelValue" :size="16" class="mt-0.5 shrink-0 text-blue-700" />
         </button>
         <p v-if="!visibleOptions.length" class="px-3 py-8 text-center text-sm text-slate-400">{{ noResultsText }}</p>
       </div>

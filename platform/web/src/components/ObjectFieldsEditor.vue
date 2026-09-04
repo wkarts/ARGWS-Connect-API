@@ -43,6 +43,6 @@ function remove(key:string){const next={...props.modelValue};delete next[key];em
         <div class="flex items-end"><button type="button" class="btn-secondary !px-3 text-rose-600" title="Remover campo" @click="remove(entry.key)"><Trash2 :size="16"/></button></div>
       </div>
     </div>
-    <div v-else class="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">{{emptyText}} <button type="button" class="font-semibold text-teal-700" @click="add">Adicionar</button></div>
+    <div v-else class="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">{{emptyText}} <button type="button" class="font-semibold text-blue-700" @click="add">Adicionar</button></div>
   </div>
 </template>

@@ -120,6 +120,18 @@ onMounted(load)
     </section>
   </div>
 
+  <div class="mt-4 grid gap-4 sm:grid-cols-3">
+    <RouterLink to="/events" class="dashboard-panel block transition hover:border-blue-200 hover:shadow-md">
+      <div class="dashboard-panel-body flex items-center gap-4"><div class="grid h-11 w-11 place-items-center rounded-xl border border-blue-100 bg-blue-50 text-blue-600"><Activity :size="20"/></div><div><p class="text-[12px] font-semibold text-slate-900">Eventos</p><p class="mt-1 text-[10px] text-slate-400">Fluxo operacional e integrações em tempo real</p></div></div>
+    </RouterLink>
+    <RouterLink to="/pbx" class="dashboard-panel block transition hover:border-cyan-200 hover:shadow-md">
+      <div class="dashboard-panel-body flex items-center gap-4"><div class="grid h-11 w-11 place-items-center rounded-xl border border-cyan-100 bg-cyan-50 text-cyan-600"><Network :size="20"/></div><div><p class="text-[12px] font-semibold text-slate-900">Connect PBX</p><p class="mt-1 text-[10px] text-slate-400">Telefonia, ramais e operação PBX</p></div></div>
+    </RouterLink>
+    <RouterLink to="/voip" class="dashboard-panel block transition hover:border-blue-200 hover:shadow-md">
+      <div class="dashboard-panel-body flex items-center gap-4"><div class="grid h-11 w-11 place-items-center rounded-xl border border-blue-100 bg-blue-50 text-blue-600"><Cable :size="20"/></div><div><p class="text-[12px] font-semibold text-slate-900">VOIP</p><p class="mt-1 text-[10px] text-slate-400">Recursos de voz e conectividade</p></div></div>
+    </RouterLink>
+  </div>
+
   <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.8fr)]">
     <section class="dashboard-panel">
       <div class="dashboard-panel-header"><div><h2 class="section-title">Capacidades disponíveis</h2><p class="mt-0.5 text-[11px] text-slate-400">Módulos declarados pelo backend</p></div><Activity :size="17" class="text-blue-600" /></div>

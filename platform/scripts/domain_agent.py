@@ -109,7 +109,7 @@ def atomic_write(path: Path, content: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Reconcilia domínios personalizados e certificados ACME da plataforma financeira.")
+    parser = argparse.ArgumentParser(description="Reconcilia domínios personalizados e certificados ACME da Connect|API Platform.")
     parser.add_argument("--control-url", default=os.getenv("CONTROL_PLANE_URL", ""))
     parser.add_argument("--token", default=os.getenv("DOMAIN_RECONCILIATION_TOKEN", ""))
     parser.add_argument("--output-dir", type=Path, default=Path(os.getenv("NGINX_INCLUDE_DIR", "/etc/nginx/conf.d/multitenant-app-tenants")))

@@ -113,7 +113,7 @@ onMounted(async()=>{await loadTenants();await load()})
     <article v-for="item in items" :key="item.id" class="card !p-0 overflow-visible">
       <div class="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-center">
         <div>
-          <div class="flex items-center gap-2"><ShieldCheck :size="17" class="text-teal-700"/><strong>{{actionText(item)}}</strong></div>
+          <div class="flex items-center gap-2"><ShieldCheck :size="17" class="text-blue-700"/><strong>{{actionText(item)}}</strong></div>
           <p class="mt-1 text-xs text-slate-400">{{new Date(item.created_at).toLocaleString('pt-BR')}} · {{entityText(item)}}</p>
         </div>
         <div>
@@ -127,7 +127,7 @@ onMounted(async()=>{await loadTenants();await load()})
           <p class="text-xs text-slate-500">{{item.tenant_slug||'Escopo global'}}</p>
         </div>
         <details class="relative">
-          <summary class="cursor-pointer text-sm font-semibold text-teal-700">Ver alterações</summary>
+          <summary class="cursor-pointer text-sm font-semibold text-blue-700">Ver alterações</summary>
           <div class="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl lg:absolute lg:right-0 lg:z-20 lg:w-[720px] lg:grid-cols-2">
             <div><p class="mb-2 text-xs font-bold uppercase text-rose-600">Estado anterior</p><dl class="space-y-1 text-xs"><div v-for="[key,value] in entries(item.before)" :key="`b-${key}`" class="grid grid-cols-[150px_1fr] gap-2"><dt class="text-slate-500">{{keyLabel(key)}}</dt><dd class="break-all">{{simple(value)}}</dd></div><p v-if="!entries(item.before).length" class="text-slate-400">Sem estado anterior.</p></dl></div>
             <div><p class="mb-2 text-xs font-bold uppercase text-emerald-700">Estado posterior</p><dl class="space-y-1 text-xs"><div v-for="[key,value] in entries(item.after)" :key="`a-${key}`" class="grid grid-cols-[150px_1fr] gap-2"><dt class="text-slate-500">{{keyLabel(key)}}</dt><dd class="break-all">{{simple(value)}}</dd></div><p v-if="!entries(item.after).length" class="text-slate-400">Sem estado posterior.</p></dl></div>

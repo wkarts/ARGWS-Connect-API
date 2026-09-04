@@ -46,7 +46,11 @@ A stack sobe por padrão:
 - bootstrap da Platform;
 - Platform Control API;
 - Platform Worker;
+- worker dedicado de backups;
 - Platform Scheduler;
+- Docker Socket Proxy somente leitura + Log Agent;
+- Prometheus + Grafana;
+- ACME + CloudPanel Agent opcionais pelo profile `cloudpanel`;
 - Platform Web;
 - Platform Gateway.
 
@@ -58,6 +62,16 @@ Production segue o lifecycle canônico do Connect|API:
 - releases imutáveis continuam usando a mesma SemVer da raiz;
 - a Platform não possui versão própria;
 - `VERSION`/`package.json` da raiz continuam sendo a fonte canônica.
+
+## CloudPanel / ACME opcional
+
+O deployment padrão continua sem privilégios de host. Quando o ambiente usa CloudPanel e deseja gestão automática do wildcard/certificado, ative o profile:
+
+```bash
+docker compose --env-file .env --profile cloudpanel up -d
+```
+
+Para Nginx/Certbot de host sem CloudPanel, use `deploy/platform/domain-agent/`.
 
 ## Primeiro deploy
 

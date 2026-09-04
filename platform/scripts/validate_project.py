@@ -130,12 +130,12 @@ def validate_versioning() -> None:
 def validate_lifecycle() -> None:
     develop = (REPO / ".github/workflows/ghcr-publish-application.yml").read_text(encoding="utf-8")
     release = (REPO / ".github/workflows/auto-version-release.yml").read_text(encoding="utf-8")
-    for component in ("platform-api", "platform-web", "platform-gateway"):
+    for component in ("platform-api", "platform-web", "platform-gateway", "platform-acme", "platform-cloudpanel-agent"):
         if component not in develop:
             error(f"Workflow develop não publica {component}")
         if component not in release:
             error(f"Workflow release não publica {component}")
-    for image in ("argws-connect-platform-api", "argws-connect-platform-web", "argws-connect-platform-gateway"):
+    for image in ("argws-connect-platform-api", "argws-connect-platform-web", "argws-connect-platform-gateway", "argws-connect-platform-acme", "argws-connect-platform-cloudpanel-agent"):
         if image not in develop or image not in release:
             error(f"Imagem Platform fora do lifecycle canônico: {image}")
 

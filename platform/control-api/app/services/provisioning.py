@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from slugify import slugify
@@ -38,6 +38,7 @@ from app.services.audit import platform_audit
 from app.services.bootstrap_defaults import ensure_tenant_roles
 from app.services.collection_rules import default_notification_rule_events, default_notification_templates
 from app.services.domains import MANAGEMENT_PLATFORM_SUBDOMAIN, domain_service
+from app.services.tenant_resolver import TenantResolver
 
 _SAFE_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
@@ -212,6 +213,67 @@ class ProvisioningService:
 
         await asyncio.to_thread(upgrade)
 
+    async def validate_resources(self, session: AsyncSession, tenant: Tenant) -> dict[str, object]:
+        """Valida de forma efetiva banco, storage e domínio do tenant.
+
+        A validação é deliberadamente corretiva e não recria o tenant. Ela atualiza
+        os estados já persistidos para que o Control Plane não trate flags antigas
+        como prova de que o recurso continua disponível.
+        """
+
+        result: dict[str, object] = {"database": False, "storage": False, "domain": False, "errors": []}
+        errors: list[str] = result["errors"]  # type: ignore[assignment]
+
+        if tenant.database is None:
+            errors.append("Banco isolado não provisionado.")
+        else:
+            try:
+                context = await TenantResolver(session).resolve_by_id(str(tenant.id), require_active=False)
+                entry = await tenant_engines.get(context)
+                async with entry.engine.connect() as connection:
+                    await connection.execute(text("select 1"))
+                tenant.database.status = "ACTIVE"
+                tenant.database.last_error = None
+                result["database"] = True
+            except Exception as exc:
+                tenant.database.status = "ERROR"
+                tenant.database.last_error = str(exc)[:4000]
+                errors.append(f"Banco: {type(exc).__name__}: {exc}")
+
+        if tenant.storage is None:
+            errors.append("Storage isolado não provisionado.")
+        else:
+            try:
+                if await self.storage.bucket_exists(tenant.storage.bucket):
+                    tenant.storage.status = "ACTIVE"
+                    tenant.storage.last_error = None
+                    result["storage"] = True
+                else:
+                    tenant.storage.status = "ERROR"
+                    tenant.storage.last_error = "Bucket S3/MinIO não encontrado."
+                    errors.append("Storage: bucket S3/MinIO não encontrado.")
+            except Exception as exc:
+                tenant.storage.status = "ERROR"
+                tenant.storage.last_error = str(exc)[:4000]
+                errors.append(f"Storage: {type(exc).__name__}: {exc}")
+
+        primary = next((item for item in tenant.domains if item.is_primary), None)
+        primary = primary or next(iter(tenant.domains), None)
+        if primary is None:
+            errors.append("Domínio principal não provisionado.")
+        else:
+            try:
+                await domain_service.verify(session, primary)
+                result["domain"] = primary.status == "ACTIVE" and primary.ssl_status in {"ACTIVE", "NOT_REQUIRED"}
+                if not result["domain"]:
+                    errors.append(f"Domínio: estado={primary.status}, ssl={primary.ssl_status}.")
+            except Exception as exc:
+                errors.append(f"Domínio: {type(exc).__name__}: {exc}")
+
+        result["ready"] = bool(result["database"] and result["storage"] and result["domain"])
+        await session.flush()
+        return result
+
     async def _bootstrap_tenant(self, context: TenantContext, payload: dict[str, str]) -> None:
         entry = await tenant_engines.get(context)
         async with entry.session_factory() as session:
@@ -232,20 +294,27 @@ class ProvisioningService:
                 permissions=["*"],
                 is_active=True,
             )
-            default_service = ServiceCatalog(
-                code="HONORARIOS",
-                name="Honorários",
-                description="Serviço recorrente padrão importado/configurável.",
-                default_amount=0,
-                default_frequency="MONTHLY",
-            )
-            default_rule = NotificationRule(
-                name="Régua padrão de cobrança",
-                is_default=True,
-                events=default_notification_rule_events(),
-            )
-            templates = [NotificationTemplate(**item) for item in default_notification_templates()]
-            session.add_all([company, user, default_service, default_rule, *templates])
+            session.add_all([company, user])
+
+            # O domínio financeiro permanece apenas como referência opcional.
+            # Um tenant Connect|API não deve nascer com honorários, cobrança ou
+            # templates financeiros quando ENABLE_REFERENCE_FINANCIAL_DOMAIN=false.
+            if settings.enable_reference_financial_domain:
+                default_service = ServiceCatalog(
+                    code="HONORARIOS",
+                    name="Honorários",
+                    description="Serviço recorrente padrão importado/configurável.",
+                    default_amount=0,
+                    default_frequency="MONTHLY",
+                )
+                default_rule = NotificationRule(
+                    name="Régua padrão de cobrança",
+                    is_default=True,
+                    events=default_notification_rule_events(),
+                )
+                templates = [NotificationTemplate(**item) for item in default_notification_templates()]
+                session.add_all([default_service, default_rule, *templates])
+
             await session.flush()
             await ensure_tenant_roles(session)
             session.add(UserCompany(user_id=user.id, company_id=company.id, is_default=True))
@@ -345,6 +414,10 @@ class ProvisioningService:
                 await self._bootstrap_tenant(context, job.payload)
 
                 await self._save_step(session, job, "VALIDATION", 95, "Validando recursos provisionados.")
+                validation = await self.validate_resources(session, tenant)
+                if not validation.get("ready"):
+                    details = "; ".join(str(item) for item in validation.get("errors", []))
+                    raise RuntimeError(f"Validação final do tenant falhou: {details or 'recursos incompletos'}")
                 tenant.status = "ACTIVE"
                 tenant.activated_at = datetime.now(UTC)
                 job.status = "SUCCEEDED"

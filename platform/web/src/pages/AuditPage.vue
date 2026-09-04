@@ -133,7 +133,7 @@ onMounted(load)
     <article v-for="item in visible" :key="item.id" class="card !p-0 overflow-visible">
       <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-center">
         <div>
-          <div class="flex items-center gap-2"><ShieldCheck :size="17" class="text-teal-700"/><strong>{{actionText(item)}}</strong></div>
+          <div class="flex items-center gap-2"><ShieldCheck :size="17" class="text-blue-700"/><strong>{{actionText(item)}}</strong></div>
           <p class="mt-1 text-xs text-slate-400">{{new Date(item.created_at).toLocaleString('pt-BR')}} · {{entityText(item)}}</p>
         </div>
         <div>
@@ -147,7 +147,7 @@ onMounted(load)
           <p class="text-xs text-slate-500">{{item.company_tax_id||'Todas as empresas'}}</p>
         </div>
         <details class="relative lg:text-right">
-          <summary class="cursor-pointer text-sm font-semibold text-teal-700">Detalhes</summary>
+          <summary class="cursor-pointer text-sm font-semibold text-blue-700">Detalhes</summary>
           <div class="mt-3 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-lg lg:absolute lg:right-0 lg:z-20 lg:w-[680px]">
             <div v-if="readable(item.before).length" class="mb-4">
               <p class="text-xs font-bold uppercase text-rose-600">Estado anterior</p>

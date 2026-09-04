@@ -6,11 +6,11 @@ CERT_DIR="${CERT_DIR:-/certs}"
 STATE_DIR="${STATE_DIR:-/state}"
 SITE_DOMAIN="${CLOUDPANEL_SITE_DOMAIN:?CLOUDPANEL_SITE_DOMAIN obrigatório}"
 WILDCARD_DOMAIN="${CLOUDPANEL_WILDCARD_DOMAIN:-*.$SITE_DOMAIN}"
-SITE_USER="${CLOUDPANEL_SITE_USER:-financial}"
+SITE_USER="${CLOUDPANEL_SITE_USER:-connectapi}"
 SITE_PASSWORD="${CLOUDPANEL_SITE_USER_PASSWORD:-}"
 REVERSE_PROXY_URL="${CLOUDPANEL_REVERSE_PROXY_URL:-http://127.0.0.1:${GATEWAY_PORT:-18800}}"
 SYNC_INTERVAL="${CLOUDPANEL_SYNC_INTERVAL_SECONDS:-60}"
-HOST_TMP_REL="/run/multitenant-app-cloudpanel-agent"
+HOST_TMP_REL="/run/connect-api-cloudpanel-agent"
 HOST_TMP="$HOST_ROOT$HOST_TMP_REL"
 STATE_FILE="$STATE_DIR/installed.sha256"
 VHOST_PATH=""
@@ -89,14 +89,14 @@ ensure_reverse_proxy() {
 prune_backups() {
   local vhost="$1"
   find "$(dirname "$vhost")" -maxdepth 1 -type f \
-    -name "$(basename "$vhost").financial-agent.*.bak" -printf '%T@ %p\n' 2>/dev/null \
+    -name "$(basename "$vhost").connect-api-agent.*.bak" -printf '%T@ %p\n' 2>/dev/null \
     | sort -nr | tail -n +6 | cut -d' ' -f2- | xargs -r rm -f
 }
 
 reconcile_vhost() {
   local vhost="$1"
   local pre result
-  pre="${vhost}.financial-agent.pre"
+  pre="${vhost}.connect-api-agent.pre"
   cp -a "$vhost" "$pre"
 
   result="$(python3 - "$vhost" "$SITE_DOMAIN" "$WILDCARD_DOMAIN" <<'PY'
@@ -147,7 +147,7 @@ PY
       return 1
     fi
 
-    local backup="${vhost}.financial-agent.$(date +%Y%m%d%H%M%S).bak"
+    local backup="${vhost}.connect-api-agent.$(date +%Y%m%d%H%M%S).bak"
     mv -f "$pre" "$backup"
     prune_backups "$vhost"
     host_exec nginx -s reload >/dev/null 2>&1 || true

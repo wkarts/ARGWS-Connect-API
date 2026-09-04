@@ -54,13 +54,13 @@ x-platform-env: &platform-env
   CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}@connect-redis:6379/11
   RABBITMQ_URL: amqp://${RABBITMQ_USER:-argws_connect}:${RABBITMQ_PASSWORD:-CHANGE_ME_RABBITMQ_PASSWORD}@connect-rabbitmq:5672/${RABBITMQ_VHOST:-argws_connect}
   CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-argws_connect}:${RABBITMQ_PASSWORD:-CHANGE_ME_RABBITMQ_PASSWORD}@connect-rabbitmq:5672/${RABBITMQ_VHOST:-argws_connect}
-  S3_ENDPOINT_URL: http://connect-minio:9000
-  S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
-  S3_REGION: ${S3_REGION:-us-east-1}
-  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-argws_connect}
-  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-CHANGE_ME_MINIO_PASSWORD}
-  S3_USE_SSL: "false"
-  S3_BUCKET_PREFIX: ${S3_BUCKET_PREFIX:-connect-api-tenant}
+  S3_ENDPOINT_URL: ${PLATFORM_S3_ENDPOINT_URL:-http://connect-minio:9000}
+  S3_PUBLIC_ENDPOINT_URL: ${PLATFORM_S3_PUBLIC_ENDPOINT_URL:-${S3_PUBLIC_ENDPOINT_URL:-}}
+  S3_REGION: ${PLATFORM_S3_REGION:-${S3_REGION:-us-east-1}}
+  S3_ACCESS_KEY: ${PLATFORM_S3_ACCESS_KEY:-${MINIO_ROOT_USER:-argws_connect}}
+  S3_SECRET_KEY: ${PLATFORM_S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD:-CHANGE_ME_MINIO_PASSWORD}}
+  S3_USE_SSL: "${PLATFORM_S3_USE_SSL:-false}"
+  S3_BUCKET_PREFIX: ${PLATFORM_S3_BUCKET_PREFIX:-${S3_BUCKET_PREFIX:-connect-api-tenant}}
   PLATFORM_ADMIN_NAME: ${PLATFORM_ADMIN_NAME:-Administrador da Plataforma}
   PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@connect.argws.com.br}
   PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-CHANGE_ME_PLATFORM_ADMIN_PASSWORD}
@@ -76,6 +76,35 @@ x-platform-env: &platform-env
   CONNECT_ENGINE_TIMEOUT_SECONDS: ${CONNECT_ENGINE_TIMEOUT_SECONDS:-30}
   CONNECT_ENGINE_VERIFY_TLS: "false"
   PROMETHEUS_ENABLED: ${PROMETHEUS_METRICS:-true}
+  LOG_AGENT_URL: http://connect-log-agent:8091
+  RUNTIME_LOG_RETENTION_DAYS: ${RUNTIME_LOG_RETENTION_DAYS:-30}
+  CLOUDFLARE_ENABLED: "${CLOUDFLARE_ENABLED:-false}"
+  CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"
+  CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID:-}"
+  CLOUDFLARE_ZONE_ID: "${CLOUDFLARE_ZONE_ID:-}"
+  CLOUDFLARE_ZONE_NAME: "${CLOUDFLARE_ZONE_NAME:-}"
+  CLOUDFLARE_PROXIED: "${CLOUDFLARE_PROXIED:-true}"
+  CLOUDFLARE_TENANT_RECORD_TARGET: "${CLOUDFLARE_TENANT_RECORD_TARGET:-}"
+  CLOUDFLARE_PROVISIONING_MODE: ${CLOUDFLARE_PROVISIONING_MODE:-wildcard}
+  BACKUP_ENABLED: "${BACKUP_ENABLED:-true}"
+  BACKUP_DIR: /data/backups
+  BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}"
+  BACKUP_KEEP_DAILY: "${BACKUP_KEEP_DAILY:-14}"
+  BACKUP_KEEP_WEEKLY: "${BACKUP_KEEP_WEEKLY:-8}"
+  BACKUP_KEEP_MONTHLY: "${BACKUP_KEEP_MONTHLY:-12}"
+  BACKUP_COMPRESS_LEVEL: "${BACKUP_COMPRESS_LEVEL:-9}"
+  BACKUP_ENCRYPTION_RECIPIENT: "${BACKUP_ENCRYPTION_RECIPIENT:-}"
+  BACKUP_UPLOAD_S3: "${BACKUP_UPLOAD_S3:-true}"
+  BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-connect-api-backups}
+  BACKUP_GOOGLE_DRIVE_ENABLED: "${BACKUP_GOOGLE_DRIVE_ENABLED:-false}"
+  BACKUP_GOOGLE_DRIVE_REMOTE: ${BACKUP_GOOGLE_DRIVE_REMOTE:-gdrive:connect-api-platform}
+  BACKUP_DROPBOX_ENABLED: "${BACKUP_DROPBOX_ENABLED:-false}"
+  BACKUP_DROPBOX_REMOTE: ${BACKUP_DROPBOX_REMOTE:-dropbox:connect-api-platform}
+  PROMETHEUS_BASE_URL: http://connect-prometheus:9090
+  PROMETHEUS_LIFECYCLE_ENABLED: "${PROMETHEUS_LIFECYCLE_ENABLED:-false}"
+  GRAFANA_BASE_URL: http://connect-grafana:3000
+  GRAFANA_SERVICE_ACCOUNT_TOKEN: "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}"
+  GRAFANA_ORG_ID: "${GRAFANA_ORG_ID:-1}"
 
 x-platform-app: &platform-app
   image: ${ARGWS_CONNECT_PLATFORM_API_IMAGE:-ghcr.io/wkarts/argws-connect-platform-api:latest}
@@ -278,6 +307,8 @@ services:
   platform-api-argws-connect-platform-production:
     container_name: platform-api-argws-connect-platform-production
     <<: *platform-app
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_BACKUPS_DATA_PATH:-./volumes/platform-backups}:/data/backups
     command: ["gunicorn", "app.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "${PLATFORM_API_WORKERS:-4}", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-"]
     depends_on:
       platform-bootstrap-argws-connect-platform-production: {condition: service_completed_successfully}
@@ -298,30 +329,158 @@ services:
     depends_on:
       platform-api-argws-connect-platform-production: {condition: service_healthy}
 
-  platform-celery-init-argws-connect-platform-production:
-    container_name: platform-celery-init-argws-connect-platform-production
-    <<: *platform-app
-    user: "0:0"
-    restart: "no"
-    command:
-      - sh
-      - -ec
-      - |
-        mkdir -p /var/lib/celery
-        chown -R 10001:0 /var/lib/celery
-        chmod -R u+rwX,g+rwX,o-rwx /var/lib/celery
-    volumes:
-      - ${ARGWS_CONNECT_PLATFORM_CELERY_DATA_PATH:-./volumes/platform-celery}:/var/lib/celery
-
   platform-scheduler-argws-connect-platform-production:
     container_name: platform-scheduler-argws-connect-platform-production
     <<: *platform-app
-    command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/var/lib/celery/celerybeat-schedule", "--pidfile=/tmp/celerybeat.pid"]
-    volumes:
-      - ${ARGWS_CONNECT_PLATFORM_CELERY_DATA_PATH:-./volumes/platform-celery}:/var/lib/celery
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule", "--pidfile=/tmp/celerybeat.pid"]
     depends_on:
-      platform-celery-init-argws-connect-platform-production: {condition: service_completed_successfully}
       platform-api-argws-connect-platform-production: {condition: service_healthy}
+
+  platform-worker-backups-argws-connect-platform-production:
+    container_name: platform-worker-backups-argws-connect-platform-production
+    <<: *platform-app
+    command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "-Q", "connect.backups", "--loglevel=INFO", "--concurrency=1", "--without-gossip", "--without-mingle", "--without-heartbeat"]
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_BACKUPS_DATA_PATH:-./volumes/platform-backups}:/data/backups
+    depends_on:
+      platform-api-argws-connect-platform-production: {condition: service_healthy}
+
+  platform-docker-proxy-argws-connect-platform-production:
+    container_name: platform-docker-proxy-argws-connect-platform-production
+    image: ${ARGWS_CONNECT_DOCKER_PROXY_IMAGE:-ghcr.io/wkarts/argws-connect-docker-proxy:v0.5.0}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      INFO: "1"
+      POST: "0"
+    volumes:
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    networks:
+      argws-connect-platform-production-net:
+        aliases: [connect-docker-proxy]
+    security_opt: ["no-new-privileges:true"]
+    logging: *default-logging
+
+  platform-log-agent-argws-connect-platform-production:
+    container_name: platform-log-agent-argws-connect-platform-production
+    image: ${ARGWS_CONNECT_PLATFORM_API_IMAGE:-ghcr.io/wkarts/argws-connect-platform-api:latest}
+    pull_policy: always
+    restart: unless-stopped
+    command: ["uvicorn", "app.log_agent:app", "--host", "0.0.0.0", "--port", "8091", "--workers", "1"]
+    environment:
+      INTERNAL_SERVICES_PASSWORD: ${PLATFORM_INTERNAL_SERVICES_PASSWORD:-CHANGE_ME_PLATFORM_INTERNAL_PASSWORD}
+      DOCKER_API_URL: http://connect-docker-proxy:2375
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-argws-connect-platform-production}
+      LOG_LEVEL: ${PLATFORM_LOG_LEVEL:-INFO}
+    depends_on:
+      platform-docker-proxy-argws-connect-platform-production: {condition: service_started}
+    networks:
+      argws-connect-platform-production-net:
+        aliases: [connect-log-agent]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health',timeout=5).read()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+
+  platform-prometheus-argws-connect-platform-production:
+    container_name: platform-prometheus-argws-connect-platform-production
+    image: ${ARGWS_CONNECT_PROMETHEUS_IMAGE:-ghcr.io/wkarts/argws-connect-prometheus:v3.5.0}
+    pull_policy: always
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+    volumes:
+      - ../../platform/infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH:-./volumes/platform-prometheus}:/prometheus
+    depends_on:
+      platform-api-argws-connect-platform-production: {condition: service_healthy}
+    networks:
+      argws-connect-platform-production-net:
+        aliases: [connect-prometheus]
+    security_opt: ["no-new-privileges:true"]
+    logging: *default-logging
+
+  platform-grafana-argws-connect-platform-production:
+    container_name: platform-grafana-argws-connect-platform-production
+    image: ${ARGWS_CONNECT_GRAFANA_IMAGE:-ghcr.io/wkarts/argws-connect-grafana:12.1.0}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-CHANGE_ME_GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://connect-grafana:3000}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH:-./volumes/platform-grafana}:/var/lib/grafana
+      - ../../platform/infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      platform-prometheus-argws-connect-platform-production: {condition: service_started}
+    networks:
+      argws-connect-platform-production-net:
+        aliases: [connect-grafana]
+    security_opt: ["no-new-privileges:true"]
+    logging: *default-logging
+
+  platform-acme-argws-connect-platform-production:
+    container_name: platform-acme-argws-connect-platform-production
+    image: ${ARGWS_CONNECT_PLATFORM_ACME_IMAGE:-ghcr.io/wkarts/argws-connect-platform-acme:latest}
+    pull_policy: always
+    profiles: [cloudpanel]
+    restart: unless-stopped
+    environment:
+      CF_Token: ${CLOUDFLARE_API_TOKEN:-}
+      ACME_DOMAIN: ${ACME_DOMAIN:-connect.argws.com.br}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_STAGING: ${ACME_STAGING:-false}
+      ACME_DNS_SLEEP: ${ACME_DNS_SLEEP:-20}
+      ACME_CHECK_INTERVAL_SECONDS: ${ACME_CHECK_INTERVAL_SECONDS:-43200}
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_ACME_DATA_PATH:-./volumes/platform-acme}:/acme.sh
+      - ${ARGWS_CONNECT_PLATFORM_CERTS_DATA_PATH:-./volumes/platform-certs}:/certs
+    networks: [argws-connect-platform-production-net]
+    security_opt: ["no-new-privileges:true"]
+    logging: *default-logging
+
+  platform-cloudpanel-agent-argws-connect-platform-production:
+    container_name: platform-cloudpanel-agent-argws-connect-platform-production
+    image: ${ARGWS_CONNECT_PLATFORM_CLOUDPANEL_AGENT_IMAGE:-ghcr.io/wkarts/argws-connect-platform-cloudpanel-agent:latest}
+    pull_policy: always
+    profiles: [cloudpanel]
+    restart: unless-stopped
+    user: "0:0"
+    privileged: true
+    pid: host
+    network_mode: host
+    read_only: true
+    depends_on:
+      platform-acme-argws-connect-platform-production: {condition: service_started}
+    environment:
+      HOST_ROOT: /host
+      CERT_DIR: /certs
+      STATE_DIR: /state
+      CLOUDPANEL_SITE_DOMAIN: ${CLOUDPANEL_SITE_DOMAIN:-connect.argws.com.br}
+      CLOUDPANEL_WILDCARD_DOMAIN: ${CLOUDPANEL_WILDCARD_DOMAIN:-*.connect.argws.com.br}
+      CLOUDPANEL_SITE_USER: ${CLOUDPANEL_SITE_USER:-connectapi}
+      CLOUDPANEL_SITE_USER_PASSWORD: ${CLOUDPANEL_SITE_USER_PASSWORD:-}
+      CLOUDPANEL_REVERSE_PROXY_URL: ${CLOUDPANEL_REVERSE_PROXY_URL:-http://127.0.0.1:${PLATFORM_GATEWAY_PORT:-38800}}
+      CLOUDPANEL_SYNC_INTERVAL_SECONDS: ${CLOUDPANEL_SYNC_INTERVAL_SECONDS:-60}
+    volumes:
+      - /:/host:rw
+      - ${ARGWS_CONNECT_PLATFORM_CERTS_DATA_PATH:-./volumes/platform-certs}:/certs:rw
+      - ${ARGWS_CONNECT_PLATFORM_CLOUDPANEL_STATE_PATH:-./volumes/platform-cloudpanel-agent}:/state:rw
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    logging: *default-logging
 
   platform-web-argws-connect-platform-production:
     container_name: platform-web-argws-connect-platform-production

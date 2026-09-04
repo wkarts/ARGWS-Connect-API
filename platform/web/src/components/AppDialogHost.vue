@@ -5,7 +5,7 @@ import { appDialogState, resolveAppDialog } from '../composables/useAppDialog'
 
 const input=ref<HTMLInputElement|null>(null)
 const icon=computed(()=>appDialogState.tone==='danger'?AlertTriangle:appDialogState.tone==='warning'?AlertTriangle:appDialogState.tone==='success'?CheckCircle2:appDialogState.mode==='confirm'?CircleHelp:Info)
-const iconClass=computed(()=>appDialogState.tone==='danger'?'bg-rose-50 text-rose-700':appDialogState.tone==='warning'?'bg-amber-50 text-amber-700':appDialogState.tone==='success'?'bg-emerald-50 text-emerald-700':'bg-teal-50 text-teal-700')
+const iconClass=computed(()=>appDialogState.tone==='danger'?'bg-rose-50 text-rose-700':appDialogState.tone==='warning'?'bg-amber-50 text-amber-700':appDialogState.tone==='success'?'bg-emerald-50 text-emerald-700':'bg-blue-50 text-blue-700')
 const confirmClass=computed(()=>appDialogState.tone==='danger'?'btn-primary !bg-rose-600 hover:!bg-rose-700':'btn-primary')
 const canConfirm=computed(()=>appDialogState.mode!=='prompt'||!appDialogState.required||appDialogState.inputValue.trim().length>0)
 watch(()=>appDialogState.open,async value=>{if(value&&appDialogState.mode==='prompt'){await nextTick();input.value?.focus()}})

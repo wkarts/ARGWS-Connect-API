@@ -56,6 +56,9 @@ jobs:
           sync docker.io/library/redis:latest                ghcr.io/${OWNER}/argws-connect-redis:latest
           sync docker.io/library/rabbitmq:management         ghcr.io/${OWNER}/argws-connect-rabbitmq:management
           sync quay.io/minio/minio:latest                    ghcr.io/${OWNER}/argws-connect-minio:latest
+          sync ghcr.io/tecnativa/docker-socket-proxy:v0.5.0 ghcr.io/${OWNER}/argws-connect-docker-proxy:v0.5.0
+          sync docker.io/prom/prometheus:v3.5.0               ghcr.io/${OWNER}/argws-connect-prometheus:v3.5.0
+          sync docker.io/grafana/grafana:12.1.0               ghcr.io/${OWNER}/argws-connect-grafana:12.1.0
 
           # Optional messaging profiles. They consume no runtime resources while disabled.
           sync docker.io/library/nats:2.10-alpine            ghcr.io/${OWNER}/argws-connect-nats:2.10-alpine

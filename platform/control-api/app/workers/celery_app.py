@@ -50,11 +50,13 @@ beat_schedule: dict[str, dict[str, object]] = {
         "task": "app.tasks.capture_connect_api_usage",
         "schedule": crontab(minute="7"),
     },
-    "backup-configured-cron": {
+}
+
+if settings.backup_enabled:
+    beat_schedule["backup-configured-cron"] = {
         "task": "app.tasks.backup_all",
         "schedule": parse_cron_expression(settings.backup_cron),
-    },
-}
+    }
 
 if settings.enable_reference_financial_domain:
     routes.update(

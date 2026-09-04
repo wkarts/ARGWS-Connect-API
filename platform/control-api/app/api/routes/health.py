@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, Depends, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from redis.asyncio import Redis
@@ -16,6 +15,7 @@ from app.core.config import settings
 from app.db.platform import get_platform_session
 from app.models.landing import PlatformLandingPage
 from app.models.platform import PlatformPlan, PlatformSetting
+from app.providers.storage import S3StorageProvider
 from app.schemas.common import HealthResponse, SuccessResponse
 from app.services.landing_builder import default_document
 
@@ -60,12 +60,10 @@ async def ready(
         checks["rabbitmq"] = f"error:{type(exc).__name__}"
         status = "error"
     try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            s3_response = await client.get(settings.s3_endpoint_url.rstrip("/") + "/minio/health/live")
-            s3_response.raise_for_status()
-        checks["minio"] = "ok"
+        await asyncio.wait_for(S3StorageProvider().healthcheck(), timeout=3)
+        checks["s3"] = "ok"
     except Exception as exc:  # noqa: BLE001
-        checks["minio"] = f"error:{type(exc).__name__}"
+        checks["s3"] = f"error:{type(exc).__name__}"
         status = "error"
     if status != "ok":
         response.status_code = 503

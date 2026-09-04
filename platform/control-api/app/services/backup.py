@@ -133,7 +133,7 @@ class BackupService:
         work_root.mkdir(parents=True, exist_ok=True)
         final_root.mkdir(parents=True, exist_ok=True)
         temp_dir = Path(tempfile.mkdtemp(prefix=f"backup-{timestamp}-", dir=work_root))
-        archive = final_root / f"multitenant-app-full-{timestamp}.tar.zst"
+        archive = final_root / f"connect-api-platform-full-{timestamp}.tar.zst"
         try:
             database_dir = temp_dir / "databases"
             database_dir.mkdir(parents=True)
@@ -292,7 +292,7 @@ class BackupService:
                 "\n".join(checksums) + "\n",
                 encoding="utf-8",
             )
-            archive = final_root / f"multitenant-app-tenant-{tenant.slug}-{timestamp}.tar.zst"
+            archive = final_root / f"connect-api-platform-tenant-{tenant.slug}-{timestamp}.tar.zst"
             await run_command(
                 ["tar", "--zstd", "-cf", str(archive), "-C", str(temp_dir), "."],
                 env={**os.environ, "ZSTD_CLEVEL": str(settings.backup_compress_level)},
@@ -331,7 +331,7 @@ class BackupService:
             run.finished_at = datetime.now(UTC)
             await self.session.commit()
             await self.apply_local_retention(
-                pattern=f"multitenant-app-tenant-{tenant.slug}-*.tar.zst*"
+                pattern=f"connect-api-platform-tenant-{tenant.slug}-*.tar.zst*"
             )
             return run
         except Exception as exc:
@@ -343,7 +343,7 @@ class BackupService:
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    async def apply_local_retention(self, *, pattern: str = "multitenant-app-full-*.tar.zst*") -> None:
+    async def apply_local_retention(self, *, pattern: str = "connect-api-platform-full-*.tar.zst*") -> None:
         root = settings.backup_dir / "archives"
         if not root.exists():
             return

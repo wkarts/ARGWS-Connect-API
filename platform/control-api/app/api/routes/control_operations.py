@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_control_roles
 from app.core.config import settings
+from app.core.errors import APIError
 from app.db.platform import get_platform_session
 from app.models.platform import BackupRun
 from app.providers.storage import S3StorageProvider
@@ -61,6 +62,12 @@ async def run_backup(
     user: AuthUser = Depends(require_control_roles("PLATFORM_ADMIN")),
     session: AsyncSession = Depends(get_platform_session),
 ) -> SuccessResponse[dict]:
+    if not settings.backup_enabled:
+        raise APIError(
+            "BACKUP_DISABLED",
+            "Backups estão desativados pela política da plataforma.",
+            409,
+        )
     scope = "TENANT" if tenant_id else "FULL"
     task = (
         backup_tenant.apply_async(args=[str(tenant_id)], queue="connect.backups")

@@ -9,7 +9,7 @@ API_HOST=api.connect.exemplo.com.br
 TENANT_DOMAIN_ROOT=connect.exemplo.com.br
 ```
 
-`API_HOST` atende saúde, documentação e informações públicas da API. O Control Plane utiliza exclusivamente `CONTROL_PLANE_HOST`. APIs financeiras e webhooks são publicados no domínio de cada tenant, pois o hostname participa da resolução do banco isolado.
+`API_HOST` atende saúde, documentação e informações públicas da API. O Control Plane utiliza exclusivamente `CONTROL_PLANE_HOST`. APIs, eventos, webhooks e recursos do tenant são publicados no domínio de cada tenant, pois o hostname participa da resolução do banco isolado.
 
 Tenant `acme`:
 
@@ -46,7 +46,7 @@ Use token com menor privilégio possível.
 Exemplo:
 
 ```text
-cobranca.cliente.com.br CNAME connect.exemplo.com.br
+app.cliente.com.br CNAME connect.exemplo.com.br
 ```
 
 O domínio é inserido no Control Plane e fica `PENDING/VERIFYING` até a verificação. Após a verificação DNS, o domínio entra em `WAITING_SSL`; o Domain Agent cria o vhost HTTP, emite o certificado e só então o marca como `ACTIVE`.
@@ -56,19 +56,19 @@ O domínio é inserido no Control Plane e fica `PENDING/VERIFYING` até a verifi
 Copie:
 
 ```bash
-sudo cp deployments/domain-agent/multitenant-app-domain-agent.service /etc/systemd/system/
-sudo cp deployments/domain-agent/multitenant-app-domain-agent.timer /etc/systemd/system/
-sudo cp deployments/domain-agent/domain-agent.env.example /etc/multitenant-app-domain-agent.env
-sudo chmod 600 /etc/multitenant-app-domain-agent.env
+sudo cp deploy/platform/domain-agent/connect-api-domain-agent.service /etc/systemd/system/
+sudo cp deploy/platform/domain-agent/connect-api-domain-agent.timer /etc/systemd/system/
+sudo cp deploy/platform/domain-agent/domain-agent.env.example /etc/connect-api-domain-agent.env
+sudo chmod 600 /etc/connect-api-domain-agent.env
 ```
 
 Edite o env com o token do `.env` da stack.
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now multitenant-app-domain-agent.timer
-sudo systemctl start multitenant-app-domain-agent.service
-sudo journalctl -u multitenant-app-domain-agent.service -n 100 --no-pager
+sudo systemctl enable --now connect-api-domain-agent.timer
+sudo systemctl start connect-api-domain-agent.service
+sudo journalctl -u connect-api-domain-agent.service -n 100 --no-pager
 ```
 
 O agente:

@@ -147,7 +147,7 @@ onMounted(load)
 
   <div class="grid gap-5 xl:grid-cols-2">
     <article v-for="item in plans" :key="item.id" class="card relative overflow-hidden" :class="!item.is_active && 'opacity-65'">
-      <div class="absolute right-0 top-0 h-24 w-24 rounded-bl-[5rem] bg-teal-50" />
+      <div class="absolute right-0 top-0 h-24 w-24 rounded-bl-[5rem] bg-blue-50" />
       <div class="relative flex items-start justify-between gap-4">
         <div><div class="flex flex-wrap items-center gap-2"><h2 class="text-lg font-bold">{{ item.name }}</h2><StatusBadge :status="item.is_active ? 'ACTIVE' : 'INACTIVE'" /><span v-if="!item.is_public" class="badge bg-violet-100 text-violet-700">Privado</span></div><p class="mt-1 font-mono text-xs text-slate-400">{{ item.code }}</p></div>
         <button class="btn-secondary !px-3 !py-2" @click="openEdit(item)"><Edit3 :size="16" /> Editar</button>

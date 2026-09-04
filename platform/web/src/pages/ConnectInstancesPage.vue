@@ -166,7 +166,7 @@ onMounted(load)
             <tr v-for="item in items" :key="item.id" class="hover:bg-slate-50/60">
               <td class="px-5 py-4"><p class="font-semibold text-slate-900">{{ item.alias }}</p><p class="mt-0.5 text-xs text-slate-500">{{ item.created_at || '—' }}</p></td>
               <td class="px-5 py-4 text-slate-600">{{ item.provider }}</td>
-              <td class="px-5 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="isAdopted(item) ? 'bg-blue-50 text-blue-700' : 'bg-teal-50 text-teal-700'">{{ isAdopted(item) ? 'Adotada' : 'Platform' }}</span></td>
+              <td class="px-5 py-4"><span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="isAdopted(item) ? 'bg-blue-50 text-blue-700' : 'bg-blue-50 text-blue-700'">{{ isAdopted(item) ? 'Adotada' : 'Platform' }}</span></td>
               <td class="px-5 py-4"><StatusBadge :status="item.state || item.status || 'UNKNOWN'" /></td>
               <td class="px-5 py-4 font-mono text-xs text-slate-500">{{ item.instance_name }}</td>
               <td class="px-5 py-4"><div class="flex justify-end gap-2"><button class="icon-btn" title="Conectar" @click="connect(item)"><Link2 :size="16" /></button><button class="icon-btn" title="Reiniciar" @click="restart(item)"><RotateCcw :size="16" /></button><button class="icon-btn" :class="isAdopted(item) ? 'text-amber-600' : 'text-rose-600'" :title="isAdopted(item) ? 'Desvincular da Platform' : 'Excluir instância'" @click="remove(item)"><Unlink v-if="isAdopted(item)" :size="16" /><Trash2 v-else :size="16" /></button></div></td>

@@ -91,7 +91,7 @@ onBeforeUnmount(()=>{if(timer)window.clearInterval(timer)})
   </div>
 
   <section class="mt-7">
-    <div class="mb-4 flex items-center gap-2"><DatabaseBackup :size="21" class="text-teal-700"/><h2 class="text-lg font-semibold">Execuções</h2></div>
+    <div class="mb-4 flex items-center gap-2"><DatabaseBackup :size="21" class="text-blue-700"/><h2 class="text-lg font-semibold">Execuções</h2></div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Execução</th><th>Escopo</th><th>Tamanho / checksum</th><th>Destinos</th><th>Estado</th><th></th></tr></thead><tbody>
       <tr v-for="item in backups" :key="item.id">
         <td><p class="font-semibold">{{new Date(item.created_at).toLocaleString('pt-BR')}}</p><p class="max-w-xs truncate text-xs text-slate-400">{{item.path||item.id}}</p></td>
@@ -106,7 +106,7 @@ onBeforeUnmount(()=>{if(timer)window.clearInterval(timer)})
   </section>
 
   <section class="mt-7">
-    <div class="mb-4 flex items-center gap-2"><ShieldCheck :size="21" class="text-teal-700"/><h2 class="text-lg font-semibold">Solicitações de restauração</h2></div>
+    <div class="mb-4 flex items-center gap-2"><ShieldCheck :size="21" class="text-blue-700"/><h2 class="text-lg font-semibold">Solicitações de restauração</h2></div>
     <div class="table-wrap"><table class="table"><thead><tr><th>Solicitação</th><th>Escopo</th><th>Validação</th><th>Estado</th><th>Erro</th></tr></thead><tbody>
       <tr v-for="item in restores" :key="item.id"><td>{{new Date(item.created_at).toLocaleString('pt-BR')}}<p class="font-mono text-[10px] text-slate-400">{{item.id}}</p></td><td>{{scopeLabel(item.scope)}}<p class="text-xs text-slate-400">{{item.tenant_id||'Plataforma inteira'}}</p></td><td><pre class="max-w-sm whitespace-pre-wrap text-[10px]">{{JSON.stringify(item.validation||{},null,2)}}</pre></td><td><StatusBadge :status="item.status"/></td><td class="text-xs text-rose-600">{{item.last_error||'—'}}</td></tr>
       <tr v-if="!restores.length"><td colspan="5" class="py-12 text-center text-slate-400">Nenhuma restauração solicitada.</td></tr>

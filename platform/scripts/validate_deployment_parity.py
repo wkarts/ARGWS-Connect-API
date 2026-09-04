@@ -2,191 +2,151 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
-STACKS = [
-    ROOT / "compose.yaml",
-    ROOT / "deployments/docker/compose.images.yaml",
-    ROOT / "deployments/production/compose.yaml",
-    ROOT / "deployments/dockge/compose.yaml",
-    ROOT / "deployments/cloudpanel/compose.yaml",
-    ROOT / "deployments/portainer/stack.yaml",
-]
-ENV_FILES = [
-    ROOT / ".env.example",
-    ROOT / "deployments/docker/.env.example",
-    ROOT / "deployments/production/.env.example",
-    ROOT / "deployments/dockge/.env.example",
-    ROOT / "deployments/cloudpanel/.env.example",
-    ROOT / "deployments/portainer/.env.example",
-    ROOT / "deployments/portainer/stack.env.example",
-]
-REQUIRED_SERVICES = {
-    "connect-preflight",
-    "connect-domain-init",
-    "connect-storage-init",
-    "connect-monitoring-init",
-    "connect-postgres",
-    "connect-redis",
-    "connect-rabbitmq",
-    "connect-minio",
-    "connect-minio-init",
-    "connect-migrate",
-    "connect-migrate-tenants",
-    "connect-bootstrap",
-    "connect-api",
-    "connect-worker-default",
-    "connect-worker-events",
-    "connect-worker-notifications",
-    "connect-worker-backups",
-    "connect-beat",
-    "connect-web",
-    "connect-prometheus",
-    "connect-grafana",
-    "connect-docker-proxy",
-    "connect-log-agent",
-    "connect-acme",
-    "connect-cloudpanel-agent",
-    "connect-gateway",
+REPO = Path(__file__).resolve().parents[2]
+STACKS = {
+    "platform": (REPO / "deploy/platform/compose.yaml", "argws-connect-platform"),
+    "platform-develop": (REPO / "deploy/platform-develop/compose.yaml", "argws-connect-platform-develop"),
+    "platform-production": (REPO / "deploy/platform-production/compose.yaml", "argws-connect-platform-production"),
 }
-EXPECTED_IMAGES = {
-    "connect-api": "ghcr.io/YOUR_ORG/connect-api-platform-api:latest",
-    "connect-web": "ghcr.io/YOUR_ORG/connect-api-platform-web:latest",
-    "connect-gateway": "ghcr.io/YOUR_ORG/connect-api-platform-gateway:latest",
-    "connect-acme": "ghcr.io/YOUR_ORG/connect-api-platform-acme:latest",
-    "connect-cloudpanel-agent": "ghcr.io/YOUR_ORG/connect-api-platform-cloudpanel-agent:latest",
-    "connect-log-agent": "ghcr.io/YOUR_ORG/connect-api-platform-api:latest",
+
+REQUIRED_LOGICAL = {
+    "api", "docs", "postgres", "redis", "rabbitmq", "minio",
+    "platform-postgres", "platform-migrate", "platform-migrate-tenants",
+    "platform-bootstrap", "platform-api", "platform-worker", "platform-scheduler",
+    "platform-worker-backups", "platform-docker-proxy", "platform-log-agent",
+    "platform-prometheus", "platform-grafana", "platform-acme",
+    "platform-cloudpanel-agent", "platform-web", "platform-gateway",
 }
+
 errors: list[str] = []
 
 
-def environment(service: dict) -> dict:
-    value = service.get("environment") or {}
-    return value if isinstance(value, dict) else {}
+def fail(message: str) -> None:
+    errors.append(message)
 
 
-if (ROOT / "deployments/portainer/stack-build.yaml").exists():
-    errors.append(
-        "deployments/portainer/stack-build.yaml não deve existir; build local fica somente em compose.local-build.yaml"
-    )
-
-for path in STACKS:
-    if not path.exists():
-        errors.append(f"{path.relative_to(ROOT)}: arquivo ausente")
-        continue
-    text = path.read_text(encoding="utf-8")
-    if "\nbuild:" in text or "\n    build:" in text or "dockerfile:" in text:
-        errors.append(f"{path.relative_to(ROOT)}: deployment de produção contém build local")
-    if "redis://localhost" in text:
-        errors.append(f"{path.relative_to(ROOT)}: deployment de produção referencia Redis em localhost")
+def load(path: Path) -> dict:
     try:
-        data = yaml.safe_load(text) or {}
-    except Exception as exc:
-        errors.append(f"{path.relative_to(ROOT)}: YAML inválido: {exc}")
+        value = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:  # noqa: BLE001
+        fail(f"{path.relative_to(REPO)}: YAML inválido: {exc}")
+        return {}
+    if not isinstance(value, dict):
+        fail(f"{path.relative_to(REPO)}: raiz YAML inválida")
+        return {}
+    return value
+
+
+def logical_service_names(services: dict, project: str) -> set[str]:
+    suffix = f"-{project}"
+    result: set[str] = set()
+    for name in services:
+        if not isinstance(name, str) or not name.endswith(suffix):
+            fail(f"serviço fora da convenção <recurso>-{project}: {name}")
+            continue
+        result.add(name[: -len(suffix)])
+    return result
+
+
+baseline: set[str] | None = None
+for label, (path, project) in STACKS.items():
+    if not path.is_file():
+        fail(f"{path.relative_to(REPO)}: arquivo ausente")
         continue
+    data = load(path)
     services = data.get("services") or {}
-    missing = sorted(REQUIRED_SERVICES - set(services))
+    if not isinstance(services, dict):
+        fail(f"{path.relative_to(REPO)}: services ausente")
+        continue
+
+    name = str(data.get("name") or "")
+    if project not in name:
+        fail(f"{path.relative_to(REPO)}: project name não preserva {project}")
+
+    logical = logical_service_names(services, project)
+    missing = sorted(REQUIRED_LOGICAL - logical)
     if missing:
-        errors.append(f"{path.relative_to(ROOT)}: serviços ausentes: {', '.join(missing)}")
-        continue
+        fail(f"{path.relative_to(REPO)}: serviços Platform ausentes: {', '.join(missing)}")
+    if baseline is None:
+        baseline = logical
+    elif logical != baseline:
+        fail(f"{path.relative_to(REPO)}: conjunto de serviços diverge da stack Platform base")
 
-    publishers = [name for name, service in services.items() if service.get("ports")]
-    if publishers != ["connect-gateway"]:
-        errors.append(
-            f"{path.relative_to(ROOT)}: somente connect-gateway pode publicar porta; encontrados: {publishers}"
-        )
+    for service_name, service in services.items():
+        if not isinstance(service, dict):
+            continue
+        if service.get("container_name") != service_name:
+            fail(f"{path.relative_to(REPO)}: container_name divergente em {service_name}")
+        if "build" in service:
+            fail(f"{path.relative_to(REPO)}: build local encontrado em runtime image-only ({service_name})")
 
-    for service, expected in EXPECTED_IMAGES.items():
-        value = (services.get(service) or {}).get("image")
-        if value != expected:
-            errors.append(
-                f"{path.relative_to(ROOT)}: {service}.image deve ser {expected!r}, encontrado {value!r}"
-            )
+    allowed_publishers = {
+        f"api-{project}", f"docs-{project}", f"platform-gateway-{project}",
+    }
+    publishers = {name for name, service in services.items() if isinstance(service, dict) and service.get("ports")}
+    unexpected = sorted(publishers - allowed_publishers)
+    if unexpected:
+        fail(f"{path.relative_to(REPO)}: portas publicadas fora de API/DOCs/Gateway: {unexpected}")
 
-    for internal in (
-        "connect-postgres",
-        "connect-redis",
-        "connect-rabbitmq",
-        "connect-minio",
-        "connect-prometheus",
-        "connect-grafana",
-        "connect-docker-proxy",
-        "connect-log-agent",
-    ):
-        if (services.get(internal) or {}).get("ports"):
-            errors.append(f"{path.relative_to(ROOT)}: {internal} não pode publicar porta no host")
+    scheduler = services.get(f"platform-scheduler-{project}") or {}
+    scheduler_command = " ".join(str(item) for item in (scheduler.get("command") or []))
+    if "--schedule=/tmp/celerybeat-schedule" not in scheduler_command:
+        fail(f"{path.relative_to(REPO)}: scheduler não usa schedule gravável em /tmp")
 
-    api = services["connect-api"]
-    agent = services["connect-log-agent"]
-    proxy = services["connect-docker-proxy"]
-    api_env = environment(api)
-    agent_env = environment(agent)
-    proxy_env = environment(proxy)
-
-    if "connect-log-agent:8091" not in str(api_env.get("LOG_AGENT_URL") or ""):
-        errors.append(f"{path.relative_to(ROOT)}: connect-api sem LOG_AGENT_URL interno")
-    if "INTERNAL_SERVICES_PASSWORD" not in str(api_env.get("INTERNAL_SERVICES_PASSWORD") or ""):
-        errors.append(f"{path.relative_to(ROOT)}: connect-api sem segredo interno dedicado")
-    if agent_env.get("DOCKER_API_URL") != "http://connect-docker-proxy:2375":
-        errors.append(f"{path.relative_to(ROOT)}: connect-log-agent não usa proxy Docker interno")
-    if "INTERNAL_SERVICES_PASSWORD" not in str(agent_env.get("INTERNAL_SERVICES_PASSWORD") or ""):
-        errors.append(f"{path.relative_to(ROOT)}: connect-log-agent sem segredo interno dedicado")
+    proxy = services.get(f"platform-docker-proxy-{project}") or {}
+    proxy_env = proxy.get("environment") or {}
     if str(proxy_env.get("POST")) != "0" or str(proxy_env.get("CONTAINERS")) != "1":
-        errors.append(f"{path.relative_to(ROOT)}: proxy Docker não está restrito a leitura de containers")
-    if proxy.get("privileged") or agent.get("privileged"):
-        errors.append(f"{path.relative_to(ROOT)}: observabilidade não pode executar privileged")
+        fail(f"{path.relative_to(REPO)}: Docker Proxy não está restrito a leitura")
+    if not any("/var/run/docker.sock:ro" in str(v) for v in proxy.get("volumes", [])):
+        fail(f"{path.relative_to(REPO)}: Docker Proxy sem socket read-only")
+
+    agent = services.get(f"platform-log-agent-{project}") or {}
     if agent.get("volumes"):
-        errors.append(f"{path.relative_to(ROOT)}: connect-log-agent não pode montar Docker socket")
-    if not any(str(volume).endswith(":/var/run/docker.sock:ro") for volume in proxy.get("volumes", [])):
-        errors.append(f"{path.relative_to(ROOT)}: proxy Docker sem socket somente leitura")
-    if "connect-observability" not in (proxy.get("networks") or []):
-        errors.append(f"{path.relative_to(ROOT)}: proxy Docker fora da rede isolada de observabilidade")
-    if not ((data.get("networks") or {}).get("connect-observability") or {}).get("internal"):
-        errors.append(f"{path.relative_to(ROOT)}: rede connect-observability precisa ser internal")
+        fail(f"{path.relative_to(REPO)}: Log Agent não deve montar Docker socket")
+    if (agent.get("environment") or {}).get("DOCKER_API_URL") != "http://connect-docker-proxy:2375":
+        fail(f"{path.relative_to(REPO)}: Log Agent não usa Docker Proxy interno")
 
-for path in ENV_FILES:
-    if not path.exists():
-        errors.append(f"{path.relative_to(ROOT)}: env example ausente")
-        continue
-    text = path.read_text(encoding="utf-8")
-    required = [
-        "APP_NAME=Connect|API Platform",
-        "PLATFORM_DOMAIN=connect-api.example.com",
-        "CONTROL_PLANE_HOST=control.connect-api.example.com",
-        "ADMIN_HOST=admin.connect-api.example.com",
-        "API_HOST=api.connect-api.example.com",
-        "DEMO_HOST=demo.connect-api.example.com",
-        "TENANT_DOMAIN_ROOT=connect-api.example.com",
-        "VITE_APP_NAME=Connect|API Platform",
-        "INTERNAL_SERVICES_PASSWORD=",
-        "LOG_AGENT_URL=http://connect-log-agent:8091",
-    ]
-    for item in required:
-        if item not in text:
-            errors.append(f"{path.relative_to(ROOT)}: esperado {item}")
-    lines = {line.strip() for line in text.splitlines()}
-    if "APP_NAME=Connect|API" in lines or "VITE_APP_NAME=Connect|API" in lines:
-        errors.append(f"{path.relative_to(ROOT)}: nome curto não pode substituir o nome canônico Connect|API Platform")
+    for optional in (f"platform-acme-{project}", f"platform-cloudpanel-agent-{project}"):
+        if (services.get(optional) or {}).get("profiles") != ["cloudpanel"]:
+            fail(f"{path.relative_to(REPO)}: {optional} deve permanecer no profile cloudpanel")
 
-for path in (
-    ROOT / "infrastructure/nginx/gateway.conf.template",
-    ROOT / "infrastructure/docker/gateway/landing/index.html",
-    ROOT / "infrastructure/docker/gateway/Dockerfile",
-):
-    if not path.exists():
-        errors.append(f"{path.relative_to(ROOT)}: arquivo obrigatório ausente")
+    api = services.get(f"platform-api-{project}") or {}
+    env = api.get("environment") or {}
+    for key in (
+        "S3_ENDPOINT_URL", "S3_BUCKET_PREFIX", "CLOUDFLARE_ENABLED", "CLOUDFLARE_API_TOKEN",
+        "LOG_AGENT_URL", "BACKUP_ENABLED", "BACKUP_S3_BUCKET", "PROMETHEUS_BASE_URL", "GRAFANA_BASE_URL",
+    ):
+        if key not in env:
+            fail(f"{path.relative_to(REPO)}: Platform API sem variável operacional {key}")
+
+    env_path = path.with_name("env.example")
+    if not env_path.is_file():
+        fail(f"{env_path.relative_to(REPO)}: env example ausente")
+    else:
+        env_text = env_path.read_text(encoding="utf-8")
+        for token in (
+            f"COMPOSE_PROJECT_NAME={project}",
+            f"ARGWS_CONNECT_NETWORK_NAME={project}-net",
+            "PLATFORM_S3_ENDPOINT_URL=",
+            "CLOUDFLARE_ENABLED=",
+            "BACKUP_ENABLED=",
+        ):
+            if token not in env_text:
+                fail(f"{env_path.relative_to(REPO)}: esperado {token}")
 
 if errors:
     print("DEPLOYMENT_PARITY=FAIL")
-    for error in errors:
-        print(f"- {error}")
+    for item in errors:
+        print(f"- {item}")
     raise SystemExit(1)
 
 print("DEPLOYMENT_PARITY=PASS")
 print(f"STACKS={len(STACKS)}")
-print(f"REQUIRED_SERVICES={len(REQUIRED_SERVICES)}")
-print("PUBLIC_HOST_PORT=connect-gateway")
-print("OBSERVABILITY=connect-log-agent+connect-docker-proxy")
-print("DEFAULT_DOMAIN=connect-api.example.com")
+print(f"SERVICES={len(REQUIRED_LOGICAL)}")
+print("DEPLOY_PATTERN=preserved")
+print("OBSERVABILITY=docker-proxy+log-agent+prometheus+grafana")
+print("ACME_CLOUDPANEL=optional-profile")

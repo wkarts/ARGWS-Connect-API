@@ -48,8 +48,11 @@ Ambas sobem por padrão:
 - PostgreSQL exclusivo da Platform;
 - migrations e bootstrap;
 - Control API;
-- worker;
-- scheduler;
+- worker principal e worker dedicado de backups;
+- scheduler Celery Beat;
+- Docker Socket Proxy somente leitura + Log Agent;
+- Prometheus + Grafana;
+- ACME + CloudPanel Agent opcionais pelo profile `cloudpanel`;
 - frontend Vue/PWA;
 - gateway da Platform.
 
@@ -164,7 +167,12 @@ volumes/
 ├── rabbitmq/
 ├── minio/
 ├── platform-postgres/
-└── platform-celery/
+├── platform-backups/
+├── platform-prometheus/
+├── platform-grafana/
+├── platform-acme/
+├── platform-certs/
+└── platform-cloudpanel-agent/
 ```
 
 Nenhum volume das stacks clássicas é compartilhado automaticamente.

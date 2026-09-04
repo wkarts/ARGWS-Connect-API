@@ -205,11 +205,11 @@ onMounted(load)
       <div class="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-center">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
-            <Globe2 :size="19" class="text-teal-700"/><strong class="truncate">{{item.hostname}}</strong>
+            <Globe2 :size="19" class="text-blue-700"/><strong class="truncate">{{item.hostname}}</strong>
             <Star v-if="item.is_primary" :size="15" class="fill-amber-400 text-amber-400"/>
             <StatusBadge :status="statusTone(item)"/>
           </div>
-          <RouterLink :to="`/tenants/${item.tenant_id}`" class="mt-1 inline-block text-sm font-semibold text-teal-700 hover:underline">{{item.tenant_name||item.tenant_slug||'Cliente'}}</RouterLink>
+          <RouterLink :to="`/tenants/${item.tenant_id}`" class="mt-1 inline-block text-sm font-semibold text-blue-700 hover:underline">{{item.tenant_name||item.tenant_slug||'Cliente'}}</RouterLink>
           <p class="mt-1 text-xs text-slate-500">{{domainModeLabel(item.management_mode)}}</p>
         </div>
         <div class="text-sm">
@@ -245,7 +245,7 @@ onMounted(load)
       <section v-if="management?.instructions?.length" class="space-y-3">
         <div><h3 class="font-bold">Ação necessária / configuração DNS</h3><p class="text-sm text-slate-500">Somente as informações abaixo devem ser entregues ao cliente quando o DNS não for administrado pela Connect|API Platform.</p></div>
         <div v-for="(instruction,index) in management.instructions" :key="index" class="rounded-xl border p-4" :class="instruction.required?'border-amber-200 bg-amber-50':'border-slate-200 bg-white'">
-          <div class="flex items-start gap-3"><Network :size="19" class="mt-0.5 text-teal-700"/><div class="min-w-0 flex-1"><p class="font-semibold">{{instruction.message||instruction.kind}}</p>
+          <div class="flex items-start gap-3"><Network :size="19" class="mt-0.5 text-blue-700"/><div class="min-w-0 flex-1"><p class="font-semibold">{{instruction.message||instruction.kind}}</p>
             <template v-if="instruction.values?.length"><div v-for="value in instruction.values" :key="value" class="mt-2 flex items-center gap-2 rounded-lg bg-white px-3 py-2 font-mono text-sm"><span class="min-w-0 flex-1 break-all">{{value}}</span><button class="p-1 text-slate-500" @click="copy(value)"><Copy :size="15"/></button></div></template>
             <div v-else-if="instruction.name||instruction.value" class="mt-3 grid gap-2 md:grid-cols-[100px_1fr_1fr]"><div class="rounded-lg bg-white p-2 text-xs font-bold">{{instruction.type||instruction.kind}}</div><div class="flex items-center gap-2 rounded-lg bg-white p-2 font-mono text-xs"><span class="min-w-0 flex-1 break-all">{{instruction.name}}</span><button @click="copy(instruction.name)"><Copy :size="14"/></button></div><div class="flex items-center gap-2 rounded-lg bg-white p-2 font-mono text-xs"><span class="min-w-0 flex-1 break-all">{{instruction.value}}</span><button @click="copy(instruction.value)"><Copy :size="14"/></button></div></div>
           </div></div>

@@ -198,7 +198,7 @@ onBeforeUnmount(()=>{if(refreshTimer)window.clearInterval(refreshTimer)})
           <p class="mt-2 text-xs text-slate-500">{{connectionLabel(item.connection.state)}} · conexão {{item.instance_mode==='TENANT'?'exclusiva':'compartilhada'}}</p>
           <div class="mt-4 grid gap-2 sm:grid-cols-2">
             <button class="btn-secondary !py-2 sm:col-span-2" @click="open(item)"><Link2 :size="16"/>Gerenciar conexão</button>
-            <button v-if="normalizeState(item.connection.state)==='CONNECTED'&&item.operations_available" class="btn-secondary !py-2 text-teal-700 sm:col-span-2" @click="openTest(item)"><Send :size="16"/>Testar envio real</button>
+            <button v-if="normalizeState(item.connection.state)==='CONNECTED'&&item.operations_available" class="btn-secondary !py-2 text-blue-700 sm:col-span-2" @click="openTest(item)"><Send :size="16"/>Testar envio real</button>
           </div>
         </div>
       </div>
@@ -215,7 +215,7 @@ onBeforeUnmount(()=>{if(refreshTimer)window.clearInterval(refreshTimer)})
       </div>
 
       <div v-if="selected.operations_available" class="rounded-2xl border border-slate-200 p-4">
-        <div class="mb-4 flex items-center gap-2"><Activity :size="18" class="text-teal-700"/><div><p class="font-semibold">Operações da conexão</p><p class="text-xs text-slate-500">As ações abaixo afetam somente a instância deste cliente.</p></div></div>
+        <div class="mb-4 flex items-center gap-2"><Activity :size="18" class="text-blue-700"/><div><p class="font-semibold">Operações da conexão</p><p class="text-xs text-slate-500">As ações abaixo afetam somente a instância deste cliente.</p></div></div>
         <div class="flex flex-wrap gap-2">
           <button v-if="['NOT_CREATED','UNKNOWN','NOT_CONFIGURED'].includes(state)" class="btn-secondary" :disabled="busy" @click="action('create')"><Plus :size="16"/>Preparar instância</button>
           <button v-if="!connected&&!connection.session_exists" class="btn-primary" :disabled="busy" @click="pairMode='QR';action('connect')"><Smartphone :size="16"/>Gerar QR Code</button>
@@ -228,9 +228,9 @@ onBeforeUnmount(()=>{if(refreshTimer)window.clearInterval(refreshTimer)})
 
       <div v-if="selected.operations_available&&!connected&&!connection.session_exists" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div class="mb-3 flex items-center justify-between"><p class="font-semibold">Pareamento</p><button class="rounded-lg p-1.5 text-slate-400 hover:bg-white" @click="operationResult=null"><X :size="17"/></button></div>
-        <div class="mb-3 grid grid-cols-2 gap-2"><button class="rounded-xl border p-2.5 text-sm font-semibold" :class="pairMode==='QR'?'border-teal-400 bg-teal-50 text-teal-800':'border-slate-200 bg-white'" @click="pairMode='QR';action('connect')">QR Code</button><button class="rounded-xl border p-2.5 text-sm font-semibold" :class="pairMode==='CODE'?'border-teal-400 bg-teal-50 text-teal-800':'border-slate-200 bg-white'" @click="pairMode='CODE'">Código de pareamento</button></div>
+        <div class="mb-3 grid grid-cols-2 gap-2"><button class="rounded-xl border p-2.5 text-sm font-semibold" :class="pairMode==='QR'?'border-blue-400 bg-blue-50 text-blue-800':'border-slate-200 bg-white'" @click="pairMode='QR';action('connect')">QR Code</button><button class="rounded-xl border p-2.5 text-sm font-semibold" :class="pairMode==='CODE'?'border-blue-400 bg-blue-50 text-blue-800':'border-slate-200 bg-white'" @click="pairMode='CODE'">Código de pareamento</button></div>
         <div v-if="pairMode==='CODE'" class="mb-4"><label class="label">Número do WhatsApp</label><div class="flex gap-2"><input v-model="phone" class="input" inputmode="tel" placeholder="99999-9999, 75999999999 ou 5575999999999"/><button class="btn-primary shrink-0" :disabled="busy||!phone.trim()" @click="action('connect')"><Power :size="16"/>Gerar código</button></div><p class="mt-1 text-xs text-slate-500">O DDI 55 é incluído quando ausente. Sem DDD, a plataforma usa o DDD padrão da empresa emissora.</p></div>
-        <div v-if="qrImage||connection.pairing_code" class="grid place-items-center rounded-xl bg-white p-4"><img v-if="qrImage&&pairMode==='QR'" :src="qrImage" alt="QR Code da conexão WhatsApp" class="h-56 w-56 rounded-xl bg-white p-2"/><div v-else-if="connection.pairing_code&&pairMode==='CODE'" class="text-center"><p class="text-xs font-semibold uppercase tracking-wide text-teal-700">Código de pareamento</p><p class="mt-3 font-mono text-3xl font-black tracking-widest">{{connection.pairing_code}}</p></div></div>
+        <div v-if="qrImage||connection.pairing_code" class="grid place-items-center rounded-xl bg-white p-4"><img v-if="qrImage&&pairMode==='QR'" :src="qrImage" alt="QR Code da conexão WhatsApp" class="h-56 w-56 rounded-xl bg-white p-2"/><div v-else-if="connection.pairing_code&&pairMode==='CODE'" class="text-center"><p class="text-xs font-semibold uppercase tracking-wide text-blue-700">Código de pareamento</p><p class="mt-3 font-mono text-3xl font-black tracking-widest">{{connection.pairing_code}}</p></div></div>
       </div>
 
       <div v-if="connection.session_exists&&['CONNECTING','RECONNECTING','DISCONNECTED'].includes(state)" class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">A identidade da sessão continua vinculada. A plataforma tentará recuperar essa sessão e não deve solicitar um novo QR Code enquanto ela permanecer válida.</div>

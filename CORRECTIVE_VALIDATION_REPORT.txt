@@ -1,0 +1,69 @@
+Connect|API Platform - Corrective Validation
+Date: 2026-09-04
+Version: 1.0.16
+
+== Integration ==
+Connect|API Platform integration validation: PASS
+Version: 1.0.16
+
+== Project cleanliness/syntax before tests ==
+{
+  "status": "PASS",
+  "metrics": {
+    "python_files": 261,
+    "shell_scripts": 12,
+    "yaml_files": 19,
+    "canonical_version": "1.0.16"
+  },
+  "warnings": [],
+  "errors": []
+}
+
+== Deployment parity ==
+DEPLOYMENT_PARITY=PASS
+STACKS=3
+SERVICES=22
+DEPLOY_PATTERN=preserved
+OBSERVABILITY=docker-proxy+log-agent+prometheus+grafana
+ACME_CLOUDPANEL=optional-profile
+
+== Runtime contract ==
+Runtime contract: PASS
+- Platform/base/develop/production: image-only
+- build local isolado no overlay existente
+- API/DOCs/Gateway preservam publicação de portas
+- infraestrutura permanece interna
+- scheduler non-root usa /tmp
+- S3/Log Agent integrados à Platform API
+
+== Dockge classic contract ==
+Dockge runtime: PASS
+- deployment clássico preservado
+- image-only / pull_policy=always
+- somente API e DOCs publicam portas
+- PostgreSQL/Redis/RabbitMQ/MinIO internos
+
+== Identity audit ==
+IDENTITY_AUDIT=PASS
+- identidade técnica ARGWS Connect preservada
+- resíduos Financial ativos não encontrados
+
+== Frontend static syntax ==
+Frontend válido: 81 bloco(s) TypeScript verificado(s) em /mnt/data/connect_corrective_work/ARGWS-Connect-API-develop/platform/web/src.
+
+== Corrective tests ==
+.............                                                            [100%]
+13 passed in 0.46s
+
+== Final package cleanliness ==
+{
+  "status": "PASS",
+  "metrics": {
+    "python_files": 261,
+    "shell_scripts": 12,
+    "yaml_files": 19,
+    "canonical_version": "1.0.16"
+  },
+  "warnings": [],
+  "errors": []
+}

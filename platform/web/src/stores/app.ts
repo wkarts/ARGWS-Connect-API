@@ -33,10 +33,14 @@ export const useAppStore = defineStore('app', () => {
       tenant.value = null
     }
 
-    try {
-      const siteResponse = await api.get<ApiResponse<PublicSiteData>>('/v1/public/site')
-      demoMode.value = Boolean(siteResponse.data.data.demo_mode)
-    } catch {
+    if (tenant.value) {
+      try {
+        const siteResponse = await api.get<ApiResponse<PublicSiteData>>('/v1/public/site')
+        demoMode.value = Boolean(siteResponse.data.data.demo_mode)
+      } catch {
+        demoMode.value = false
+      }
+    } else {
       demoMode.value = false
     }
   }

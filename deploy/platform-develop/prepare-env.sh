@@ -55,17 +55,41 @@ if version_file.exists():
     version = version_file.read_text(encoding='utf-8').strip()
     result = re.sub(r'^CONNECT_API_VERSION=.*$', f'CONNECT_API_VERSION={version}', result, flags=re.M)
 
-if os.environ.get('CREATED') == '1':
-    placeholders = sorted(set(re.findall(r'CHANGE_ME_[A-Z0-9_]+', result)))
-    for placeholder in placeholders:
-        size = 48 if 'API_KEY' in placeholder else 40 if 'TOKEN' in placeholder else 32
-        result = result.replace(placeholder, secrets.token_hex(size))
-    print(f"Segredos iniciais gerados: {len(placeholders)}")
+placeholders = sorted(set(re.findall(r'CHANGE_ME_[A-Z0-9_]+', result)))
+for placeholder in placeholders:
+    size = 48 if 'API_KEY' in placeholder else 40 if 'TOKEN' in placeholder else 32
+    result = result.replace(placeholder, secrets.token_hex(size))
+if placeholders:
+    mode = 'iniciais' if os.environ.get('CREATED') == '1' else 'novos da atualização'
+    print(f"Segredos {mode} gerados: {len(placeholders)}")
 
 path.write_text(result, encoding='utf-8')
 print('env.example sincronizado com .env sem sobrescrever valores existentes.')
 PYENV
 
 chmod 600 .env
+prepare_platform_data_dir() {
+  local key="$1" value
+  value="$(grep -E "^${key}=" .env | tail -1 | cut -d= -f2- || true)"
+  value="$(printf '%s' "$value" | sed -e 's/^"//' -e 's/"$//')"
+  [[ -n "$value" ]] || return 0
+  [[ "$value" = /* ]] || value="$PWD/$value"
+  mkdir -p "$value"
+  # Dados runtime apenas. Segredos continuam fora destes diretórios e .env=0600.
+  # UIDs internos variam entre API, Prometheus e Grafana; o diretório de bind
+  # precisa permanecer gravável pelos containers não-root.
+  chmod 0777 "$value"
+}
+
+for key in \
+  ARGWS_CONNECT_PLATFORM_BACKUPS_DATA_PATH \
+  ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH \
+  ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH \
+  ARGWS_CONNECT_PLATFORM_ACME_DATA_PATH \
+  ARGWS_CONNECT_PLATFORM_CERTS_DATA_PATH \
+  ARGWS_CONNECT_PLATFORM_CLOUDPANEL_STATE_PATH; do
+  prepare_platform_data_dir "$key"
+done
+
 project="$(grep '^COMPOSE_PROJECT_NAME=' .env | cut -d= -f2- || true)"
 echo "Ambiente preparado${project:+ · project=$project}"

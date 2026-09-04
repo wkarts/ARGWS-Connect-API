@@ -53,21 +53,21 @@ onMounted(beginSetup)
 </script>
 
 <template>
-  <main class="min-h-screen bg-slate-950 px-4 py-10 sm:px-6">
+  <main class="min-h-screen bg-slate-50 px-4 py-10 sm:px-6">
     <div class="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center justify-center">
-      <section class="w-full overflow-hidden rounded-3xl bg-white shadow-2xl shadow-black/20 lg:grid lg:grid-cols-[.82fr_1.18fr]">
-        <aside class="bg-slate-900 p-8 text-white sm:p-10 lg:p-12">
-          <div class="flex items-center gap-3"><div class="grid h-11 w-11 place-items-center rounded-xl bg-teal-500/15 text-teal-300"><BadgeDollarSign :size="24"/></div><div><p class="font-bold">{{productName}}</p><p class="text-xs text-slate-400">{{contextLabel}}</p></div></div>
-          <ShieldCheck :size="44" class="mt-14 text-teal-300"/>
+      <section class="w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 lg:grid lg:grid-cols-[.82fr_1.18fr]">
+        <aside class="border-b border-slate-200 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-8 text-slate-900 sm:p-10 lg:border-b-0 lg:border-r lg:p-12">
+          <div class="flex items-center gap-3"><div class="grid h-11 w-11 place-items-center rounded-xl bg-blue-500/15 text-cyan-300"><BadgeDollarSign :size="24"/></div><div><p class="font-bold">{{productName}}</p><p class="text-xs text-slate-500">{{contextLabel}}</p></div></div>
+          <ShieldCheck :size="44" class="mt-14 text-cyan-300"/>
           <h1 class="mt-5 text-3xl font-semibold tracking-tight">Autenticação em duas etapas</h1>
           <p class="mt-4 text-sm leading-7 text-slate-300">{{securityText}}</p>
-          <div class="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300"><p class="font-semibold text-white">Aplicativos compatíveis</p><p class="mt-2 leading-6">Google Authenticator, Microsoft Authenticator, 1Password, Authy e outros autenticadores TOTP.</p></div>
-          <div v-if="isControl" class="mt-4 rounded-2xl border border-amber-400/20 bg-amber-300/10 p-4 text-xs leading-6 text-amber-100">No Control Plane o 2FA é obrigatório e não pode ser desativado por configuração de plano, tenant ou perfil administrativo.</div>
+          <div class="mt-8 rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-600"><p class="font-semibold text-slate-900">Aplicativos compatíveis</p><p class="mt-2 leading-6">Google Authenticator, Microsoft Authenticator, 1Password, Authy e outros autenticadores TOTP.</p></div>
+          <div v-if="isControl" class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-800">No Control Plane o 2FA é obrigatório e não pode ser desativado por configuração de plano, tenant ou perfil administrativo.</div>
         </aside>
 
         <div class="p-7 sm:p-10 lg:p-12">
           <div v-if="setupMode">
-            <div class="flex items-center gap-3"><div class="rounded-xl bg-teal-50 p-3 text-teal-700"><Smartphone :size="24"/></div><div><h2 class="text-xl font-bold text-slate-950">Configure seu autenticador</h2><p class="text-sm text-slate-500">Esta configuração é obrigatória após o primeiro acesso.</p></div></div>
+            <div class="flex items-center gap-3"><div class="rounded-xl bg-blue-50 p-3 text-blue-700"><Smartphone :size="24"/></div><div><h2 class="text-xl font-bold text-slate-950">Configure seu autenticador</h2><p class="text-sm text-slate-500">Esta configuração é obrigatória após o primeiro acesso.</p></div></div>
             <div v-if="loading&&!setup" class="mt-10 flex items-center justify-center gap-2 py-16 text-slate-500"><RefreshCw class="animate-spin" :size="20"/>Preparando QR Code…</div>
             <template v-else-if="setup">
               <div class="mt-7 grid gap-6 sm:grid-cols-[auto_1fr] sm:items-center"><img :src="setup.qr_data_uri" alt="QR Code para autenticação em duas etapas" class="mx-auto h-56 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"/><div><p class="text-sm font-semibold text-slate-800">1. Leia o QR Code</p><p class="mt-2 text-sm leading-6 text-slate-500">No aplicativo autenticador, adicione uma nova conta e leia este código.</p><p class="mt-5 text-sm font-semibold text-slate-800">Alternativa: chave manual</p><button class="mt-2 flex max-w-full items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 font-mono text-xs text-slate-700" @click="copySecret"><span class="truncate">{{setup.secret}}</span><Copy :size="15"/><span class="font-sans">{{copied?'Copiada':''}}</span></button></div></div>

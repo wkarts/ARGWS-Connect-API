@@ -43,6 +43,14 @@ class S3StorageProvider:
                 use_ssl=settings.s3_public_endpoint_url.lower().startswith("https://"),
             )
 
+    async def healthcheck(self) -> None:
+        """Valida o endpoint S3 configurado usando o próprio protocolo S3.
+
+        Funciona tanto com o MinIO embarcado quanto com provedores S3 compatíveis
+        externos, sem depender do endpoint HTTP específico /minio/health/live.
+        """
+        await asyncio.to_thread(self.client.list_buckets)
+
     async def ensure_bucket(self, bucket: str) -> None:
         def action() -> None:
             try:
@@ -51,6 +59,19 @@ class S3StorageProvider:
                 self.client.create_bucket(Bucket=bucket)
 
         await asyncio.to_thread(action)
+
+    async def bucket_exists(self, bucket: str) -> bool:
+        def action() -> bool:
+            try:
+                self.client.head_bucket(Bucket=bucket)
+                return True
+            except ClientError as exc:
+                code = str(exc.response.get("Error", {}).get("Code", ""))
+                if code in {"404", "NoSuchBucket", "NotFound"}:
+                    return False
+                raise
+
+        return await asyncio.to_thread(action)
 
     async def put_bytes(
         self, bucket: str, key: str, content: bytes, content_type: str = "application/octet-stream"

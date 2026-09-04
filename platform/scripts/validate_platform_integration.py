@@ -83,6 +83,8 @@ def main() -> int:
         "ghcr.io/wkarts/argws-connect-platform-api",
         "ghcr.io/wkarts/argws-connect-platform-web",
         "ghcr.io/wkarts/argws-connect-platform-gateway",
+        "ghcr.io/wkarts/argws-connect-platform-acme",
+        "ghcr.io/wkarts/argws-connect-platform-cloudpanel-agent",
     }
     if not expected_images.issubset(images):
         fail(f"RELEASE-MANIFEST missing application images: {sorted(expected_images - images)}")

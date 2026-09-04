@@ -69,6 +69,13 @@ const tenantMenu: MenuGroup[] = [
     { to: '/channels', label: 'Canais', icon: Cable },
     { to: '/instances', label: 'Instâncias', icon: Network },
     { to: '/messages', label: 'Mensagens', icon: MessageSquare },
+  ]},
+  { label: 'Operação', items: [
+    { to: '/events', label: 'Eventos', icon: Activity },
+    { to: '/pbx', label: 'PBX', icon: ServerCog },
+    { to: '/voip', label: 'VOIP', icon: Cable },
+  ]},
+  { label: 'Studios', items: [
     { to: '/templates', label: 'Template Studio', icon: FileCode2 },
     { to: '/integrations', label: 'Integration Studio', icon: Braces },
     { to: '/micro-apps', label: 'Micro App Studio', icon: AppWindow },

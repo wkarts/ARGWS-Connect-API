@@ -31,10 +31,10 @@ _DATA_HTML = re.compile(r"data\s*:\s*text/html", re.I)
 def default_document(legacy: dict[str, Any] | None = None) -> dict[str, Any]:
     legacy = legacy or {}
     brand = str(legacy.get("brand_name") or "Connect|API Platform")
-    headline = str(legacy.get("headline") or "Gestão financeira para cobrar melhor e acompanhar cada recebimento.")
+    headline = str(legacy.get("headline") or "Comunicação e integrações para conectar canais, sistemas e operações em uma única plataforma.")
     subheadline = str(
         legacy.get("subheadline")
-        or "Organize cobranças, recebimentos e relacionamento financeiro em um único ambiente."
+        or "Centralize canais, APIs, webhooks, eventos e automações com governança multitenant."
     )
     cta_label = str(legacy.get("cta_label") or "Falar sobre a plataforma")
     cta_url = str(legacy.get("cta_url") or "")
@@ -52,22 +52,22 @@ def default_document(legacy: dict[str, Any] | None = None) -> dict[str, Any]:
                 "secondary_label": "",
                 "secondary_url": "",
             },
-            "style": {"background": "#081722", "color": "#f8fafc", "accent": "#53d5b0", "padding": "96px 24px"},
+            "style": {"background": "#081722", "color": "#f8fafc", "accent": "#06B6D4", "padding": "96px 24px"},
         },
         {
             "id": "features-main",
             "type": "features",
             "name": "Benefícios",
             "props": {
-                "title": "Uma operação financeira mais organizada",
+                "title": "Uma operação conectada e governada",
                 "text": "Apresente benefícios comerciais sem expor a arquitetura interna da plataforma.",
                 "items": [
-                    "Cobranças e recebimentos organizados",
-                    "Relacionamento financeiro com seus clientes",
+                    "Canais e integrações centralizados",
+                    "Comunicação multicanal com seus clientes",
                     "Histórico e rastreabilidade operacional",
                 ],
             },
-            "style": {"background": "#ffffff", "color": "#0f172a", "accent": "#0f766e", "padding": "72px 24px"},
+            "style": {"background": "#ffffff", "color": "#0f172a", "accent": "#2563EB", "padding": "72px 24px"},
         },
     ]
     if legacy.get("show_plans", True):
@@ -77,7 +77,7 @@ def default_document(legacy: dict[str, Any] | None = None) -> dict[str, Any]:
                 "type": "plans",
                 "name": "Planos",
                 "props": {"title": "Planos", "text": "Escolha a configuração que melhor atende sua operação."},
-                "style": {"background": "#f8fafc", "color": "#0f172a", "accent": "#0f766e", "padding": "72px 24px"},
+                "style": {"background": "#f8fafc", "color": "#0f172a", "accent": "#2563EB", "padding": "72px 24px"},
             }
         )
     if legacy.get("show_gallery") and legacy.get("gallery"):
@@ -87,7 +87,7 @@ def default_document(legacy: dict[str, Any] | None = None) -> dict[str, Any]:
                 "type": "gallery",
                 "name": "Galeria",
                 "props": {"title": "Conheça a experiência", "items": legacy.get("gallery") or []},
-                "style": {"background": "#ffffff", "color": "#0f172a", "accent": "#0f766e", "padding": "72px 24px"},
+                "style": {"background": "#ffffff", "color": "#0f172a", "accent": "#2563EB", "padding": "72px 24px"},
             }
         )
     blocks.append(
@@ -101,7 +101,7 @@ def default_document(legacy: dict[str, Any] | None = None) -> dict[str, Any]:
                 "button_label": cta_label,
                 "button_url": cta_url,
             },
-            "style": {"background": "#0f766e", "color": "#ffffff", "accent": "#53d5b0", "padding": "64px 24px"},
+            "style": {"background": "#2563EB", "color": "#ffffff", "accent": "#06B6D4", "padding": "64px 24px"},
         }
     )
     return {
@@ -116,8 +116,8 @@ def default_document(legacy: dict[str, Any] | None = None) -> dict[str, Any]:
             "font_family": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
             "page_background": "#f8fafc",
             "text_color": "#0f172a",
-            "primary_color": "#0f766e",
-            "accent_color": "#53d5b0",
+            "primary_color": "#2563EB",
+            "accent_color": "#06B6D4",
             "radius": "18px",
             "content_width": "1120px",
         },

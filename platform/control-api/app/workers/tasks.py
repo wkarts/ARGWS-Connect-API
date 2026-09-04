@@ -11,6 +11,7 @@ from celery.signals import worker_process_shutdown
 from celery.utils.log import get_task_logger
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.core.tenant_context import TenantContext, reset_tenant_context, set_tenant_context
 from app.db.platform import PlatformSessionLocal, platform_engine
 from app.db.tenant import tenant_engines
@@ -134,6 +135,9 @@ def provision_tenant(self: Any, job_id: str) -> None:
 def backup_all(self: Any) -> str:
     """Cria backup completo da plataforma."""
 
+    if not settings.backup_enabled:
+        return "disabled"
+
     async def action() -> str:
         async with PlatformSessionLocal() as session:
             result = await BackupService(session).create_full()
@@ -151,6 +155,9 @@ def backup_all(self: Any) -> str:
 )
 def backup_tenant(self: Any, tenant_id: str) -> str:
     """Cria backup de um tenant específico."""
+
+    if not settings.backup_enabled:
+        return "disabled"
 
     async def action() -> str:
         async with PlatformSessionLocal() as session:

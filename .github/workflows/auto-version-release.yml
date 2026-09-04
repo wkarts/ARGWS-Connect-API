@@ -131,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, docs, platform-api, platform-web, platform-gateway]
+        component: [api, docs, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -156,6 +156,14 @@ jobs:
             context: .
             dockerfile: ./platform/gateway/Dockerfile
             image: argws-connect-platform-gateway
+          - component: platform-acme
+            context: ./platform
+            dockerfile: ./platform/infrastructure/acme/Dockerfile
+            image: argws-connect-platform-acme
+          - component: platform-cloudpanel-agent
+            context: ./platform
+            dockerfile: ./platform/infrastructure/cloudpanel-agent/Dockerfile
+            image: argws-connect-platform-cloudpanel-agent
           - component: docs
             context: .
             dockerfile: ./docs/Dockerfile
@@ -265,6 +273,10 @@ jobs:
             image: argws-connect-platform-web
           - component: platform-gateway
             image: argws-connect-platform-gateway
+          - component: platform-acme
+            image: argws-connect-platform-acme
+          - component: platform-cloudpanel-agent
+            image: argws-connect-platform-cloudpanel-agent
           - component: docs
             image: argws-connect-docs
     steps:
@@ -356,6 +368,8 @@ jobs:
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-web:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-gateway:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-acme:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-cloudpanel-agent:${version}"
             echo
             for f in release-digests/*.txt; do
               echo "===== $(basename "$f") ====="

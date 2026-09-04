@@ -1,142 +1,63 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
-
 import yaml
-from yaml.tokens import AliasToken, AnchorToken, ScalarToken
 
-ROOT = Path(__file__).resolve().parents[1]
-COMPOSE = ROOT / "deployments/dockge/compose.yaml"
-ENV_EXAMPLE = ROOT / "deployments/dockge/.env.example"
+REPO = Path(__file__).resolve().parents[2]
+COMPOSE = REPO / "deploy/dockge/compose.yaml"
+ENV = REPO / "deploy/dockge/env.example"
+PROJECT = "argws-connect-dockge"
 
 
 def fail(message: str) -> None:
     raise SystemExit(f"[ERRO] {message}")
 
 
-def parse_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
+data = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+if not isinstance(data, dict) or not isinstance(data.get("services"), dict):
+    fail("deploy/dockge/compose.yaml inválido")
+services: dict = data["services"]
 
+required = {
+    f"api-{PROJECT}", f"docs-{PROJECT}", f"postgres-{PROJECT}",
+    f"redis-{PROJECT}", f"rabbitmq-{PROJECT}", f"minio-{PROJECT}",
+}
+missing = sorted(required - set(services))
+if missing:
+    fail(f"serviços core ausentes: {missing}")
 
-def assert_plain_yaml(text: str) -> None:
-    for token in yaml.scan(text):
-        if isinstance(token, (AnchorToken, AliasToken)):
-            fail("Compose Dockge não pode conter YAML anchors/aliases; o editor do Dockge limita aliases")
-        if isinstance(token, ScalarToken) and token.value == "<<":
-            fail("Compose Dockge não pode conter YAML merge keys (<<:)")
+for name, service in services.items():
+    if not isinstance(service, dict):
+        continue
+    if service.get("container_name") != name:
+        fail(f"container_name divergente: {name}")
+    if "build" in service:
+        fail(f"Dockge oficial não deve exigir build local: {name}")
+    if service.get("image") and service.get("pull_policy") != "always":
+        fail(f"{name} deve usar pull_policy=always")
 
+publishers = {name for name, service in services.items() if isinstance(service, dict) and service.get("ports")}
+expected_publishers = {f"api-{PROJECT}", f"docs-{PROJECT}"}
+if publishers != expected_publishers:
+    fail(f"portas Dockge divergentes: {sorted(publishers)}")
 
-def main() -> int:
-    text = COMPOSE.read_text(encoding="utf-8")
-    assert_plain_yaml(text)
-    data = yaml.safe_load(text)
-    services = data.get("services") if isinstance(data, dict) else None
-    if not isinstance(services, dict):
-        fail("Compose Dockge inválido ou sem services")
-    if any(isinstance(key, str) and key.startswith("x-") for key in data):
-        fail("Compose Dockge deve ser plano e não usar extensões x-* para deduplicação")
-    if data.get("volumes"):
-        fail("Dockge não deve usar volumes Docker nomeados; use ./data-*")
-    for name, service in services.items():
-        if isinstance(service, dict) and "build" in service:
-            fail(f"{name} ainda depende de build local")
+for logical in ("postgres", "redis", "rabbitmq", "minio"):
+    if (services[f"{logical}-{PROJECT}"].get("ports")):
+        fail(f"{logical} não pode publicar porta no host")
 
-    required = {
-        "connect-preflight", "connect-domain-init", "connect-storage-init", "connect-monitoring-init",
-        "connect-postgres", "connect-redis", "connect-rabbitmq", "connect-minio", "connect-minio-init",
-        "connect-migrate", "connect-migrate-tenants", "connect-bootstrap", "connect-api",
-        "connect-worker-default", "connect-worker-events", "connect-worker-notifications",
-        "connect-worker-backups", "connect-beat", "connect-web", "connect-prometheus", "connect-grafana",
-        "connect-acme", "connect-cloudpanel-agent", "connect-gateway",
-    }
-    missing = sorted(required - set(services))
-    if missing:
-        fail(f"Serviços ausentes no Dockge: {missing}")
+text = ENV.read_text(encoding="utf-8")
+for token in (
+    "COMPOSE_PROJECT_NAME=argws-connect-dockge",
+    "ARGWS_CONNECT_NETWORK_NAME=argws-connect-dockge-net",
+    "ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:latest",
+    "ARGWS_CONNECT_DOCS_IMAGE=ghcr.io/wkarts/argws-connect-docs:latest",
+):
+    if token not in text:
+        fail(f"env.example Dockge sem contrato: {token}")
 
-    preflight = services.get("connect-preflight") or {}
-    env_files = preflight.get("env_file") or []
-    if isinstance(env_files, str):
-        env_files = [env_files]
-    if ".env" not in env_files:
-        fail("connect-preflight precisa carregar .env para validar ACME/CloudPanel e integrações")
-
-    publishers = [name for name, service in services.items() if isinstance(service, dict) and service.get("ports")]
-    if publishers != ["connect-gateway"]:
-        fail(f"Somente connect-gateway pode publicar porta; encontrado: {publishers}")
-
-    expected = {
-        "connect-preflight": "ghcr.io/YOUR_ORG/connect-api-platform-api:latest",
-        "connect-domain-init": "ghcr.io/YOUR_ORG/connect-api-platform-api:latest",
-        "connect-api": "ghcr.io/YOUR_ORG/connect-api-platform-api:latest",
-        "connect-web": "ghcr.io/YOUR_ORG/connect-api-platform-web:latest",
-        "connect-gateway": "ghcr.io/YOUR_ORG/connect-api-platform-gateway:latest",
-        "connect-acme": "ghcr.io/YOUR_ORG/connect-api-platform-acme:latest",
-        "connect-cloudpanel-agent": "ghcr.io/YOUR_ORG/connect-api-platform-cloudpanel-agent:latest",
-    }
-    for name, image in expected.items():
-        service = services.get(name) or {}
-        if service.get("image") != image:
-            fail(f"{name} deve usar {image}")
-        if service.get("pull_policy") != "always":
-            fail(f"{name} deve usar pull_policy: always")
-
-    for internal in (
-        "connect-postgres", "connect-redis", "connect-rabbitmq", "connect-minio",
-        "connect-prometheus", "connect-grafana",
-    ):
-        if (services.get(internal) or {}).get("ports"):
-            fail(f"{internal} não pode publicar porta no host")
-
-    for folder in (
-        "data-postgres", "data-redis", "data-rabbitmq", "data-minio", "data-backups", "data-runtime",
-        "data-celery", "data-prometheus", "data-grafana", "data-monitoring", "data-acme", "data-certs",
-        "data-cloudpanel-agent",
-    ):
-        if folder not in text:
-            fail(f"Bind mount ausente: {folder}")
-
-    env = parse_env(ENV_EXAMPLE)
-    expected_env = {
-        "APP_NAME": "Connect|API Platform",
-        "PLATFORM_DOMAIN": "connect-api.example.com",
-        "CONTROL_PLANE_HOST": "control.connect-api.example.com",
-        "ADMIN_HOST": "admin.connect-api.example.com",
-        "API_HOST": "api.connect-api.example.com",
-        "DEMO_HOST": "demo.connect-api.example.com",
-        "TENANT_DOMAIN_ROOT": "connect-api.example.com",
-        "CONNECT_API_DATA_ROOT": ".",
-        "BOOTSTRAP_DEMO_TENANT": "true",
-        "VITE_APP_NAME": "Connect|API Platform",
-    }
-    for key, value in expected_env.items():
-        if env.get(key) != value:
-            fail(f"{key} deve ser {value!r}, encontrado {env.get(key)!r}")
-    if env.get("CLOUDFLARE_PROVISIONING_MODE") != "wildcard":
-        fail("CLOUDFLARE_PROVISIONING_MODE deve ser wildcard")
-
-    subprocess.run([sys.executable, str(ROOT / "scripts/validate_deployment_parity.py")], check=True)
-    print("Dockge runtime: PASS")
-    print("- YAML plano sem anchors/aliases/merge keys: OK")
-    print("- connect-preflight carrega .env: OK")
-    print("- branding: Connect|API Platform")
-    print("- domínio padrão: connect-api.example.com")
-    print("- landing/demo/control/admin/api/wildcard: OK")
-    print("- image-only / GHCR latest: OK")
-    print("- única porta publicada: connect-gateway")
-    print("- Prometheus/Grafana internos: OK")
-    print("- bind mounts ./data-*: OK")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+print("Dockge runtime: PASS")
+print("- deployment clássico preservado")
+print("- image-only / pull_policy=always")
+print("- somente API e DOCs publicam portas")
+print("- PostgreSQL/Redis/RabbitMQ/MinIO internos")

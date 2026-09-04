@@ -27,8 +27,12 @@ A stack sobe integralmente por padrão:
 - migrations da Platform e dos tenants;
 - bootstrap;
 - Control API;
-- worker Celery;
+- worker Celery principal;
+- worker dedicado de backups;
 - scheduler Celery Beat;
+- Docker Socket Proxy somente leitura e Log Agent;
+- Prometheus e Grafana;
+- ACME + CloudPanel Agent opcionais pelo profile `cloudpanel`;
 - frontend Vue/PWA;
 - gateway da Platform.
 
@@ -58,6 +62,16 @@ Gateway    : 127.0.0.1:38802
 `d.api.connect.argws.com.br` e `d.docs.connect.argws.com.br` mantêm as portas já usadas pelo develop clássico para facilitar a troca de stack sem alterar esses dois reverse proxies. Por isso, a stack `argws-connect-develop` e esta stack **não devem subir simultaneamente com as portas padrão**. Para execução lado a lado, altere `ARGWS_CONNECT_API_HOST_PORT` e `ARGWS_CONNECT_DOCS_HOST_PORT` na `.env` desta stack antes do deploy.
 
 Os hosts da Platform (`d.connect`, `d.control`, `d.admin`, `d.partner`, `d.demo` e wildcard de tenants) devem apontar para `127.0.0.1:38802` no reverse proxy.
+
+## CloudPanel / ACME opcional
+
+O deployment padrão continua sem privilégios de host. Quando o ambiente usa CloudPanel e deseja gestão automática do wildcard/certificado, ative o profile:
+
+```bash
+docker compose --env-file .env --profile cloudpanel up -d
+```
+
+Para Nginx/Certbot de host sem CloudPanel, use `deploy/platform/domain-agent/`.
 
 ## Primeiro deploy
 
@@ -107,7 +121,12 @@ volumes/
 ├── rabbitmq/
 ├── minio/
 ├── platform-postgres/
-└── platform-celery/
+├── platform-backups/
+├── platform-prometheus/
+├── platform-grafana/
+├── platform-acme/
+├── platform-certs/
+└── platform-cloudpanel-agent/
 ```
 
 Nenhum volume do `deploy/develop` é reutilizado automaticamente.
