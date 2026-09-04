@@ -531,38 +531,13 @@ services:
 
 configs:
   platform-prometheus-config:
-    content: |
-      global:
-        scrape_interval: 30s
-        evaluation_interval: 30s
-      scrape_configs:
-        - job_name: connect-api
-          metrics_path: /metrics
-          static_configs:
-            - targets: ["connect-platform-api:8000"]
+    file: ./observability/prometheus/prometheus.yml
 
   platform-grafana-prometheus-datasource:
-    content: |
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://connect-prometheus:9090
-          isDefault: true
-          editable: false
+    file: ./observability/grafana/provisioning/datasources/prometheus.yml
 
   platform-grafana-dashboard-provider:
-    content: |
-      apiVersion: 1
-      providers:
-        - name: Connect|API Platform
-          folder: Connect|API Platform
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards
+    file: ./observability/grafana/provisioning/dashboards/dashboards.yml
 
 networks:
   argws-connect-platform-production-net:
