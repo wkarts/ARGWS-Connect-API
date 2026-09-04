@@ -13,7 +13,7 @@ x-logging: &default-logging
 x-platform-env: &platform-env
   APP_NAME: Connect|API Platform
   APP_VERSION: ${CONNECT_API_VERSION:-1.0.16}
-  APP_ENV: ${PLATFORM_APP_ENV:-develop}
+  APP_ENV: ${PLATFORM_APP_ENV:-development}
   APP_DEBUG: "false"
   APP_TIMEZONE: ${TZ:-America/Bahia}
   ENABLE_REFERENCE_FINANCIAL_DOMAIN: "false"
@@ -177,7 +177,7 @@ services:
       argws-connect-platform-develop-net:
         aliases: [argws-connect-redis, connect-redis]
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q '^PONG$'"]
       interval: 10s
       timeout: 5s
       retries: 20

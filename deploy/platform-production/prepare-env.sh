@@ -3,48 +3,69 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 [[ -f env.example ]] || { echo "ERRO: env.example nao encontrado." >&2; exit 1; }
-[[ -f env.smtp.example ]] || { echo "ERRO: env.smtp.example nao encontrado." >&2; exit 1; }
 
 created=0
 if [[ ! -f .env ]]; then
   cp env.example .env
   created=1
-  echo ".env base criado."
+  echo ".env criado a partir do env.example completo."
 else
-  echo ".env existente preservado."
+  echo ".env existente encontrado; valores atuais serao preservados."
 fi
 
-CREATED="$created" python3 - <<'PY'
+CREATED="$created" python3 - <<'PYENV'
+from __future__ import annotations
+import os, re, secrets
 from pathlib import Path
-import os
-import re
-import secrets
 
 path = Path('.env')
+template_path = Path('env.example')
 text = path.read_text(encoding='utf-8')
-template = Path('env.smtp.example').read_text(encoding='utf-8')
-existing = set(re.findall(r'^([A-Z][A-Z0-9_]*)=', text, flags=re.M))
-missing: list[str] = []
-for line in template.splitlines():
-    match = re.match(r'^([A-Z][A-Z0-9_]*)=', line)
-    if match and match.group(1) not in existing:
-        missing.append(line)
-        existing.add(match.group(1))
-if missing:
-    text = text.rstrip() + '\n\n# E-mail interno / recuperação de senha\n' + '\n'.join(missing) + '\n'
+template = template_path.read_text(encoding='utf-8')
+assignment = re.compile(r'^([A-Z][A-Z0-9_]*)=(.*)$')
+existing: dict[str, str] = {}
+extras: list[str] = []
+for raw in text.splitlines():
+    m = assignment.match(raw)
+    if m:
+        existing[m.group(1)] = m.group(2)
+    elif raw.strip() and not raw.lstrip().startswith('#'):
+        extras.append(raw)
+
+rendered: list[str] = []
+template_keys: set[str] = set()
+for raw in template.splitlines():
+    m = assignment.match(raw)
+    if not m:
+        rendered.append(raw)
+        continue
+    key, default = m.group(1), m.group(2)
+    template_keys.add(key)
+    rendered.append(f"{key}={existing.get(key, default)}")
+
+extra_keys = sorted(set(existing) - template_keys)
+if extra_keys or extras:
+    rendered += ['', '# --------------------------------------------------------------------------', '# Variaveis locais preservadas', '# --------------------------------------------------------------------------']
+    rendered += [f"{key}={existing[key]}" for key in extra_keys]
+    rendered += extras
+
+result = '\n'.join(rendered).rstrip() + '\n'
+version_file = Path('../../VERSION')
+if version_file.exists():
+    version = version_file.read_text(encoding='utf-8').strip()
+    result = re.sub(r'^CONNECT_API_VERSION=.*$', f'CONNECT_API_VERSION={version}', result, flags=re.M)
 
 if os.environ.get('CREATED') == '1':
-    version = Path('../../VERSION').read_text(encoding='utf-8').strip()
-    text = re.sub(r'^CONNECT_API_VERSION=.*$', f'CONNECT_API_VERSION={version}', text, flags=re.M)
-    placeholders = sorted(set(re.findall(r'CHANGE_ME_[A-Z0-9_]+', text)))
+    placeholders = sorted(set(re.findall(r'CHANGE_ME_[A-Z0-9_]+', result)))
     for placeholder in placeholders:
         size = 48 if 'API_KEY' in placeholder else 40 if 'TOKEN' in placeholder else 32
-        text = text.replace(placeholder, secrets.token_hex(size))
-    print(f'.env criado · versão={version} · {len(placeholders)} segredos fortes gerados.')
+        result = result.replace(placeholder, secrets.token_hex(size))
+    print(f"Segredos iniciais gerados: {len(placeholders)}")
 
-path.write_text(text, encoding='utf-8')
-print(f'Configuração SMTP complementada · {len(missing)} chave(s) adicionada(s).')
-PY
+path.write_text(result, encoding='utf-8')
+print('env.example sincronizado com .env sem sobrescrever valores existentes.')
+PYENV
 
 chmod 600 .env
-echo "Platform production preparada: argws-connect-platform-production"
+project="$(grep '^COMPOSE_PROJECT_NAME=' .env | cut -d= -f2- || true)"
+echo "Ambiente preparado${project:+ · project=$project}"
