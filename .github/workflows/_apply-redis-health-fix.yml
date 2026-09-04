@@ -1,6 +1,9 @@
 name: Temporary Apply Redis Health Fix
 
 on:
+  pull_request:
+    branches:
+      - develop
   push:
     branches:
       - fix/platform-redis-health-env-complete
