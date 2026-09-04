@@ -29,7 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           for stack in deploy/platform deploy/platform-develop deploy/platform-production; do
-            docker compose --env-file "$stack/env.example" -f "$stack/compose.yaml" config >/dev/null
+            cp "$stack/env.example" "$stack/.env"
+            docker compose --env-file "$stack/.env" -f "$stack/compose.yaml" config >/dev/null
           done
           python3 -m py_compile tools/_apply_redis_health_fix.py
           git diff --check
@@ -44,5 +45,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
+          git reset -- deploy/platform/.env deploy/platform-develop/.env deploy/platform-production/.env || true
           git commit -m "fix(platform): corrige healthcheck Redis e consolida env SMTP"
           git push origin HEAD:fix/platform-redis-health-env-complete
