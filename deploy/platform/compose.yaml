@@ -321,6 +321,7 @@ services:
     <<: *platform-app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "-Q", "connect.default,connect.provisioning,connect.events,connect.automations,connect.webhooks", "--loglevel=INFO", "--concurrency=${PLATFORM_CELERY_CONCURRENCY:-2}", "--without-gossip", "--without-mingle", "--without-heartbeat"]
     depends_on:
+      platform-observability-init-argws-connect-platform: {condition: service_completed_successfully}
       platform-api-argws-connect-platform: {condition: service_healthy}
 
   platform-scheduler-argws-connect-platform:
@@ -384,6 +385,30 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    logging: *default-logging
+
+  platform-observability-init-argws-connect-platform:
+    container_name: platform-observability-init-argws-connect-platform
+    image: ${ARGWS_CONNECT_PLATFORM_API_IMAGE:-ghcr.io/wkarts/argws-connect-platform-api:latest}
+    pull_policy: always
+    profiles: [platform]
+    restart: "no"
+    user: "0:0"
+    command:
+      - sh
+      - -ec
+      - |
+        set -eu
+        mkdir -p /prometheus-data /grafana-data
+        chown -R 65534:65534 /prometheus-data
+        chmod -R u+rwX,go-rwx /prometheus-data
+        chown -R 472:0 /grafana-data
+        chmod -R u+rwX,g+rwX,o-rwx /grafana-data
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH:-./volumes/platform-prometheus}:/prometheus-data
+      - ${ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH:-./volumes/platform-grafana}:/grafana-data
+    networks: [argws-connect-platform-net]
+    security_opt: ["no-new-privileges:true"]
     logging: *default-logging
 
   platform-prometheus-argws-connect-platform:
@@ -461,6 +486,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH:-./volumes/platform-grafana}:/var/lib/grafana
     depends_on:
+      platform-observability-init-argws-connect-platform: {condition: service_completed_successfully}
       platform-prometheus-argws-connect-platform: {condition: service_started}
     networks:
       argws-connect-platform-net:
