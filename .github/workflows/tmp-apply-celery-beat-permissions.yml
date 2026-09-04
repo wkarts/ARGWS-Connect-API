@@ -5,6 +5,7 @@ on:
     branches: [fix/platform-celery-beat-permissions]
     paths:
       - ".github/workflows/tmp-apply-celery-beat-permissions.yml"
+      - "tools/tmp_apply_celery_beat_permissions_fix.py"
 
 permissions:
   contents: write
