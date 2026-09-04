@@ -241,6 +241,11 @@ async def current_connect_api_tser(
     )
 
 
+# Nome canônico utilizado pelas rotas de tenant. Mantemos o nome histórico
+# abaixo como compatibilidade interna enquanto os demais módulos são migrados.
+current_tenant_user = current_connect_api_tser
+
+
 def require_control_roles(*roles: str) -> Callable[..., AuthUser]:
     async def dependency(user: AuthUser = Depends(current_control_user)) -> AuthUser:
         if user.role == "PLATFORM_SUPERADMIN" or user.role in roles:
