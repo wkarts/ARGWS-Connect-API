@@ -2,22 +2,42 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_control_user, ensure_control_plane_host
+from app.core.config import settings
 from app.core.errors import APIError
 from app.db.platform import get_platform_session
 from app.models.platform import PlatformUser
-from app.schemas.auth import AuthUser, LoginRequest, RefreshRequest, TokenPair
-from app.schemas.common import SuccessResponse
+from app.schemas.auth import (
+    AuthUser,
+    ForgotPasswordRequest,
+    LoginRequest,
+    RefreshRequest,
+    ResetPasswordRequest,
+    TokenPair,
+)
+from app.schemas.common import MessageResponse, SuccessResponse
 from app.services.audit import platform_audit
 from app.services.auth import AuthService
+from app.services.mail import (
+    InternalMailService,
+    send_password_changed_safely,
+    send_password_reset_safely,
+)
 from app.services.mfa import PlatformMFAService
+from app.services.password_recovery import (
+    GENERIC_REQUEST_MESSAGE,
+    PasswordRecoveryService,
+    enforce_password_reset_attempt_limit,
+    enforce_password_reset_request_limit,
+)
 
 router = APIRouter(prefix="/api/control/v1/auth", tags=["Control Plane - Auth"])
 service = AuthService()
+password_recovery = PasswordRecoveryService()
 
 
 class MFACodeInput(BaseModel):
@@ -48,6 +68,52 @@ async def login(
     await ensure_control_plane_host(request)
     tokens, user, security = await service.login_control(session, payload.email, payload.password)
     return SuccessResponse(data=session_payload(tokens, user, security))
+
+
+@router.post("/forgot-password", response_model=MessageResponse, status_code=202)
+async def forgot_password(
+    request: Request,
+    payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_platform_session),
+) -> MessageResponse:
+    await ensure_control_plane_host(request)
+    InternalMailService().ensure_configured()
+    await enforce_password_reset_request_limit(request, str(payload.email))
+    delivery = await password_recovery.request_control_reset(session, email=str(payload.email))
+    if delivery is not None:
+        background_tasks.add_task(
+            send_password_reset_safely,
+            name=delivery.name,
+            email=delivery.email,
+            token=delivery.token,
+        )
+    return MessageResponse(message=GENERIC_REQUEST_MESSAGE)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_platform_session),
+) -> MessageResponse:
+    await ensure_control_plane_host(request)
+    await enforce_password_reset_attempt_limit(request)
+    confirmation = await password_recovery.reset_control_password(
+        session,
+        token=payload.token,
+        password=payload.password,
+    )
+    if settings.smtp_enabled:
+        background_tasks.add_task(
+            send_password_changed_safely,
+            name=confirmation.name,
+            email=confirmation.email,
+        )
+    return MessageResponse(
+        message="Senha alterada com sucesso. Entre novamente com a nova senha."
+    )
 
 
 @router.post("/refresh", response_model=SuccessResponse[TokenPair])
