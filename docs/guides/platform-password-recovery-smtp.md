@@ -11,6 +11,8 @@ A recuperação de senha pertence ao **Connect|API Control Plane**. O Engine Nod
 5. O link expira conforme `PASSWORD_RESET_TOKEN_TTL_MINUTES`.
 6. Ao definir a nova senha, todos os tokens de recuperação e refresh tokens do usuário são revogados.
 
+A revogação é imediata para os refresh tokens persistidos. Como os access tokens atuais são JWTs stateless, um token de acesso já emitido pode permanecer válido até o TTL configurado em `ACCESS_TOKEN_MINUTES` — 30 minutos por padrão.
+
 ## Variáveis
 
 ```dotenv
