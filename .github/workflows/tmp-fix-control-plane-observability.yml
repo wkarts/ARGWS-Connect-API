@@ -1,0 +1,68 @@
+name: Temporary Fix Control Plane and Observability
+
+on:
+  push:
+    branches: [fix/control-plane-access-observability-permissions]
+    paths:
+      - ".github/workflows/tmp-fix-control-plane-observability.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/control-plane-access-observability-permissions
+          fetch-depth: 0
+
+      - name: Apply observability permission fix
+        run: python tools/tmp_fix_observability_permissions.py
+
+      - name: Validate Compose schema
+        run: |
+          set -euo pipefail
+          for stack in platform platform-develop platform-production; do
+            cp "deploy/${stack}/env.example" "deploy/${stack}/.env"
+            docker compose --env-file "deploy/${stack}/.env" -f "deploy/${stack}/compose.yaml" config >/dev/null
+            grep -q 'platform-observability-init-' "deploy/${stack}/compose.yaml"
+            grep -q 'chown -R 65534:65534 /prometheus-data' "deploy/${stack}/compose.yaml"
+            grep -q 'chown -R 472:0 /grafana-data' "deploy/${stack}/compose.yaml"
+            ! grep -q './observability/' "deploy/${stack}/compose.yaml"
+            ! grep -q '../../platform/infrastructure/' "deploy/${stack}/compose.yaml"
+          done
+
+      - name: Validate image runtime UIDs
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/wkarts/argws-connect-prometheus:v3.5.0
+          docker pull ghcr.io/wkarts/argws-connect-grafana:12.1.0
+          prometheus_uid="$(docker run --rm --entrypoint /bin/sh ghcr.io/wkarts/argws-connect-prometheus:v3.5.0 -ec 'id -u')"
+          prometheus_gid="$(docker run --rm --entrypoint /bin/sh ghcr.io/wkarts/argws-connect-prometheus:v3.5.0 -ec 'id -g')"
+          grafana_uid="$(docker run --rm --entrypoint /bin/sh ghcr.io/wkarts/argws-connect-grafana:12.1.0 -ec 'id -u')"
+          grafana_gid="$(docker run --rm --entrypoint /bin/sh ghcr.io/wkarts/argws-connect-grafana:12.1.0 -ec 'id -g')"
+          echo "Prometheus UID:GID=${prometheus_uid}:${prometheus_gid}"
+          echo "Grafana UID:GID=${grafana_uid}:${grafana_gid}"
+          [[ "$prometheus_uid" == "65534" ]]
+          [[ "$prometheus_gid" == "65534" ]]
+          [[ "$grafana_uid" == "472" ]]
+
+      - name: Validate Platform Web
+        working-directory: platform/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run test:run
+          npm run build
+
+      - name: Commit generated Compose changes
+        run: |
+          set -euo pipefail
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add deploy/platform/compose.yaml deploy/platform-develop/compose.yaml deploy/platform-production/compose.yaml
+          git commit -m "fix(platform): corrige permissões da observabilidade persistente"
+          git push origin HEAD:fix/control-plane-access-observability-permissions
