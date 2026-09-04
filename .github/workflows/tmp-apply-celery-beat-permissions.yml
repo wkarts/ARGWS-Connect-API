@@ -1,0 +1,44 @@
+name: Temporary Apply Celery Beat Permissions Fix
+
+on:
+  push:
+    branches: [fix/platform-celery-beat-permissions]
+    paths:
+      - ".github/workflows/tmp-apply-celery-beat-permissions.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fix branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/platform-celery-beat-permissions
+          fetch-depth: 0
+
+      - name: Apply canonical fix
+        run: python tools/tmp_apply_celery_beat_permissions_fix.py
+
+      - name: Validate compose files
+        run: |
+          set -euo pipefail
+          for stack in platform platform-develop platform-production; do
+            cp "deploy/${stack}/env.example" "deploy/${stack}/.env"
+            docker compose --env-file "deploy/${stack}/.env" -f "deploy/${stack}/compose.yaml" config >/dev/null
+          done
+
+      - name: Commit generated changes
+        run: |
+          set -euo pipefail
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add deploy/platform/compose.yaml deploy/platform-develop/compose.yaml deploy/platform-production/compose.yaml
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "fix(platform): prepara permissões do estado do Celery Beat"
+          git push origin HEAD:fix/platform-celery-beat-permissions
