@@ -106,16 +106,18 @@ class InternalMailService:
 
     async def send_password_changed(self, *, name: str, email: str) -> None:
         safe_name = escape(name or "usuário")
+        access_ttl = self.config.access_token_minutes
         text = (
             f"Olá, {name or 'usuário'}.\n\n"
             "Sua senha do Connect|API Control Plane foi alterada com sucesso.\n"
-            "Todas as sessões anteriores foram encerradas.\n\n"
+            "As renovações de sessão anteriores foram revogadas. "
+            f"Uma sessão já aberta pode permanecer ativa até o token de acesso expirar, em no máximo {access_ttl} minutos.\n\n"
             "Caso não reconheça esta alteração, contate o administrador da plataforma imediatamente."
         )
         html = f"""<!doctype html>
 <html lang="pt-BR"><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:32px 16px">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:18px"><tr><td style="padding:32px"><strong style="font-size:20px;color:#175197">Connect|API Platform</strong><h1 style="font-size:24px;margin:24px 0 18px">Senha alterada</h1><p style="line-height:1.6">Olá, {safe_name}.</p><p style="line-height:1.6">Sua senha foi alterada com sucesso e todas as sessões anteriores foram encerradas.</p><p style="font-size:13px;line-height:1.6;color:#64748b">Caso não reconheça esta alteração, contate o administrador da plataforma imediatamente.</p></td></tr></table>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:18px"><tr><td style="padding:32px"><strong style="font-size:20px;color:#175197">Connect|API Platform</strong><h1 style="font-size:24px;margin:24px 0 18px">Senha alterada</h1><p style="line-height:1.6">Olá, {safe_name}.</p><p style="line-height:1.6">Sua senha foi alterada com sucesso. As renovações de sessão anteriores foram revogadas.</p><p style="font-size:13px;line-height:1.6;color:#64748b">Uma sessão já aberta pode permanecer ativa até o token de acesso expirar, em no máximo {access_ttl} minutos. Caso não reconheça esta alteração, contate o administrador da plataforma imediatamente.</p></td></tr></table>
 </td></tr></table></body></html>"""
         await self.send(
             self._message(
