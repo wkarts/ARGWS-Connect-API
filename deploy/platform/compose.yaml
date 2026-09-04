@@ -292,6 +292,21 @@ services:
     depends_on:
       platform-api-argws-connect-platform: {condition: service_healthy}
 
+  platform-celery-init-argws-connect-platform:
+    container_name: platform-celery-init-argws-connect-platform
+    <<: *platform-app
+    user: "0:0"
+    restart: "no"
+    command:
+      - sh
+      - -ec
+      - |
+        mkdir -p /var/lib/celery
+        chown -R 10001:0 /var/lib/celery
+        chmod -R u+rwX,g+rwX,o-rwx /var/lib/celery
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_CELERY_DATA_PATH:-./volumes/platform-celery}:/var/lib/celery
+
   platform-scheduler-argws-connect-platform:
     container_name: platform-scheduler-argws-connect-platform
     <<: *platform-app
@@ -299,6 +314,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_CELERY_DATA_PATH:-./volumes/platform-celery}:/var/lib/celery
     depends_on:
+      platform-celery-init-argws-connect-platform: {condition: service_completed_successfully}
       platform-api-argws-connect-platform: {condition: service_healthy}
 
   platform-web-argws-connect-platform:
