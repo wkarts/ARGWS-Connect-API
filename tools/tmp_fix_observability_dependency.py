@@ -32,17 +32,16 @@ for relative, suffix in STACKS:
     worker = f"platform-worker-{suffix}"
     prometheus = f"platform-prometheus-{suffix}"
     grafana = f"platform-grafana-{suffix}"
+    init_line = f"      {init}: {{condition: service_completed_successfully}}\n"
 
     # Remove a dependência inserida por engano no worker.
     start, end, block = service_block(text, worker)
-    wrong_line = f"      {init}: {{condition: service_completed_successfully}}\n"
-    if wrong_line in block:
-        block = block.replace(wrong_line, "", 1)
+    if init_line in block:
+        block = block.replace(init_line, "", 1)
         text = text[:start] + block + text[end:]
 
     # Prometheus precisa aguardar a correção de ownership antes de abrir /prometheus.
     start, end, block = service_block(text, prometheus)
-    init_line = f"      {init}: {{condition: service_completed_successfully}}\n"
     if init_line not in block:
         depends_marker = "    depends_on:\n"
         if depends_marker not in block:
@@ -50,10 +49,16 @@ for relative, suffix in STACKS:
         block = block.replace(depends_marker, depends_marker + init_line, 1)
         text = text[:start] + block + text[end:]
 
-    # Grafana também deve aguardar o mesmo init.
+    # Valida o contrato no texto final antes de gravar.
+    _, _, worker_block = service_block(text, worker)
+    _, _, prometheus_block = service_block(text, prometheus)
     _, _, grafana_block = service_block(text, grafana)
+    if init_line in worker_block:
+        raise RuntimeError(f"{worker} não deve depender do init")
+    if init_line not in prometheus_block:
+        raise RuntimeError(f"{prometheus} deve depender do init")
     if init_line not in grafana_block:
-        raise RuntimeError(f"{grafana} não depende do init")
+        raise RuntimeError(f"{grafana} deve depender do init")
 
     path.write_text(text, encoding="utf-8")
 
