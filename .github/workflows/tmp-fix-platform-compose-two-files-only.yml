@@ -29,9 +29,11 @@ jobs:
             cp "deploy/${stack}/env.example" "deploy/${stack}/.env"
             docker compose --env-file "deploy/${stack}/.env" -f "deploy/${stack}/compose.yaml" config >/dev/null
             test ! -e "deploy/${stack}/observability"
-            ! grep -q '^configs:$' "deploy/${stack}/compose.yaml"
             ! grep -q '../../platform/infrastructure/' "deploy/${stack}/compose.yaml"
             ! grep -q './observability/' "deploy/${stack}/compose.yaml"
+            ! grep -q 'platform-prometheus-config:' "deploy/${stack}/compose.yaml"
+            ! grep -q 'platform-grafana-prometheus-datasource:' "deploy/${stack}/compose.yaml"
+            ! grep -q 'platform-grafana-dashboard-provider:' "deploy/${stack}/compose.yaml"
             grep -q 'cat > /tmp/prometheus.yml' "deploy/${stack}/compose.yaml"
             grep -q 'GF_PATHS_PROVISIONING: /tmp/grafana-provisioning' "deploy/${stack}/compose.yaml"
           done
