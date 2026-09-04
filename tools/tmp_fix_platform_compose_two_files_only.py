@@ -45,15 +45,17 @@ for stack in STACKS:
     text = text.replace(TOP_CONFIGS, "", 1)
 
     forbidden = (
-        "configs:",
         "./observability/",
         "../../platform/infrastructure/",
         "source: platform-prometheus-config",
         "source: platform-grafana-prometheus-datasource",
+        "platform-prometheus-config:",
+        "platform-grafana-prometheus-datasource:",
+        "platform-grafana-dashboard-provider:",
     )
     for token in forbidden:
         if token in text:
-            raise RuntimeError(f"Dependência externa/config permaneceu em {compose}: {token}")
+            raise RuntimeError(f"Dependência externa de observabilidade permaneceu em {compose}: {token}")
 
     compose.write_text(text, encoding="utf-8")
 
