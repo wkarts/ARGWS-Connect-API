@@ -1,0 +1,51 @@
+name: Temporary Fix Observability Dependency
+
+on:
+  push:
+    branches: [fix/control-plane-access-observability-permissions]
+    paths:
+      - ".github/workflows/tmp-fix-observability-dependency.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/control-plane-access-observability-permissions
+          fetch-depth: 0
+
+      - name: Apply dependency correction
+        run: python tools/tmp_fix_observability_dependency.py
+
+      - name: Validate rendered dependencies
+        run: |
+          set -euo pipefail
+          for stack in platform platform-develop platform-production; do
+            case "$stack" in
+              platform) suffix="argws-connect-platform" ;;
+              platform-develop) suffix="argws-connect-platform-develop" ;;
+              platform-production) suffix="argws-connect-platform-production" ;;
+            esac
+            cp "deploy/${stack}/env.example" "deploy/${stack}/.env"
+            rendered="$(docker compose --env-file "deploy/${stack}/.env" -f "deploy/${stack}/compose.yaml" config --format json)"
+            init="platform-observability-init-${suffix}"
+            prom="platform-prometheus-${suffix}"
+            graf="platform-grafana-${suffix}"
+            worker="platform-worker-${suffix}"
+            jq -e --arg service "$prom" --arg init "$init" '.services[$service].depends_on[$init].condition == "service_completed_successfully"' <<<"$rendered" >/dev/null
+            jq -e --arg service "$graf" --arg init "$init" '.services[$service].depends_on[$init].condition == "service_completed_successfully"' <<<"$rendered" >/dev/null
+            jq -e --arg service "$worker" --arg init "$init" '(.services[$service].depends_on[$init] // null) == null' <<<"$rendered" >/dev/null
+          done
+
+      - name: Commit Compose correction
+        run: |
+          set -euo pipefail
+          git config user.name "wkarts"
+          git config user.email "57051272+wkarts@users.noreply.github.com"
+          git add deploy/platform/compose.yaml deploy/platform-develop/compose.yaml deploy/platform-production/compose.yaml
+          git commit -m "fix(platform): ordena init antes de Prometheus e Grafana"
+          git push origin HEAD:fix/control-plane-access-observability-permissions
