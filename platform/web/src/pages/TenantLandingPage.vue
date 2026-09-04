@@ -6,6 +6,7 @@ import { api, apiError } from '../api/client'
 import type { ApiResponse } from '../types'
 import { brand } from '../config/brand'
 import { useAppStore } from '../stores/app'
+import { useAuthStore } from '../stores/auth'
 
 interface PublicSite {
   name: string
@@ -13,10 +14,10 @@ interface PublicSite {
   demo_mode: boolean
   landing: { mode: 'DISABLED' | 'PLATFORM' | 'EXTERNAL'; url: string; title: string; subtitle: string; cta_label: string; cta_url: string }
 }
-const router=useRouter(); const app=useAppStore(); const site=ref<PublicSite|null>(null); const error=ref('')
+const router=useRouter(); const app=useAppStore(); const auth=useAuthStore(); const site=ref<PublicSite|null>(null); const error=ref('')
 function safeLocalTarget(value:string){ const target=String(value||'').trim(); return !target||!target.startsWith('/')||target.startsWith('//')?'/login':target }
 async function openCta(){ await router.push(safeLocalTarget(site.value?.landing.cta_url||'/login')) }
-onMounted(async()=>{ try{ const response=await api.get<ApiResponse<PublicSite>>('/v1/public/site'); site.value=response.data.data; if(site.value.landing.mode==='DISABLED'){await router.replace('/login');return} if(site.value.landing.mode==='EXTERNAL'){ if(site.value.landing.url)window.location.replace(site.value.landing.url); else await router.replace('/login') } }catch(exception){ error.value=apiError(exception) } })
+onMounted(async()=>{ if(!auth.isTenantPlane){await router.replace('/login');return} try{ const response=await api.get<ApiResponse<PublicSite>>('/v1/public/site'); site.value=response.data.data; if(site.value.landing.mode==='DISABLED'){await router.replace('/login');return} if(site.value.landing.mode==='EXTERNAL'){ if(site.value.landing.url)window.location.replace(site.value.landing.url); else await router.replace('/login') } }catch(exception){ error.value=apiError(exception) } })
 </script>
 
 <template>

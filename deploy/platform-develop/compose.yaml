@@ -390,6 +390,29 @@ services:
       start_period: 10s
     logging: *default-logging
 
+  platform-observability-init-argws-connect-platform-develop:
+    container_name: platform-observability-init-argws-connect-platform-develop
+    image: ${ARGWS_CONNECT_PLATFORM_API_IMAGE:-ghcr.io/wkarts/argws-connect-platform-api:develop}
+    pull_policy: always
+    restart: "no"
+    user: "0:0"
+    command:
+      - sh
+      - -ec
+      - |
+        set -eu
+        mkdir -p /prometheus-data /grafana-data
+        chown -R 65534:65534 /prometheus-data
+        chmod -R u+rwX,go-rwx /prometheus-data
+        chown -R 472:0 /grafana-data
+        chmod -R u+rwX,g+rwX,o-rwx /grafana-data
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH:-./volumes/platform-prometheus}:/prometheus-data
+      - ${ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH:-./volumes/platform-grafana}:/grafana-data
+    networks: [argws-connect-platform-develop-net]
+    security_opt: ["no-new-privileges:true"]
+    logging: *default-logging
+
   platform-prometheus-argws-connect-platform-develop:
     container_name: platform-prometheus-argws-connect-platform-develop
     image: ${ARGWS_CONNECT_PROMETHEUS_IMAGE:-ghcr.io/wkarts/argws-connect-prometheus:v3.5.0}
@@ -416,6 +439,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH:-./volumes/platform-prometheus}:/prometheus
     depends_on:
+      platform-observability-init-argws-connect-platform-develop: {condition: service_completed_successfully}
       platform-api-argws-connect-platform-develop: {condition: service_healthy}
     networks:
       argws-connect-platform-develop-net:
@@ -463,6 +487,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH:-./volumes/platform-grafana}:/var/lib/grafana
     depends_on:
+      platform-observability-init-argws-connect-platform-develop: {condition: service_completed_successfully}
       platform-prometheus-argws-connect-platform-develop: {condition: service_started}
     networks:
       argws-connect-platform-develop-net:

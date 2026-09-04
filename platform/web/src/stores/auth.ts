@@ -1,9 +1,8 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, sessionStorageKey } from '../api/client'
+import { resolveRuntimePlane, type RuntimePlane } from '../config/plane'
 import type { ApiResponse, AuthSession } from '../types'
-
-type Plane = 'control' | 'partner' | 'tenant'
 
 export const useAuthStore = defineStore('auth', () => {
   const session = ref<AuthSession | null>(null)
@@ -12,34 +11,21 @@ export const useAuthStore = defineStore('auth', () => {
   const controlHost = String(import.meta.env.VITE_CONTROL_PLANE_HOST || 'control.localhost').toLowerCase()
   const partnerHost = String(import.meta.env.VITE_PARTNER_PLANE_HOST || 'partner.localhost').toLowerCase()
 
-  const isControlHost = computed(() => {
-    const host = window.location.hostname.toLowerCase()
-    return (
-      host === controlHost ||
-      host.startsWith('control.') ||
-      host.startsWith('admin.') ||
-      new URLSearchParams(location.search).get('control') === '1'
-    )
-  })
-
-  const isPartnerHost = computed(() => {
-    const host = window.location.hostname.toLowerCase()
-    return (
-      host === partnerHost ||
-      host.startsWith('partner.') ||
-      host.startsWith('partners.') ||
-      new URLSearchParams(location.search).get('partner') === '1'
-    )
-  })
+  const hostPlane = computed<RuntimePlane>(() => resolveRuntimePlane(
+    window.location.hostname,
+    window.location.search,
+    controlHost,
+    partnerHost,
+  ))
 
   const authenticated = computed(() => Boolean(session.value?.tokens.access_token))
   const user = computed(() => session.value?.user ?? null)
   const role = computed(() => String(user.value?.role || '').toUpperCase())
 
-  const isControlPlane = computed(() => isControlHost.value)
-  const isPartnerPlane = computed(() => !isControlPlane.value && (isPartnerHost.value || role.value.startsWith('PARTNER_')))
+  const isControlPlane = computed(() => hostPlane.value === 'control')
+  const isPartnerPlane = computed(() => !isControlPlane.value && (hostPlane.value === 'partner' || role.value.startsWith('PARTNER_')))
   const isTenantPlane = computed(() => !isControlPlane.value && !isPartnerPlane.value)
-  const plane = computed<Plane>(() => isControlPlane.value ? 'control' : isPartnerPlane.value ? 'partner' : 'tenant')
+  const plane = computed<RuntimePlane>(() => isControlPlane.value ? 'control' : isPartnerPlane.value ? 'partner' : 'tenant')
 
   const mfaPending = computed(() => Boolean(
     session.value?.security?.required && !session.value?.security?.verified,
