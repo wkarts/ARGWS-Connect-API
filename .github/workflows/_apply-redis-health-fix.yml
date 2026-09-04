@@ -1,0 +1,45 @@
+name: Temporary Apply Redis Health Fix
+
+on:
+  push:
+    branches:
+      - fix/platform-redis-health-env-complete
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/platform-redis-health-env-complete
+          fetch-depth: 0
+
+      - name: Apply Redis/env correction
+        run: python3 tools/_apply_redis_health_fix.py
+
+      - name: Validate compose files
+        run: |
+          set -euo pipefail
+          for stack in deploy/platform deploy/platform-develop deploy/platform-production; do
+            docker compose --env-file "$stack/env.example" -f "$stack/compose.yaml" config >/dev/null
+          done
+          python3 -m py_compile tools/_apply_redis_health_fix.py
+          git diff --check
+
+      - name: Commit applied correction
+        run: |
+          set -euo pipefail
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "Nenhuma alteração necessária."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(platform): corrige healthcheck Redis e consolida env SMTP"
+          git push origin HEAD:fix/platform-redis-health-env-complete
