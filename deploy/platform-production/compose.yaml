@@ -395,13 +395,24 @@ services:
     image: ${ARGWS_CONNECT_PROMETHEUS_IMAGE:-ghcr.io/wkarts/argws-connect-prometheus:v3.5.0}
     pull_policy: always
     restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
-    configs:
-      - source: platform-prometheus-config
-        target: /etc/prometheus/prometheus.yml
+      - |
+        cat > /tmp/prometheus.yml <<'EOF'
+        global:
+          scrape_interval: 30s
+          evaluation_interval: 30s
+
+        scrape_configs:
+          - job_name: connect-api
+            metrics_path: /metrics
+            static_configs:
+              - targets: ["connect-platform-api:8000"]
+        EOF
+        exec /bin/prometheus \
+          --config.file=/tmp/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --storage.tsdb.retention.time="${PROMETHEUS_RETENTION:-30d}"
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH:-./volumes/platform-prometheus}:/prometheus
     depends_on:
@@ -422,11 +433,33 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-CHANGE_ME_GRAFANA_ADMIN_PASSWORD}
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://connect-grafana:3000}
       GF_USERS_ALLOW_SIGN_UP: "false"
-    configs:
-      - source: platform-grafana-prometheus-datasource
-        target: /etc/grafana/provisioning/datasources/prometheus.yml
-      - source: platform-grafana-dashboard-provider
-        target: /etc/grafana/provisioning/dashboards/dashboards.yml
+      GF_PATHS_PROVISIONING: /tmp/grafana-provisioning
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /tmp/grafana-provisioning/datasources /tmp/grafana-provisioning/dashboards
+        cat > /tmp/grafana-provisioning/datasources/prometheus.yml <<'EOF'
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            access: proxy
+            url: http://connect-prometheus:9090
+            isDefault: true
+            editable: false
+        EOF
+        cat > /tmp/grafana-provisioning/dashboards/dashboards.yml <<'EOF'
+        apiVersion: 1
+        providers:
+          - name: Connect|API Platform
+            folder: Connect|API Platform
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards
+        EOF
+        exec /run.sh
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_GRAFANA_DATA_PATH:-./volumes/platform-grafana}:/var/lib/grafana
     depends_on:
@@ -528,16 +561,6 @@ services:
       - "${PLATFORM_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_GATEWAY_PORT:-38800}:80"
     networks: [argws-connect-platform-production-net]
     logging: *default-logging
-
-configs:
-  platform-prometheus-config:
-    file: ./observability/prometheus/prometheus.yml
-
-  platform-grafana-prometheus-datasource:
-    file: ./observability/grafana/provisioning/datasources/prometheus.yml
-
-  platform-grafana-dashboard-provider:
-    file: ./observability/grafana/provisioning/dashboards/dashboards.yml
 
 networks:
   argws-connect-platform-production-net:
