@@ -92,13 +92,18 @@ class Settings(BaseSettings):
 
     smtp_enabled: bool = False
     smtp_host: str = ""
-    smtp_port: int = 587
+    smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_security: Literal["none", "starttls", "ssl"] = "starttls"
     smtp_from_email: str = ""
     smtp_from_name: str = "Connect|API Platform"
-    smtp_timeout_seconds: int = 30
+    smtp_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    password_reset_url: str = ""
+    password_reset_token_ttl_minutes: int = Field(default=30, ge=5, le=1440)
+    password_reset_requests_per_account_hour: int = Field(default=5, ge=1, le=100)
+    password_reset_requests_per_ip_hour: int = Field(default=30, ge=1, le=1000)
+    password_reset_attempts_per_ip_hour: int = Field(default=30, ge=1, le=1000)
 
     evolution_enabled: bool = False
     evolution_base_url: str = ""
@@ -151,10 +156,36 @@ class Settings(BaseSettings):
     grafana_service_account_token: str = ""
     grafana_org_id: int = 1
 
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def normalize_app_environment(cls, value: object) -> object:
+        # Os deployments históricos usam PLATFORM_APP_ENV=develop. Mantemos
+        # compatibilidade e normalizamos para o valor canônico do Settings.
+        if isinstance(value, str) and value.strip().lower() == "develop":
+            return "development"
+        return value
+
     @field_validator("trusted_hosts", "cors_origins")
     @classmethod
     def strip_csv(cls, value: str) -> str:
         return ",".join(item.strip() for item in value.split(",") if item.strip())
+
+    @model_validator(mode="after")
+    def validate_smtp(self) -> "Settings":
+        if not self.smtp_enabled:
+            return self
+        missing: list[str] = []
+        if not self.smtp_host.strip():
+            missing.append("SMTP_HOST")
+        if not self.smtp_from_email.strip() or "@" not in self.smtp_from_email:
+            missing.append("SMTP_FROM_EMAIL")
+        if bool(self.smtp_username.strip()) != bool(self.smtp_password):
+            missing.append("SMTP_USERNAME/SMTP_PASSWORD")
+        if self.app_env == "production" and not self.password_reset_public_url.startswith("https://"):
+            missing.append("PASSWORD_RESET_URL(HTTPS)")
+        if missing:
+            raise ValueError("Configuração SMTP inválida: " + ", ".join(missing))
+        return self
 
     @model_validator(mode="after")
     def reject_unsafe_production_secrets(self) -> "Settings":
@@ -205,6 +236,13 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [item for item in self.cors_origins.split(",") if item]
+
+    @property
+    def password_reset_public_url(self) -> str:
+        configured = self.password_reset_url.strip()
+        if configured:
+            return configured
+        return f"{self.public_scheme}://{self.control_plane_host}/reset-password"
 
     def _database_url(self, driver: str) -> str:
         return URL.create(
