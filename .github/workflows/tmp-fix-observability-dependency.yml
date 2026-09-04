@@ -5,6 +5,7 @@ on:
     branches: [fix/control-plane-access-observability-permissions]
     paths:
       - ".github/workflows/tmp-fix-observability-dependency.yml"
+      - "tools/tmp_fix_observability_dependency.py"
 
 permissions:
   contents: write
