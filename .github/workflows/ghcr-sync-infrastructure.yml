@@ -3,7 +3,7 @@ name: GHCR - Sync Infrastructure Images
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - ".github/workflows/ghcr-sync-infrastructure.yml"
       - "deploy/**"
@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: argws-connect-infrastructure-images
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -46,7 +50,7 @@ jobs:
           sync docker.io/library/nginx:1.27-alpine           ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
           sync docker.io/library/python:3.13-slim             ghcr.io/${OWNER}/argws-connect-python:3.13-slim
 
-          # Core runtime used by every official stack.
+          # Core runtime used by every official stack, including platform-develop.
           sync docker.io/library/postgres:15                 ghcr.io/${OWNER}/argws-connect-postgres:15
           sync docker.io/library/postgres:17-alpine          ghcr.io/${OWNER}/argws-connect-postgres:17
           sync docker.io/library/redis:latest                ghcr.io/${OWNER}/argws-connect-redis:latest

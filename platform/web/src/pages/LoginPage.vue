@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { Eye, EyeOff, LockKeyhole, Mail, Network, ShieldCheck, Webhook, Workflow } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { apiError } from '../api/client'
@@ -37,7 +37,8 @@ async function submit(){ error.value=''; try{ await auth.login(email.value,passw
           <div class="mb-8"><p class="text-xs font-bold uppercase tracking-[.16em] text-blue-600">{{ accessLabel }}</p><h2 class="mt-3 text-3xl font-semibold tracking-[-.03em] text-slate-950">{{ heading }}</h2><p class="mt-3 text-sm leading-6 text-slate-500">{{ description }}</p></div>
           <form class="space-y-5" @submit.prevent="submit">
             <div><label for="connect-login-email" class="label">E-mail</label><div class="relative mt-1.5"><Mail class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" :size="19"/><input id="connect-login-email" v-model.trim="email" type="email" required autocomplete="username" class="input h-12 pl-11" placeholder="seu@email.com"/></div></div>
-            <div><label for="connect-login-password" class="label">Senha</label><div class="relative mt-1.5"><LockKeyhole class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" :size="19"/><input id="connect-login-password" v-model="password" :type="showPassword?'text':'password'" required autocomplete="current-password" class="input h-12 pl-11 pr-12" placeholder="Digite sua senha"/><button type="button" class="absolute right-2.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" @click="showPassword=!showPassword"><EyeOff v-if="showPassword" :size="19"/><Eye v-else :size="19"/></button></div></div>
+            <div><label for="connect-login-password" class="label">Senha</label><div class="relative mt-1.5"><LockKeyhole class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" :size="19"/><input id="connect-login-password" v-model="password" :type="showPassword?'text':'password'" required autocomplete="current-password" class="input h-12 pl-11 pr-12" placeholder="Digite sua senha"/><button type="button" class="absolute right-2.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-slate-100" aria-label="Exibir ou ocultar senha" @click="showPassword=!showPassword"><EyeOff v-if="showPassword" :size="19"/><Eye v-else :size="19"/></button></div></div>
+            <div v-if="auth.isControlPlane" class="flex justify-end"><RouterLink to="/forgot-password" class="text-sm font-semibold text-blue-700 hover:text-blue-800">Esqueci minha senha</RouterLink></div>
             <p v-if="error" role="alert" class="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</p>
             <button class="btn-primary h-12 w-full text-sm font-semibold" :disabled="auth.loading">{{ auth.loading?'Validando acesso…':'Entrar' }}</button>
           </form>

@@ -2,6 +2,8 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppLayout from '../layouts/AppLayout.vue'
 import LoginPage from '../pages/LoginPage.vue'
+import ForgotPasswordPage from '../pages/ForgotPasswordPage.vue'
+import ResetPasswordPage from '../pages/ResetPasswordPage.vue'
 import TwoFactorPage from '../pages/TwoFactorPage.vue'
 import NotFoundPage from '../pages/NotFoundPage.vue'
 import PlaneDashboardPage from '../pages/PlaneDashboardPage.vue'
@@ -95,6 +97,8 @@ const tenantRoutes: RouteRecordRaw[] = [
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginPage, meta: { public: true } },
+  { path: '/forgot-password', name: 'forgot-password', component: ForgotPasswordPage, meta: { public: true } },
+  { path: '/reset-password', name: 'reset-password', component: ResetPasswordPage, meta: { public: true } },
   { path: '/security/2fa', name: 'two-factor', component: TwoFactorPage, meta: { mfa: true } },
   { path: '/welcome', name: 'tenant-landing', component: TenantLandingPage, meta: { public: true } },
   { path: '/', component: AppLayout, children: [

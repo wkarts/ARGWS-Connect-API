@@ -83,7 +83,13 @@ api.interceptors.response.use(
     const responseData = error.response?.data as { error?: { code?: string; details?: { mode?: string } } } | undefined
     const isMfaOperation = url.includes('/auth/mfa/')
     const isTelemetryOperation = url.includes('/observability/logs/ingest')
-    const isAuthOperation = ['/auth/login', '/auth/refresh', '/auth/logout'].some(path => url.includes(path)) || isMfaOperation
+    const isAuthOperation = [
+      '/auth/login',
+      '/auth/refresh',
+      '/auth/logout',
+      '/auth/forgot-password',
+      '/auth/reset-password',
+    ].some(path => url.includes(path)) || isMfaOperation
 
     if (!isTelemetryOperation && !url.includes('/auth/refresh')) {
       const status = error.response?.status
@@ -116,7 +122,7 @@ api.interceptors.response.use(
       } catch {
         clearSessionAndRedirect()
       }
-    } else if (error.response?.status === 401 && !url.includes('/auth/login') && !isMfaOperation) {
+    } else if (error.response?.status === 401 && !url.includes('/auth/login') && !isMfaOperation && !isAuthOperation) {
       clearSessionAndRedirect()
     }
     return Promise.reject(error)
