@@ -149,7 +149,7 @@ services:
       argws-connect-platform-net:
         aliases: [argws-connect-postgres, connect-engine-postgres]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -169,7 +169,7 @@ services:
       argws-connect-platform-net:
         aliases: [argws-connect-redis, connect-redis]
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q '^PONG$'"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -236,7 +236,7 @@ services:
       argws-connect-platform-net:
         aliases: [connect-platform-postgres]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 30
