@@ -327,7 +327,6 @@ services:
     <<: *platform-app
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "-Q", "connect.default,connect.provisioning,connect.events,connect.automations,connect.webhooks", "--loglevel=INFO", "--concurrency=${PLATFORM_CELERY_CONCURRENCY:-2}", "--without-gossip", "--without-mingle", "--without-heartbeat"]
     depends_on:
-      platform-observability-init-argws-connect-platform-develop: {condition: service_completed_successfully}
       platform-api-argws-connect-platform-develop: {condition: service_healthy}
 
   platform-scheduler-argws-connect-platform-develop:
@@ -440,6 +439,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_PLATFORM_PROMETHEUS_DATA_PATH:-./volumes/platform-prometheus}:/prometheus
     depends_on:
+      platform-observability-init-argws-connect-platform-develop: {condition: service_completed_successfully}
       platform-api-argws-connect-platform-develop: {condition: service_healthy}
     networks:
       argws-connect-platform-develop-net:
