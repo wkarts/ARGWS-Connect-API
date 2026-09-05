@@ -67,11 +67,15 @@ async function bootstrap() {
       if (err) {
         if (isDatabaseUnavailable(err)) {
           logger.warn('Database capacity unavailable; request rejected without replay.');
-          return res.status(503).set('Retry-After', '2').set('Cache-Control', 'no-store').json({
-            status: 503,
-            error: 'Service Unavailable',
-            response: { message: 'Banco temporariamente ocupado. Tente novamente em instantes.' },
-          });
+          return res
+            .status(503)
+            .set('Retry-After', '2')
+            .set('Cache-Control', 'no-store')
+            .json({
+              status: 503,
+              error: 'Service Unavailable',
+              response: { message: 'Banco temporariamente ocupado. Tente novamente em instantes.' },
+            });
         }
         const webhook = configService.get<Webhook>('WEBHOOK');
 
