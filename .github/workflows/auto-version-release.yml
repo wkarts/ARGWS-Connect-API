@@ -131,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, docs, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent]
+        component: [api, docs, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent, pgbouncer]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -164,6 +164,10 @@ jobs:
             context: ./platform
             dockerfile: ./platform/infrastructure/cloudpanel-agent/Dockerfile
             image: argws-connect-platform-cloudpanel-agent
+          - component: pgbouncer
+            context: .
+            dockerfile: ./platform/infrastructure/pgbouncer/Dockerfile
+            image: argws-connect-pgbouncer
           - component: docs
             context: .
             dockerfile: ./docs/Dockerfile
@@ -277,6 +281,8 @@ jobs:
             image: argws-connect-platform-acme
           - component: platform-cloudpanel-agent
             image: argws-connect-platform-cloudpanel-agent
+          - component: pgbouncer
+            image: argws-connect-pgbouncer
           - component: docs
             image: argws-connect-docs
     steps:
@@ -370,6 +376,7 @@ jobs:
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-gateway:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-acme:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-platform-cloudpanel-agent:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-pgbouncer:${version}"
             echo
             for f in release-digests/*.txt; do
               echo "===== $(basename "$f") ====="
