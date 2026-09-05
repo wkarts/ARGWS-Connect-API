@@ -1,0 +1,56 @@
+name: Platform TLS and Instance Integrity
+
+on:
+  pull_request:
+    branches: [develop]
+    paths: ['platform/**', 'deploy/platform*/**', '.github/workflows/platform-tls-instance-integrity.yml']
+  push:
+    branches: [develop]
+    paths: ['platform/**', 'deploy/platform*/**', '.github/workflows/platform-tls-instance-integrity.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  corrective:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: corrective_ci
+          POSTGRES_USER: corrective_ci
+          POSTGRES_PASSWORD: disposable-ci-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U corrective_ci -d corrective_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: platform/control-api/requirements.txt
+      - name: Install test dependencies
+        run: pip install -r platform/control-api/requirements.txt
+      - name: Isolated TLS, bridge and login regression tests
+        env:
+          APP_ENV: testing
+          PYTHONPATH: platform/control-api
+        run: pytest -q platform/control-api/tests/connect_platform/test_tls_automation.py platform/control-api/tests/connect_platform/test_instance_corrective.py
+      - name: Real PostgreSQL reservation, quota and reconciliation transactions
+        env:
+          APP_ENV: testing
+          PYTHONPATH: platform/control-api
+          CORRECTIVE_TEST_DATABASE_URL: postgresql+asyncpg://corrective_ci:disposable-ci-only-password@127.0.0.1:5432/corrective_ci
+        run: pytest -q platform/control-api/tests/integration_corrective
+      - name: Install disposable NGINX test binary
+        run: sudo apt-get update && sudo apt-get install -y nginx
+      - name: Real NGINX wildcard, Host preservation and rollback
+        run: python platform/infrastructure/cloudpanel-agent/integration_test.py
+      - name: Build ACME service image
+        run: docker build -f platform/infrastructure/acme/Dockerfile -t connect-acme-ci:local platform
+      - name: Build CloudPanel agent image
+        run: docker build -f platform/infrastructure/cloudpanel-agent/Dockerfile -t connect-cloudpanel-ci:local platform
