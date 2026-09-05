@@ -197,6 +197,8 @@ def recover_pending() -> bool:
 
 
 def publish_ready(info: dict, installed: bool) -> None:
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    STATUS.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat()
     record = STATE/'installation.json'
     previous = json.loads(record.read_text()) if record.exists() else {}
