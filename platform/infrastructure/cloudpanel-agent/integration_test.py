@@ -60,6 +60,11 @@ error_log {root/'error.log'};
 events {{}}
 http {{
     access_log off;
+    client_body_temp_path {root/'client_temp'};
+    proxy_temp_path {root/'proxy_temp'};
+    fastcgi_temp_path {root/'fastcgi_temp'};
+    uwsgi_temp_path {root/'uwsgi_temp'};
+    scgi_temp_path {root/'scgi_temp'};
     include {vhost};
 }}
 ''')
@@ -70,8 +75,8 @@ http {{
         agent.host_run = host_run
         process_started = False
         try:
-            host_run('-t')
-            host_run()
+            host_run('nginx', '-t')
+            host_run('nginx')
             process_started = True
             aliases = ['connect.example.test', '*.connect.example.test', 'd.control.connect.example.test']
             result = agent.reconcile_proxy(vhost.read_text(), aliases[0], aliases)
@@ -96,11 +101,11 @@ http {{
             else:
                 raise AssertionError('Invalid NGINX configuration was accepted')
             assert vhost.read_bytes() == before
-            host_run('-t')
+            host_run('nginx', '-t')
             print('PASS: actual NGINX wildcard aliases, original Host, idempotency and rollback')
         finally:
             if process_started:
-                host_run('-s', 'quit')
+                host_run('nginx', '-s', 'quit')
                 for _ in range(30):
                     if not (root/'nginx.pid').exists():
                         break

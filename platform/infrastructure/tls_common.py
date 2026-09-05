@@ -66,7 +66,10 @@ def bundle(path: Path, required: list[str], check_key: bool = True) -> dict:
     leaf = x509.load_pem_x509_certificate((path / 'cert.pem').read_bytes())
     if cert.public_bytes(serialization.Encoding.DER) != leaf.public_bytes(serialization.Encoding.DER):
         raise ValueError('CERTIFICATE_CHAIN_LEAF_MISMATCH')
-    sans = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+    try:
+        sans = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(x509.DNSName)
+    except x509.ExtensionNotFound as exc:
+        raise ValueError('CERTIFICATE_SAN_MISSING') from exc
     now = datetime.now(timezone.utc)
     if cert.not_valid_before_utc > now or cert.not_valid_after_utc <= now: raise ValueError('CERTIFICATE_EXPIRED_OR_NOT_YET_VALID')
     if not all(any(covers(pattern, name) for pattern in sans) for name in required): raise ValueError('CERTIFICATE_SAN_MISMATCH')

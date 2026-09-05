@@ -54,7 +54,7 @@ def issue(target: Path, names: list[str], dns: bool, staging: bool) -> None:
             for output, source in source_files.items(): shutil.copyfile(store/source, Path(temporary)/output)
             issued = bundle(Path(temporary), names)
             if not staging: verify_chain(Path(temporary))
-    except (OSError, ValueError, RuntimeError): pass
+    except (OSError, ValueError, RuntimeError): issued = None
     if not issued or issued['days_remaining'] <= 30:
         # The service calls the CA only for a missing/changed/expiring bundle.
         run(command + ['--force'], timeout=900)
