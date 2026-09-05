@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from app.schemas.connect_engine import (
     EngineActionDelete,
     EngineActionExecute,
     EngineInstanceCreate,
+    EnginePairingRequest,
     EngineRecipeDefinition,
     EngineRecipeDelete,
     EngineRecipeExecute,
@@ -30,7 +32,7 @@ from app.schemas.connect_engine import (
 )
 from app.services.audit import platform_audit
 from app.services.connect_engine import connect_engine
-from app.services.engine_binding import canonical_engine_instance_name
+from app.services.instance_lifecycle import reserve_instance, ensure_instance, pairing_response, READY
 
 router = APIRouter(prefix="/api/v1/connect", tags=["Connect|API Engine"])
 
@@ -75,26 +77,24 @@ async def list_instances(
             )).all()
         )
 
-    result: list[dict] = []
-    for item in bindings:
-        state_payload = None
-        error = None
-        try:
-            state_payload = await connect_engine.connection_state(item.instance_name)
-        except APIError as exc:
-            error = exc.message
-        result.append({
-            "id": str(item.id),
-            "alias": item.alias,
-            "instance_name": item.instance_name,
-            "provider": item.provider,
-            "status": item.status,
+    semaphore = asyncio.Semaphore(4)
+    async def snapshot(item):
+        state_payload, error = None, None
+        if item.status in READY:
+            try:
+                async with semaphore:
+                    state_payload = await asyncio.wait_for(connect_engine.connection_state(item.instance_name), timeout=5)
+            except (APIError, TimeoutError) as exc:
+                error = exc.message if isinstance(exc, APIError) else "Consulta de estado demorou. A instância continua registrada."
+        return {
+            "id": str(item.id), "alias": item.alias, "instance_name": item.instance_name,
+            "provider": item.provider, "status": item.status,
+            "origin": (item.metadata_json or {}).get("origin", "PLATFORM_CREATED"),
             "state": _state_value(state_payload) or item.last_state,
-            "capabilities": item.capabilities,
-            "last_error": error or item.last_error,
+            "capabilities": item.capabilities, "last_error": error or item.last_error,
             "created_at": item.created_at.isoformat() if item.created_at else None,
-        })
-    return SuccessResponse(data=result)
+        }
+    return SuccessResponse(data=await asyncio.gather(*(snapshot(item) for item in bindings)))
 
 
 @router.post("/instances", response_model=SuccessResponse[dict], status_code=201)
@@ -103,52 +103,17 @@ async def create_instance(
     context: TenantContext = Depends(get_tenant_context_dep),
     user: AuthUser = Depends(require_permission("instances.manage")),
 ) -> SuccessResponse[dict]:
-    instance_name = canonical_engine_instance_name(context.slug, payload.alias)
-    body = {
-        "instanceName": instance_name,
-        "integration": payload.integration,
-        "qrcode": payload.qrcode,
-        "number": payload.number,
-        "rejectCall": payload.reject_call,
-        "msgCall": payload.msg_call,
-        "groupsIgnore": payload.groups_ignore,
-        "alwaysOnline": payload.always_online,
-        "readMessages": payload.read_messages,
-        "readStatus": payload.read_status,
-        "syncFullHistory": payload.sync_full_history,
-        **payload.extra,
-    }
-    body = {key: value for key, value in body.items() if value is not None}
-    engine_response = await connect_engine.create_instance(body)
+    binding_id = await reserve_instance(context, user, payload)
+    return SuccessResponse(data=await ensure_instance(context, user, binding_id))
 
-    async with PlatformSessionLocal() as session:
-        existing = await session.scalar(select(EngineBinding).where(EngineBinding.instance_name == instance_name))
-        if existing is not None:
-            raise APIError("ENGINE_BINDING_EXISTS", "Já existe uma instância com este alias.", 409)
-        item = EngineBinding(
-            tenant_id=UUID(context.tenant_id),
-            alias=payload.alias,
-            instance_name=instance_name,
-            provider=payload.integration,
-            status="CREATED",
-            metadata_json={"created_by": user.id},
-        )
-        session.add(item)
-        await session.flush()
-        await platform_audit(
-            session,
-            action="connect.engine.instance.create",
-            entity_type="EngineBinding",
-            entity_id=str(item.id),
-            actor_id=user.id,
-            tenant_id=context.tenant_id,
-            after={"alias": item.alias, "instance_name": item.instance_name, "provider": item.provider},
-        )
-        await session.commit()
-        await session.refresh(item)
-        binding_id = str(item.id)
 
-    return SuccessResponse(data={"id": binding_id, "instance_name": instance_name, "engine": engine_response})
+@router.post("/instances/{binding_id}/reconcile", response_model=SuccessResponse[dict])
+async def reconcile_instance(
+    binding_id: UUID,
+    context: TenantContext = Depends(get_tenant_context_dep),
+    user: AuthUser = Depends(require_permission("instances.manage")),
+) -> SuccessResponse[dict]:
+    return SuccessResponse(data=await ensure_instance(context, user, binding_id))
 
 
 @router.get("/instances/{binding_id}/state", response_model=SuccessResponse[dict])
@@ -165,11 +130,17 @@ async def instance_state(
 @router.post("/instances/{binding_id}/connect", response_model=SuccessResponse[dict])
 async def instance_connect(
     binding_id: UUID,
+    payload: EnginePairingRequest | None = None,
     context: TenantContext = Depends(get_tenant_context_dep),
     _: AuthUser = Depends(require_permission("instances.manage")),
 ) -> SuccessResponse[dict]:
     item = await _binding(context, binding_id)
-    return SuccessResponse(data=await connect_engine.connect_instance(item.instance_name))
+    if item.status not in READY:
+        raise APIError("ENGINE_CREATION_PENDING", "Conclua a criação antes de parear a instância.", 409)
+    if item.provider != "WHATSAPP-BAILEYS":
+        raise APIError("PAIRING_NOT_SUPPORTED", "Este provedor não utiliza QR Code ou código de pareamento.", 422)
+    response = await connect_engine.connect_instance(item.instance_name, payload.number if payload else None)
+    return SuccessResponse(data=pairing_response(response))
 
 
 @router.post("/instances/{binding_id}/restart", response_model=SuccessResponse[dict])
@@ -189,6 +160,8 @@ async def instance_delete(
     user: AuthUser = Depends(require_permission("instances.manage")),
 ) -> SuccessResponse[dict]:
     item = await _binding(context, binding_id)
+    if item.status not in READY:
+        raise APIError("ENGINE_CREATION_PENDING", "Verifique a criação pendente antes de excluir a instância.", 409)
     engine_response = await connect_engine.delete_instance(item.instance_name)
     async with PlatformSessionLocal() as session:
         persisted = await session.get(EngineBinding, binding_id)

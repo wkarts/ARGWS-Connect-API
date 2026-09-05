@@ -104,7 +104,7 @@ class DomainService:
         expected = domain.verification_token.strip()
         for item in answers:
             text = "".join(part.decode() if isinstance(part, bytes) else str(part) for part in item.strings)
-            if expected in text:
+            if expected == text:
                 return True
         return False
 
@@ -128,6 +128,11 @@ class DomainService:
                 409,
                 {"expected": expected, "found": sorted(targets)},
             )
+        if not ownership:
+            domain.status = "VERIFYING"
+            domain.last_error = "Aguarde a validação do TXT de propriedade do domínio."
+            await session.commit()
+            raise APIError("DOMAIN_OWNERSHIP_REQUIRED", domain.last_error, 409)
         now = datetime.now(UTC)
         domain.dns_verified_at = now
         domain.ownership_verified_at = now if ownership else domain.ownership_verified_at
@@ -145,21 +150,16 @@ class DomainService:
         domain.dns_target = _normalize_hostname(domain.dns_target or self.target)
 
         if domain.management_mode == MANAGEMENT_PLATFORM_SUBDOMAIN:
-            if settings.cloudflare_enabled:
-                result = await self.cloudflare.ensure_managed_wildcard()
-                domain.dns_provider = "CLOUDFLARE"
-                domain.provider_metadata = {
-                    "wildcard": result.name,
-                    "target": result.content,
-                    "record_type": result.record_type,
-                }
-                domain.dns_record_id = result.record_id or domain.dns_record_id
-            domain.dns_verified_at = now
-            domain.ownership_verified_at = now
-            domain.status = "ACTIVE"
-            domain.ssl_status = "ACTIVE" if settings.public_scheme == "https" else "NOT_REQUIRED"
-            domain.ssl_issued_at = now if domain.ssl_status == "ACTIVE" else None
-            domain.last_error = None
+            from app.services.tls_status import apply_receipt
+            if settings.public_scheme == "https":
+                apply_receipt(domain)
+            else:
+                if settings.cloudflare_enabled:
+                    await self.cloudflare.ensure_managed_wildcard()
+                domain.dns_verified_at = now
+                domain.ownership_verified_at = now
+                domain.status, domain.ssl_status = "ACTIVE", "NOT_REQUIRED"
+                domain.last_error = None
             await session.commit()
             return domain
 
@@ -292,8 +292,8 @@ class DomainService:
                     "type": "TXT",
                     "name": _verification_name(domain.hostname),
                     "value": domain.verification_token,
-                    "required": False,
-                    "message": "Registro de propriedade recomendado para validação administrativa.",
+                    "required": True,
+                    "message": "Registro de propriedade obrigatório antes de ativar o domínio.",
                 },
             ]
         elif domain.management_mode == MANAGEMENT_PLATFORM_MANAGED:
@@ -319,6 +319,10 @@ class DomainService:
     async def mark_ssl_active(self, session: AsyncSession, domain: TenantDomain) -> TenantDomain:
         if domain.dns_verified_at is None:
             raise APIError("DOMAIN_DNS_NOT_VERIFIED", "Verifique o DNS antes de ativar o SSL.", 409)
+        from app.services.tls_status import snapshot
+        proof = snapshot(domain.hostname)
+        if not proof["tls_ready"] or domain.ownership_verified_at is None:
+            raise APIError("DOMAIN_SSL_NOT_VERIFIED", "O certificado ainda não foi verificado no proxy TLS.", 409)
         domain.ssl_status = "ACTIVE"
         domain.ssl_issued_at = datetime.now(UTC)
         domain.status = "ACTIVE"

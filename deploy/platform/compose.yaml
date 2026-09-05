@@ -77,6 +77,8 @@ x-platform-env: &platform-env
   PROMETHEUS_ENABLED: ${PROMETHEUS_METRICS:-true}
   LOG_AGENT_URL: http://connect-log-agent:8091
   RUNTIME_LOG_RETENTION_DAYS: ${RUNTIME_LOG_RETENTION_DAYS:-30}
+  PLATFORM_TLS_AUTOMATION_ENABLED: ${PLATFORM_TLS_AUTOMATION_ENABLED:-true}
+  PLATFORM_TLS_STATUS_DIR: /tls-status
   CLOUDFLARE_ENABLED: "${CLOUDFLARE_ENABLED:-false}"
   CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"
   CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID:-}"
@@ -331,6 +333,7 @@ services:
     container_name: platform-api-argws-connect-platform
     <<: *platform-app
     volumes:
+      - ${ARGWS_CONNECT_PLATFORM_TLS_STATUS_PATH:-./volumes/platform-tls-status}:/tls-status:ro
       - ${ARGWS_CONNECT_PLATFORM_BACKUPS_DATA_PATH:-./volumes/platform-backups}:/data/backups
     command: ["gunicorn", "app.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "${PLATFORM_API_WORKERS:-2}", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-"]
     depends_on:
@@ -348,6 +351,8 @@ services:
   platform-worker-argws-connect-platform:
     container_name: platform-worker-argws-connect-platform
     <<: *platform-app
+    volumes:
+      - ${ARGWS_CONNECT_PLATFORM_TLS_STATUS_PATH:-./volumes/platform-tls-status}:/tls-status:ro
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker", "-Q", "connect.default,connect.provisioning,connect.events,connect.automations,connect.webhooks", "--loglevel=INFO", "--concurrency=${PLATFORM_CELERY_CONCURRENCY:-2}", "--without-gossip", "--without-mingle", "--without-heartbeat"]
     depends_on:
       platform-api-argws-connect-platform: {condition: service_healthy}
@@ -527,16 +532,29 @@ services:
     container_name: platform-acme-argws-connect-platform
     image: ${ARGWS_CONNECT_PLATFORM_ACME_IMAGE:-ghcr.io/wkarts/argws-connect-platform-acme:latest}
     pull_policy: always
-    profiles: [cloudpanel]
+    profiles: [platform, cloudpanel]
     restart: unless-stopped
     environment:
+      PLATFORM_TLS_AUTOMATION_ENABLED: ${PLATFORM_TLS_AUTOMATION_ENABLED:-true}
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:-connect.argws.com.br}
+      CONTROL_PLANE_HOST: ${CONTROL_PLANE_HOST:-control.connect.argws.com.br}
+      ADMIN_HOST: ${ADMIN_HOST:-admin.connect.argws.com.br}
+      PARTNER_PLANE_HOST: ${PARTNER_PLANE_HOST:-partner.connect.argws.com.br}
+      API_HOST: ${API_HOST:-api.connect.argws.com.br}
+      DOCS_HOST: ${DOCS_HOST:-docs.connect.argws.com.br}
+      DEMO_HOST: ${DEMO_HOST:-demo.connect.argws.com.br}
+      TENANT_DOMAIN_ROOT: ${TENANT_DOMAIN_ROOT:-connect.argws.com.br}
+      ACME_ADDITIONAL_DOMAINS: ${ACME_ADDITIONAL_DOMAINS:-}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+      CLOUDFLARE_TENANT_RECORD_TARGET: ${CLOUDFLARE_TENANT_RECORD_TARGET:-}
       CF_Token: ${CLOUDFLARE_API_TOKEN:-}
       ACME_DOMAIN: ${ACME_DOMAIN:-connect.example.com}
       ACME_EMAIL: ${ACME_EMAIL:-}
       ACME_STAGING: ${ACME_STAGING:-false}
-      ACME_DNS_SLEEP: ${ACME_DNS_SLEEP:-20}
-      ACME_CHECK_INTERVAL_SECONDS: ${ACME_CHECK_INTERVAL_SECONDS:-43200}
+      ACME_DNS_SLEEP: ${ACME_DNS_SLEEP:-0}
+      ACME_CHECK_INTERVAL_SECONDS: ${ACME_CHECK_INTERVAL_SECONDS:-3600}
     volumes:
+      - ${ARGWS_CONNECT_PLATFORM_TLS_STATUS_PATH:-./volumes/platform-tls-status}:/tls-status:rw
       - ${ARGWS_CONNECT_PLATFORM_ACME_DATA_PATH:-./volumes/platform-acme}:/acme.sh
       - ${ARGWS_CONNECT_PLATFORM_CERTS_DATA_PATH:-./volumes/platform-certs}:/certs
     networks: [argws-connect-platform-net]
@@ -547,7 +565,7 @@ services:
     container_name: platform-cloudpanel-agent-argws-connect-platform
     image: ${ARGWS_CONNECT_PLATFORM_CLOUDPANEL_AGENT_IMAGE:-ghcr.io/wkarts/argws-connect-platform-cloudpanel-agent:latest}
     pull_policy: always
-    profiles: [cloudpanel]
+    profiles: [platform, cloudpanel]
     restart: unless-stopped
     user: "0:0"
     privileged: true
@@ -557,6 +575,17 @@ services:
     depends_on:
       platform-acme-argws-connect-platform: {condition: service_started}
     environment:
+      PLATFORM_TLS_AUTOMATION_ENABLED: ${PLATFORM_TLS_AUTOMATION_ENABLED:-true}
+      PLATFORM_DOMAIN: ${PLATFORM_DOMAIN:-connect.argws.com.br}
+      CONTROL_PLANE_HOST: ${CONTROL_PLANE_HOST:-control.connect.argws.com.br}
+      ADMIN_HOST: ${ADMIN_HOST:-admin.connect.argws.com.br}
+      PARTNER_PLANE_HOST: ${PARTNER_PLANE_HOST:-partner.connect.argws.com.br}
+      API_HOST: ${API_HOST:-api.connect.argws.com.br}
+      DOCS_HOST: ${DOCS_HOST:-docs.connect.argws.com.br}
+      DEMO_HOST: ${DEMO_HOST:-demo.connect.argws.com.br}
+      TENANT_DOMAIN_ROOT: ${TENANT_DOMAIN_ROOT:-connect.argws.com.br}
+      ACME_ADDITIONAL_DOMAINS: ${ACME_ADDITIONAL_DOMAINS:-}
+      ACME_DOMAIN: ${ACME_DOMAIN:-connect.argws.com.br}
       HOST_ROOT: /host
       CERT_DIR: /certs
       STATE_DIR: /state
@@ -567,6 +596,7 @@ services:
       CLOUDPANEL_REVERSE_PROXY_URL: ${CLOUDPANEL_REVERSE_PROXY_URL:-http://127.0.0.1:${PLATFORM_GATEWAY_PORT:-38800}}
       CLOUDPANEL_SYNC_INTERVAL_SECONDS: ${CLOUDPANEL_SYNC_INTERVAL_SECONDS:-60}
     volumes:
+      - ${ARGWS_CONNECT_PLATFORM_TLS_STATUS_PATH:-./volumes/platform-tls-status}:/tls-status:rw
       - /:/host:rw
       - ${ARGWS_CONNECT_PLATFORM_CERTS_DATA_PATH:-./volumes/platform-certs}:/certs:rw
       - ${ARGWS_CONNECT_PLATFORM_CLOUDPANEL_STATE_PATH:-./volumes/platform-cloudpanel-agent}:/state:rw
@@ -651,7 +681,7 @@ services:
     healthcheck:
       test: ["CMD", "python", "/app/service.py", "health"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 10
       start_period: 60s
     logging: *default-logging
@@ -691,7 +721,7 @@ services:
     healthcheck:
       test: ["CMD", "python", "/app/service.py", "health"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 10
       start_period: 60s
     logging: *default-logging

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import Settings
 from app.db.pooling import engine_options
+from app.db.connection_retry import install_login_retry
 
 PASSWORD = "disposable-ci-password-only"
 
@@ -53,6 +54,7 @@ async def async_tests(pooled_port: int, direct_port: int) -> None:
     url = URL.create("postgresql+asyncpg", username="customer_a", password=PASSWORD,
                      host="127.0.0.1", port=pooled_port, database="customer_a")
     engine = create_async_engine(url, **engine_options(config=cfg))
+    install_login_retry(engine)
     try:
         # Repeated SQLAlchemy/asyncpg prepared statements across transaction reuse.
         async def work(value: int) -> int:
@@ -62,6 +64,10 @@ async def async_tests(pooled_port: int, direct_port: int) -> None:
                 return await connection.scalar(text("SELECT CAST(:value AS integer)"), {"value": value})
         values = await asyncio.gather(*(work(i) for i in range(20)))
         assert values == list(range(20))
+        # Exercise auth_query after its backend has expired, with the login hook installed.
+        for _ in range(3):
+            await asyncio.sleep(2.5)
+            assert await asyncio.gather(*(work(i) for i in range(10))) == list(range(10))
         with connect(direct_port) as connection:
             count = connection.execute("SELECT count(*) FROM pg_stat_activity WHERE datname = 'customer_a'").fetchone()[0]
             assert count <= 2, f"Per-database pool exceeded: {count}"

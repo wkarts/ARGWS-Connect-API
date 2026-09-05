@@ -28,6 +28,7 @@ from app.api.routes import (
     health,
     public_branding,
     tenant_admin,
+    tenant_access,
     tenant_auth,
     tenant_connect,
     tenant_engine,
@@ -93,7 +94,7 @@ app = FastAPI(
 )
 
 configured_hosts = [f"*{item}" if item.startswith(".") else item for item in settings.trusted_host_list]
-allowed_hosts = sorted(set(configured_hosts) | {"connect-api", "localhost", "127.0.0.1"})
+allowed_hosts = sorted(set(configured_hosts) | {"connect-api", "connect-platform-api", "localhost", "127.0.0.1"})
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or ["*"])
 app.add_middleware(
     CORSMiddleware,
@@ -309,6 +310,8 @@ app.include_router(control_tenants.router)
 app.include_router(control_whatsapp.router)
 app.include_router(tenant_auth.router)
 app.include_router(tenant_admin.router)
+if not settings.enable_reference_financial_domain:
+    app.include_router(tenant_access.router)
 app.include_router(tenant_connect.router)
 app.include_router(tenant_engine.router)
 app.include_router(tenant_observability.router)

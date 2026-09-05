@@ -289,17 +289,8 @@ class CloudflareDNSProvider:
                     proxied=False,
                 )
             return await self.upsert_cname(wildcard, target, proxied=False)
-        except APIError as exc:
-            details = exc.details if isinstance(exc.details, dict) else {}
-            status_code = details.get("status_code")
-            if settings.cloudflare_provisioning_mode == "wildcard" and status_code in {401, 403}:
-                return DNSRecordResult(
-                    record_id="",
-                    name=wildcard,
-                    content=target,
-                    proxied=False,
-                    record_type="EXTERNAL_WILDCARD",
-                )
+        except APIError:
+            # Permission errors must never become a fictional EXTERNAL_WILDCARD success.
             raise
 
     async def delete_record(self, record_id: str, *, zone_id: str | None = None) -> None:

@@ -86,13 +86,19 @@ def test_cloudflare_s3_observability_and_backup_env_are_wired_to_platform_api() 
         assert any("/data/backups" in item for item in api.get("volumes", []))
 
 
-def test_acme_cloudpanel_remain_optional_profile() -> None:
+def test_acme_cloudpanel_start_with_the_full_stack() -> None:
     for deployment, project in STACKS.items():
         _, data = _compose(deployment)
         acme = data["services"][f"platform-acme-{project}"]
         cloudpanel = data["services"][f"platform-cloudpanel-agent-{project}"]
-        assert acme.get("profiles") == ["cloudpanel"]
-        assert cloudpanel.get("profiles") == ["cloudpanel"]
+        expected = ["platform", "cloudpanel"] if deployment == "platform" else None
+        assert acme.get("profiles") == expected
+        assert cloudpanel.get("profiles") == expected
+        assert cloudpanel["privileged"] is True
+        assert cloudpanel["pid"] == "host"
+        assert cloudpanel["network_mode"] == "host"
+        assert not cloudpanel.get("ports")
+        assert not acme.get("privileged")
 
 
 def test_provisioning_performs_live_database_storage_and_domain_validation() -> None:

@@ -139,7 +139,7 @@ server_reset_query_always = 1
 ignore_startup_parameters = extra_float_digits
 server_tls_sslmode = prefer
 log_connections = 0
-log_disconnections = 0
+log_disconnections = 1
 log_pooler_errors = 1
 
 [users]
@@ -208,6 +208,14 @@ def health(config: PoolConfig) -> None:
                          user=config.stats_user, password=config.service_password("stats"),
                          connect_timeout=3, autocommit=True, prepare_threshold=None) as connection:
         connection.execute("SHOW VERSION").fetchone()
+    # A live stats console alone does not validate auth_query/backend authentication.
+    with psycopg.connect(host="127.0.0.1", port=config.listen_port, dbname=config.database,
+                         user=config.username, password=config.password,
+                         connect_timeout=3, autocommit=True, prepare_threshold=None) as connection:
+        with connection.transaction():
+            connection.execute("SET LOCAL statement_timeout = '2s'")
+            assert connection.execute("SELECT 1").fetchone()[0] == 1
+
 
 
 def main() -> int:

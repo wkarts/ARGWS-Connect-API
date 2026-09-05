@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import re
+import hmac
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from pydantic import BaseModel, Field, SecretStr, field_validator
+from sqlalchemy import func, select
 
 from app.api.deps import current_tenant_user, get_tenant_context_dep, require_permission
 from app.core.config import settings
+from app.core.secrets import secret_cipher
+from app.services.entitlements import load_tenant_entitlements
 from app.core.errors import APIError
 from app.core.tenant_context import TenantContext
 from app.db.platform import PlatformSessionLocal
@@ -28,13 +31,14 @@ router = APIRouter(prefix="/api/v1", tags=["Connect|API Platform"])
 
 class EngineInstanceAdopt(BaseModel):
     instance_name: str = Field(min_length=1, max_length=180)
+    instance_token: SecretStr = Field(min_length=12, max_length=512)
     alias: str | None = Field(default=None, min_length=2, max_length=49)
 
     @field_validator("instance_name")
     @classmethod
     def valid_instance_name(cls, value: str) -> str:
         normalized = value.strip()
-        if not normalized or any(char in normalized for char in "\r\n\x00"):
+        if not normalized or any(char in normalized for char in "\r\n\x00/\\?#%"):
             raise ValueError("Nome de instância inválido.")
         return normalized
 
@@ -136,12 +140,11 @@ async def discover_existing_engine_instances(
     context: TenantContext = Depends(get_tenant_context_dep),
     _: AuthUser = Depends(require_permission("instances.read")),
 ) -> SuccessResponse[dict]:
-    engine_rows = _engine_instance_rows(await connect_engine.fetch_instances())
-
+    # Unbound Engine instances are not public inventory for all customers.
     async with PlatformSessionLocal() as session:
-        bindings = list((await session.scalars(select(EngineBinding))).all())
+        bindings = list((await session.scalars(select(EngineBinding).where(
+            EngineBinding.tenant_id == UUID(context.tenant_id)))).all())
 
-    bound_names = {item.instance_name for item in bindings}
     adopted = [
         {
             "binding_id": str(item.id),
@@ -151,8 +154,7 @@ async def discover_existing_engine_instances(
         if str(item.tenant_id) == context.tenant_id
         and (item.metadata_json or {}).get("origin") == "ADOPTED_EXISTING"
     ]
-    available = [item for item in engine_rows if item["instance_name"] not in bound_names]
-    return SuccessResponse(data={"available": available, "adopted": adopted})
+    return SuccessResponse(data={"available": [], "adopted": adopted, "ownership_proof_required": True})
 
 
 @router.post("/connect/instances/adopt", response_model=SuccessResponse[dict], status_code=201)
@@ -161,17 +163,25 @@ async def adopt_existing_engine_instance(
     context: TenantContext = Depends(get_tenant_context_dep),
     user: AuthUser = Depends(require_permission("instances.manage")),
 ) -> SuccessResponse[dict]:
-    engine_rows = _engine_instance_rows(await connect_engine.fetch_instances())
-    engine_item = next((item for item in engine_rows if item["instance_name"] == payload.instance_name), None)
+    token = payload.instance_token.get_secret_value()
+    if hmac.compare_digest(token.encode(), settings.connect_engine_api_key.encode()):
+        raise APIError("ENGINE_INSTANCE_PROOF_REQUIRED", "Utilize a chave individual da instância, não a chave global.", 422)
+    try:
+        rows = await connect_engine.request("GET", "/instance/fetchInstances", params={"instanceName": payload.instance_name}, api_key=token)
+    except APIError as exc:
+        if exc.code == "ENGINE_CREDENTIAL_REJECTED":
+            raise APIError("ENGINE_INSTANCE_PROOF_INVALID", "A chave não comprova acesso à instância informada.", 403) from exc
+        raise
+    engine_item = next((row for row in _engine_instance_rows(rows) if row["instance_name"] == payload.instance_name), None)
     if engine_item is None:
-        raise APIError(
-            "ENGINE_INSTANCE_NOT_FOUND",
-            "A instância informada não existe no Connect|API Engine atual.",
-            404,
-        )
-
+        raise APIError("ENGINE_INSTANCE_PROOF_INVALID", "A chave não comprova acesso à instância informada.", 403)
     alias = payload.alias or str(engine_item["suggested_alias"])
     async with PlatformSessionLocal() as session:
+        await session.scalar(select(Tenant).where(Tenant.id == UUID(context.tenant_id)).with_for_update())
+        entitlement = await load_tenant_entitlements(session, context.tenant_id)
+        entitlement.require_feature("instances")
+        count = await session.scalar(select(func.count()).select_from(EngineBinding).where(EngineBinding.tenant_id == UUID(context.tenant_id)))
+        entitlement.enforce_limit("instances", count or 0)
         existing = await session.scalar(
             select(EngineBinding).where(EngineBinding.instance_name == payload.instance_name)
         )
@@ -198,6 +208,7 @@ async def adopt_existing_engine_instance(
             last_state=engine_item.get("state"),
             last_seen_at=datetime.now(UTC),
             metadata_json={
+                "ownership_token": secret_cipher.encrypt(token),
                 "origin": "ADOPTED_EXISTING",
                 "adopted_by": user.id,
                 "engine_id": engine_item.get("engine_id"),

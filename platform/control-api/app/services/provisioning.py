@@ -213,7 +213,7 @@ class ProvisioningService:
 
         await asyncio.to_thread(upgrade)
 
-    async def validate_resources(self, session: AsyncSession, tenant: Tenant) -> dict[str, object]:
+    async def validate_resources(self, session: AsyncSession, tenant: Tenant, *, reconcile_domain: bool = True) -> dict[str, object]:
         """Valida de forma efetiva banco, storage e domínio do tenant.
 
         A validação é deliberadamente corretiva e não recria o tenant. Ela atualiza
@@ -263,7 +263,8 @@ class ProvisioningService:
             errors.append("Domínio principal não provisionado.")
         else:
             try:
-                await domain_service.verify(session, primary)
+                if reconcile_domain:
+                    await domain_service.verify(session, primary)
                 result["domain"] = primary.status == "ACTIVE" and primary.ssl_status in {"ACTIVE", "NOT_REQUIRED"}
                 if not result["domain"]:
                     errors.append(f"Domínio: estado={primary.status}, ssl={primary.ssl_status}.")
@@ -350,7 +351,7 @@ class ProvisioningService:
             job = (await session.execute(stmt)).scalar_one_or_none()
             if job is None:
                 raise APIError("PROVISIONING_JOB_NOT_FOUND", "Job de provisionamento não encontrado.", 404)
-            if job.status == "SUCCEEDED":
+            if job.status in {"SUCCEEDED", "WAITING_TLS"}:
                 return
             tenant = job.tenant
             job.attempts += 1
@@ -415,6 +416,15 @@ class ProvisioningService:
 
                 await self._save_step(session, job, "VALIDATION", 95, "Validando recursos provisionados.")
                 validation = await self.validate_resources(session, tenant)
+                if (settings.platform_tls_automation_enabled and validation.get("database") and validation.get("storage")
+                        and not validation.get("domain") and primary.management_mode == MANAGEMENT_PLATFORM_SUBDOMAIN):
+                    job.status = "WAITING_TLS"
+                    job.current_step = "WAITING_TLS"
+                    job.progress = 95
+                    job.last_error = "Aguardando o serviço de DNS/SSL concluir a instalação verificada."
+                    job.add_event("WAITING_TLS", job.last_error)
+                    await session.commit()
+                    return
                 if not validation.get("ready"):
                     details = "; ".join(str(item) for item in validation.get("errors", []))
                     raise RuntimeError(f"Validação final do tenant falhou: {details or 'recursos incompletos'}")

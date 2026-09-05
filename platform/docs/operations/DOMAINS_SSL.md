@@ -91,3 +91,7 @@ O agente:
 - `nginx -t` precisa passar antes do reload;
 - não use `shell=True` no agente;
 - preserve o cabeçalho Host no proxy.
+
+## Modelo canônico de SSL por serviços
+
+Consulte [SSL automático e instâncias](../../../docs/guides/platform-ssl-instances-corrective.md). A stack completa usa acme.sh DNS-01 Cloudflare e CloudPanel Agent: um Reverse Proxy base manual, instalação/renovação e conferência automática do certificado. O `domain-agent` e procedimentos shell históricos são retaguarda; não são passos obrigatórios do deploy normal.

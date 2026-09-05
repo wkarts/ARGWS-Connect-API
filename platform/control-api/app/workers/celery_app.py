@@ -38,12 +38,17 @@ routes: dict[str, dict[str, str]] = {
     "app.tasks.backup_all": {"queue": "connect.backups"},
     "app.tasks.backup_tenant": {"queue": "connect.backups"},
     "app.tasks.dispatch_outbound_webhooks": {"queue": "connect.webhooks"},
+    "app.tasks.reconcile_platform_tls": {"queue": "connect.default"},
     "app.tasks.capture_connect_api_usage": {"queue": "connect.default"},
 }
 
 beat_schedule: dict[str, dict[str, object]] = {
     "outbound-webhooks-every-minute": {
         "task": "app.tasks.dispatch_outbound_webhooks",
+        "schedule": crontab(minute="*"),
+    },
+    "platform-tls-every-minute": {
+        "task": "app.tasks.reconcile_platform_tls",
         "schedule": crontab(minute="*"),
     },
     "tenant-usage-hourly": {

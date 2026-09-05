@@ -141,3 +141,7 @@ Infraestrutura mantém as tags oficiais definidas pelo projeto.
 ## Contrato operacional vigente
 
 No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.
+
+## SSL automático: procedimento canônico
+
+Use o modelo de **um Reverse Proxy base + ACME/CloudPanel Agent por serviços**, descrito em [SSL e instâncias](../../docs/guides/platform-ssl-instances-corrective.md). Esta seção prevalece sobre exemplos históricos de setup manual/profile `cloudpanel`. Nas stacks completas, não execute scripts no VPS nem instale certificados manualmente. Preserve seu `.env` e os volumes ao atualizar a stack.

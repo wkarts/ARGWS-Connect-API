@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     demo_tenant_admin_email: EmailStr = "admin.demo@example.com"
     demo_tenant_admin_password: str = "ChangeMe123!"
 
+    platform_tls_automation_enabled: bool = False
+    platform_tls_status_dir: Path = Path("/tls-status")
+    platform_tls_receipt_max_age: int = Field(default=600, ge=60, le=86400)
+    platform_dns_receipt_max_age: int = Field(default=90000, ge=60, le=172800)
+
     cloudflare_enabled: bool = False
     cloudflare_api_token: str = ""
     cloudflare_account_id: str = ""

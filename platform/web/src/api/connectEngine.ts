@@ -6,6 +6,7 @@ export interface EngineInstance {
   instance_name: string
   provider: string
   status: string
+  origin?: string
   state?: string | null
   capabilities?: Record<string, unknown>
   last_error?: string | null
@@ -43,7 +44,7 @@ export async function discoverEngineInstances(): Promise<EngineInstanceDiscovery
   return (await api.get<Envelope<EngineInstanceDiscovery>>('/v1/connect/instances/discover')).data.data
 }
 
-export async function adoptEngineInstance(payload: { instance_name: string; alias?: string }) {
+export async function adoptEngineInstance(payload: { instance_name: string; instance_token: string; alias?: string }) {
   return (await api.post<Envelope<Record<string, unknown>>>('/v1/connect/instances/adopt', payload)).data.data
 }
 
@@ -55,8 +56,12 @@ export async function createEngineInstance(payload: Record<string, unknown>) {
   return (await api.post<Envelope<Record<string, unknown>>>('/v1/connect/instances', payload)).data.data
 }
 
-export async function connectEngineInstance(id: string) {
-  return (await api.post<Envelope<Record<string, unknown>>>(`/v1/connect/instances/${id}/connect`)).data.data
+export interface PairingResponse { base64?: string | null; pairing_code?: string | null; state?: string | null; pending: boolean }
+export async function connectEngineInstance(id: string, number?: string): Promise<PairingResponse> {
+  return (await api.post<Envelope<PairingResponse>>(`/v1/connect/instances/${id}/connect`, { number })).data.data
+}
+export async function reconcileEngineInstance(id: string) {
+  return (await api.post<Envelope<EngineInstance>>(`/v1/connect/instances/${id}/reconcile`)).data.data
 }
 
 export async function restartEngineInstance(id: string) {

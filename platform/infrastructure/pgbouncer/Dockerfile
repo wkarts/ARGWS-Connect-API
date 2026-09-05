@@ -22,5 +22,5 @@ COPY platform/infrastructure/pgbouncer/service.py /app/service.py
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 EXPOSE 6432
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 CMD ["python", "/app/service.py", "health"]
+HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=5 CMD ["python", "/app/service.py", "health"]
 ENTRYPOINT ["python", "/app/service.py"]

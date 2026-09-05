@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.core.config import settings
 from app.core.tenant_context import TenantContext
 from app.db.pooling import engine_options
+from app.db.connection_retry import install_login_retry
 
 
 @dataclass(slots=True)
@@ -46,6 +47,8 @@ class TenantEngineRegistry:
                 database=context.database,
             )
             engine = create_async_engine(url, **engine_options(tenant=True))
+            if settings.postgres_pgbouncer_enabled:
+                install_login_retry(engine)
             entry = EngineEntry(
                 engine=engine,
                 session_factory=async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False),
