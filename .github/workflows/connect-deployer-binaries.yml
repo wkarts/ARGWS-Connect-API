@@ -89,16 +89,16 @@ jobs:
               output.write(f'sha={sha}\nversion={version}\nchannel={channel}\n')
       - name: Archive exact source used by the binary jobs
         run: |
-          mkdir -p .source-export
-          git archive --format=zip --prefix=ARGWS-Connect-API/ --output=.source-export/ARGWS-Connect-API-source.zip HEAD
-          git rev-parse HEAD > .source-export/SOURCE-COMMIT.txt
-          git rev-parse HEAD^{tree} > .source-export/SOURCE-TREE.txt
-          cd .source-export
+          mkdir -p source-export
+          git archive --format=zip --prefix=ARGWS-Connect-API/ --output=source-export/ARGWS-Connect-API-source.zip HEAD
+          git rev-parse HEAD > source-export/SOURCE-COMMIT.txt
+          git rev-parse HEAD^{tree} > source-export/SOURCE-TREE.txt
+          cd source-export
           sha256sum ARGWS-Connect-API-source.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: connect-deployer-source
-          path: .source-export/*
+          path: source-export/*
           if-no-files-found: error
           retention-days: 30
 
