@@ -1,0 +1,42 @@
+{
+  "source_archive": "ARGWS-Connect-Deployer.zip",
+  "source_archive_sha256": "9842e70b9790357f266a80609f4be416a52b2709207bbc7f35a2a0b630ec9db1",
+  "imported_into": "tools/connect-deployer",
+  "project_repository": "wkarts/ARGWS-Connect-API",
+  "base_commit": "24d5a9c9e4edeb39f992652591b49c660d8d68f7",
+  "original_file_sha256": {
+    ".gitignore": "4bbc257107d26f20a1fa392148087fa56a11d545940d8fcdf16f73ddeb22cd48",
+    "SECURITY.md": "743fd0fed5440c470e6401c0fc37501cc5119405746b1a86dc83fe4ce0cbc046",
+    "SHA256SUMS.txt": "dc28165d093e03c595c1d5f7d309dbfcf8ba9b97d18a316818c9b6d5e9917513",
+    "MANIFEST.in": "c4690b68adc6cc9d7aef8ec272baf94e4c0f2e504f70bde36830498afdde3470",
+    "connect-deploy.spec": "c551a8fdea6b1008279a547642852383dde50248746c30eb00fa86213837e9ff",
+    "pyproject.toml": "df1b196cc5488c0630f70743a97ae2c769f3bcb5356aa04a55f339b61e103f28",
+    "CHANGELOG.md": "0f7332a72d5e8771e19d661acc6a292d925bc9e67bb4328426aa9e5f17a1d0c1",
+    "requirements-build.txt": "d7c36ddbcf6dfe7e034618a1828bd66c8eb0818b11bedbe487859dadd29e33c3",
+    "README.md": "2ed4396432db9def7ed29a9dc8a84db29f1098a936fb747f18464bcbda247c0a",
+    "VALIDATION.md": "e738488aa32614181513724a970f00dc15bb3acd4af472034132a9fa52cd002b",
+    "connect_deploy_entry.py": "31c3ddf5af92983c312a37cfba2a26dd276ff25a5e9a34d2e8e4ba32b40ccb4d",
+    "scripts/build-windows.bat": "b1e55ef02bba0afac73b754842f8092c87222b7d00a810a587f7a99f12217633",
+    "scripts/build-linux.sh": "e5deca14deaf8cf9c2ec6b54dad799af4d6d39edc11756575a6ae11b4ae712ea",
+    "scripts/package_artifact.py": "f643b960713c8dc3d793fd9b57e553bb4c951f786582b2f1147ca53dd52582d4",
+    "scripts/build-macos.sh": "98235250f0fadcec9f9d63372b0e99a6a053ee4631bd3787b8b7e220701a8062",
+    "scripts/build-windows.ps1": "7f7c2ce4b764bb558cd6b31e2147c491206d6a8525ffff6b22ed7446844db2ab",
+    "tests/test_command.py": "bc5dc0db8a44702d9b4057d9478f09f4181ac26fdfd2f2ecea5d7fa5afcb90f8",
+    "tests/test_payload.py": "e048de6bf71fcffc5b0f965785f1fc26992b97fa581d1400570c49238e1daf66",
+    "reference/install-connect-original.py": "d4dd7ed0bb3e1595c1247f5ae0d42ba80bf8c37025ccf552f8eaf45f89c5db7f",
+    ".github/workflows/build.yml": "7d65a7cb5b5dd98ad36d14edcb016cdafd0f86e0e4b211699262b9c80278a0cc",
+    "src/connect_deployer/ssh_client.py": "a409e2858a10fd6aa247619d463d22488fe9690961e46990d7aa416fa4b94a99",
+    "src/connect_deployer/__main__.py": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+    "src/connect_deployer/__init__.py": "27e8febb48ada44153ea2add9969a2c50a9831a74d9755fdd53c549a888b1cc2",
+    "src/connect_deployer/resources.py": "5087617c8ba549fd0ec0777a6a54c66de922ac92cdf61ca2bf43eab0a9149f43",
+    "src/connect_deployer/cli.py": "3b33bea81b1fa5af726e80a3a4ea7f022137454d47217798d80803c5fc6128a7",
+    "src/connect_deployer/payload/install-connect.py": "eac0bdfafd79e4237e59378d389c324149f3fb7204a501b885a9c74dd3d01ad6"
+  },
+  "notes": [
+    "User-supplied SSH launcher and payload are the basis, not a replacement implementation.",
+    "Standalone build workflow is replaced by a repository-root reusable workflow.",
+    "Reference installer exactly matches the canonical root installer at base_commit.",
+    "Submitted payload 1.0.1 retains the requested file-based secret inputs; root install-connect.py is not changed.",
+    "Build scripts, packaging, metadata, smoke/regression tests and documentation are integrated with the parent repository."
+  ]
+}

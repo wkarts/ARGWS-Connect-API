@@ -1,0 +1,219 @@
+name: Connect Deployer - Build Binaries
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'tools/connect-deployer/**'
+      - 'install-connect.py'
+      - 'VERSION'
+      - '.github/workflows/connect-deployer-binaries.yml'
+      - '.github/workflows/auto-version-release.yml'
+      - 'docs/guides/connect-deployer-binaries.md'
+  push:
+    branches: [develop]
+    paths:
+      - 'tools/connect-deployer/**'
+      - 'install-connect.py'
+      - 'VERSION'
+      - '.github/workflows/connect-deployer-binaries.yml'
+      - '.github/workflows/auto-version-release.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Exact release commit from the canonical application release workflow
+        required: false
+        type: string
+        default: ''
+      release_tag:
+        description: Existing stable application release; never creates a new release/tag
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connect-deployer-${{ github.event_name }}-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Bind binaries to Connect API source
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      version: ${{ steps.source.outputs.version }}
+      channel: ${{ steps.source.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate project revision and release ownership
+        id: source
+        shell: python
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import json, os, pathlib, re, subprocess, urllib.request
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          sha = git('rev-parse', 'HEAD')
+          version = pathlib.Path('VERSION').read_text().strip()
+          assert re.fullmatch(r'[0-9a-f]{40}', sha)
+          assert re.fullmatch(r'\d+\.\d+\.\d+', version)
+          tag = os.environ.get('RELEASE_TAG', '')
+          if tag:
+              assert os.environ['GITHUB_REF'] == 'refs/heads/main', 'Stable assets require main'
+              assert os.environ['GITHUB_EVENT_NAME'] != 'pull_request'
+              assert tag == 'v' + version, 'Release tag and project version differ'
+              assert git('rev-parse', 'refs/tags/' + tag + '^{commit}') == sha
+              subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'refs/remotes/origin/main'], check=True)
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/releases/tags/' + tag,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  release = json.load(response)
+              assert release['tag_name'] == tag and not release['draft'] and not release['prerelease']
+              channel = 'stable'
+          else:
+              channel = 'pr' if os.environ['GITHUB_EVENT_NAME'] == 'pull_request' else (
+                  'develop' if os.environ['GITHUB_REF'] == 'refs/heads/develop' else 'manual')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'sha={sha}\nversion={version}\nchannel={channel}\n')
+
+  build:
+    name: Native binary / ${{ matrix.target }}
+    needs: plan
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            target: windows-x86_64
+            python_arch: x64
+          - runner: ubuntu-22.04
+            target: linux-x86_64
+            python_arch: x64
+          - runner: ubuntu-22.04-arm
+            target: linux-arm64
+            python_arch: arm64
+          - runner: macos-14
+            target: macos-arm64
+            python_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: tools/connect-deployer
+        shell: bash
+    env:
+      CONNECT_DEPLOYER_EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
+      CONNECT_DEPLOYER_CHANNEL: ${{ needs.plan.outputs.channel }}
+      CONNECT_DEPLOYER_RELEASE_TAG: ${{ inputs.release_tag }}
+      CONNECT_DEPLOYER_TARGET: ${{ matrix.target }}
+      PYTHONUTF8: '1'
+    steps:
+      - name: Preserve source bytes across native checkouts
+        working-directory: ${{ github.workspace }}
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.python_arch }}
+          cache: pip
+          cache-dependency-path: |
+            tools/connect-deployer/requirements-build.txt
+            tools/connect-deployer/pyproject.toml
+      - name: Install isolated launcher build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+      - name: Bind metadata and test submitted launcher
+        run: |
+          python scripts/prepare_build.py
+          python -m compileall -q src scripts tests
+          python -m unittest discover -s tests -v
+      - name: Compile one-file executable with embedded SSH payload
+        run: python -m PyInstaller --clean --noconfirm connect-deploy.spec
+      - name: Exercise frozen executable outside source tree
+        run: python scripts/smoke_binary.py
+      - name: Package binary, licenses, metadata and SHA-256
+        run: python scripts/package_artifact.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-deploy-${{ matrix.target }}
+          path: tools/connect-deployer/dist/release/*
+          if-no-files-found: error
+          retention-days: 30
+
+  verify:
+    name: Verify all four downloadable packages
+    needs: [plan, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: connect-deploy-*
+          path: deployer-assets
+          merge-multiple: true
+      - name: Validate checksums, platforms and embedded revision
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
+          EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
+          EXPECTED_CHANNEL: ${{ needs.plan.outputs.channel }}
+        run: python tools/connect-deployer/scripts/verify_assets.py deployer-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-deployer-manifest
+          path: deployer-assets/CONNECT-DEPLOYER-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  attach-to-application-release:
+    name: Attach binaries to existing Connect API release
+    needs: [plan, build, verify]
+    if: inputs.release_tag != '' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: connect-deploy-*
+          path: deployer-assets
+          merge-multiple: true
+      - name: Recheck assets before publication
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
+          EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
+          EXPECTED_CHANNEL: stable
+        run: python tools/connect-deployer/scripts/verify_assets.py deployer-assets
+      - name: Upload without creating a release or overwriting existing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$RELEASE_TAG" deployer-assets/* --repo "$GITHUB_REPOSITORY"

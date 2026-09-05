@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec.bak
+.pytest_cache/
+.env
+*.env
+known_hosts.test
+
+/src/connect_deployer/build-info.json
