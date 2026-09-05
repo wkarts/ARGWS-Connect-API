@@ -87,6 +87,20 @@ jobs:
                   'develop' if os.environ['GITHUB_REF'] == 'refs/heads/develop' else 'manual')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'sha={sha}\nversion={version}\nchannel={channel}\n')
+      - name: Archive exact source used by the binary jobs
+        run: |
+          mkdir -p .source-export
+          git archive --format=zip --prefix=ARGWS-Connect-API/ --output=.source-export/ARGWS-Connect-API-source.zip HEAD
+          git rev-parse HEAD > .source-export/SOURCE-COMMIT.txt
+          git rev-parse HEAD^{tree} > .source-export/SOURCE-TREE.txt
+          cd .source-export
+          sha256sum ARGWS-Connect-API-source.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-deployer-source
+          path: .source-export/*
+          if-no-files-found: error
+          retention-days: 30
 
   resolve:
     name: Resolve shared Rust and npm locks
@@ -267,10 +281,22 @@ jobs:
         run: |
           python scripts/prepare-ci.py
           npm ci --no-audit --no-fund
+      - name: Select and validate native Windows OpenSSL toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/prepare-windows-toolchain.ps1
       - name: Build graphical Tauri application and installers
+        if: runner.os != 'Windows'
         run: npm run tauri:build -- --config "${{ matrix.config }}" -- --locked
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
+      - name: Build graphical Windows application and NSIS installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm.cmd run tauri:build -- --config "${{ matrix.config }}" -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Exercise native binary without GUI, SSH or deploy
         run: python scripts/smoke-tauri.py
       - name: Package GUI installers and identity
