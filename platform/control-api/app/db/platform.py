@@ -5,13 +5,11 @@ from collections.abc import AsyncIterator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.db.pooling import engine_options
 
 platform_engine = create_async_engine(
-    settings.platform_database_url,
-    pool_pre_ping=True,
-    pool_size=settings.postgres_pool_size,
-    max_overflow=settings.postgres_max_overflow,
-    echo=settings.app_debug,
+    settings.platform_runtime_database_url,
+    **engine_options(),
 )
 PlatformSessionLocal = async_sessionmaker(platform_engine, class_=AsyncSession, expire_on_commit=False)
 

@@ -28,6 +28,18 @@ x-platform-env: &platform-env
   PUBLIC_SCHEME: ${PUBLIC_SCHEME:-https}
   TRUSTED_HOSTS: ${PLATFORM_TRUSTED_HOSTS:-connect.example.com,control.connect.example.com,admin.connect.example.com,partner.connect.example.com,demo.connect.example.com,.connect.example.com,localhost,127.0.0.1}
   CORS_ORIGINS: ${PLATFORM_CORS_ORIGINS:-https://connect.example.com,https://control.connect.example.com,https://admin.connect.example.com,https://partner.connect.example.com,https://demo.connect.example.com}
+  # Administrative POSTGRES_HOST/PORT stay direct; only application traffic uses PgBouncer.
+  POSTGRES_PGBOUNCER_ENABLED: "${POSTGRES_PGBOUNCER_ENABLED:-true}"
+  POSTGRES_RUNTIME_HOST: connect-platform-pgbouncer
+  POSTGRES_RUNTIME_PORT: "6432"
+  POSTGRES_POOL_SIZE: "${PLATFORM_POSTGRES_POOL_SIZE:-5}"
+  POSTGRES_MAX_OVERFLOW: "0"
+  POSTGRES_POOL_TIMEOUT: "${PLATFORM_POSTGRES_POOL_TIMEOUT:-5}"
+  POSTGRES_CONNECT_TIMEOUT: "${PLATFORM_POSTGRES_CONNECT_TIMEOUT:-5}"
+  POSTGRES_COMMAND_TIMEOUT: "${PGBOUNCER_QUERY_TIMEOUT:-60}"
+  TENANT_POOL_SIZE: "1"
+  TENANT_ENGINE_CACHE_SIZE: "${PLATFORM_TENANT_ENGINE_CACHE_SIZE:-16}"
+  DATABASE_MAX_CONCURRENT_REQUESTS: "${PLATFORM_DATABASE_MAX_CONCURRENT_REQUESTS:-16}"
   POSTGRES_HOST: connect-platform-postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: ${PLATFORM_POSTGRES_DB:-connect_api_platform}
@@ -118,12 +130,18 @@ services:
       SERVER_PORT: "8080"
       SERVER_DISABLE_MANAGER: "true"
       DOCKER_ENV: "true"
+      DATABASE_POOL_ENABLED: "${DATABASE_POOL_ENABLED:-true}"
+      DATABASE_POOL_HOST: connect-engine-pgbouncer
+      DATABASE_POOL_PORT: "6432"
+      DATABASE_POOL_CONNECTION_LIMIT: "${DATABASE_POOL_CONNECTION_LIMIT:-5}"
+      DATABASE_POOL_TIMEOUT: "${DATABASE_POOL_TIMEOUT:-10}"
       DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USERNAME:-argws_connect}:${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}@connect-engine-postgres:5432/${POSTGRES_DATABASE:-argws_connect_api}?schema=public
       CACHE_REDIS_URI: redis://:${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}@connect-redis:6379/0
       RABBITMQ_URI: amqp://${RABBITMQ_USER:-argws_connect}:${RABBITMQ_PASSWORD:-CHANGE_ME_RABBITMQ_PASSWORD}@connect-rabbitmq:5672/${RABBITMQ_VHOST:-argws_connect}
       S3_ENDPOINT: connect-minio
       S3_PORT: "9000"
     depends_on:
+      pgbouncer-argws-connect-platform: {condition: service_healthy}
       postgres-argws-connect-platform: {condition: service_healthy}
       redis-argws-connect-platform: {condition: service_healthy}
       rabbitmq-argws-connect-platform: {condition: service_healthy}
@@ -254,6 +272,7 @@ services:
     image: ${ARGWS_CONNECT_PLATFORM_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:17}
     profiles: [platform]
     restart: unless-stopped
+    command: ["postgres", "-c", "max_connections=${PLATFORM_POSTGRES_MAX_CONNECTIONS:-200}", "-c", "superuser_reserved_connections=5", "-c", "reserved_connections=10"]
     environment:
       POSTGRES_DB: ${PLATFORM_POSTGRES_DB:-connect_api_platform}
       POSTGRES_USER: ${PLATFORM_POSTGRES_USER:-connect_api_platform}
@@ -275,6 +294,9 @@ services:
     container_name: platform-migrate-argws-connect-platform
     <<: *platform-app
     restart: "no"
+    environment:
+      <<: *platform-env
+      POSTGRES_PGBOUNCER_ENABLED: "false"
     command: ["python", "-m", "app.cli", "migrate-platform"]
     depends_on:
       platform-postgres-argws-connect-platform: {condition: service_healthy}
@@ -283,6 +305,9 @@ services:
     container_name: platform-migrate-tenants-argws-connect-platform
     <<: *platform-app
     restart: "no"
+    environment:
+      <<: *platform-env
+      POSTGRES_PGBOUNCER_ENABLED: "false"
     command: ["python", "-m", "app.cli", "migrate-all-tenants"]
     depends_on:
       platform-migrate-argws-connect-platform: {condition: service_completed_successfully}
@@ -291,6 +316,9 @@ services:
     container_name: platform-bootstrap-argws-connect-platform
     <<: *platform-app
     restart: "no"
+    environment:
+      <<: *platform-env
+      POSTGRES_PGBOUNCER_ENABLED: "false"
     command: ["python", "-m", "app.cli", "bootstrap"]
     depends_on:
       platform-migrate-tenants-argws-connect-platform: {condition: service_completed_successfully}
@@ -306,6 +334,7 @@ services:
       - ${ARGWS_CONNECT_PLATFORM_BACKUPS_DATA_PATH:-./volumes/platform-backups}:/data/backups
     command: ["gunicorn", "app.main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "${PLATFORM_API_WORKERS:-2}", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-"]
     depends_on:
+      platform-pgbouncer-argws-connect-platform: {condition: service_healthy}
       platform-bootstrap-argws-connect-platform: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=5).read()\""]
@@ -586,6 +615,85 @@ services:
     ports:
       - "${PLATFORM_GATEWAY_BIND_ADDRESS:-127.0.0.1}:${PLATFORM_GATEWAY_PORT:-38800}:80"
     networks: [argws-connect-platform-net]
+    logging: *default-logging
+
+  pgbouncer-argws-connect-platform:
+    container_name: pgbouncer-argws-connect-platform
+    image: ${ARGWS_CONNECT_PGBOUNCER_IMAGE:-ghcr.io/wkarts/argws-connect-pgbouncer:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      POOL_NAME: engine
+      POOL_POSTGRES_HOST: postgres-argws-connect-platform
+      POOL_POSTGRES_PORT: "5432"
+      POOL_POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POOL_POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      POOL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      POOL_TENANT_USER_PREFIX: ""
+      POOL_MAX_CLIENTS: "${PGBOUNCER_MAX_CLIENTS:-256}"
+      POOL_MAIN_SIZE: "${PGBOUNCER_POOL_SIZE:-32}"
+      POOL_TENANT_SIZE: "${PLATFORM_PGBOUNCER_TENANT_POOL_SIZE:-4}"
+      POOL_WAIT_SECONDS: "${PGBOUNCER_QUERY_WAIT_TIMEOUT:-10}"
+      POOL_QUERY_SECONDS: "${PGBOUNCER_QUERY_TIMEOUT:-60}"
+      POOL_SERVER_IDLE_SECONDS: "${PGBOUNCER_SERVER_IDLE_TIMEOUT:-15}"
+    depends_on:
+      postgres-argws-connect-platform: {condition: service_healthy}
+    networks:
+      argws-connect-platform-net:
+        aliases: [connect-engine-pgbouncer]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    ulimits:
+      nofile: {soft: 8192, hard: 8192}
+    healthcheck:
+      test: ["CMD", "python", "/app/service.py", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *default-logging
+
+  platform-pgbouncer-argws-connect-platform:
+    container_name: platform-pgbouncer-argws-connect-platform
+    image: ${ARGWS_CONNECT_PGBOUNCER_IMAGE:-ghcr.io/wkarts/argws-connect-pgbouncer:latest}
+    pull_policy: always
+    restart: unless-stopped
+    profiles: [platform]
+    environment:
+      POOL_NAME: platform
+      POOL_POSTGRES_HOST: platform-postgres-argws-connect-platform
+      POOL_POSTGRES_PORT: "5432"
+      POOL_POSTGRES_DB: ${PLATFORM_POSTGRES_DB:-connect_api_platform}
+      POOL_POSTGRES_USER: ${PLATFORM_POSTGRES_USER:-connect_api_platform}
+      POOL_POSTGRES_PASSWORD: ${PLATFORM_POSTGRES_PASSWORD:-CHANGE_ME_PLATFORM_POSTGRES_PASSWORD}
+      POOL_TENANT_USER_PREFIX: "${TENANT_DB_USER_PREFIX:-connect_api_t}"
+      POOL_MAX_CLIENTS: "${PLATFORM_PGBOUNCER_MAX_CLIENTS:-256}"
+      POOL_MAIN_SIZE: "${PLATFORM_PGBOUNCER_CONTROL_POOL_SIZE:-20}"
+      POOL_TENANT_SIZE: "${PLATFORM_PGBOUNCER_TENANT_POOL_SIZE:-4}"
+      POOL_WAIT_SECONDS: "${PGBOUNCER_QUERY_WAIT_TIMEOUT:-10}"
+      POOL_QUERY_SECONDS: "${PGBOUNCER_QUERY_TIMEOUT:-60}"
+      POOL_SERVER_IDLE_SECONDS: "${PGBOUNCER_SERVER_IDLE_TIMEOUT:-15}"
+    depends_on:
+      platform-postgres-argws-connect-platform: {condition: service_healthy}
+    networks:
+      argws-connect-platform-net:
+        aliases: [connect-platform-pgbouncer]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    ulimits:
+      nofile: {soft: 8192, hard: 8192}
+    healthcheck:
+      test: ["CMD", "python", "/app/service.py", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     logging: *default-logging
 
 networks:

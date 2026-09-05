@@ -86,3 +86,14 @@ replaceRequired(
 console.log(`ARGWS Connect API version set to ${version}`);
 console.log(`Production tracks :latest. Canonical API pinned to ${canonicalImage}.`);
 console.log(`Canonical DOCs pinned to ${canonicalDocsImage}.`);
+
+replaceRequired(
+  'deploy/canonical/env.example',
+  /^ARGWS_CONNECT_PGBOUNCER_IMAGE=ghcr\.io\/wkarts\/argws-connect-pgbouncer:\d+\.\d+\.\d+$/m,
+  `ARGWS_CONNECT_PGBOUNCER_IMAGE=ghcr.io/wkarts/argws-connect-pgbouncer:${version}`,
+);
+replaceRequired(
+  'deploy/canonical/compose.yaml',
+  /ghcr\.io\/wkarts\/argws-connect-pgbouncer:\d+\.\d+\.\d+/,
+  `ghcr.io/wkarts/argws-connect-pgbouncer:${version}`,
+);

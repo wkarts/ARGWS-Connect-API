@@ -8,6 +8,7 @@ import { Auth, configService, Cors, HttpServer, ProviderSession, Webhook } from 
 import { onUnexpectedError } from '@config/error.config';
 import { Logger } from '@config/logger.config';
 import { ROOT_DIR } from '@config/path.config';
+import { isDatabaseUnavailable } from '@utils/database-pool';
 import { ServerUP } from '@utils/server-up';
 import axios from 'axios';
 import compression from 'compression';
@@ -64,6 +65,18 @@ async function bootstrap() {
   app.use(
     (err: Error, req: Request, res: Response, next: NextFunction) => {
       if (err) {
+        if (isDatabaseUnavailable(err)) {
+          logger.warn('Database capacity unavailable; request rejected without replay.');
+          return res
+            .status(503)
+            .set('Retry-After', '2')
+            .set('Cache-Control', 'no-store')
+            .json({
+              status: 503,
+              error: 'Service Unavailable',
+              response: { message: 'Banco temporariamente ocupado. Tente novamente em instantes.' },
+            });
+        }
         const webhook = configService.get<Webhook>('WEBHOOK');
 
         if (webhook.EVENTS.ERRORS_WEBHOOK && webhook.EVENTS.ERRORS_WEBHOOK != '' && webhook.EVENTS.ERRORS) {

@@ -2,6 +2,10 @@
 
 This document provides comprehensive guidelines for AI agents (Claude, GPT, Cursor, etc.) working with the ARGWS Connect API codebase.
 
+## Mandatory operational contract
+
+Read `OPERATIONS-CONTRACT.md` before infrastructure, deployment or database changes. This is the canonical user-approved service-first workflow.
+
 ## Project Overview
 
 **ARGWS Connect API** is a production-ready, multi-tenant WhatsApp API platform built with Node.js, TypeScript, and Express.js. It supports multiple WhatsApp providers and extensive integrations with chatbots, CRM systems, and messaging platforms.

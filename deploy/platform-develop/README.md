@@ -73,25 +73,14 @@ docker compose --env-file .env --profile cloudpanel up -d
 
 Para Nginx/Certbot de host sem CloudPanel, use `deploy/platform/domain-agent/`.
 
-## Primeiro deploy
+## Operação por serviços
 
 ```bash
 cd deploy/platform-develop
 bash prepare-env.sh
 bash preflight.sh
 bash deploy.sh
-```
-
-`prepare-env.sh`:
-
-- cria `.env` a partir de `env.example`;
-- sincroniza `CONNECT_API_VERSION` com `VERSION` da raiz;
-- gera segredos fortes para todos os placeholders `CHANGE_ME_*`;
-- aplica permissão `600` ao arquivo.
-
-Se o GHCR exigir autenticação:
-
-```bash
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.bash
 export GHCR_USERNAME=seu_usuario
 export GHCR_TOKEN=seu_token
 bash registry-login.sh
@@ -148,3 +137,7 @@ ghcr.io/wkarts/argws-connect-platform-gateway:develop
 ```
 
 Infraestrutura mantém as tags oficiais definidas pelo projeto.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.

@@ -43,3 +43,14 @@ services:
       context: ../..
       dockerfile: platform/gateway/Dockerfile
     pull_policy: never
+
+  pgbouncer-argws-connect-platform:
+    build:
+      context: ../..
+      dockerfile: platform/infrastructure/pgbouncer/Dockerfile
+    pull_policy: never
+  platform-pgbouncer-argws-connect-platform:
+    build:
+      context: ../..
+      dockerfile: platform/infrastructure/pgbouncer/Dockerfile
+    pull_policy: never

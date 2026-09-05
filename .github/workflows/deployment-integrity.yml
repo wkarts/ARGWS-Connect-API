@@ -31,13 +31,15 @@ jobs:
           cp deploy/docs/env.example deploy/docs/.env
           cp deploy/docs-develop/env.example deploy/docs-develop/.env
           cp deploy/platform/env.example deploy/platform/.env
+          cp deploy/platform-develop/env.example deploy/platform-develop/.env
+          cp deploy/platform-production/env.example deploy/platform-production/.env
 
       - name: Validate Compose syntax
         run: |
           set -euo pipefail
           docker compose --env-file .env.example -f docker-compose.yaml config >/dev/null
           docker compose --env-file .env.example --profile '*' -f docker-compose.yaml config >/dev/null
-          for stack in production develop canonical homologation; do
+          for stack in production develop canonical homologation platform-develop platform-production; do
             compose_file="deploy/${stack}/compose.yaml"
             env_file="deploy/${stack}/env.example"
             docker compose --env-file "$env_file" -f "$compose_file" config >/dev/null
@@ -71,6 +73,8 @@ jobs:
               ('docs', 'deploy/docs/compose.yaml', 'deploy/docs/env.example', 'argws-connect-docs'),
               ('docs-develop', 'deploy/docs-develop/compose.yaml', 'deploy/docs-develop/env.example', 'argws-connect-docs-develop'),
               ('platform', 'deploy/platform/compose.yaml', 'deploy/platform/env.example', 'argws-connect-platform'),
+              ('platform-develop', 'deploy/platform-develop/compose.yaml', 'deploy/platform-develop/env.example', 'argws-connect-platform-develop'),
+              ('platform-production', 'deploy/platform-production/compose.yaml', 'deploy/platform-production/env.example', 'argws-connect-platform-production'),
           ]
 
           def env_values(path):
@@ -139,7 +143,7 @@ jobs:
                   'url': 'https://c.api.connect.argws.com.br',
               },
           }
-          core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
+          core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio', 'pgbouncer')
           optional_resources = ('nats', 'zookeeper', 'kafka')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',

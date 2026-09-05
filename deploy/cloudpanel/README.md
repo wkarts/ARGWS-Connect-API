@@ -66,17 +66,13 @@ cp .env.example .env
 chmod 600 .env
 # edite os CHANGE_ME_*
 ./deploy.sh
-```
-
-`deploy.sh` valida secrets, cria as pastas de persistência, testa acesso às imagens GHCR, faz pull e inicia a stack.
-
-## Porta interna x porta do host
-
-`SERVER_PORT=8080` é a porta interna da aplicação e é forçada pelo Compose. Para mudar somente a porta usada pelo CloudPanel, altere:
-
-```env
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.env
 ARGWS_CONNECT_API_HOST_PORT=38080
 ARGWS_CONNECT_DOCS_HOST_PORT=38180
 ```
 
 Não altere `SERVER_PORT` no deployment Docker.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.

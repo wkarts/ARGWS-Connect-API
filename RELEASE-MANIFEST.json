@@ -16,7 +16,8 @@
       "ghcr.io/wkarts/argws-connect-platform-web",
       "ghcr.io/wkarts/argws-connect-platform-gateway",
       "ghcr.io/wkarts/argws-connect-platform-acme",
-      "ghcr.io/wkarts/argws-connect-platform-cloudpanel-agent"
+      "ghcr.io/wkarts/argws-connect-platform-cloudpanel-agent",
+      "ghcr.io/wkarts/argws-connect-pgbouncer"
     ],
     "infrastructure_images": [
       "ghcr.io/wkarts/argws-connect-node:24-alpine",

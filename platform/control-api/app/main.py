@@ -61,6 +61,7 @@ if settings.enable_reference_financial_domain:
         tenant_pix_automatic,
     )
 from app.core.errors import APIError, api_error_handler
+from app.core.database_pressure import DatabaseAdmissionMiddleware, is_database_unavailable, unavailable_response
 from app.core.logging import configure_logging
 from app.core.rate_limit import consume_rate_limit, parse_rate_limit, request_identity, request_scope
 from app.db.platform import PlatformSessionLocal, platform_engine
@@ -236,6 +237,11 @@ async def request_context(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception as exc:
+        if is_database_unavailable(exc):
+            logger.warning("database_temporarily_unavailable", error=type(exc).__name__)
+            response = unavailable_response()
+            response.headers["X-Request-ID"] = request_id
+            return response
         duration_ms = int((time.perf_counter() - started) * 1000)
         logger.exception("request_failed")
         await _record_runtime_request(
@@ -340,3 +346,6 @@ async def api_root() -> dict[str, str]:
         "environment": settings.app_env,
         "docs": "/api/docs",
     }
+
+# No unbounded request queue during database saturation.
+app.add_middleware(DatabaseAdmissionMiddleware, limit=settings.database_max_concurrent_requests)

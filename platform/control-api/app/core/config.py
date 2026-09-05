@@ -49,8 +49,17 @@ class Settings(BaseSettings):
     postgres_password: str = "connect_api_admin"
     postgres_admin_user: str = "connect_api_admin"
     postgres_admin_password: str = "connect_api_admin"
-    postgres_pool_size: int = 20
-    postgres_max_overflow: int = 20
+    postgres_pool_size: int = Field(default=5, ge=1, le=100)
+    postgres_max_overflow: int = Field(default=0, ge=0, le=20)
+    postgres_pool_timeout: int = Field(default=5, ge=1, le=60)
+    postgres_connect_timeout: int = Field(default=5, ge=1, le=60)
+    postgres_command_timeout: int = Field(default=60, ge=5, le=3600)
+    postgres_pgbouncer_enabled: bool = False
+    postgres_runtime_host: str = "connect-platform-pgbouncer"
+    postgres_runtime_port: int = Field(default=6432, ge=1, le=65535)
+    tenant_pool_size: int = Field(default=1, ge=1, le=10)
+    tenant_engine_cache_size: int = Field(default=16, ge=1, le=1024)
+    database_max_concurrent_requests: int = Field(default=16, ge=1, le=1000)
     tenant_db_prefix: str = "connect_api_tenant"
     tenant_db_user_prefix: str = "connect_api_t"
 
@@ -225,7 +234,7 @@ class Settings(BaseSettings):
         if invalid:
             raise ValueError(
                 "Segredos de produção ausentes ou inseguros: " + ", ".join(sorted(set(invalid)))
-                + ". Execute scripts/generate_secrets.py antes do deploy."
+                + ". Configure os segredos no .env ou no gerenciador de segredos da stack."
             )
         return self
 
@@ -257,6 +266,16 @@ class Settings(BaseSettings):
     @property
     def platform_database_url(self) -> str:
         return self._database_url("postgresql+asyncpg")
+
+    @property
+    def platform_runtime_database_url(self) -> str:
+        if not self.postgres_pgbouncer_enabled:
+            return self.platform_database_url
+        return URL.create(
+            drivername="postgresql+asyncpg", username=self.postgres_user,
+            password=self.postgres_password, host=self.postgres_runtime_host,
+            port=self.postgres_runtime_port, database=self.postgres_db,
+        ).render_as_string(hide_password=False)
 
     @property
     def platform_database_url_sync(self) -> str:

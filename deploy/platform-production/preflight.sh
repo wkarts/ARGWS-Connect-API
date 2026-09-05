@@ -32,7 +32,8 @@ for service, data in cfg.get('services', {}).items():
 networks = {item.get('name') for item in cfg.get('networks', {}).values()}
 assert project + '-net' in networks, networks
 expected = {
-    'api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio',
+    'api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio', 'pgbouncer',
+    'platform-pgbouncer', 'platform-observability-init',
     'platform-postgres', 'platform-migrate', 'platform-migrate-tenants',
     'platform-bootstrap', 'platform-api', 'platform-worker',
     'platform-scheduler', 'platform-worker-backups',
