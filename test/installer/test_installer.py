@@ -102,6 +102,20 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaises(m.InstallError):m.check_images({'services':{'api':{'image':'private/api:1'}}},{})
         self.assertEqual(command.call_args.args[0][:3],['docker','manifest','inspect'])
 
+    def test_temporary_ghcr_login_never_uses_persistent_helpers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);existing=root/'existing.json';target=root/'temporary';target.mkdir()
+            original={'credsStore':'pass','credHelpers':{'ghcr.io':'secretservice','other.registry':'pass'},
+                      'auths':{'other.registry':{'auth':'unchanged'}}}
+            existing.write_text(json.dumps(original))
+            m.temporary_registry_config(existing,target)
+            safe=json.loads((target/'config.json').read_text())
+            self.assertNotIn('credsStore',safe)
+            self.assertNotIn('ghcr.io',safe['credHelpers'])
+            self.assertEqual(safe['credHelpers']['other.registry'],'pass')
+            self.assertEqual(json.loads(existing.read_text()),original)
+            self.assertEqual((target/'config.json').stat().st_mode & 0o777,0o600)
+
     def test_command_error_never_echoes_stderr_secret(self):
         response=m.subprocess.CompletedProcess(['docker'],1,stdout='',stderr='password=DO_NOT_EXPOSE')
         with patch.object(m.subprocess,'run',return_value=response):

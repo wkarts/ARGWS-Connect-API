@@ -296,6 +296,18 @@ def write_private(path: Path, data: bytes, mode: int = 0o600) -> None:
     os.replace(temporary, path)
 
 
+
+def temporary_registry_config(existing: Path, target: Path) -> None:
+    """Never send a temporary GHCR token to a persistent system credential helper."""
+    config = json.loads(existing.read_text()) if existing.is_file() else {}
+    if not isinstance(config, dict): raise InstallError('Configuração Docker de autenticação inválida.')
+    config.pop('credsStore', None)
+    helpers = config.get('credHelpers', {})
+    if not isinstance(helpers, dict): raise InstallError('credHelpers inválido na configuração Docker.')
+    config['credHelpers'] = {host: helper for host, helper in helpers.items()
+                             if host.rstrip('/') not in {'ghcr.io', 'https://ghcr.io', 'http://ghcr.io'}}
+    write_private(target/'config.json', json.dumps(config).encode())
+
 def save_stack(directory: Path, compose: str, environment: str, receipt: dict) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     files = {'compose.yaml': compose.encode(), '.env': environment.encode(),
@@ -442,7 +454,10 @@ def execute(args) -> int:
     if full_platform and 'PLATFORM_TLS_AUTOMATION_ENABLED' not in compose:
         raise InstallError('A release selecionada ainda não inclui a automação CloudPanel. Não haverá fallback para develop.')
     with install_lock(directory), tempfile.TemporaryDirectory(prefix='connect-install-') as temporary:
-        if directory.exists(): recover_stack(directory)
+        if (directory/'.connect-installer-pending.json').exists():
+            if not (args.prepare or args.apply):
+                raise InstallError('Há uma gravação interrompida. Use --prepare ou --apply para recuperar a configuração; o modo plano não altera arquivos.')
+            recover_stack(directory)
         env_path = directory/'.env'
         if env_path.is_symlink(): raise InstallError('O .env não pode ser um link simbólico.')
         existing = env_path.read_text() if env_path.exists() else None
@@ -490,7 +505,7 @@ def execute(args) -> int:
         if args.registry_user:
             auth = stage/'docker-auth'; auth.mkdir(mode=0o700)
             existing_auth = Path(os.environ.get('DOCKER_CONFIG', str(Path.home()/'.docker')))/'config.json'
-            if existing_auth.is_file(): shutil.copyfile(existing_auth, auth/'config.json')
+            temporary_registry_config(existing_auth, auth)
             env['DOCKER_CONFIG'] = str(auth)
             secret = getpass.getpass('Token GHCR read:packages (temporário): ')
             command(['docker', 'login', 'ghcr.io', '--username', args.registry_user, '--password-stdin'], env=env, stdin=secret + '\n')
