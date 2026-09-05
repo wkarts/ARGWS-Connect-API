@@ -1,121 +1,37 @@
-# Connect|API — binários do implantador SSH
+# Connect Deployer — desktop Tauri/Rust
 
-## Escopo
+## Escopo e origem
 
-`tools/connect-deployer` integra o **ARGWS-Connect-Deployer.zip** fornecido por Wallace.
-É uma ferramenta do repositório `wkarts/ARGWS-Connect-API`, não outra API, serviço
-obrigatório ou ciclo independente de releases. O Engine, Platform, PgBouncer,
-ACME/CloudPanel, Compose, migrations e o instalador raiz não são refatorados.
+O implantador oficial em `tools/connect-deployer` substitui o launcher Python/Paramiko/PyInstaller pela versão **Tauri 2 + Rust + Vue 3/TypeScript 2.0.0** fornecida em `ARGWS-Connect-Deployer-Tauri-Rust-v2.0.0.zip`. É uma substituição da ferramenta de implantação, não uma migração do Engine ou da Platform. A origem e os hashes do anexo estão em `SOURCE-IMPORT.json`.
 
-O launcher conserva os modos `local` e `ssh`, Paramiko, validação de chaves de host,
-SFTP, PTY e o payload adaptado 1.0.1 com `GH_TOKEN_FILE` e
-`ARGWS_CONNECT_GHCR_TOKEN_FILE`. A referência original permanece no pacote para
-detectar divergências futuras em relação ao instalador raiz.
+O `install-connect.py` da raiz permanece disponível como alternativa independente; não é executado ou embutido no desktop Rust. Seu exemplar em `reference/` é material de auditoria. API, Platform, Compose, migrations, PgBouncer, ACME e CloudPanel não são alterados por essa integração.
 
-## Geração e associação ao projeto
+## Uso
 
-Workflow: **Connect Deployer - Build Binaries**
-(`.github/workflows/connect-deployer-binaries.yml`).
+Extraia o pacote da sua plataforma e abra **ARGWS Connect Deployer**. A interface gráfica permite configurar SSH/SFTP, autenticação e known_hosts; selecionar ambiente, versão, deployment e diretório; fornecer parâmetros de domínio/ACME; e executar **Plan, Prepare ou Apply**. Plan não sobe containers. Prepare escreve a configuração. Apply também inicia a stack e acompanha seus serviços. A aprovação de Apply é explícita.
 
-| Evento | Resultado |
-|---|---|
-| PR para develop/main com mudança no implantador | Testa e gera quatro pacotes em Actions; não publica release |
-| Push pertinente em develop | Artefatos de desenvolvimento, identificados por SHA |
-| Execução manual | Build da branch selecionada, sem publicar release |
-| Release canônica da aplicação | Chamada reutilizável após a release existir; anexa os pacotes à mesma release |
+Cada desktop contém **dois agentes Linux estáticos** (amd64 e arm64). O desktop identifica a arquitetura do VPS, envia o agente correspondente, relê-o por SFTP para verificar SHA-256 e executa seu self-test. A solicitação, incluindo credenciais, segue no stdin do canal SSH, não em argumentos remotos.
 
-A etapa aditiva `deployer-binaries` no workflow `auto-version-release.yml` chama
-o workflow reutilizável com o commit e a tag resolvidos pela automação existente.
-Não depende de evento de tag/release gerado pelo `GITHUB_TOKEN`, pois esse evento
-não desencadeia automaticamente outro workflow. Não cria uma release concorrente,
-não recalcula versões e não sobrescreve assets. Uma falha no implantador não
-apaga nem substitui as imagens já publicadas da aplicação; aparece no workflow.
+O computador local e o VPS **não precisam de Python para este implantador**. O VPS continua exigindo Linux amd64/arm64, SSH/SFTP, Docker e Compose v2; deployments completos da Platform exigem CloudPanel/clpctl conforme o contrato. A ferramenta não instala pacotes do sistema. O modo sudo utiliza `sudo -n`. Os recursos de SSL, banco, migrations, bootstrap e backup continuam pertencendo aos serviços da stack.
 
-O arquivo de workflow precisa existir na branch padrão para o botão manual
-ficar disponível. Antes da promoção, a PR já produz os artefatos automaticamente.
+A UI solicita aprovação de host novo; chave SSH alterada bloqueia a operação. Tokens não são gravados em preferências. Não substitua produção por develop para contornar ausência de uma release estável.
 
-## Plataformas
+## Compilação no GitHub
 
-| Pacote | Runner de compilação/teste |
-|---|---|
-| Windows x86_64 | Windows Server 2022 x64 |
-| Linux x86_64 | Ubuntu 22.04 x64 |
-| Linux ARM64 | Ubuntu 22.04 ARM64 |
-| macOS ARM64 | macOS 14 Apple Silicon |
+O workflow raiz continua se chamando **Connect Deployer - Build Binaries**, em `.github/workflows/connect-deployer-binaries.yml`. O workflow independente do anexo foi movido para `reference/upstream-tauri-build.yml` e não é executado: ele criava tags/releases próprias, incompatíveis com a governança do Connect|API.
 
-PyInstaller compila em cada sistema nativamente, sem QEMU/cross-compilation.
-Linux usa glibc 2.35; não é um binário para Alpine/musl. Outros sistemas/versões
-precisam de homologação. Não há assinatura Authenticode ou notarização Apple.
+O pipeline vincula a revisão ao projeto, compartilha os mesmos lockfiles entre jobs, compila/testa agentes musl em runners nativos amd64/arm64, verifica a ausência de loader dinâmico e produz os desktops Windows x64, Linux x64, Linux ARM64 e macOS ARM64. Não utiliza QEMU no pipeline integrado. Builds release sem os dois agentes são bloqueados.
 
-## Conteúdo e identidade
+Os pacotes incluem instaladores nativos, `BUILD-INFO.json`, origem do anexo, locks e checksums. O self-check offline executa o desktop real sem inicializar WebView/SSH/deploy, conferindo a identidade e os dois agentes incorporados. Isso não equivale a um deploy real ou teste completo da interface.
 
-Cada artifact `connect-deploy-<sistema>-<arquitetura>` contém um ZIP e seu SHA-256.
-Dentro do ZIP estão `connect-deploy` (ou `.exe`), `BUILD-INFO.json`, inventário de
-hashes, dependências e licenças. A permissão executável é preservada no ZIP.
-Um artifact adicional `connect-deployer-manifest` reúne os hashes dos quatro ZIPs.
+PRs e develop publicam **artifacts**; não criam release estável. Na promoção autorizada, a integração aditiva do workflow canônico anexa os pacotes à **mesma release do Connect|API**, sem recalcular SemVer, criar tag paralela ou sobrescrever assets. A versão do Deployer permanece 2.0.0 e `BUILD-INFO.json` também registra a versão e o commit da aplicação.
 
-A versão canônica da aplicação é lida de `VERSION`. A versão interna do wrapper
-continua 1.0.0 e a do payload continua 1.0.1, conforme o anexo. Não representam
-releases paralelas. Metadados incluem projeto, SHA, canal, plataforma e hash do payload.
-A versão do binário não obriga a instalar a mesma versão no VPS: essa escolha
-continua explicitamente no parâmetro `--version` após o separador `--`.
+## Build local
 
-```powershell
-.\connect-deploy.exe --version
-.\connect-deploy.exe --build-info
-.\connect-deploy.exe --self-check
-```
+Execute os procedimentos em `tools/connect-deployer/BUILD.md` a partir da pasta da ferramenta. Dependências Rust/Node/Python dos scripts de build existem somente no computador/runner que compila; não são pré-requisitos do runtime do implantador. Não rode o build npm/Cargo a partir da raiz da API.
 
-## Usar do Windows para o VPS
+## Limites
 
-Depois de extrair o ZIP Windows obtido em Actions, verifique o hash do ZIP com
-`Get-FileHash` e o arquivo `.sha256` obtidos da mesma execução confiável.
+Não há assinatura Authenticode ou notarização Apple; macOS usa assinatura ad-hoc, que não atesta um editor verificado. Windows depende do WebView2 e Linux desktop das bibliotecas gráficas indicadas pelos pacotes Tauri. Os agentes musl não têm essas dependências de interface.
 
-Exemplo sem aplicar alterações, usando chave já conhecida:
-
-```powershell
-.\connect-deploy.exe ssh `
-  --host SEU_VPS `
-  --user deploy `
-  --key-file "$HOME\.ssh\id_ed25519" `
-  -- `
-  --environment develop `
-  --version develop `
-  --deployment platform-develop `
-  --directory /opt/stacks/argws-connect-platform-develop `
-  --accept-host-agent
-```
-
-Para interagir com os prompts, inclua `--interactive` antes do separador.
-A aprovação para aplicar (`--apply`), aceitar o agente do host ou instalar Dockge
-continua sendo uma escolha explícita. Não colocar senhas/tokens na linha de comando.
-No primeiro acesso, valide a fingerprint por canal confiável antes de autorizar
-`--accept-new-host-key`. Esse modo aceita somente uma chave ainda desconhecida;
-uma mudança posterior deve ser investigada, não ignorada.
-
-O computador local dispensa Python quando executa o binário. O VPS permanece
-Linux com Python 3.10+, Docker/Compose e CloudPanel para a stack que o exige.
-Não instala sistema operacional, Docker ou CloudPanel. O launcher não emite SSL,
-executa SQL/migrations nem cria cron no host; entrega o instalador e usa os serviços
-existentes. Não substitui o fluxo operacional do Dockge.
-
-## Compilar localmente
-
-No checkout Git completo, acesse `tools/connect-deployer` e use os scripts de build
-para seu sistema. Eles criam um virtualenv, instalam dependências, geram metadados,
-executam testes, compilam, fazem smoke test e empacotam. São ferramentas de build,
-não scripts de manutenção dos bancos. Veja o README do implantador para comandos.
-
-## Validação e limites
-
-CI valida o executável congelado fora da árvore de fontes; verifica payload,
-imports e operações criptográficas sem conexão SSH. Os quatro pacotes precisam
-apontar para o mesmo SHA/versão/canal antes de serem aceitos.
-Isso não comprova autenticação com as chaves privadas do operador, compatibilidade
-com todo VPS ou implantação bem-sucedida na instalação real. Nenhuma credencial
-operacional é necessária no GitHub Actions.
-
-Fontes técnicas: documentação oficial do PyInstaller (compilação nativa e
-bibliotecas de subprocessos) e GitHub Actions (runners, workflow_call e eventos
-criados pelo GITHUB_TOKEN). O workflow original do anexo foi substituído apenas
-para integração ao repositório e à release canônica.
+UI/SSH e operações de produção precisam de homologação em um VPS autorizado. Nenhum teste de CI utiliza seus segredos ou implanta nos seus servidores. Os problemas de runtime de SSL/Grafana relatados anteriormente não são tratados por esta substituição isolada do implantador.

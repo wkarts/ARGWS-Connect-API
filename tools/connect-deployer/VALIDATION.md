@@ -1,14 +1,14 @@
-# Validação do implantador integrado
+# Validação — integração Tauri ao Connect|API
 
-A validação é feita no workflow raiz `Connect Deployer - Build Binaries`.
+O relatório original do anexo (que não havia sido compilado) está preservado em
+`reference/VALIDATION-upstream.md`. Ele não comprova os resultados do CI integrado.
 
-- Código anexado preservado como base e referência comparada ao instalador canônico.
-- Testes unitários do launcher, comandos, payload, metadados e contratos de publicação.
-- Compilação real PyInstaller em quatro runners nativos com Python 3.12.
-- Smoke test do executável em diretório externo ao checkout: versão, metadados,
-  integridade do payload, SSH/criptografia e ajuda. No Linux testa a delegação local `--help`.
-- Hashes internos/externos e permissões dos quatro pacotes conferidos antes da publicação.
-- CI não usa VPS, senha SSH, tokens Cloudflare ou credenciais privadas do operador.
+O workflow raiz executa validação estrutural, testes do protocolo/agente Rust,
+compila agentes musl de ambas as arquiteturas, confere ELF e loader, executa
+self-test, compila Vue/TypeScript e os desktops Tauri/instaladores, testa a
+identidade embutida fora do checkout e verifica todos os checksums.
 
-Compilação bem-sucedida não é homologação de uma implantação real via SSH.
-O status da PR/Actions é a evidência de execução, não este documento estático.
+Os resultados concretos de cada execução ficam no GitHub Actions e na PR.
+Não declarar sucesso enquanto houver checks pendentes ou falhos. A anexação
+à release estável exige uma promoção autorizada da aplicação e não é executada
+pelos testes da PR. Não houve uso de segredos ou VPS reais na integração.

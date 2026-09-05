@@ -181,25 +181,46 @@ ARGWS-Connect-Deployer-Tauri-Rust/
 
 O procedimento completo de build local e CI está em [`BUILD.md`](BUILD.md).
 
-# Compilação integrada ao Connect|API
+# Compilação no GitHub Actions
 
-Esta ferramenta está em `tools/connect-deployer` no repositório principal. O workflow ativo
-é `.github/workflows/connect-deployer-binaries.yml` na raiz do repositório.
-O workflow standalone original foi preservado somente para auditoria em
-`reference/upstream-tauri-build.yml`; não crie uma tag `v2.0.0` da aplicação
-para publicar apenas o implantador.
+É o caminho recomendado para gerar todos os artefatos.
 
-PRs e develop geram artifacts; a publicação estável anexa os pacotes à release
-existente do Connect|API. `BUILD-INFO.json` distingue a versão 2.0.0 da ferramenta
-da versão canônica do produto e registra o commit/canal.
+O workflow `.github/workflows/build.yml`:
 
-São compilados dois agentes musl Linux em runners nativos (sem QEMU) e quatro
-desktops: Windows x64, Linux x64, Linux ARM64 e macOS ARM64. Cada desktop contém
-os dois agentes. Os pacotes incluem executável, instaladores específicos,
-metadados e checksums. Nenhum build release sem os dois agentes é distribuído.
+1. compila e testa o agente `linux-amd64` em container Linux `amd64`;
+2. compila e testa o agente `linux-arm64` em container Linux `arm64` via QEMU quando necessário;
+3. gera SHA-256 dos agentes;
+4. baixa os dois agentes nos jobs desktop;
+5. embute os agentes no binário Tauri;
+6. valida frontend e backend Rust;
+7. compila Windows, Linux e macOS;
+8. coleta installers/binários e checksums;
+9. em tags `v*`, publica uma GitHub Release.
 
-Não há Authenticode ou notarização Apple. A assinatura macOS ad-hoc não é
-uma assinatura de editor verificado. Os testes offline não fazem deploy real.
+## Criar uma release
+
+```bash
+git tag v2.0.0
+git push origin v2.0.0
+```
+
+O workflow gera a release automaticamente.
+
+## Artefatos esperados
+
+A nomenclatura final inclui a plataforma, por exemplo:
+
+```text
+ARGWS-Connect-Deployer-windows-x64.exe
+argws-connect-deployer-linux-x64
+ARGWS-Connect-Deployer-linux-x64-*.deb
+ARGWS-Connect-Deployer-linux-x64-*.AppImage
+argws-connect-deployer-macos-arm64
+ARGWS-Connect-Deployer-macos-arm64-*.dmg
+connect-deploy-agent-linux-amd64
+connect-deploy-agent-linux-arm64
+SHA256SUMS.txt
+```
 
 # Compilação local no Windows
 

@@ -1,2 +1,0 @@
--e .
-pyinstaller>=6.11,<7

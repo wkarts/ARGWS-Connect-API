@@ -1,19 +1,24 @@
+param(
+  [switch]$SkipAgents,
+  [switch]$Amd64Only
+)
 $ErrorActionPreference = 'Stop'
-Set-Location (Join-Path $PSScriptRoot '..')
-if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
-    throw 'Python Launcher (py.exe) não encontrado. Instale Python 3.12.'
+$Root = Split-Path -Parent $PSScriptRoot
+Push-Location $Root
+try {
+  if (-not $SkipAgents) {
+    if ($Amd64Only) { & "$PSScriptRoot/build-agents-docker.ps1" -Amd64Only }
+    else { & "$PSScriptRoot/build-agents-docker.ps1" }
+  }
+  if (-not (Test-Path "src-tauri/embedded/agent-linux-amd64")) {
+    throw "Agente Linux amd64 ausente. Execute scripts/build-agents-docker.ps1 ou baixe os agentes do GitHub Actions."
+  }
+  npm install --no-audit --no-fund
+  npm run build
+  cargo check -p argws-connect-deployer-desktop
+  npm run tauri:build
+  node scripts/collect-release.mjs windows-x64
+  Write-Host "Build concluido em dist/release"
+} finally {
+  Pop-Location
 }
-py -3.12 -m venv .venv
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar ambiente de build.' }
-function Invoke-BuildPython {
-    & .\.venv\Scripts\python.exe @args
-    if ($LASTEXITCODE -ne 0) { throw "Build interrompido (exit $LASTEXITCODE)." }
-}
-Invoke-BuildPython -m pip install --upgrade pip
-Invoke-BuildPython -m pip install -r requirements-build.txt
-Invoke-BuildPython scripts/prepare_build.py
-Invoke-BuildPython -m unittest discover -s tests -v
-Invoke-BuildPython -m PyInstaller --clean --noconfirm connect-deploy.spec
-Invoke-BuildPython scripts/smoke_binary.py
-Invoke-BuildPython scripts/package_artifact.py
-Write-Host "Pacote concluído: $PWD\dist\release"
