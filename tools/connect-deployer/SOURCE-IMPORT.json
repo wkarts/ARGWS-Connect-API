@@ -1,42 +1,267 @@
 {
-  "source_archive": "ARGWS-Connect-Deployer.zip",
-  "source_archive_sha256": "9842e70b9790357f266a80609f4be416a52b2709207bbc7f35a2a0b630ec9db1",
-  "imported_into": "tools/connect-deployer",
-  "project_repository": "wkarts/ARGWS-Connect-API",
-  "base_commit": "24d5a9c9e4edeb39f992652591b49c660d8d68f7",
-  "original_file_sha256": {
-    ".gitignore": "4bbc257107d26f20a1fa392148087fa56a11d545940d8fcdf16f73ddeb22cd48",
-    "SECURITY.md": "743fd0fed5440c470e6401c0fc37501cc5119405746b1a86dc83fe4ce0cbc046",
-    "SHA256SUMS.txt": "dc28165d093e03c595c1d5f7d309dbfcf8ba9b97d18a316818c9b6d5e9917513",
-    "MANIFEST.in": "c4690b68adc6cc9d7aef8ec272baf94e4c0f2e504f70bde36830498afdde3470",
-    "connect-deploy.spec": "c551a8fdea6b1008279a547642852383dde50248746c30eb00fa86213837e9ff",
-    "pyproject.toml": "df1b196cc5488c0630f70743a97ae2c769f3bcb5356aa04a55f339b61e103f28",
-    "CHANGELOG.md": "0f7332a72d5e8771e19d661acc6a292d925bc9e67bb4328426aa9e5f17a1d0c1",
-    "requirements-build.txt": "d7c36ddbcf6dfe7e034618a1828bd66c8eb0818b11bedbe487859dadd29e33c3",
-    "README.md": "2ed4396432db9def7ed29a9dc8a84db29f1098a936fb747f18464bcbda247c0a",
-    "VALIDATION.md": "e738488aa32614181513724a970f00dc15bb3acd4af472034132a9fa52cd002b",
-    "connect_deploy_entry.py": "31c3ddf5af92983c312a37cfba2a26dd276ff25a5e9a34d2e8e4ba32b40ccb4d",
-    "scripts/build-windows.bat": "b1e55ef02bba0afac73b754842f8092c87222b7d00a810a587f7a99f12217633",
-    "scripts/build-linux.sh": "e5deca14deaf8cf9c2ec6b54dad799af4d6d39edc11756575a6ae11b4ae712ea",
-    "scripts/package_artifact.py": "f643b960713c8dc3d793fd9b57e553bb4c951f786582b2f1147ca53dd52582d4",
-    "scripts/build-macos.sh": "98235250f0fadcec9f9d63372b0e99a6a053ee4631bd3787b8b7e220701a8062",
-    "scripts/build-windows.ps1": "7f7c2ce4b764bb558cd6b31e2147c491206d6a8525ffff6b22ed7446844db2ab",
-    "tests/test_command.py": "bc5dc0db8a44702d9b4057d9478f09f4181ac26fdfd2f2ecea5d7fa5afcb90f8",
-    "tests/test_payload.py": "e048de6bf71fcffc5b0f965785f1fc26992b97fa581d1400570c49238e1daf66",
-    "reference/install-connect-original.py": "d4dd7ed0bb3e1595c1247f5ae0d42ba80bf8c37025ccf552f8eaf45f89c5db7f",
-    ".github/workflows/build.yml": "7d65a7cb5b5dd98ad36d14edcb016cdafd0f86e0e4b211699262b9c80278a0cc",
-    "src/connect_deployer/ssh_client.py": "a409e2858a10fd6aa247619d463d22488fe9690961e46990d7aa416fa4b94a99",
-    "src/connect_deployer/__main__.py": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
-    "src/connect_deployer/__init__.py": "27e8febb48ada44153ea2add9969a2c50a9831a74d9755fdd53c549a888b1cc2",
-    "src/connect_deployer/resources.py": "5087617c8ba549fd0ec0777a6a54c66de922ac92cdf61ca2bf43eab0a9149f43",
-    "src/connect_deployer/cli.py": "3b33bea81b1fa5af726e80a3a4ea7f022137454d47217798d80803c5fc6128a7",
-    "src/connect_deployer/payload/install-connect.py": "eac0bdfafd79e4237e59378d389c324149f3fb7204a501b885a9c74dd3d01ad6"
-  },
-  "notes": [
-    "User-supplied SSH launcher and payload are the basis, not a replacement implementation.",
-    "Standalone build workflow is replaced by a repository-root reusable workflow.",
-    "Reference installer exactly matches the canonical root installer at base_commit.",
-    "Submitted payload 1.0.1 retains the requested file-based secret inputs; root install-connect.py is not changed.",
-    "Build scripts, packaging, metadata, smoke/regression tests and documentation are integrated with the parent repository."
-  ]
+  "schema_version": 1,
+  "project": "ARGWS Connect API",
+  "repository": "wkarts/ARGWS-Connect-API",
+  "source_archive": "ARGWS-Connect-Deployer-Tauri-Rust-v2.0.0.zip",
+  "source_sha256": "7621c7bd649ee4b1c44763faf87bb28f9cf600aa0a195b60be04e2067df88867",
+  "deployer_version": "2.0.0",
+  "replaces": "Python/Paramiko/PyInstaller launcher in tools/connect-deployer only",
+  "files": {
+    ".editorconfig": {
+      "sha256": "944d40fbb6a9242899655f469c57b1cbdef90d8b4714c68f713a2886157cbda9",
+      "bytes": 248
+    },
+    ".gitattributes": {
+      "sha256": "4b3bafb74351a3d8d0d5aa380da85976f0236b5863f22e5c29306e5c10997491",
+      "bytes": 99
+    },
+    ".github/workflows/build.yml": {
+      "sha256": "3f5583bf6949e9c09ff1bac72a24147489bea9c2b5cd06e38e06a6244b39893c",
+      "bytes": 6794
+    },
+    ".gitignore": {
+      "sha256": "346456318a3db3fc6adcec687f363b51f6bdebc005526f02308e21d76f91992c",
+      "bytes": 166
+    },
+    "ARCHITECTURE.md": {
+      "sha256": "da2a249ca02e54693b7478e1d48bd47dc1b80ce8531abc09e0b97db419d0f304",
+      "bytes": 3135
+    },
+    "BUILD.md": {
+      "sha256": "5107a21a057001a2a6c626ed2ed2fcacd3b08bd0173356b06fbce40fd166775b",
+      "bytes": 1253
+    },
+    "Cargo.toml": {
+      "sha256": "5f7fa69f1c70ef017feeb407a42d5394b6c5f17d7411c5795087c83d18c2ee45",
+      "bytes": 923
+    },
+    "DELIVERY.md": {
+      "sha256": "7e9d372499bfe0d6e237b63c48b8c4781c7b1a538b7b20aa66026b5c02cadee4",
+      "bytes": 902
+    },
+    "MIGRATION_FROM_PYTHON.md": {
+      "sha256": "b0570a0f58f56aa9d37039f8ca59a93f9ba638abbc6037b41986ca60bbc89916",
+      "bytes": 1035
+    },
+    "NOTICE.md": {
+      "sha256": "ae7843d11b0538890d91be00ae4dd2df1edc40ae6bcb581f049d156efca0a4cd",
+      "bytes": 238
+    },
+    "README.md": {
+      "sha256": "6f94d2681460349aa0157d7c9cca81b6e5a947c676e07e02227f7b648bf13c9b",
+      "bytes": 11339
+    },
+    "SECURITY.md": {
+      "sha256": "0e4200015ea04c79050d1bc3afad766248437a5c81f6837e4f76cd348a8c4381",
+      "bytes": 2841
+    },
+    "SOURCE-MANIFEST.sha256": {
+      "sha256": "256415ce7cc43a506d8617721957ff27d210aa6b8606c0c41e6804b8a0fddf66",
+      "bytes": 5685
+    },
+    "VALIDATION.md": {
+      "sha256": "7b1def03266dcc87ac896efbe401e27df3c3aa39c6d0a68288a9a8c0600a1681",
+      "bytes": 3836
+    },
+    "crates/deployer-agent/Cargo.toml": {
+      "sha256": "3ca718b73fa6735dde81a63e2b17b60c528fe41b343f68afd095780fc338acbd",
+      "bytes": 780
+    },
+    "crates/deployer-agent/src/deploy.rs": {
+      "sha256": "6a78e0bce3b5f576f6af1fbdd20019e6c187f51fff23e46764f9db35587be32e",
+      "bytes": 18806
+    },
+    "crates/deployer-agent/src/docker.rs": {
+      "sha256": "cb774306143f5273e50a58a36905b94a09f22cb7d0803913a4c76d857124b95d",
+      "bytes": 19886
+    },
+    "crates/deployer-agent/src/envfile.rs": {
+      "sha256": "ee6f9529a9cb55f716164fbe54fbb757bcf28951e515398c20a86ae98d45e705",
+      "bytes": 9837
+    },
+    "crates/deployer-agent/src/error.rs": {
+      "sha256": "30dc8104c67433387c4a6566c43a03f1230020cc3e851f5e348e0c86741fe574",
+      "bytes": 559
+    },
+    "crates/deployer-agent/src/events.rs": {
+      "sha256": "baf59b7fff9c9598b710913821f14081ca82b366faf8c0489c87d22502b025fe",
+      "bytes": 519
+    },
+    "crates/deployer-agent/src/github.rs": {
+      "sha256": "798aab758a152d15814832f750e6c7a3266d3d2f7c4bf19a734e606a39a123d7",
+      "bytes": 8508
+    },
+    "crates/deployer-agent/src/main.rs": {
+      "sha256": "2835294b83c0b9e4067b5dca1feba7e8bb62ce512beb41035be21766079b2b7c",
+      "bytes": 2130
+    },
+    "crates/deployer-agent/src/storage.rs": {
+      "sha256": "f93ef60cf33afd7ff2bfbdba02a45cb0206558021baa1fddd2929435f538a887",
+      "bytes": 7666
+    },
+    "crates/deployer-protocol/Cargo.toml": {
+      "sha256": "f449ebe0fc7205c24eabdf6c173368e86479ecce6e8a4f0b4c0d8874a283002d",
+      "bytes": 184
+    },
+    "crates/deployer-protocol/src/lib.rs": {
+      "sha256": "94d84ce1a49508af9fe70eaa2b041cc714fd62729ff00ba6d0937a121a8190dc",
+      "bytes": 7629
+    },
+    "index.html": {
+      "sha256": "a789321ac75d1be07845e4f0b9edc2ac404aad3663e0df3e583061381af56840",
+      "bytes": 363
+    },
+    "package.json": {
+      "sha256": "d4ac8552693c2d8aaef809a5a597760c4cfa5143c712285853b8df866f0c99eb",
+      "bytes": 670
+    },
+    "reference/install-connect-python-original.py": {
+      "sha256": "d4dd7ed0bb3e1595c1247f5ae0d42ba80bf8c37025ccf552f8eaf45f89c5db7f",
+      "bytes": 36312
+    },
+    "rust-toolchain.toml": {
+      "sha256": "c33d1f0b1b8fda448bea32d7dc867aa64947c87169fd9de7122ffccad1dd80f9",
+      "bytes": 86
+    },
+    "scripts/bootstrap-windows.ps1": {
+      "sha256": "ddcb08fa5ceed44453504f9401793d4ee74a225df140f7b89b1f991aa39fee7e",
+      "bytes": 1061
+    },
+    "scripts/build-agents-docker.ps1": {
+      "sha256": "d7ad1b15947e424ff4978cafc66e9563bee5894291ec9574bcad1b83a13a53eb",
+      "bytes": 1511
+    },
+    "scripts/build-agents-docker.sh": {
+      "sha256": "a4fde5618c62a05c4995f26681836e6ae38911d8ca40cfa320fe4637f952fe5f",
+      "bytes": 1097
+    },
+    "scripts/build-linux.sh": {
+      "sha256": "0bc00bbf4562037caf630aa98f61734e2e3e958ad6e61201e03d06ce4e8c4ad3",
+      "bytes": 329
+    },
+    "scripts/build-macos.sh": {
+      "sha256": "e80c2e0b2fbbcac8c7761251f2b35e2aff1f920a55e0c195d24a8667f3d7e8a8",
+      "bytes": 329
+    },
+    "scripts/build-windows.ps1": {
+      "sha256": "9223b79eb5832ebae2ff904258a67cfb893c163d040393dc370154b512433984",
+      "bytes": 746
+    },
+    "scripts/collect-release.mjs": {
+      "sha256": "6e5bcbe39c91bec08d32be5e6dde1621bdeba99a3e3c2b71ecb1e7c7810ab89f",
+      "bytes": 1661
+    },
+    "scripts/validate-project.py": {
+      "sha256": "a03f47c2e7b9def2e1f0d7f556c8e96733b0c76a0e7ca0468447056a1a35f6a5",
+      "bytes": 4257
+    },
+    "src/App.vue": {
+      "sha256": "ec53e48ccb9a92f501992cc838ea2a771d9b3dbaba41e1f88bc75e7a133a7477",
+      "bytes": 18746
+    },
+    "src/main.ts": {
+      "sha256": "5d2f4c0f5d289c2624f3569aea0b5a48e48cb0d22ef5f57a5ba47d64a0ec7969",
+      "bytes": 115
+    },
+    "src/style.css": {
+      "sha256": "b9f1fdf521309a02db9fa2623963f70e192012b9135270bee02478a226b90d92",
+      "bytes": 7090
+    },
+    "src/types/deployer.ts": {
+      "sha256": "12ae43569bd8dbbccae9f12ea515e8442973559205bfc9d79c13e8825a5a0c79",
+      "bytes": 1981
+    },
+    "src-tauri/Cargo.toml": {
+      "sha256": "368596668ada421774bf4e5836ba42594cf1aec5e96f6720d82999f172eec973",
+      "bytes": 761
+    },
+    "src-tauri/build.rs": {
+      "sha256": "3c2f01d4421e6ffbee767ab48986cd863c40b3a6b70ee5e9bd5324217f2b7623",
+      "bytes": 1170
+    },
+    "src-tauri/capabilities/default.json": {
+      "sha256": "f14f1d8574f561d23234e15bf32f0c75a5ef76c88b071ba40407a0805acfaffa",
+      "bytes": 311
+    },
+    "src-tauri/embedded/.gitkeep": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "src-tauri/icons/128x128.png": {
+      "sha256": "f56cdf3041bcebdd8daf6fbd910762a56314ebcf24b8a20c3f47a988d32ab957",
+      "bytes": 7608
+    },
+    "src-tauri/icons/128x128@2x.png": {
+      "sha256": "ad920646ee2948e04a1009d16ff8b15b2ad796d0a4c6e109adf7ada0896bfc31",
+      "bytes": 17277
+    },
+    "src-tauri/icons/32x32.png": {
+      "sha256": "7dacc600854fff1f8f3f4652e8a77c054752df097749afde1d24fecd55cae339",
+      "bytes": 1686
+    },
+    "src-tauri/icons/icon.icns": {
+      "sha256": "03d421918057c9eb308a64de2c62223a7644b390c5be6ff78a8c86ef7fbaf059",
+      "bytes": 97217
+    },
+    "src-tauri/icons/icon.ico": {
+      "sha256": "0b2d7d42862ab1d1aced39b05f5e16382845b9dd87096775124ce5d4a75440d1",
+      "bytes": 34818
+    },
+    "src-tauri/icons/icon.png": {
+      "sha256": "d8de1d5e8eea4f2935a2ddbfe085a68b62cc20f827fe0744e1e636d13bba2f65",
+      "bytes": 12722
+    },
+    "src-tauri/src/agents.rs": {
+      "sha256": "dc3ac10d0fe915a36bf56a3776045031240a797aa195e44ecbccb963064e168f",
+      "bytes": 1697
+    },
+    "src-tauri/src/commands.rs": {
+      "sha256": "17036f87e3fcd66338e9bce4e8a1e6396ea79b0d899c5fd1c556a01fc37e72d7",
+      "bytes": 11486
+    },
+    "src-tauri/src/error.rs": {
+      "sha256": "f1d26252939a36306ba5561ee41912a8e9717215254e01c1c9d56f7f82bf290d",
+      "bytes": 465
+    },
+    "src-tauri/src/lib.rs": {
+      "sha256": "caf0f8eda5ded765dcff2bfa56f1e00cbae23ff89f629d84ca4573c3f90dd73e",
+      "bytes": 476
+    },
+    "src-tauri/src/main.rs": {
+      "sha256": "b6f96c6f9c475e0b1127ddc4442d0e29ba2c1448552a1ae4c641aac368184014",
+      "bytes": 61
+    },
+    "src-tauri/src/model.rs": {
+      "sha256": "f9ee2933ba974252b54cb17e80c26a2d6d0b8a417d39bfd476ab8853be789e5b",
+      "bytes": 2195
+    },
+    "src-tauri/src/ssh.rs": {
+      "sha256": "391352085ae38433b99968b3a3860cd0a1b654f79e254e824323a23db0e5b6fd",
+      "bytes": 10120
+    },
+    "src-tauri/tauri.conf.json": {
+      "sha256": "7010d49974b40886b9d6894adc1d6854aedce7a78133097688cbe63c4fc73e7e",
+      "bytes": 1308
+    },
+    "src-tauri/tauri.linux.conf.json": {
+      "sha256": "83ab8ef10bf3c44e4dc426cdc38289ec0d7964a26d9b6e792f0e89ff405b23dd",
+      "bytes": 57
+    },
+    "src-tauri/tauri.macos.conf.json": {
+      "sha256": "ebd95d2d61da54ed26ad4ed37d4a2bb6f73b437352eb5c58aed3b083b27a9aa3",
+      "bytes": 45
+    },
+    "src-tauri/tauri.windows.conf.json": {
+      "sha256": "701ab66efcbe6c3305cbfa3339cea300e6d9d45fcafc7ac79639fed9a4e10670",
+      "bytes": 46
+    },
+    "tsconfig.json": {
+      "sha256": "57ea680079855949286a394844a7bbbe0832d307783e8e25e79eb72002fccc37",
+      "bytes": 437
+    },
+    "vite.config.ts": {
+      "sha256": "986370d8fbc35c1e2061d766d61464f7989182ab63cee8c23d6892e41f77cad1",
+      "bytes": 263
+    }
+  }
 }

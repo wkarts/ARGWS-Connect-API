@@ -1,31 +1,93 @@
 # Segurança
 
-O `connect-deploy` foi desenhado para não transportar segredos em argumentos da linha de comando.
+## Threat model resumido
 
-- Chaves SSH conhecidas são validadas por padrão.
-- `--accept-new-host-key` aceita apenas uma chave ainda desconhecida; uma alteração posterior continua sendo bloqueada.
-- Senha SSH, token GitHub e token GHCR são solicitados com entrada oculta.
-- `.env` e tokens temporários são enviados com permissão `0600` para um diretório remoto `0700` em `/tmp`.
-- Temporários são removidos ao final da sessão SSH.
-- `sudo` usa apenas `sudo -n`; o launcher não armazena nem injeta senha de sudo.
-- O payload continua protegendo diretórios, volumes, identidade de dados, imagens e contexto Docker antes de aplicar a stack.
+Este Deployer possui capacidade administrativa sobre VPS. Uma credencial SSH comprometida ou autorização indevida do Host Agent/Docker socket pode equivaler a controle do servidor.
 
-## Recomendações
+Por isso o projeto adota comportamento **fail-closed** nas decisões de maior risco.
 
-1. Prefira autenticação SSH por chave Ed25519.
-2. Use usuário de deploy dedicado.
-3. Conceda somente as permissões efetivamente necessárias no VPS.
-4. Não use `--accept-new-host-key` em automações permanentes; faça o primeiro trust de forma controlada.
-5. Para GitHub privado, use token de leitura de repositório e `read:packages` separado para GHCR quando possível.
-6. Assine os executáveis em produção quando houver certificado de code signing disponível.
-7. Verifique o arquivo `.sha256` antes de distribuir o binário.
+## SSH Host Key
 
-## Distribuição no repositório Connect|API
+- `known_hosts` é validado antes do deploy;
+- `Mismatch` bloqueia imediatamente;
+- host não conhecido bloqueia por padrão;
+- TOFU só ocorre após opção explícita `accept_new_host_key`;
+- fingerprint SHA-256 é apresentada ao operador.
 
-Builds de PR só recebem leitura do repositório, sem credenciais operacionais.
-Apenas o job final da release canônica recebe `contents: write`, condicionado à
-branch main e a uma release estável existente no mesmo commit validado.
-Não há `pull_request_target`, `sudo` no build ou acesso a VPS em CI.
-Os pacotes incluem avisos/licenças de terceiros e a revisão da fonte.
-Não incluem assinatura de publicador: verifique a origem e o checksum confiável.
-O checksum embutido do payload é uma verificação de integridade, não uma assinatura digital.
+## Credenciais
+
+O projeto não grava senha SSH, passphrase, GitHub PAT, GHCR token ou Cloudflare token em logs.
+
+As credenciais de deployment seguem pelo payload JSON em stdin no canal SSH. Portanto não ficam visíveis em `ps` como argumentos.
+
+O `.env` selecionado no desktop não é enviado ao frontend como texto; ele é lido pelo comando Rust a partir do caminho escolhido.
+
+## GHCR
+
+O login usa `--password-stdin`.
+
+O agente cria um `DOCKER_CONFIG` temporário:
+
+- diretório `0700`;
+- `config.json` `0600`;
+- remove `credsStore` da cópia;
+- remove apenas helper de `ghcr.io` da cópia;
+- nunca envia o token temporário a um credential helper persistente;
+- o diretório é destruído no drop do `TempDir`.
+
+## Remote Agent
+
+- caminho temporário contém UUID gerado localmente;
+- diretório remoto `0700`;
+- agente remoto `0700`;
+- bytes do agente são relidos via SFTP;
+- SHA-256 local deve coincidir antes da primeira execução;
+- agente máximo: 64 MB na verificação;
+- temporários são removidos por SFTP ao final.
+
+## Sudo
+
+O Deployer nunca solicita senha de sudo.
+
+Se `sudo` estiver ativo:
+
+```text
+sudo -n true
+```
+
+precisa funcionar antes da implantação.
+
+Evite `NOPASSWD: ALL` quando puder fornecer uma política mais restrita ao usuário de implantação.
+
+## Docker socket
+
+Docker socket é root-equivalent na prática. Por isso a instalação do Dockge exige autorização separada `accept_docker_socket`.
+
+## CloudPanel Agent
+
+Containers privilegiados são recusados, a menos que `accept_host_agent` tenha sido explicitamente marcado.
+
+## Saída de processos
+
+Falhas de Docker não imprimem stdout/stderr crus porque o Compose pode interpolar segredos em mensagens. O agente retorna erro sanitizado e código de saída.
+
+## Timeouts
+
+- comandos normais Docker: 60 s;
+- inspeção de manifesto: 90 s;
+- pull/up: 1800 s;
+- readiness: configurável de 0 a 3600 s.
+
+Ao atingir timeout de subprocesso, o agente encerra o filho e não expõe sua saída.
+
+## Escopo deliberadamente não implementado
+
+O Deployer não tenta:
+
+- instalar Docker;
+- instalar CloudPanel;
+- alterar firewall/SSH do host;
+- executar migrations SQL diretamente;
+- remover volumes;
+- realizar rollback destrutivo de banco;
+- aceitar automaticamente uma chave SSH modificada.

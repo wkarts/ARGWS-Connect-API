@@ -1,0 +1,217 @@
+name: Build ARGWS Connect Deployer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connect-deployer-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+
+jobs:
+  validate-source:
+    name: Validate source tree
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python structural validation
+        run: python3 scripts/validate-project.py
+      - name: Verify Python reference is unchanged
+        run: |
+          test -f reference/install-connect-python-original.py
+          sha256sum reference/install-connect-python-original.py
+
+  agent:
+    name: Agent Linux ${{ matrix.arch }}
+    needs: validate-source
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            platform: linux/arm64
+            target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable QEMU for multi-architecture agent build
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build and test static agent inside target architecture container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --platform '${{ matrix.platform }}' \
+            -v "$PWD:/work" -w /work \
+            rust:1.90-bookworm \
+            bash -lc '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends musl-tools ca-certificates pkg-config
+              rustup target add "${{ matrix.target }}"
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+              export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+              export CC_x86_64_unknown_linux_musl=musl-gcc
+              export CC_aarch64_unknown_linux_musl=musl-gcc
+              cargo test -p deployer-protocol
+              cargo test -p connect-deploy-agent
+              cargo check -p connect-deploy-agent
+              cargo build -p connect-deploy-agent --release --target "${{ matrix.target }}"
+            '
+
+      - name: Prepare agent artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp "target/${{ matrix.target }}/release/connect-deploy-agent" \
+             "out/connect-deploy-agent-linux-${{ matrix.arch }}"
+          chmod +x "out/connect-deploy-agent-linux-${{ matrix.arch }}"
+          sha256sum "out/connect-deploy-agent-linux-${{ matrix.arch }}" \
+            > "out/connect-deploy-agent-linux-${{ matrix.arch }}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-linux-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    name: Desktop ${{ matrix.name }}
+    needs: [validate-source, agent]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            runner: windows-2025
+            bundle_config: src-tauri/tauri.windows.conf.json
+          - name: linux-x64
+            runner: ubuntu-24.04
+            bundle_config: src-tauri/tauri.linux.conf.json
+          - name: macos-arm64
+            runner: macos-15
+            bundle_config: src-tauri/tauri.macos.conf.json
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download amd64 agent
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-linux-amd64
+          path: .agents/amd64
+
+      - name: Download arm64 agent
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-linux-arm64
+          path: .agents/arm64
+
+      - name: Embed agents
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src-tauri/embedded
+          cp .agents/amd64/connect-deploy-agent-linux-amd64 src-tauri/embedded/agent-linux-amd64
+          cp .agents/arm64/connect-deploy-agent-linux-arm64 src-tauri/embedded/agent-linux-arm64
+          test -s src-tauri/embedded/agent-linux-amd64
+          test -s src-tauri/embedded/agent-linux-arm64
+
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            build-essential \
+            pkg-config
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: '1.90.0'
+          cache: true
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate frontend
+        run: npm run build
+
+      - name: Validate desktop Rust
+        run: cargo check -p argws-connect-deployer-desktop
+
+      - name: Build Tauri bundle
+        run: npm run tauri:build -- --config "${{ matrix.bundle_config }}"
+
+      - name: Collect release assets
+        run: node scripts/collect-release.mjs "${{ matrix.name }}"
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: desktop
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: desktop-*
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: agent-linux-*
+          merge-multiple: true
+      - name: Consolidate checksums
+        run: |
+          set -euo pipefail
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name '*.sha256' ! -name 'SHA256SUMS.txt' -print0 \
+            | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "ARGWS Connect Deployer ${GITHUB_REF_NAME}" \
+            --generate-notes

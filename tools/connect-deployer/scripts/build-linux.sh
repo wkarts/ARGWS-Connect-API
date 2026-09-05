@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-build.txt
-python scripts/prepare_build.py
-python -m unittest discover -s tests -v
-python -m PyInstaller --clean --noconfirm connect-deploy.spec
-python scripts/smoke_binary.py
-python scripts/package_artifact.py
-printf '\nPacote concluído: %s/dist/release\n' "$PWD"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+if [[ "${1:-}" != "--skip-agents" ]]; then
+  ./scripts/build-agents-docker.sh
+fi
+npm install --no-audit --no-fund
+npm run build
+cargo check -p argws-connect-deployer-desktop
+npm run tauri:build
+node scripts/collect-release.mjs linux-local

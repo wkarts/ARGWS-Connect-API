@@ -170,10 +170,11 @@ Cada merge bem-sucedido em `main` executa validação, calcula a próxima versã
 
 Consulte [`RELEASE-AUTOMATION.md`](RELEASE-AUTOMATION.md) para o fluxo completo.
 
-## Implantador local e SSH
+## Implantador desktop Tauri/Rust
 
-O **Connect Deployer** é a ferramenta opcional em `tools/connect-deployer`, com
-binários para Windows, Linux e macOS gerados no workflow
-**Connect Deployer - Build Binaries**. PRs disponibilizam artefatos de teste; o
-fluxo estável anexa os executáveis à própria release do Connect|API.
+O **Connect Deployer 2.0.0** em `tools/connect-deployer` possui interface gráfica
+Tauri + Vue e agentes Rust estáticos para VPS Linux amd64/arm64, sem Python no
+computador local ou no servidor. O workflow **Connect Deployer - Build Binaries**
+gera os executáveis e instaladores; a distribuição estável pertence à própria
+release do Connect|API. O instalador Python da raiz continua independente.
 Consulte [binários do implantador](docs/guides/connect-deployer-binaries.md).

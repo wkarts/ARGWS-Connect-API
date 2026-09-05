@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "project": "ARGWS Connect API",
+  "repository": "wkarts/ARGWS-Connect-API",
+  "deployer_version": "2.0.0",
+  "channel": "source",
+  "project_version": null,
+  "source_sha": null,
+  "agents": {}
+}

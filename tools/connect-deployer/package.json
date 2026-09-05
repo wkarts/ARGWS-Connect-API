@@ -1,0 +1,30 @@
+{
+  "name": "argws-connect-deployer-ui",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 1420",
+    "build": "vue-tsc --noEmit && vite build",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.3",
+    "vue": "3.5.42"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@vitejs/plugin-vue": "6.0.8",
+    "typescript": "5.8.3",
+    "vite": "7.0.0",
+    "vue-tsc": "3.3.11"
+  },
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22 <25",
+    "npm": ">=10"
+  }
+}

@@ -87,27 +87,141 @@ jobs:
                   'develop' if os.environ['GITHUB_REF'] == 'refs/heads/develop' else 'manual')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'sha={sha}\nversion={version}\nchannel={channel}\n')
+      - name: Archive exact source used by the binary jobs
+        run: |
+          mkdir -p source-export
+          git archive --format=zip --prefix=ARGWS-Connect-API/ --output=source-export/ARGWS-Connect-API-source.zip HEAD
+          git rev-parse HEAD > source-export/SOURCE-COMMIT.txt
+          git rev-parse HEAD^{tree} > source-export/SOURCE-TREE.txt
+          cd source-export
+          sha256sum ARGWS-Connect-API-source.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-deployer-source
+          path: source-export/*
+          if-no-files-found: error
+          retention-days: 30
+
+  resolve:
+    name: Resolve shared Rust and npm locks
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/connect-deployer
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: '1.90.0'
+          rustflags: ''
+          cache: false
+      - name: Resolve once, never independently on each platform
+        run: |
+          python3 scripts/validate-project.py
+          test -f Cargo.lock && test -f package-lock.json
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          npm ci --ignore-scripts --no-audit --no-fund
+          git diff --exit-code -- Cargo.lock package-lock.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-tauri-source-locks
+          path: |
+            tools/connect-deployer/Cargo.lock
+            tools/connect-deployer/package-lock.json
+          if-no-files-found: error
+          retention-days: 30
+
+  agents:
+    name: Static Linux agent / ${{ matrix.arch }}
+    needs: [plan, resolve]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - arch: arm64
+            target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: tools/connect-deployer
+    env:
+      CONNECT_DEPLOYER_EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
+      AGENT_ARCH: ${{ matrix.arch }}
+      AGENT_TARGET: ${{ matrix.target }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: connect-tauri-source-locks
+          path: tools/connect-deployer
+      - name: Native musl toolchain (no QEMU)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools pkg-config ca-certificates
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: '1.90.0'
+          rustflags: ''
+          target: ${{ matrix.target }}
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/connect-deployer -> target
+          key: agent-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
+      - name: Test and compile the static agent
+        run: |
+          cargo test --locked -p deployer-protocol -p connect-deploy-agent
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+          export CC_x86_64_unknown_linux_musl=musl-gcc
+          export CC_aarch64_unknown_linux_musl=musl-gcc
+          cargo build --locked --release -p connect-deploy-agent --target "$AGENT_TARGET"
+          python3 scripts/agent-artifact.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-deploy-agent-${{ matrix.arch }}
+          path: tools/connect-deployer/dist/agents/*
+          if-no-files-found: error
+          retention-days: 30
 
   build:
-    name: Native binary / ${{ matrix.target }}
-    needs: plan
-    timeout-minutes: 25
+    name: Tauri desktop / ${{ matrix.target }}
+    needs: [plan, resolve, agents]
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: windows-2022
-            target: windows-x86_64
-            python_arch: x64
-          - runner: ubuntu-22.04
-            target: linux-x86_64
-            python_arch: x64
-          - runner: ubuntu-22.04-arm
+            target: windows-x64
+            config: src-tauri/tauri.windows.conf.json
+          - runner: ubuntu-24.04
+            target: linux-x64
+            config: src-tauri/tauri.linux.conf.json
+          - runner: ubuntu-24.04-arm
             target: linux-arm64
-            python_arch: arm64
+            config: src-tauri/tauri.linux.conf.json
           - runner: macos-14
             target: macos-arm64
-            python_arch: arm64
+            config: src-tauri/tauri.macos.conf.json
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -118,49 +232,86 @@ jobs:
       CONNECT_DEPLOYER_CHANNEL: ${{ needs.plan.outputs.channel }}
       CONNECT_DEPLOYER_RELEASE_TAG: ${{ inputs.release_tag }}
       CONNECT_DEPLOYER_TARGET: ${{ matrix.target }}
+      CARGO_TERM_COLOR: always
       PYTHONUTF8: '1'
     steps:
-      - name: Preserve source bytes across native checkouts
+      - name: Preserve imported source bytes
         working-directory: ${{ github.workspace }}
         run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: connect-tauri-source-locks
+          path: tools/connect-deployer
+      - uses: actions/download-artifact@v5
+        with:
+          name: connect-deploy-agent-amd64
+          path: .agents/amd64
+      - uses: actions/download-artifact@v5
+        with:
+          name: connect-deploy-agent-arm64
+          path: .agents/arm64
+      - name: Linux WebView and bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev build-essential pkg-config xdg-utils
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/connect-deployer/package-lock.json
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-          architecture: ${{ matrix.python_arch }}
-          cache: pip
-          cache-dependency-path: |
-            tools/connect-deployer/requirements-build.txt
-            tools/connect-deployer/pyproject.toml
-      - name: Install isolated launcher build dependencies
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: '1.90.0'
+          rustflags: ''
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/connect-deployer -> target
+          key: desktop-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
+      - name: Verify source and embed BOTH static agents
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-build.txt
-      - name: Bind metadata and test submitted launcher
+          python scripts/prepare-ci.py
+          npm ci --no-audit --no-fund
+      - name: Select and validate native Windows OpenSSL toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/prepare-windows-toolchain.ps1
+      - name: Build graphical Tauri application and installers
+        if: runner.os != 'Windows'
+        run: npm run tauri:build -- --config "${{ matrix.config }}" -- --locked
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+      - name: Build graphical Windows application and NSIS installer
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          python scripts/prepare_build.py
-          python -m compileall -q src scripts tests
-          python -m unittest discover -s tests -v
-      - name: Compile one-file executable with embedded SSH payload
-        run: python -m PyInstaller --clean --noconfirm connect-deploy.spec
-      - name: Exercise frozen executable outside source tree
-        run: python scripts/smoke_binary.py
-      - name: Package binary, licenses, metadata and SHA-256
-        run: python scripts/package_artifact.py
+          $ErrorActionPreference = 'Stop'
+          npm.cmd run tauri:build -- --config "${{ matrix.config }}" -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Exercise native binary without GUI, SSH or deploy
+        run: python scripts/smoke-tauri.py
+      - name: Package GUI installers and identity
+        run: python scripts/package-tauri.py
       - uses: actions/upload-artifact@v4
         with:
-          name: connect-deploy-${{ matrix.target }}
+          name: connect-deploy-desktop-${{ matrix.target }}
           path: tools/connect-deployer/dist/release/*
           if-no-files-found: error
           retention-days: 30
 
   verify:
-    name: Verify all four downloadable packages
-    needs: [plan, build]
-    runs-on: ubuntu-22.04
+    name: Verify four GUI packages and both static agents
+    needs: [plan, agents, build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
@@ -172,12 +323,12 @@ jobs:
           pattern: connect-deploy-*
           path: deployer-assets
           merge-multiple: true
-      - name: Validate checksums, platforms and embedded revision
+      - name: Validate checksums, architectures and revision
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
           EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
           EXPECTED_CHANNEL: ${{ needs.plan.outputs.channel }}
-        run: python tools/connect-deployer/scripts/verify_assets.py deployer-assets
+        run: python3 tools/connect-deployer/scripts/verify_assets.py deployer-assets
       - uses: actions/upload-artifact@v4
         with:
           name: connect-deployer-manifest
@@ -186,10 +337,10 @@ jobs:
           retention-days: 30
 
   attach-to-application-release:
-    name: Attach binaries to existing Connect API release
-    needs: [plan, build, verify]
+    name: Attach Tauri binaries to existing Connect API release
+    needs: [plan, agents, build, verify]
     if: inputs.release_tag != '' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -208,8 +359,8 @@ jobs:
           EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
           EXPECTED_VERSION: ${{ needs.plan.outputs.version }}
           EXPECTED_CHANNEL: stable
-        run: python tools/connect-deployer/scripts/verify_assets.py deployer-assets
-      - name: Upload without creating a release or overwriting existing assets
+        run: python3 tools/connect-deployer/scripts/verify_assets.py deployer-assets
+      - name: Upload without creating release or overwriting assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}

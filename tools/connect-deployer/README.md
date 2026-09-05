@@ -1,179 +1,51 @@
-# ARGWS Connect|API Deployer
+# ARGWS Connect|API Deployer — Tauri/Rust 2.0.0
 
-Implantador opcional do repositório `wkarts/ARGWS-Connect-API`, integrado em
-`tools/connect-deployer` a partir do pacote fornecido por Wallace.
-O executável `connect-deploy` / `connect-deploy.exe` usa o cliente SSH Paramiko e o
-payload modificado do anexo. Não refatora o Engine, a Platform, PgBouncer, ACME,
-CloudPanel, Compose, migrations ou o `install-connect.py` da raiz.
+Implantador gráfico do **Connect|API**, integrado ao repositório principal em `tools/connect-deployer`. Substitui o launcher Python/Paramiko/PyInstaller por **Tauri 2, Rust e Vue 3/TypeScript**, usando o projeto fornecido por Wallace.
 
-## Arquitetura preservada
+## Funcionamento
 
 ```text
-Windows / Linux / macOS
-  connect-deploy(.exe)
-        |
-        | SSH / Paramiko / validação known_hosts
-        | SFTP para diretório temporário 0700
-        v
-VPS Linux
-  install-connect.py embutido (payload 1.0.1)
-  env.input / tokens opcionais (arquivos 0600)
-        |
-        v
-  Python 3.10+ e Docker Compose locais do VPS
-        |
-        +-- Connect|API Platform / Engine
-        +-- PgBouncer
-        +-- ACME / CloudPanel Agent
-        +-- Dockge opcional
+Desktop Tauri / Vue
+    -> Core Rust SSH/SFTP
+    -> Agente Rust estático Linux AMD64 ou ARM64
+    -> GitHub / GHCR / Docker Compose
+    -> Serviços do Connect|API
 ```
 
-O computador que executa o binário dispensa Python instalado. O VPS de destino
-continua precisando de Python 3.10+, Docker/Compose e CloudPanel para a stack que
-exige `clpctl`. O launcher não instala o sistema operacional, Docker ou CloudPanel.
-SSL, migrations, bootstrap e backups continuam nos serviços. O modo local executa
-esse mesmo payload no Linux; Windows e macOS usam o modo SSH.
+Cada desktop contém os dois agentes Linux. A arquitetura do VPS é detectada por SSH; o agente correspondente é transferido para um diretório temporário privado, relido por SFTP para verificar SHA-256 e validado por self-test antes da operação. A solicitação segue por stdin, não em argumentos remotos. O temporário é removido ao finalizar, com aviso em caso de falha de limpeza.
 
-## Binários no GitHub
+**O computador do operador e o VPS não precisam de Python para este implantador.** O VPS também não requer Node.js, Rust/Cargo ou Go. Linux AMD64/ARM64, SSH/SFTP, Docker Engine e Compose v2 continuam obrigatórios. Os deployments completos da Platform exigem CloudPanel/clpctl conforme o contrato. O Deployer não instala pacotes do sistema operacional.
 
-Workflow na raiz: **Connect Deployer - Build Binaries**
-(`.github/workflows/connect-deployer-binaries.yml`).
+## Interface e operação
 
-| Evento | Distribuição |
-|---|---|
-| PR para develop/main com alteração pertinente | Quatro pacotes em Actions > execução > Artifacts |
-| Push pertinente em develop | Artefatos de desenvolvimento identificados pelo SHA |
-| Execução manual | Artefatos da branch selecionada, sem release |
-| Release estável do Connect\|API | Pacotes anexados à mesma release da aplicação |
+A interface recebida foi preservada. Ela permite informar SSH (host, porta, usuário, senha, chave ou SSH Agent), testar conexão, conferir fingerprint/known_hosts, consultar o pré-flight, escolher ambiente, versão, deployment e diretório, fornecer parâmetros de Platform/ACME/Cloudflare e credenciais de GitHub/GHCR privados, autorizar o agente de host e a instalação opcional do Dockge.
 
-A matriz compila nativamente Windows x86_64, Linux x86_64, Linux ARM64 e macOS
-ARM64. O workflow standalone do anexo não é instalado: não há tag/release paralela.
-A chamada reutilizável é feita pelo workflow canônico após a release existir;
-ela não recalcula SemVer, não modifica as notas e não sobrescreve assets.
-Uma PR nunca publica release. Nenhum executável compilado é versionado no Git.
+**Plan** valida e apresenta o plano, sem gravar a stack ou subir containers. **Prepare** grava a configuração. **Apply** também inicia a stack e acompanha readiness/health após baixar as imagens. Revise o plano e o recibo; não trate serviços pendentes como implantação saudável.
 
-O botão manual depende de o workflow existir na branch padrão do repositório.
-Enquanto a integração estiver somente na PR, utilize os artefatos automáticos.
+Migrations, bootstrap, provisionamento, SSL e backups continuam nos serviços. O `install-connect.py` canônico da raiz permanece disponível como alternativa independente: o desktop Rust não o executa nem o incorpora. O exemplar em `reference/install-connect-python-original.py` é material de auditoria.
 
-## Conteúdo dos pacotes
+## Segurança e preservação de dados
 
-```text
-connect-deploy-<VERSION>-<canal>-<sha12>-<sistema>-<arquitetura>.zip
-connect-deploy-<VERSION>-<canal>-<sha12>-<sistema>-<arquitetura>.zip.sha256
-```
+Chave SSH conhecida e diferente bloqueia a conexão. Host novo exige aprovação explícita após conferência da fingerprint por canal confiável. Sudo usa somente `sudo -n`: a ferramenta não solicita nem armazena senha de sudo.
 
-O ZIP inclui executável, `BUILD-INFO.json`, `SHA256SUMS.txt`, inventário de
-bibliotecas, licenças e documentação. Um artifact `connect-deployer-manifest`
-consolida os hashes dos quatro pacotes. Permissões executáveis são preservadas.
+Os tokens passam pela memória da interface e do Rust, não são gravados em preferências ou argumentos remotos. Um `.env` local é lido pelo Rust e encaminhado via stdin; a interface recebe apenas o caminho. O login GHCR usa configuração temporária, sem alterar helpers persistentes. Isso não configura autenticação permanente no Dockge.
 
-A identidade utiliza `VERSION` do Connect|API e o SHA exato. As versões internas
-1.0.0 do launcher e 1.0.1 do payload são preservadas do anexo; não são releases
-concorrentes. A versão a implantar no VPS é escolhida separadamente depois de `--`.
+O agente valida fontes por commit e hashes Git, confere manifests/arquitetura, recusa build local e Docker remoto no Apply, protege nomes/volumes/portas e não substitui `.env` existente por um arquivo local. Produção não aceita `develop` como fallback. Alterações destrutivas são bloqueadas. Backup/journal do instalador é de **configuração**, não dos bancos ou armazenamento.
 
-```powershell
-.\connect-deploy.exe --version
-.\connect-deploy.exe --build-info
-.\connect-deploy.exe --self-check
-```
+O CloudPanel Agent e a eventual instalação do Dockge exigem consentimento para os privilégios correspondentes. Consulte `SECURITY.md` e o `OPERATIONS-CONTRACT.md` da aplicação antes de operar.
 
-`--self-check` verifica o payload e exercita SSH/criptografia sem rede ou deploy.
+## Compilação e distribuição
 
-## Usar por SSH
+Workflow ativo: **Connect Deployer - Build Binaries**, em `.github/workflows/connect-deployer-binaries.yml` na raiz do Connect|API. Compila agentes musl nativos AMD64/ARM64 e desktops Windows x64, Linux x64/ARM64 e macOS ARM64. Releases do desktop sem os dois agentes são recusados.
 
-Validação de uma stack existente, sem aplicar alterações:
+Os artifacts incluem executável, instaladores, `BUILD-INFO.json`, locks de dependências, origem e checksums. A versão 2.0.0 da ferramenta é distinguida da versão canônica da aplicação. PR/develop geram artifacts; a promoção estável autorizada anexa os pacotes à **mesma release existente do Connect|API**. **Não crie uma tag `v2.0.0` da aplicação para publicar somente o implantador.**
 
-```powershell
-.\connect-deploy.exe ssh `
-  --host SEU_VPS `
-  --user deploy `
-  --key-file "$HOME\.ssh\id_ed25519" `
-  -- `
-  --environment develop `
-  --version develop `
-  --deployment platform-develop `
-  --directory /opt/stacks/argws-connect-platform-develop `
-  --accept-host-agent
-```
+O workflow standalone e a documentação recebida permanecem em `reference/` como histórico, não como procedimento ativo. Consulte `BUILD.md` para compilação local e `DELIVERY.md` para distribuição integrada.
 
-Antes de `--` ficam as opções do launcher; depois, as do instalador.
-Sem `--prepare` ou `--apply`, o payload somente valida o plano.
-`--accept-host-agent` reconhece explicitamente o acesso administrativo do agente
-CloudPanel mesmo quando o plano ainda não será aplicado.
+## Validação e limites
 
-Para instalação nova, `--env-input .\production.env` antes do separador envia o
-arquivo local temporariamente; ele não pode substituir o `.env` existente.
-Para responder aos prompts do instalador, acrescente `--interactive` antes do
-separador. Para aplicar após revisar o plano, use `--apply` no payload e confirme
-os prompts, ou `--yes` quando todos os parâmetros já foram revisados.
+O pipeline valida agentes estáticos, compila Vue/TypeScript e os desktops, executa um self-check offline do binário real sem abrir WebView ou SSH e confere os checksums. Resultados concretos ficam nos checks da PR; consulte `VALIDATION.md`.
 
-Produção usa `--environment production --version latest --deployment platform-production`
-e o diretório correspondente. Exige uma release estável publicada com os serviços
-necessários. O binário não promove a aplicação nem substitui produção por develop.
+Não há assinatura Authenticode ou notarização Apple. A assinatura macOS ad-hoc não comprova um editor verificado. Windows depende do WebView2; Linux desktop depende das bibliotecas gráficas do pacote Tauri. Os agentes musl do VPS não exigem essas dependências gráficas.
 
-### Autenticação e segredos
-
-Por padrão, hosts desconhecidos ou com chave divergente são recusados. Valide a
-fingerprint por canal confiável antes do primeiro `--accept-new-host-key`;
-uma alteração posterior continua sendo bloqueada. Prefira chave Ed25519 e
-usuário dedicado. `--ask-password` solicita a senha SSH com entrada oculta.
-
-`--ask-github-token` antes do separador solicita o token GitHub localmente e usa
-`GH_TOKEN_FILE` remoto. O parâmetro `--registry-user` do payload solicita o token
-GHCR localmente e usa `ARGWS_CONNECT_GHCR_TOKEN_FILE`. Nenhum token é enviado como
-valor em argumento de comando; os arquivos remotos usam modo 0600.
-A limpeza é tentada ao final; falhas de conexão/limpeza produzem aviso e podem
-exigir remover os temporários remanescentes por administração do VPS.
-
-`--sudo` usa somente `sudo -n`, previamente autorizado. Não recebe nem injeta
-senha sudo. Para instalar Dockge, permanecem obrigatórias as autorizações
-`--install-dockge --accept-docker-socket --accept-host-agent` do payload.
-
-## Uso local no VPS
-
-```bash
-./connect-deploy local -- --help
-```
-
-Requer o Python do sistema no VPS. A delegação restaura os caminhos de bibliotecas
-alterados pelo PyInstaller antes de iniciar esse Python. Não usa o interpretador
-embutido como substituto do Docker ou do CloudPanel.
-
-## Compilar localmente
-
-Use um checkout Git completo do Connect|API. A partir de `tools/connect-deployer`:
-
-```powershell
-# Windows: Python Launcher e Python 3.12
-.\scripts\build-windows.ps1
-# Alternativa: scripts\build-windows.bat
-```
-
-```bash
-# Linux ou macOS com Python 3.10+
-./scripts/build-linux.sh
-# macOS: ./scripts/build-macos.sh
-```
-
-Cada script cria virtualenv, instala dependências de build, gera metadados,
-executa testes, compila com PyInstaller, testa o executável fora da árvore e
-produz `dist/release/`. São ferramentas de compilação, não rotinas operacionais
-obrigatórias no VPS.
-
-## Integridade do payload
-
-`reference/install-connect-original.py` deve continuar idêntico ao instalador da
-raiz. Se o canônico mudar, o CI bloqueia a compilação até revisão da adaptação SSH.
-O payload 1.0.1 do anexo não é substituído silenciosamente. `SOURCE-IMPORT.json`
-registra o ZIP de origem, hashes dos arquivos recebidos e a revisão-base.
-
-## Compatibilidade e limites
-
-Linux é compilado em Ubuntu 22.04 (x86_64 e ARM64, glibc 2.35), não em Alpine/musl.
-macOS usa runner 14 Apple Silicon. Windows usa runner Server 2022 x64. A compilação
-nativa e o smoke test não garantem compatibilidade com todo sistema operacional
-ou implantação real no VPS. CI não usa credenciais privadas do operador.
-
-Não há assinatura Authenticode ou notarização Apple nesta entrega. O checksum
-verificado contra uma origem confiável detecta alteração, mas não substitui uma
-assinatura de publicador. Veja `SECURITY.md` e o guia da aplicação em
-`docs/guides/connect-deployer-binaries.md`.
+Compilação e self-check offline não substituem teste interativo da interface nem implantação SSH real. A integração não usa credenciais operacionais, não acessa seu VPS e não corrige por si só incidentes dos serviços da aplicação.

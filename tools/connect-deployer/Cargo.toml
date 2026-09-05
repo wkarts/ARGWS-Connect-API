@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/deployer-protocol",
+  "crates/deployer-agent",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2024"
+authors = ["ARGWS"]
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+clap = { version = "4.5", features = ["derive"] }
+dirs = "6.0"
+fs2 = "0.4"
+hex = "0.4"
+libc = "0.2"
+percent-encoding = "2.3"
+rand = "0.9"
+regex = "1.11"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha1 = "0.10"
+sha2 = "0.10"
+ssh2 = { version = "0.9.6", features = ["vendored-openssl"] }
+tempfile = "3.20"
+thiserror = "2.0"
+url = "2.5"
+wait-timeout = "0.2"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
