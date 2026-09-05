@@ -73,22 +73,72 @@ class CloudflareDNS:
 
     def records(self, name: str) -> list[dict]:
         rows = self.request('GET', f'zones/{self.zone(name)}/dns_records', {'name': name, 'per_page': 100}) or []
+        if len(rows) >= 100: raise ValueError('PLATFORM_DNS_TOO_MANY_RECORDS')
         return [r for r in rows if str(r.get('name', '')).lower() == name.lower() and r.get('type') in {'A', 'AAAA', 'CNAME'}]
+
+    @staticmethod
+    def addresses(rows: list[dict]) -> list[tuple[str, str]]:
+        result = []
+        for row in rows:
+            kind, value = row['type'], str(row['content']).rstrip('.')
+            if kind in {'A', 'AAAA'}:
+                ip = ipaddress.ip_address(value)
+                if not ip.is_global or (ip.version == 4) != (kind == 'A'):
+                    raise ValueError('PLATFORM_ORIGIN_MUST_BE_PUBLIC')
+                value = str(ip)
+            elif kind == 'CNAME':
+                value = hostname(value)
+            result.append((kind, value))
+        if not result: raise ValueError('PLATFORM_ORIGIN_DNS_MISSING')
+        if any(kind == 'CNAME' for kind, _ in result) and len(result) != 1:
+            raise ValueError('PLATFORM_DNS_RECORD_CONFLICT')
+        return list(dict.fromkeys(result))
+
+    def validate_chain(self, target: str, forbidden: set[str]) -> None:
+        # A public DNS lookup cannot prove that a Cloudflare CNAME is DNS-only.
+        # Require read access to every zone in the chain; never modify third parties.
+        seen = set(forbidden) | set(getattr(self, "origin_forbidden", set()))
+        for _ in range(12):
+            target = hostname(target)
+            if target in seen: raise ValueError('PLATFORM_DNS_CNAME_LOOP')
+            seen.add(target)
+            rows = self.records(target)
+            if any(row.get('proxied') is not False for row in rows):
+                raise ValueError('PLATFORM_ORIGIN_CHAIN_PROXIED')
+            values = self.addresses(rows)
+            aliases = [value for kind, value in values if kind == 'CNAME']
+            if not aliases: return
+            target = aliases[0]
+        raise ValueError('PLATFORM_ORIGIN_CHAIN_TOO_LONG')
 
     def origin(self, root: str) -> list[tuple[str, str]]:
         configured = self.env.get('CLOUDFLARE_TENANT_RECORD_TARGET', '').strip().rstrip('.')
         if configured and configured != root:
             try:
                 ip = ipaddress.ip_address(configured)
-                return [('A' if ip.version == 4 else 'AAAA', str(ip))]
             except ValueError:
                 target = hostname(configured)
-                # An explicit external DNS origin is supported; a self-referencing alias is not.
+                if target in getattr(self, 'origin_forbidden', set()): raise ValueError('PLATFORM_DNS_CNAME_LOOP')
+                if target == root or target.startswith('*.'): raise ValueError('PLATFORM_DNS_CNAME_LOOP')
+                desired = []
+                for key, kind in [('CLOUDFLARE_ORIGIN_IPV4', 'A'), ('CLOUDFLARE_ORIGIN_IPV6', 'AAAA')]:
+                    if self.env.get(key): desired.append({'type': kind, 'content': self.env[key]})
+                if desired:
+                    self.ensure(target, self.addresses(desired))
+                else:
+                    # This explicitly configured origin is managed; an existing proxy is disabled.
+                    rows = self.records(target)
+                    values = self.addresses(rows)
+                    for kind, value in values:
+                        if kind == 'CNAME': self.validate_chain(value, {root, target})
+                    self.ensure(target, values)
+                self.validate_chain(target, {root})
                 return [('CNAME', target)]
-        rows = self.records(root)
-        values = [(r['type'], r['content'].rstrip('.')) for r in rows]
-        if not values: raise ValueError('PLATFORM_ORIGIN_DNS_MISSING')
-        return list(dict.fromkeys(values))
+            return self.addresses([{'type': 'A' if ip.version == 4 else 'AAAA', 'content': str(ip)}])
+        values = self.addresses(self.records(root))
+        for kind, value in values:
+            if kind == 'CNAME': self.validate_chain(value, {root})
+        return values
 
     def ensure(self, name: str, desired: list[tuple[str, str]]) -> list[dict]:
         zone = self.zone(name)
@@ -114,12 +164,17 @@ class CloudflareDNS:
                     self.request('PUT', f'zones/{zone}/dns_records/{row["id"]}', body=body)
             else:
                 self.request('POST', f'zones/{zone}/dns_records', body=body)
-            output.append({'name': name, 'type': kind, 'proxied': False})
+            output.append({'name': name, 'type': kind, 'content': content, 'proxied': False})
+        actual = self.records(name)
+        if (sorted((r['type'], r['content'].rstrip('.')) for r in actual) != sorted(desired)
+                or any(r.get('proxied') is not False for r in actual)):
+            raise ValueError('PLATFORM_DNS_READBACK_MISMATCH')
         return output
 
 
 def reconcile_dns(names: list[str], env=None, client=None) -> list[dict]:
     client = client or CloudflareDNS(env)
+    client.origin_forbidden = set(names)
     origin = client.origin(names[0])
     if any(kind == "CNAME" and content in names for kind, content in origin):
         raise ValueError("PLATFORM_DNS_CNAME_LOOP")

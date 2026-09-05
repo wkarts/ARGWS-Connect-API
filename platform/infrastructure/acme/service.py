@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import shutil
 import sys
 import time
@@ -113,7 +115,10 @@ def main() -> int:
             except Exception as exc:
                 state(STATUS/'dns.json', status='RECONCILIATION_FAILED', domains=names, error=type(exc).__name__)
                 raise
-            state(STATUS/'dns.json', status='READY', domains=names, records=dns)
+            origin = [(r['type'], r['content']) for r in dns if r['name'] == names[0]]
+            origin_fingerprint = hashlib.sha256(json.dumps(sorted(origin)).encode()).hexdigest()
+            state(STATUS/'dns.json', status='READY', domains=names, records=dns,
+                  origin=origin, origin_fingerprint=origin_fingerprint, schema_version=2)
             email = os.environ.get('ACME_EMAIL', '').strip()
             token = os.environ.get('CF_Token', '')
             if not email or '@' not in email or not token or token.startswith('CHANGE_ME'):

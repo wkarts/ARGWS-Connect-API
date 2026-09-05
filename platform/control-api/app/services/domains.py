@@ -152,6 +152,8 @@ class DomainService:
         if domain.management_mode == MANAGEMENT_PLATFORM_SUBDOMAIN:
             from app.services.tls_status import apply_receipt
             if settings.public_scheme == "https":
+                from app.services.managed_dns import reconcile_known_subdomain
+                await reconcile_known_subdomain(domain)
                 apply_receipt(domain)
             else:
                 if settings.cloudflare_enabled:

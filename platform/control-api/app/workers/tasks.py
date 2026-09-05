@@ -264,11 +264,16 @@ def reconcile_platform_tls() -> int:
 
     async def action() -> int:
         from app.services.tls_status import apply_receipt
+        from app.services.managed_dns import reconcile_known_subdomain
         async with PlatformSessionLocal() as session:
             rows = list((await session.scalars(select(TenantDomain).where(
-                TenantDomain.management_mode == "PLATFORM_SUBDOMAIN"))).all())
+                TenantDomain.management_mode == "PLATFORM_SUBDOMAIN").order_by(
+                    TenantDomain.last_checked_at.asc().nullsfirst()).limit(100))).all())
+            await session.commit()
             for domain in rows:
+                await reconcile_known_subdomain(domain)
                 apply_receipt(domain)
+                await session.commit()
             await session.commit()
             jobs = list((await session.scalars(select(ProvisioningJob).where(
                 ProvisioningJob.status == "WAITING_TLS").options(

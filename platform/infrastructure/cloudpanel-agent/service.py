@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
+from datetime import datetime, timezone
 import os
 import re
 import shutil
@@ -69,9 +71,15 @@ def add_aliases(text: str, site: str, aliases: list[str]) -> str:
 
 def write_atomic(path: Path, data: bytes, mode: int = 0o644) -> None:
     temporary = path.with_name(path.name + '.connect-next')
-    temporary.write_bytes(data)
-    temporary.chmod(mode)
+    with temporary.open('wb') as stream:
+        os.chmod(temporary, mode)
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temporary, path)
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
 
 
 def apply_vhost(path: Path, content: str) -> None:
@@ -120,15 +128,84 @@ def ensure_base(site: str) -> Path:
 def reconcile_proxy(text: str, site: str, aliases: list[str]) -> str:
     if any(not any(covers(pattern, name) for pattern in aliases) for name in names_in(text)):
         raise ValueError('BASE_VHOST_CONTAINS_UNMANAGED_NAMES')
+    expected = proxy_url()
+    routes = re.findall(r'^\s*proxy_pass\s+([^;]+);', text, flags=re.M)
+    if not routes: raise ValueError('BASE_SITE_IS_NOT_A_REVERSE_PROXY')
+    origins = set()
+    for value in routes:
+        parsed = urlsplit(value.strip())
+        if (parsed.scheme != 'http' or parsed.hostname not in {'127.0.0.1', 'localhost'}
+                or not parsed.port or parsed.path not in {'', '/'} or parsed.query or parsed.fragment
+                or parsed.username or '$' in value or any(c.isspace() for c in value.strip())):
+            raise ValueError('UNMANAGED_REVERSE_PROXY_UPSTREAM')
+        origins.add(parsed.port)
+    if len(origins) != 1: raise ValueError('AMBIGUOUS_REVERSE_PROXY_UPSTREAM')
     value = add_aliases(text, site, aliases)
-    if not re.search(r'^\s*proxy_pass\s+', value, flags=re.M):
-        raise ValueError('BASE_SITE_IS_NOT_A_REVERSE_PROXY')
-    # Do not allow a hardcoded upstream Host to collapse all customers into one.
+    value = re.sub(r'^(?P<indent>[ \t]*)proxy_pass\s+[^;]+;',
+                   lambda m: m['indent'] + 'proxy_pass ' + expected + ';', value, flags=re.M)
     value = re.sub(r'^[ \t]*proxy_set_header[ \t]+Host[ \t]+[^;\n]+;[ \t]*\n?', '', value, flags=re.M)
-    value = re.sub(r'^(?P<indent>[ \t]*)proxy_pass\s+',
-                   lambda m: m['indent'] + 'proxy_set_header Host $host;\n' + m['indent'] + 'proxy_pass ',
-                   value, flags=re.M)
-    return value
+    return re.sub(r'^(?P<indent>[ \t]*)proxy_pass\s+',
+                  lambda m: m['indent'] + 'proxy_set_header Host $host;\n' + m['indent'] + 'proxy_pass ',
+                  value, flags=re.M)
+
+
+def begin_transaction(vhost: Path) -> Path:
+    """Persist the pre-mutation state before NGINX or clpctl can change any file."""
+    if (STATE/'pending.json').exists(): raise ValueError('RECOVERY_REQUIRED')
+    targets = {vhost}
+    for value in re.findall(r'^\s*ssl_certificate(?:_key)?\s+([^;\s]+);', vhost.read_text(), flags=re.M):
+        if not value.startswith('/etc/nginx/'):
+            raise ValueError('CERTIFICATE_PATH_OUTSIDE_MANAGED_NGINX')
+        target = host_path(value)
+        if target.is_file(): targets.add(target)
+    backup = STATE/('rollback-' + uuid4().hex)
+    backup.mkdir(mode=0o700, parents=True)
+    entries = []
+    for i, target in enumerate(sorted(targets)):
+        relative = str(target.relative_to(HOST))
+        if not relative.startswith('etc/nginx/'): raise ValueError('SNAPSHOT_SCOPE_INVALID')
+        stat = target.stat()
+        data = target.read_bytes()
+        write_atomic(backup/str(i), data, 0o600)
+        entries.append({'path': '/' + relative, 'file': str(i), 'mode': stat.st_mode & 0o777,
+                        'uid': stat.st_uid, 'gid': stat.st_gid, 'sha256': hashlib.sha256(data).hexdigest()})
+    write_atomic(backup/'manifest.json', json.dumps(entries).encode(), 0o600)
+    write_atomic(STATE/'pending.json', json.dumps({'directory': backup.name}).encode(), 0o600)
+    return backup
+
+
+def recover_pending() -> bool:
+    pending = STATE/'pending.json'
+    if not pending.exists(): return False
+    name = json.loads(pending.read_text())['directory']
+    if not re.fullmatch(r'rollback-[a-f0-9]{32}', name): raise ValueError('JOURNAL_INVALID')
+    directory = STATE/name
+    entries = json.loads((directory/'manifest.json').read_text())
+    verified = []
+    for item in entries:
+        if not item['path'].startswith('/etc/nginx/') or not item['file'].isdigit(): raise ValueError('JOURNAL_SCOPE_INVALID')
+        data = (directory/item['file']).read_bytes()
+        if hashlib.sha256(data).hexdigest() != item['sha256']: raise ValueError('JOURNAL_CORRUPTED')
+        verified.append((host_path(item['path']), data, item))
+    for target, data, item in verified:
+        write_atomic(target, data, item['mode'])
+        if os.geteuid() == 0: os.chown(target, item['uid'], item['gid'])
+    host_run('nginx', '-t')
+    host_run('nginx', '-s', 'reload')
+    pending.unlink()
+    return True
+
+
+def publish_ready(info: dict, installed: bool) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    record = STATE/'installation.json'
+    previous = json.loads(record.read_text()) if record.exists() else {}
+    if installed:
+        previous = {'installed_at': now, 'fingerprint': info['fingerprint']}
+        write_atomic(record, json.dumps(previous).encode(), 0o600)
+        write_atomic(STATUS/'last-cloudpanel-installed-at.txt', (now + '\n').encode())
+    state(STATUS/'cloudpanel.json', status='READY', last_verified_at=now,
+          last_installed_at=previous.get('installed_at'), upstream=proxy_url(), **info)
 
 
 def check_alias_conflicts(vhost: Path, aliases: list[str]) -> None:
@@ -139,59 +216,50 @@ def check_alias_conflicts(vhost: Path, aliases: list[str]) -> None:
 
 
 def reconcile_base(names: list[str], namespace: str) -> None:
+    recover_pending()
     site = hostname(os.environ.get('CLOUDPANEL_SITE_DOMAIN', names[0]))
     if site != names[0]: raise ValueError('SITE_AND_ACME_ROOT_MUST_MATCH')
     vhost = ensure_base(site)
-    # Enable aliases even before issuance; only the known base proxy is modified.
     check_alias_conflicts(vhost, names)
-    apply_vhost(vhost, reconcile_proxy(vhost.read_text(), site, names))
+    new_config = reconcile_proxy(vhost.read_text(), site, names)
     source = (CERTS/'current').resolve(strict=True)
+    if not source.is_relative_to(CERTS.resolve()): raise ValueError('CERTIFICATE_PATH_ESCAPE')
     info = bundle(source, names)
-    verify_chain(source)  # Never install untrusted/staging material, even briefly.
-    try:
-        probe(names, info['fingerprint'])
-        state(STATUS/'cloudpanel.json', status='READY', **info)
+    verify_chain(source)
+    must_install = False
+    try: probe(names, info['fingerprint'])
+    except Exception: must_install = True
+    if not must_install and new_config == vhost.read_text():
+        publish_ready(info, installed=False)
         return
-    except Exception:
-        pass
-    # Backup the exact existing vhost and referenced certificates before clpctl.
-    original = vhost.read_bytes()
-    snapshots = {vhost: (original, vhost.stat().st_mode & 0o777)}
-    for value in re.findall(r'^\s*ssl_certificate(?:_key)?\s+([^;\s]+);', original.decode(), flags=re.M):
-        if value.startswith('/etc/nginx/'):
-            path = host_path(value)
-            if path.is_file(): snapshots[path] = (path.read_bytes(), path.stat().st_mode & 0o777)
-    backup = STATE/('rollback-' + uuid4().hex)
-    backup.mkdir(mode=0o700, parents=True)
-    for index, (_, (data, _)) in enumerate(snapshots.items()):
-        (backup/str(index)).write_bytes(data)
-        (backup/str(index)).chmod(0o600)
+    begin_transaction(vhost)
     relative = '/run/connect-api-cloudpanel-' + namespace
     temporary = HOST/relative.lstrip('/')
-    temporary.mkdir(mode=0o700, exist_ok=True)
     try:
-        for name in FILES:
-            shutil.copyfile(source/name, temporary/name)
-            (temporary/name).chmod(0o600)
-        host_run('clpctl', 'site:install:certificate', '--domainName=' + site,
-                 '--privateKey=' + relative + '/privkey.pem', '--certificate=' + relative + '/cert.pem',
-                 '--certificateChain=' + relative + '/ca.pem')
-        regenerated = find_vhost(site)
-        if not regenerated: raise ValueError('VHOST_DISAPPEARED')
-        apply_vhost(regenerated, reconcile_proxy(regenerated.read_text(), site, names))
+        apply_vhost(vhost, new_config)
+        if must_install:
+            temporary.mkdir(mode=0o700, exist_ok=True)
+            for name in FILES:
+                write_atomic(temporary/name, (source/name).read_bytes(), 0o600)
+            host_run('clpctl', 'site:install:certificate', '--domainName=' + site,
+                     '--privateKey=' + relative + '/privkey.pem', '--certificate=' + relative + '/cert.pem',
+                     '--certificateChain=' + relative + '/ca.pem')
+            regenerated = find_vhost(site)
+            if not regenerated or regenerated != vhost: raise ValueError('VHOST_CHANGED_PATH')
+            apply_vhost(regenerated, reconcile_proxy(regenerated.read_text(), site, names))
         host_run('nginx', '-t')
         host_run('nginx', '-s', 'reload')
         probe(names, info['fingerprint'])
-        state(STATUS/'cloudpanel.json', status='READY', **info)
+        publish_ready(info, installed=must_install)
+        (STATE/'pending.json').unlink()
     except Exception:
-        for path, (data, mode) in snapshots.items(): write_atomic(path, data, mode)
-        host_run('nginx', '-t')
-        host_run('nginx', '-s', 'reload')
+        recover_pending()
         raise
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
-        for old in sorted(STATE.glob('rollback-*'), key=lambda p: p.stat().st_mtime, reverse=True)[5:]:
-            shutil.rmtree(old)
+        if not (STATE/'pending.json').exists():
+            for old in sorted(STATE.glob('rollback-*'), key=lambda p: p.stat().st_mtime, reverse=True)[5:]:
+                shutil.rmtree(old)
 
 
 def main() -> int:
@@ -214,6 +282,7 @@ def main() -> int:
             lock = HOST/'run'/'connect-api-cloudpanel-nginx.lock'
             with lock.open('w') as stream:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                recover_pending()
                 host_run('nginx', '-t')
                 reconcile_base(names, namespace)
         except Exception as exc:

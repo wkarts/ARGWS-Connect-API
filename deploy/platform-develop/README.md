@@ -1,147 +1,44 @@
-# Connect|API Platform — Develop
+# Connect|API — platform-develop
 
-Deployment **completo, independente e autocontido** da Connect|API Platform no canal `develop`.
+## Operação canônica
 
-Este diretório **não é overlay** de `deploy/develop/` e não reutiliza project, network, banco ou volumes daquela stack.
+Forneça somente `compose.yaml` e `.env` ao Dockge/Compose. ACME e CloudPanel Agent iniciam normalmente, sem profile adicional.
 
-## Identidade da stack
-
-```text
-project:  argws-connect-platform-develop
-network:  argws-connect-platform-develop-net
-```
-
-Todo service/container segue `<recurso>-argws-connect-platform-develop`.
-
-## Componentes
-
-A stack sobe integralmente por padrão:
-
-- Connect|API Engine;
-- Connect|API DOCs;
-- PostgreSQL do Engine;
-- Redis;
-- RabbitMQ;
-- MinIO;
-- PostgreSQL exclusivo da Platform/Control Plane;
-- migrations da Platform e dos tenants;
-- bootstrap;
-- Control API;
-- worker Celery principal;
-- worker dedicado de backups;
-- scheduler Celery Beat;
-- Docker Socket Proxy somente leitura e Log Agent;
-- Prometheus e Grafana;
-- ACME + CloudPanel Agent opcionais pelo profile `cloudpanel`;
-- frontend Vue/PWA;
-- gateway da Platform.
-
-Não é necessário `--profile platform`.
-
-## Domínios develop
-
-| Superfície | Host |
-| --- | --- |
-| Platform | `d.connect.argws.com.br` |
-| Control Plane | `d.control.connect.argws.com.br` |
-| Admin | `d.admin.connect.argws.com.br` |
-| Partner Plane | `d.partner.connect.argws.com.br` |
-| API | `d.api.connect.argws.com.br` |
-| DOCs | `d.docs.connect.argws.com.br` |
-| Demo | `d.demo.connect.argws.com.br` |
-| Tenants | `<tenant>.d.connect.argws.com.br` |
-
-Portas locais padrão:
+No CloudPanel, crie/mantenha um Reverse Proxy base:
 
 ```text
-API Engine : 127.0.0.1:38082
-DOCs       : 127.0.0.1:38182
-Gateway    : 127.0.0.1:38802
+Domínio: d.connect.argws.com.br
+URL: http://127.0.0.1:38802
 ```
 
-`d.api.connect.argws.com.br` e `d.docs.connect.argws.com.br` mantêm as portas já usadas pelo develop clássico para facilitar a troca de stack sem alterar esses dois reverse proxies. Por isso, a stack `argws-connect-develop` e esta stack **não devem subir simultaneamente com as portas padrão**. Para execução lado a lado, altere `ARGWS_CONNECT_API_HOST_PORT` e `ARGWS_CONNECT_DOCS_HOST_PORT` na `.env` desta stack antes do deploy.
+Valores personalizados prevalecem no `.env`. O agente aguarda o VHost; não exige scripts no VPS, cron de host, importação manual de certificado nem criação de VHost por cliente.
 
-Os hosts da Platform (`d.connect`, `d.control`, `d.admin`, `d.partner`, `d.demo` e wildcard de tenants) devem apontar para `127.0.0.1:38802` no reverse proxy.
+## Serviços do produto completo
 
-## CloudPanel / ACME opcional
+Engine Node/Prisma, DOCs, Control API, Vue, gateway, workers, scheduler, migrations/bootstrap/backup, dois PostgreSQL, **dois PgBouncer**, Redis, RabbitMQ, MinIO e observabilidade. ACME DNS-01 e CloudPanel Agent são parte do produto completo.
 
-O deployment padrão continua sem privilégios de host. Quando o ambiente usa CloudPanel e deseja gestão automática do wildcard/certificado, ative o profile:
+O serviço ACME usa Cloudflare DNS-only para base/wildcard/aliases. O backend reconcilia registros legados exclusivamente de clientes cadastrados. O agente valida upstream/Host, NGINX e certificado servido e mantém journal persistente para recuperação após interrupção.
 
-```bash
-docker compose --env-file .env --profile cloudpanel up -d
-```
+## Configuração necessária
 
-Para Nginx/Certbot de host sem CloudPanel, use `deploy/platform/domain-agent/`.
+`ACME_EMAIL`, `CLOUDFLARE_API_TOKEN` (Zone:Read + DNS:Edit) e origem pública válida. `CLOUDFLARE_TENANT_RECORD_TARGET` aceita IP ou hostname de origem gerenciado; nesse segundo caso todas as zonas da cadeia precisam ser legíveis pelo token. `CLOUDFLARE_ORIGIN_IPV4/IPv6` opcionais permitem criar o alias explicitamente escolhido. Nenhum IP é inventado.
 
-## Operação por serviços
+`PLATFORM_TLS_AUTOMATION_ENABLED=true`, `ACME_STAGING=false`. Certificados staging não são instalados. Domínios externos exigem fluxo TLS próprio.
 
-```bash
-cd deploy/platform-develop
-bash prepare-env.sh
-bash preflight.sh
-bash deploy.sh
-**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.bash
-export GHCR_USERNAME=seu_usuario
-export GHCR_TOKEN=seu_token
-bash registry-login.sh
-```
+## Instalar e atualizar
 
-Atualização:
+Use [install-connect.py](../../install-connect.py) e o [guia do instalador](../../docs/guides/universal-installer.md), ou a ação de atualização do Dockge. O instalador apenas organiza fonte/versão/Compose: operações administrativas continuam nos serviços. Preserve nomes, portas, bancos, volumes, credenciais e chaves de criptografia.
 
-```bash
-bash update.sh
-```
+Produção exige release estável publicada com todas as imagens correspondentes. Código em `develop` e um Compose de produção atualizado não equivalem à promoção para `latest`. Não misture imagens de aplicação de canais diferentes; imagens de infraestrutura mantêm seus versionamentos próprios.
 
-Status:
+## Segurança operacional
 
-```bash
-bash status.sh
-```
+CloudPanel Agent: `privileged`, `pid: host`, `network_mode: host`, `/:/host:rw`, filesystem read-only, sem endpoint/portas. Trate-o como root no VPS.
 
-## Persistência
+A observabilidade preexistente também confia no Docker Socket Proxy: `POST=0` limita o que o proxy oferece, mas a montagem do socket bruto continua uma fronteira administrativa. Dockge, quando utilizado, também possui esse acesso. A afirmação “apenas um processo possui acesso potencial root” não se aplica a esses componentes preexistentes; nenhum privilégio foi acrescentado à API, workers ou bancos.
 
-Todos os dados ficam isolados em `deploy/platform-develop/volumes/`:
+## Verificação
 
-```text
-volumes/
-├── instances/
-├── postgres/
-├── redis/
-├── rabbitmq/
-├── minio/
-├── platform-postgres/
-├── platform-backups/
-├── platform-prometheus/
-├── platform-grafana/
-├── platform-acme/
-├── platform-certs/
-└── platform-cloudpanel-agent/
-```
+No Dockge confira separadamente ACME, CloudPanel Agent, PgBouncer, migrations e API. O recibo `/tls-status/cloudpanel.json` diferencia `last_installed_at` de `last_verified_at`; o marcador TXT registra somente instalações reais. O status READY exige upstream configurado e certificado servido, mas não substitui testes funcionais de usuários e WhatsApp.
 
-Nenhum volume do `deploy/develop` é reutilizado automaticamente.
-
-## Migração do develop clássico
-
-Esta stack é nova. Se houver sessões WhatsApp existentes em `deploy/develop/volumes/instances`, a migração deve ser feita de forma controlada com a stack antiga parada. Não use bind mount cruzado entre as duas stacks durante operação concorrente.
-
-## Canal de imagens
-
-Todas as imagens da aplicação usam o canal `develop`:
-
-```text
-ghcr.io/wkarts/argws-connect-api:develop
-ghcr.io/wkarts/argws-connect-docs:develop
-ghcr.io/wkarts/argws-connect-platform-api:develop
-ghcr.io/wkarts/argws-connect-platform-web:develop
-ghcr.io/wkarts/argws-connect-platform-gateway:develop
-```
-
-Infraestrutura mantém as tags oficiais definidas pelo projeto.
-
-## Contrato operacional vigente
-
-No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.
-
-## SSL automático: procedimento canônico
-
-Use o modelo de **um Reverse Proxy base + ACME/CloudPanel Agent por serviços**, descrito em [SSL e instâncias](../../docs/guides/platform-ssl-instances-corrective.md). Esta seção prevalece sobre exemplos históricos de setup manual/profile `cloudpanel`. Nas stacks completas, não execute scripts no VPS nem instale certificados manualmente. Preserve seu `.env` e os volumes ao atualizar a stack.
+Consulte [provisionamento e TLS](../../docs/guides/platform-ssl-instances-corrective.md) e [contrato operacional](../../OPERATIONS-CONTRACT.md). A stack clássica/API-first tem escopo diferente e não inclui essa Platform; não execute ambas disputando portas/domínios.
