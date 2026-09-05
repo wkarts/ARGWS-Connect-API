@@ -268,7 +268,7 @@ jobs:
           python scripts/prepare-ci.py
           npm ci --no-audit --no-fund
       - name: Build graphical Tauri application and installers
-        run: npm run tauri:build -- --locked --config "${{ matrix.config }}"
+        run: npm run tauri:build -- --config "${{ matrix.config }}" -- --locked
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
       - name: Exercise native binary without GUI, SSH or deploy
