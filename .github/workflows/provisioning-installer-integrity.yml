@@ -1,0 +1,29 @@
+name: Provisioning and Universal Installer Integrity
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop, 'fix/provisioning-universal-installer']
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Test standalone installer security and update preservation
+        run: python -B -m unittest discover -s test/installer -v
+      - name: Resolve all eleven official runtime deployments using real Compose
+        run: python -B test/installer/integration_compose.py
+      - name: Check Python syntax without writing bytecode
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          for file in [Path('install-connect.py'), *Path('platform/infrastructure').rglob('*.py')]:
+              ast.parse(file.read_text())
+          PY

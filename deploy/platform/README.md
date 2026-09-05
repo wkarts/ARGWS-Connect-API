@@ -1,70 +1,44 @@
-# Connect|API — Deployment Profiles
+# Connect|API — platform
 
-Todos os perfis pertencem ao **mesmo produto, repositório, VERSION e release flow do Connect|API**.
-O Manager legado não participa de nenhum perfil.
+## Operação canônica
 
-## Configurar a stack
+Forneça somente `compose.yaml` e `.env` ao Dockge/Compose. Defina `COMPOSE_PROFILES=platform,observability` no `.env` para o produto completo desta stack multiperfil.
 
-**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
-
-## Perfil `api`
-
-Engine Node/TypeScript + PostgreSQL/Redis/RabbitMQ/MinIO. Sem frontend, Control Plane ou DOCs.
-
-**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
-
-## Perfil `docs`
-
-API-only + documentação oficial da mesma versão.
-
-**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
-
-## Perfil `platform`
-
-Produto completo: Engine, DOCs, Platform Control API, Vue frontend, workers, scheduler, banco de governança, backups, Log Agent, Prometheus/Grafana e gateway. ACME/CloudPanel permanecem opcionais pelo profile `cloudpanel`.
-
-**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
-
-## Develop completo independente
-
-Para o ambiente operacional `develop`, use a stack própria:
+No CloudPanel, crie/mantenha um Reverse Proxy base:
 
 ```text
-deploy/platform-develop/
-project = argws-connect-platform-develop
-network = argws-connect-platform-develop-net
+Domínio: connect.example.com
+URL: http://127.0.0.1:38800
 ```
 
-Ela não usa `deploy/develop` como base e sobe Engine + DOCs + Platform completa por padrão, sempre com imagens `:develop` da aplicação. Consulte `deploy/platform-develop/README.md`.
+Valores personalizados prevalecem no `.env`. O agente aguarda o VHost; não exige scripts no VPS, cron de host, importação manual de certificado nem criação de VHost por cliente.
 
-## Atualizar / status
+## Serviços do produto completo
 
-```bash
-./deploy/platform/update.sh platform
-./deploy/platform/status.sh platform
-```
+Engine Node/Prisma, DOCs, Control API, Vue, gateway, workers, scheduler, migrations/bootstrap/backup, dois PostgreSQL, **dois PgBouncer**, Redis, RabbitMQ, MinIO e observabilidade. ACME DNS-01 e CloudPanel Agent são parte do produto completo.
 
-## Build local
+O serviço ACME usa Cloudflare DNS-only para base/wildcard/aliases. O backend reconcilia registros legados exclusivamente de clientes cadastrados. O agente valida upstream/Host, NGINX e certificado servido e mantém journal persistente para recuperação após interrupção.
 
-```bash
-docker compose --env-file deploy/platform/.env \
-  -f deploy/platform/compose.yaml \
-  -f deploy/platform/compose.local-build.yaml \
-  --profile platform up -d --build
-```
+## Configuração necessária
 
-## Lifecycle
+`ACME_EMAIL`, `CLOUDFLARE_API_TOKEN` (Zone:Read + DNS:Edit) e origem pública válida. `CLOUDFLARE_TENANT_RECORD_TARGET` aceita IP ou hostname de origem gerenciado; nesse segundo caso todas as zonas da cadeia precisam ser legíveis pelo token. `CLOUDFLARE_ORIGIN_IPV4/IPv6` opcionais permitem criar o alias explicitamente escolhido. Nenhum IP é inventado.
 
-- `develop` publica `:develop` para Engine e imagens Platform;
-- `main` usa o `auto-version-release.yml` canônico;
-- `VERSION` e `package.json` da raiz são a única fonte de versão;
-- Platform API/Web/Gateway recebem exatamente a mesma SemVer do Connect|API;
-- o RC34 não mantém versionamento nem workflow próprio.
+`PLATFORM_TLS_AUTOMATION_ENABLED=true`, `ACME_STAGING=false`. Certificados staging não são instalados. Domínios externos exigem fluxo TLS próprio.
 
-## Contrato operacional vigente
+## Instalar e atualizar
 
-No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.
+Use [install-connect.py](../../install-connect.py) e o [guia do instalador](../../docs/guides/universal-installer.md), ou a ação de atualização do Dockge. O instalador apenas organiza fonte/versão/Compose: operações administrativas continuam nos serviços. Preserve nomes, portas, bancos, volumes, credenciais e chaves de criptografia.
 
-## SSL automático: procedimento canônico
+Produção exige release estável publicada com todas as imagens correspondentes. Código em `develop` e um Compose de produção atualizado não equivalem à promoção para `latest`. Não misture imagens de aplicação de canais diferentes; imagens de infraestrutura mantêm seus versionamentos próprios.
 
-Use o modelo de **um Reverse Proxy base + ACME/CloudPanel Agent por serviços**, descrito em [SSL e instâncias](../../docs/guides/platform-ssl-instances-corrective.md). Esta seção prevalece sobre exemplos históricos de setup manual/profile `cloudpanel`. Nas stacks completas, não execute scripts no VPS nem instale certificados manualmente. Preserve seu `.env` e os volumes ao atualizar a stack.
+## Segurança operacional
+
+CloudPanel Agent: `privileged`, `pid: host`, `network_mode: host`, `/:/host:rw`, filesystem read-only, sem endpoint/portas. Trate-o como root no VPS.
+
+A observabilidade preexistente também confia no Docker Socket Proxy: `POST=0` limita o que o proxy oferece, mas a montagem do socket bruto continua uma fronteira administrativa. Dockge, quando utilizado, também possui esse acesso. A afirmação “apenas um processo possui acesso potencial root” não se aplica a esses componentes preexistentes; nenhum privilégio foi acrescentado à API, workers ou bancos.
+
+## Verificação
+
+No Dockge confira separadamente ACME, CloudPanel Agent, PgBouncer, migrations e API. O recibo `/tls-status/cloudpanel.json` diferencia `last_installed_at` de `last_verified_at`; o marcador TXT registra somente instalações reais. O status READY exige upstream configurado e certificado servido, mas não substitui testes funcionais de usuários e WhatsApp.
+
+Consulte [provisionamento e TLS](../../docs/guides/platform-ssl-instances-corrective.md) e [contrato operacional](../../OPERATIONS-CONTRACT.md). A stack clássica/API-first tem escopo diferente e não inclui essa Platform; não execute ambas disputando portas/domínios.

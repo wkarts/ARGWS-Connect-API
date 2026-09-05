@@ -64,3 +64,17 @@ O diagnóstico de 05/09/2026 contém `08P01 / bouncer config error` intermitente
 A suíte inclui transações PostgreSQL reais para concorrência, cota e reserva; o Engine externo é simulado nesses testes para controlar timeout e prova de propriedade. NGINX real valida wildcard, preservação de Host e rollback. Os serviços ACME e CloudPanel têm build próprio no CI. Testes isolados verificam certificados, cadeia/chave, staging, DNS e estados.
 
 Cloudflare, emissão Let's Encrypt, `clpctl` real e pareamento WhatsApp real precisam de homologação no VPS autorizado. O CI não usa credenciais reais nem altera o ambiente do usuário. Atualizar GitHub/imagens não equivale a atualizar containers já executando.
+
+## Correções da auditoria e instalador universal
+
+`CLOUDFLARE_TENANT_RECORD_TARGET` como hostname agora exige cadeia CNAME conferida pela API, sem ciclos, sem proxy e terminando em IP público. O primeiro hostname é explicitamente gerenciado; os demais saltos são somente verificados. `CLOUDFLARE_ORIGIN_IPV4/IPv6` opcionais permitem provisionar esse primeiro hostname. Zonas sem autorização e cadeias ambíguas falham com código de diagnóstico, sem modificar terceiros. Confirmação por leitura após escrita precede o recibo DNS READY.
+
+O scheduler revalida até 100 subdomínios persistidos por ciclo, priorizando os menos recentemente verificados. Somente registros específicos existentes nesses nomes são ajustados para a origem comprovada e DNS-only. Ausência de registro específico usa wildcard sem criar registro por cliente; um nó exato TXT/MX/NS sem endereço é um conflito que pode suprimir wildcard e não é considerado pronto. Campos `managed_dns` em metadata registram a comprovação individual. Chamadas repetidas usam prova recente, limitada a cinco minutos.
+
+O agente corrige um único upstream literal HTTP loopback no VHost gerenciado para `CLOUDPANEL_REVERSE_PROXY_URL`. Upstreams remotos, dinâmicos ou múltiplos são recusados. `CLOUDPANEL_WILDCARD_DOMAIN` divergente dos SAN configurados deixa de ser ignorado. Journal persistente com checksum e permissões antecede a primeira mutação de arquivos; ao reiniciar, um journal pendente é recuperado antes da validação do NGINX. Esse rollback restaura arquivos NGINX/certificados, não transações internas do banco do CloudPanel.
+
+`last_installed_at` registra instalação efetiva via clpctl; `last_verified_at` é a última conferência do certificado servido. `last-cloudpanel-installed-at.txt` é atualizado somente na instalação. Falha transitória mantém o último certificado; contradição DNS comprovada não é escondida como simples falha de polling.
+
+A API não recebe novas permissões de host. O Docker Socket Proxy preexistente e o Dockge são fronteiras adicionais de confiança administrativa, mesmo sem `privileged`.
+
+O [instalador universal](universal-installer.md) oferece seleção de ambiente, release, repositório público/privado e diretório. Todas as rotinas permanentes continuam nos serviços; aplicação desta branch não promove `main` automaticamente.

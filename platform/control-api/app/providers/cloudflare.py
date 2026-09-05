@@ -80,7 +80,7 @@ class CloudflareDNSProvider:
         timeout: int = 30,
     ) -> dict[str, Any]:
         self._require_enabled()
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False, follow_redirects=False) as client:
             response = await client.request(
                 method,
                 f"{self.base_url}/{path.lstrip('/')}",
@@ -189,7 +189,7 @@ class CloudflareDNSProvider:
         *,
         zone_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        params: dict[str, str] = {"name": hostname.lower().strip().rstrip(".")}
+        params: dict[str, str] = {"name": hostname.lower().strip().rstrip("."), "per_page": "100"}
         if record_type:
             params["type"] = record_type.upper()
         data = await self._request("GET", f"/zones/{self._zone(zone_id)}/dns_records", params=params)

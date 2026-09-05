@@ -40,6 +40,9 @@ def configured_names(env=None) -> list[str]:
     for key in ('PLATFORM_DOMAIN', 'CONTROL_PLANE_HOST', 'ADMIN_HOST', 'PARTNER_PLANE_HOST', 'API_HOST', 'DOCS_HOST', 'DEMO_HOST'):
         if env.get(key): names.append(hostname(env[key]))
     names += [hostname(name, wildcard=True) for name in env.get('ACME_ADDITIONAL_DOMAINS', '').split(',') if name.strip()]
+    wildcard = env.get('CLOUDPANEL_WILDCARD_DOMAIN', '').strip()
+    if wildcard and hostname(wildcard, wildcard=True) not in names:
+        raise ValueError('CLOUDPANEL_WILDCARD_NOT_IN_CERTIFICATE_NAMES')
     result = list(dict.fromkeys(names))
     if len(result) > 100: raise ValueError('CERTIFICATE_SAN_LIMIT')
     return result

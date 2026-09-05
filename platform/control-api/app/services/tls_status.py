@@ -49,7 +49,7 @@ def snapshot(name: str) -> dict:
             'acme_status': acme.get('status', 'WAITING_SERVICE'),
             'cloudpanel_status': installed.get('status', 'WAITING_SERVICE'),
             'expires_at': installed.get('expires_at'), 'fingerprint': installed.get('fingerprint'),
-            'last_error': installed.get('error') or acme.get('error')}
+            'last_error': installed.get('error') or acme.get('error') or dns.get('error')}
 
 
 def apply_receipt(domain) -> None:
@@ -62,6 +62,11 @@ def apply_receipt(domain) -> None:
         domain.status, domain.ssl_status = 'ACTIVE', 'NOT_REQUIRED'
         domain.last_error = None
         return
+    proof = dict(getattr(domain, 'provider_metadata', None) or {}).get('managed_dns', {})
+    if getattr(domain, 'management_mode', None) == 'PLATFORM_SUBDOMAIN':
+        status['dns_ready'] = bool(status['dns_ready'] and proof.get('status') == 'READY'
+            and proof.get('hostname') == domain.hostname and fresh(proof, 600)
+            and proof.get('origin_fingerprint') == receipt('dns.json').get('origin_fingerprint'))
     if status['dns_ready']:
         domain.dns_verified_at = now
         domain.ownership_verified_at = now
@@ -74,7 +79,10 @@ def apply_receipt(domain) -> None:
         still_valid = datetime.fromisoformat(previous['expires_at']) > now
     except (KeyError, ValueError, TypeError):
         still_valid = False
-    if not ready and domain.status == 'ACTIVE' and still_valid:
+    contradiction = proof.get('error') in {'LEGACY_DNS_RECORD_CONFLICT', 'LEGACY_DNS_READBACK_MISMATCH',
+        'EXACT_DNS_NODE_SHADOWS_WILDCARD', 'DNS_SCOPE_MISMATCH', 'DOMAIN_OUTSIDE_MANAGED_CUSTOMER_SCOPE',
+        'DOMAIN_NOT_COVERED_BY_DNS_PROOF'}
+    if not ready and domain.status == 'ACTIVE' and still_valid and not contradiction:
         domain.ssl_status = 'RECHECK_PENDING'
         domain.last_error = 'Revalidação DNS/SSL pendente; último certificado verificado ainda está válido.'
         return
@@ -86,4 +94,4 @@ def apply_receipt(domain) -> None:
         if domain.ssl_issued_at is None: domain.ssl_issued_at = now
         domain.last_error = None
     else:
-        domain.last_error = 'Aguardando DNS e certificado verificado pelos serviços ACME/CloudPanel.'
+        domain.last_error = 'Aguardando DNS/SSL: ' + str(proof.get('error') or status.get('last_error') or 'serviços ainda não confirmaram a instalação.')[:160]

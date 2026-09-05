@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import socket
+import os
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='connect-nginx-ci-') as temporary:
         root = Path(temporary)
         upstream = ThreadingHTTPServer(('127.0.0.1', 0), EchoHost)
+        os.environ['CLOUDPANEL_REVERSE_PROXY_URL'] = f'http://127.0.0.1:{upstream.server_port}'
         thread = threading.Thread(target=upstream.serve_forever, daemon=True)
         thread.start()
         with socket.socket() as listener:

@@ -162,7 +162,7 @@ def test_live_health_never_accepts_pending_or_staging(tmp_path):
 
 class DNSFake(CloudflareDNS):
     def __init__(self):
-        super().__init__({'CF_Token':'test-token-not-real','CLOUDFLARE_TENANT_RECORD_TARGET':'203.0.113.10'})
+        super().__init__({'CF_Token':'test-token-not-real','CLOUDFLARE_TENANT_RECORD_TARGET':'93.184.216.34'})
         self.data={}
         self.writes=[]
     def zone(self,name): return 'testzone'
