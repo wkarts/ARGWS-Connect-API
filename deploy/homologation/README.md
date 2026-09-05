@@ -61,17 +61,7 @@ A `main` continua sendo a linha estável/versionada. A produção permanece pres
 ```bash
 ./registry-login.sh   # somente se os packages GHCR forem privados
 ./deploy.sh
-```
-
-Na primeira execução, `prepare-env.sh` cria o `.env`, gera os segredos localmente, aplica `chmod 600`, cria `./volumes`, valida o GHCR e sobe a stack.
-
-Domínio oficial: `https://h.api.connect.argws.com.br`.
-
-## Persistência
-
-Core:
-
-```text
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.text
 ./volumes/instances
 ./volumes/postgres
 ./volumes/redis
@@ -93,3 +83,7 @@ Produção e homologação permanecem isoladas por projeto Compose, rede, banco,
 ```
 
 Use `nginx-location.conf.example` no CloudPanel para `h.api.connect.argws.com.br`. SSL/TLS termina no CloudPanel/Cloudflare; internamente a API permanece HTTP em `8080`.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.

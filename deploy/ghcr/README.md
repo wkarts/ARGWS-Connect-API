@@ -76,3 +76,7 @@ O token de registry não deve ser armazenado no `.env` entregue à API.
 ## Manager
 
 A imagem da API contém o Manager em `manager/dist`; o deployment normal não precisa publicar uma segunda porta ou subir um container Manager separado para servir `/manager`.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.

@@ -63,3 +63,7 @@ SERVER_PORT=8080
 ```
 
 `SERVER_PORT` é interno e não deve ser usado para escolher a porta publicada no host.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.

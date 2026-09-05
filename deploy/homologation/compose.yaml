@@ -18,10 +18,16 @@ services:
       SERVER_TYPE: http
       SERVER_PORT: "8080"
       DOCKER_ENV: "true"
+      DATABASE_POOL_ENABLED: "${DATABASE_POOL_ENABLED:-true}"
+      DATABASE_POOL_HOST: connect-engine-pgbouncer
+      DATABASE_POOL_PORT: "6432"
+      DATABASE_POOL_CONNECTION_LIMIT: "${DATABASE_POOL_CONNECTION_LIMIT:-5}"
+      DATABASE_POOL_TIMEOUT: "${DATABASE_POOL_TIMEOUT:-10}"
       DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
+      pgbouncer-argws-connect-homologation: {condition: service_healthy}
       postgres-argws-connect-homologation:
         condition: service_healthy
       redis-argws-connect-homologation:
@@ -212,6 +218,45 @@ services:
     networks:
       argws-connect-homologation-net:
         aliases: [argws-connect-kafka]
+    logging: *default-logging
+
+  pgbouncer-argws-connect-homologation:
+    container_name: pgbouncer-argws-connect-homologation
+    image: ${ARGWS_CONNECT_PGBOUNCER_IMAGE:-ghcr.io/wkarts/argws-connect-pgbouncer:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      POOL_NAME: engine
+      POOL_POSTGRES_HOST: postgres-argws-connect-homologation
+      POOL_POSTGRES_PORT: "5432"
+      POOL_POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POOL_POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      POOL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      POOL_TENANT_USER_PREFIX: ""
+      POOL_MAX_CLIENTS: "${PGBOUNCER_MAX_CLIENTS:-256}"
+      POOL_MAIN_SIZE: "${PGBOUNCER_POOL_SIZE:-32}"
+      POOL_TENANT_SIZE: "${PLATFORM_PGBOUNCER_TENANT_POOL_SIZE:-4}"
+      POOL_WAIT_SECONDS: "${PGBOUNCER_QUERY_WAIT_TIMEOUT:-10}"
+      POOL_QUERY_SECONDS: "${PGBOUNCER_QUERY_TIMEOUT:-60}"
+      POOL_SERVER_IDLE_SECONDS: "${PGBOUNCER_SERVER_IDLE_TIMEOUT:-15}"
+    depends_on:
+      postgres-argws-connect-homologation: {condition: service_healthy}
+    networks:
+      argws-connect-homologation-net:
+        aliases: [connect-engine-pgbouncer]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    ulimits:
+      nofile: {soft: 8192, hard: 8192}
+    healthcheck:
+      test: ["CMD", "python", "/app/service.py", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     logging: *default-logging
 
 networks:

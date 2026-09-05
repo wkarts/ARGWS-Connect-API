@@ -73,30 +73,24 @@ docker compose --env-file .env --profile cloudpanel up -d
 
 Para Nginx/Certbot de host sem CloudPanel, use `deploy/platform/domain-agent/`.
 
-## Primeiro deploy
+## Operação por serviços
 
-```bash
-cd deploy/platform-production
-./prepare-env.sh
-# revisar .env e domínios/segredos
-./preflight.sh
-./deploy.sh
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Atualização
 
-```bash
-./update.sh
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Status
 
-```bash
-./status.sh
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Stack clássica x Platform
 
 `deploy/production/` continua sendo a opção production clássica/API-first.
 
 `deploy/platform-production/` é a opção production do **produto completo**. Elas são stacks distintas e não devem ser iniciadas simultaneamente com as mesmas portas locais. Escolha qual deployment irá atender os domínios públicos de production.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.

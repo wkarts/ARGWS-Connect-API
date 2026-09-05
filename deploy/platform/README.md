@@ -3,36 +3,27 @@
 Todos os perfis pertencem ao **mesmo produto, repositório, VERSION e release flow do Connect|API**.
 O Manager legado não participa de nenhum perfil.
 
-## Preparar ambiente
+## Configurar a stack
 
-```bash
-./deploy/platform/prepare-env.sh
-# o script sincroniza chaves novas e gera apenas placeholders CHANGE_ME, preservando valores existentes
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Perfil `api`
 
 Engine Node/TypeScript + PostgreSQL/Redis/RabbitMQ/MinIO. Sem frontend, Control Plane ou DOCs.
 
-```bash
-./deploy/platform/deploy.sh api
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Perfil `docs`
 
 API-only + documentação oficial da mesma versão.
 
-```bash
-./deploy/platform/deploy.sh docs
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Perfil `platform`
 
 Produto completo: Engine, DOCs, Platform Control API, Vue frontend, workers, scheduler, banco de governança, backups, Log Agent, Prometheus/Grafana e gateway. ACME/CloudPanel permanecem opcionais pelo profile `cloudpanel`.
 
-```bash
-./deploy/platform/deploy.sh platform
-```
+**Retaguarda emergencial:** comandos de scripts não compõem o deploy normal. Use somente o Compose e o `.env` no gerenciador da stack, conforme `OPERATIONS-CONTRACT.md`.
 
 ## Develop completo independente
 
@@ -69,3 +60,7 @@ docker compose --env-file deploy/platform/.env \
 - `VERSION` e `package.json` da raiz são a única fonte de versão;
 - Platform API/Web/Gateway recebem exatamente a mesma SemVer do Connect|API;
 - o RC34 não mantém versionamento nem workflow próprio.
+
+## Contrato operacional vigente
+
+No gerenciador de stacks, forneça o Compose deste deployment e o `.env`, preservando os volumes existentes. Credenciais de registry pertencem à configuração do gerenciador. O pooler gera seus próprios arquivos dentro do container; migrations, bootstrap e backup continuam sob responsabilidade dos serviços. Atualize as imagens homologadas pela ação de atualização da stack, sem aplicadores externos ou overlays obrigatórios. Consulte `OPERATIONS-CONTRACT.md` e `docs/guides/database-pooling.md`.
