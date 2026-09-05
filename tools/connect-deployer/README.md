@@ -1,329 +1,51 @@
-# ARGWS Connect|API Deployer
+# ARGWS Connect|API Deployer — Tauri/Rust 2.0.0
 
-Implantador desktop do **ARGWS Connect|API**, construído com **Tauri 2 + Rust + Vue 3 + TypeScript**.
+Implantador gráfico do **Connect|API**, integrado ao repositório principal em `tools/connect-deployer`. Substitui o launcher Python/Paramiko/PyInstaller por **Tauri 2, Rust e Vue 3/TypeScript**, usando o projeto fornecido por Wallace.
 
-O objetivo deste projeto é permitir que um operador abra uma aplicação desktop, informe o VPS e implante ou atualize o Connect|API por SSH **sem instalar Python, Node.js, Rust ou Go no servidor**.
-
-> A lógica funcional foi portada a partir do `install-connect.py` fornecido como referência. A cópia original está preservada em `reference/install-connect-python-original.py` para auditoria e comparação.
-
-## Arquitetura
+## Funcionamento
 
 ```text
-┌───────────────────────────────────────────────────────────────┐
-│ Desktop                                                       │
-│                                                               │
-│ ARGWS Connect|API Deployer                                    │
-│ Tauri 2 + Vue 3 + TypeScript                                  │
-│                    │                                          │
-│                    ▼                                          │
-│               Rust Desktop Core                               │
-│        SSH / SFTP / known_hosts / SHA-256                     │
-└────────────────────┬──────────────────────────────────────────┘
-                     │ SSH/SFTP
-                     ▼
-┌───────────────────────────────────────────────────────────────┐
-│ VPS Linux                                                     │
-│                                                               │
-│ /tmp/argws-connect-deployer-<uuid>/                            │
-│        connect-deploy-agent  ← binário Rust estático          │
-│                    │                                          │
-│                    ├─ GitHub API                              │
-│                    ├─ Docker / Compose v2                     │
-│                    ├─ GHCR                                    │
-│                    ├─ validação da configuração               │
-│                    ├─ backup transacional                     │
-│                    └─ readiness/health                        │
-│                                                               │
-│ O agente temporário é removido ao finalizar.                  │
-└───────────────────────────────────────────────────────────────┘
+Desktop Tauri / Vue
+    -> Core Rust SSH/SFTP
+    -> Agente Rust estático Linux AMD64 ou ARM64
+    -> GitHub / GHCR / Docker Compose
+    -> Serviços do Connect|API
 ```
 
-O executável desktop contém dois agentes Linux:
+Cada desktop contém os dois agentes Linux. A arquitetura do VPS é detectada por SSH; o agente correspondente é transferido para um diretório temporário privado, relido por SFTP para verificar SHA-256 e validado por self-test antes da operação. A solicitação segue por stdin, não em argumentos remotos. O temporário é removido ao finalizar, com aviso em caso de falha de limpeza.
 
-- `linux-amd64` (`x86_64-unknown-linux-musl`)
-- `linux-arm64` (`aarch64-unknown-linux-musl`)
+**O computador do operador e o VPS não precisam de Python para este implantador.** O VPS também não requer Node.js, Rust/Cargo ou Go. Linux AMD64/ARM64, SSH/SFTP, Docker Engine e Compose v2 continuam obrigatórios. Os deployments completos da Platform exigem CloudPanel/clpctl conforme o contrato. O Deployer não instala pacotes do sistema operacional.
 
-A arquitetura do VPS é detectada por SSH e o agente correto é transferido automaticamente.
+## Interface e operação
 
-## O que NÃO precisa existir no VPS
+A interface recebida foi preservada. Ela permite informar SSH (host, porta, usuário, senha, chave ou SSH Agent), testar conexão, conferir fingerprint/known_hosts, consultar o pré-flight, escolher ambiente, versão, deployment e diretório, fornecer parâmetros de Platform/ACME/Cloudflare e credenciais de GitHub/GHCR privados, autorizar o agente de host e a instalação opcional do Dockge.
 
-O servidor **não precisa** de:
+**Plan** valida e apresenta o plano, sem gravar a stack ou subir containers. **Prepare** grava a configuração. **Apply** também inicia a stack e acompanha readiness/health após baixar as imagens. Revise o plano e o recibo; não trate serviços pendentes como implantação saudável.
 
-- Python / pip / venv;
-- Node.js / npm;
-- Rust / Cargo;
-- Go;
-- Git;
-- `curl` / `wget` / `jq`;
-- `sha256sum` ou `shasum` para validar o agente.
+Migrations, bootstrap, provisionamento, SSL e backups continuam nos serviços. O `install-connect.py` canônico da raiz permanece disponível como alternativa independente: o desktop Rust não o executa nem o incorpora. O exemplar em `reference/install-connect-python-original.py` é material de auditoria.
 
-A validação SHA-256 do agente enviado é feita pelo próprio desktop relendo o arquivo via SFTP antes da execução.
+## Segurança e preservação de dados
 
-## Requisitos do VPS
+Chave SSH conhecida e diferente bloqueia a conexão. Host novo exige aprovação explícita após conferência da fingerprint por canal confiável. Sudo usa somente `sudo -n`: a ferramenta não solicita nem armazena senha de sudo.
 
-Para deploy normal:
+Os tokens passam pela memória da interface e do Rust, não são gravados em preferências ou argumentos remotos. Um `.env` local é lido pelo Rust e encaminhado via stdin; a interface recebe apenas o caminho. O login GHCR usa configuração temporária, sem alterar helpers persistentes. Isso não configura autenticação permanente no Dockge.
 
-- Linux `amd64` ou `arm64`;
-- servidor SSH/SFTP;
-- Docker Engine;
-- Docker Compose v2 (`docker compose`).
-
-Para `platform-production` / `platform-develop` completos:
-
-- CloudPanel instalado;
-- `clpctl` disponível, conforme o deployment da Platform.
-
-O Deployer **não instala pacotes do sistema operacional**. Essa separação é intencional.
-
-## Regras de segurança preservadas
-
-O agente Rust mantém as principais proteções do instalador Python original:
-
-- produção não aceita `develop`;
-- `latest` em produção resolve apenas release estável publicada;
-- arquivos do GitHub são obtidos por commit imutável;
-- integridade Git blob SHA-1 é validada;
-- build local no Compose é bloqueado;
-- imagens são validadas antes da atualização;
-- arquitetura das imagens é conferida;
-- `.env` existente não é substituído por um arquivo local;
-- placeholders `CHANGE_ME*` são bloqueados em atualização;
-- alteração silenciosa de volumes, portas ou identidade de dados é bloqueada;
-- mudança do nome do Compose project é bloqueada;
-- diretórios de stack perigosos, `.`/`..` e symlinks são rejeitados;
-- gravação da configuração possui backup/journal e recuperação;
-- nenhum rollback destrutivo de banco é executado;
-- Docker remoto (`DOCKER_HOST`/context remoto) é recusado no `apply`;
-- CloudPanel Agent exige autorização explícita;
-- Dockge exige autorização explícita ao Docker socket;
-- `sudo` somente é utilizado com `sudo -n`; senha de sudo não é solicitada nem armazenada.
-
-## Segredos
-
-### `.env`
-
-Ao escolher um `.env` na UI, o frontend envia apenas o **caminho local** ao comando Tauri. O backend Rust lê o arquivo e o encaminha ao agente por `stdin` no canal SSH. O conteúdo não é salvo pela aplicação desktop.
-
-### Tokens digitados na UI
-
-Tokens GitHub, GHCR e Cloudflare passam pela memória da UI porque são digitados nela e seguem pelo IPC do Tauri para o Rust. Eles:
-
-- não são colocados em argumentos de linha de comando remotos;
-- não são registrados nos logs;
-- não são persistidos em arquivo de preferências pelo projeto;
-- são enviados no JSON pelo `stdin` do agente SSH;
-- têm representação `Debug` redigida no Rust.
-
-O login GHCR é feito em um `DOCKER_CONFIG` temporário `0700/0600`, preservando configurações existentes aplicáveis e removendo o credential helper do `ghcr.io` apenas na cópia temporária.
-
-## known_hosts
-
-A conexão SSH é **fail-closed**:
-
-- chave conhecida e igual: permite conexão;
-- chave conhecida e diferente: bloqueia por possível MITM;
-- host novo: bloqueia por padrão e mostra a fingerprint SHA-256;
-- a UI possui opção explícita para confiar em host novo.
-
-A opção de confiar em host novo deve ser usada somente depois de conferir a fingerprint do VPS por um canal confiável.
-
-## UI
-
-A aplicação possui:
-
-- configuração SSH (host, porta, usuário, chave, senha ou SSH Agent);
-- teste de conexão;
-- fingerprint do host;
-- pré-flight do VPS;
-- Docker/Compose/CloudPanel/clpctl;
-- seleção `develop` / `production`;
-- versão `develop`, `latest` ou `vX.Y.Z`;
-- deployment;
-- diretório da stack;
-- configuração da Platform/ACME/Cloudflare;
-- repositório GitHub privado;
-- GHCR privado;
-- autorização do Host Agent;
-- instalação opcional do Dockge;
-- ações `Plan`, `Prepare` e `Apply`;
-- barra de progresso;
-- eventos estruturados do agente;
-- recibo JSON da implantação.
-
-## Estrutura do projeto
-
-```text
-ARGWS-Connect-Deployer-Tauri-Rust/
-├─ .github/workflows/build.yml
-├─ Cargo.toml
-├─ package.json
-├─ crates/
-│  ├─ deployer-protocol/
-│  └─ deployer-agent/
-├─ src-tauri/
-│  ├─ embedded/
-│  ├─ capabilities/
-│  └─ src/
-├─ src/
-│  ├─ App.vue
-│  ├─ main.ts
-│  ├─ style.css
-│  └─ types/
-├─ scripts/
-├─ reference/
-│  └─ install-connect-python-original.py
-├─ ARCHITECTURE.md
-├─ SECURITY.md
-└─ VALIDATION.md
-```
-
-## Guia de build
-
-O procedimento completo de build local e CI está em [`BUILD.md`](BUILD.md).
-
-# Compilação integrada ao Connect|API
-
-Esta ferramenta está em `tools/connect-deployer` no repositório principal. O workflow ativo
-é `.github/workflows/connect-deployer-binaries.yml` na raiz do repositório.
-O workflow standalone original foi preservado somente para auditoria em
-`reference/upstream-tauri-build.yml`; não crie uma tag `v2.0.0` da aplicação
-para publicar apenas o implantador.
-
-PRs e develop geram artifacts; a publicação estável anexa os pacotes à release
-existente do Connect|API. `BUILD-INFO.json` distingue a versão 2.0.0 da ferramenta
-da versão canônica do produto e registra o commit/canal.
-
-São compilados dois agentes musl Linux em runners nativos (sem QEMU) e quatro
-desktops: Windows x64, Linux x64, Linux ARM64 e macOS ARM64. Cada desktop contém
-os dois agentes. Os pacotes incluem executável, instaladores específicos,
-metadados e checksums. Nenhum build release sem os dois agentes é distribuído.
-
-Não há Authenticode ou notarização Apple. A assinatura macOS ad-hoc não é
-uma assinatura de editor verificado. Os testes offline não fazem deploy real.
-
-# Compilação local no Windows
-
-## Requisitos da máquina de build
-
-- Windows 10/11 x64;
-- Node.js 22;
-- Rust **1.90.0** via `rustup` + MSVC toolchain;
-- Microsoft C++ Build Tools/Visual Studio Build Tools;
-- WebView2 Runtime;
-- Docker Desktop **somente se quiser compilar os agentes Linux localmente**.
-
-## Build completo
-
-No PowerShell:
-
-```powershell
-.\scripts\build-windows.ps1
-```
-
-O script:
-
-- compila agentes Linux via Docker;
-- embute agentes em `src-tauri/embedded/`;
-- instala dependências frontend;
-- valida Vue/TypeScript;
-- executa `cargo check` do desktop;
-- compila o Tauri;
-- coleta arquivos em `dist/release/`.
-
-### Somente VPS amd64
-
-```powershell
-.\scripts\build-windows.ps1 -Amd64Only
-```
-
-### Agentes já disponíveis
-
-Copie os arquivos para:
-
-```text
-src-tauri/embedded/agent-linux-amd64
-src-tauri/embedded/agent-linux-arm64
-```
-
-Depois:
-
-```powershell
-.\scripts\build-windows.ps1 -SkipAgents
-```
-
-# Compilação local Linux/macOS
-
-```bash
-./scripts/build-linux.sh
-```
-
-ou:
-
-```bash
-./scripts/build-macos.sh
-```
-
-Por padrão os scripts constroem os agentes Linux via Docker antes do Tauri. Use `--skip-agents` se os agentes já estiverem em `src-tauri/embedded/`.
-
-# Fluxo de implantação
-
-```text
-1. Abrir ARGWS Connect|API Deployer
-2. Informar host/porta/usuário
-3. Selecionar chave SSH, senha ou SSH Agent
-4. Testar servidor
-5. Conferir fingerprint/known_hosts
-6. Conferir Docker/Compose/CloudPanel
-7. Selecionar Develop ou Production
-8. Selecionar versão/deployment
-9. Informar domínio/ACME/Cloudflare quando aplicável
-10. Executar PLAN
-11. Revisar recibo
-12. Executar PREPARE ou APPLY
-13. Acompanhar os eventos/health checks
-```
-
-## Ações
-
-### Plan
-
-Valida:
-
-- GitHub/release;
-- Compose;
-- `.env`;
-- imagens;
-- arquitetura;
-- proteção de dados/volumes;
-- regras da Platform.
-
-Não grava a stack nem sobe containers.
-
-### Prepare
-
-Executa o plano e grava:
-
-- `compose.yaml`;
-- `.env`;
-- `.connect-install.json`;
-- backup/journal de configuração.
-
-Não executa `docker compose up`.
-
-### Apply
-
-Além de preparar:
-
-- valida Docker Linux/local;
-- valida `clpctl` quando a Platform exigir;
-- baixa todas as imagens primeiro;
-- verifica revisão das imagens `develop` quando aplicável;
-- grava configuração;
-- opcionalmente instala Dockge;
-- executa `docker compose up -d --no-build --pull never`;
-- aguarda readiness/health;
-- grava o recibo final.
-
-# Status desta entrega
-
-O código-fonte está estruturado para compilação pelo workflow e pelos scripts locais. Consulte `VALIDATION.md` para saber exatamente o que foi validado no ambiente de geração desta entrega e o que é validado automaticamente pelo CI.
+O agente valida fontes por commit e hashes Git, confere manifests/arquitetura, recusa build local e Docker remoto no Apply, protege nomes/volumes/portas e não substitui `.env` existente por um arquivo local. Produção não aceita `develop` como fallback. Alterações destrutivas são bloqueadas. Backup/journal do instalador é de **configuração**, não dos bancos ou armazenamento.
+
+O CloudPanel Agent e a eventual instalação do Dockge exigem consentimento para os privilégios correspondentes. Consulte `SECURITY.md` e o `OPERATIONS-CONTRACT.md` da aplicação antes de operar.
+
+## Compilação e distribuição
+
+Workflow ativo: **Connect Deployer - Build Binaries**, em `.github/workflows/connect-deployer-binaries.yml` na raiz do Connect|API. Compila agentes musl nativos AMD64/ARM64 e desktops Windows x64, Linux x64/ARM64 e macOS ARM64. Releases do desktop sem os dois agentes são recusados.
+
+Os artifacts incluem executável, instaladores, `BUILD-INFO.json`, locks de dependências, origem e checksums. A versão 2.0.0 da ferramenta é distinguida da versão canônica da aplicação. PR/develop geram artifacts; a promoção estável autorizada anexa os pacotes à **mesma release existente do Connect|API**. **Não crie uma tag `v2.0.0` da aplicação para publicar somente o implantador.**
+
+O workflow standalone e a documentação recebida permanecem em `reference/` como histórico, não como procedimento ativo. Consulte `BUILD.md` para compilação local e `DELIVERY.md` para distribuição integrada.
+
+## Validação e limites
+
+O pipeline valida agentes estáticos, compila Vue/TypeScript e os desktops, executa um self-check offline do binário real sem abrir WebView ou SSH e confere os checksums. Resultados concretos ficam nos checks da PR; consulte `VALIDATION.md`.
+
+Não há assinatura Authenticode ou notarização Apple. A assinatura macOS ad-hoc não comprova um editor verificado. Windows depende do WebView2; Linux desktop depende das bibliotecas gráficas do pacote Tauri. Os agentes musl do VPS não exigem essas dependências gráficas.
+
+Compilação e self-check offline não substituem teste interativo da interface nem implantação SSH real. A integração não usa credenciais operacionais, não acessa seu VPS e não corrige por si só incidentes dos serviços da aplicação.

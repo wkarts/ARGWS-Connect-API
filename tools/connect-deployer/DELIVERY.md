@@ -1,28 +1,21 @@
-# Entrega transportável
+# Distribuição do implantador no Connect|API
 
-Este diretório é o projeto-fonte completo do **ARGWS Connect|API Deployer 2.0.0**.
+Este diretório contém o código do **ARGWS Connect Deployer 2.0.0**, integrado ao repositório principal. Não é necessário criar outro repositório ou uma tag independente.
 
-## Para levar e compilar
+## Receber os binários
 
-### GitHub
+No GitHub do Connect|API, abra **Actions → Connect Deployer - Build Binaries**, selecione uma execução concluída e baixe o artifact `connect-deploy-desktop-<plataforma>`.
 
-1. crie um repositório vazio;
-2. envie todo o conteúdo deste diretório;
-3. abra **Actions → Build ARGWS Connect Deployer → Run workflow**;
-4. baixe os artefatos `desktop-windows-x64`, `desktop-linux-x64` ou `desktop-macos-arm64`;
-5. para publicar release, crie uma tag `v2.0.0`.
+Plataformas: `windows-x64`, `linux-x64`, `linux-arm64` e `macos-arm64`. Extraia o ZIP do artifact e depois o pacote da aplicação. Cada desktop contém os dois agentes Rust Linux. Os executáveis de agentes disponibilizados separadamente são para auditoria/build e não precisam ser instalados manualmente no VPS.
 
-### Windows local
+PRs/develop são builds de homologação. A publicação estável anexa os arquivos à mesma release existente do Connect|API, mediante a promoção autorizada da aplicação. Não execute `git tag v2.0.0` para publicar somente a ferramenta.
 
-```powershell
-.\scripts\bootstrap-windows.ps1
-.\scripts\build-windows.ps1
-```
+## Compilar
 
-O projeto compila os agentes Linux Rust, incorpora-os no Tauri e grava os artefatos em `dist/release/`.
+Use o workflow integrado ou os auxiliares locais descritos em `BUILD.md`. O workflow independente recebido no anexo está apenas em `reference/upstream-tauri-build.yml` como histórico.
 
-## VPS
+## Operar
 
-O destino não precisa de Python, Node.js, Rust, Cargo ou Go. O agente Linux é um binário temporário enviado por SSH/SFTP e removido ao final.
+Abra a interface gráfica, confira o host/fingerprint SSH, configure o ambiente e revise o resultado de **Plan** antes de usar **Prepare** ou **Apply**. O Deployer não substitui backup de dados, não instala o sistema operacional/Docker/CloudPanel e não promove a aplicação para produção por conta própria.
 
-Consulte `README.md`, `BUILD.md`, `SECURITY.md` e `VALIDATION.md` antes do primeiro `Apply` em produção.
+Consulte `README.md`, `SECURITY.md` e `VALIDATION.md`. Os testes offline não comprovam uma implantação real no VPS. Não há assinatura de editor Authenticode/notarização Apple nesta integração.
