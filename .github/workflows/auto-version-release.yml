@@ -394,3 +394,16 @@ jobs:
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "ARGWS Connect API ${{ needs.plan-version.outputs.tag }}" \
             --generate-notes
+
+  # Additive tool distribution only. The existing release remains the owner of
+  # SemVer, images, tag, title and release notes. GITHUB_TOKEN-created releases
+  # do not trigger another release-event workflow, so call this job explicitly.
+  deployer-binaries:
+    name: Attach Connect Deployer binaries
+    needs: [plan-version, version-source, release]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/connect-deployer-binaries.yml
+    with:
+      source_ref: ${{ needs.version-source.outputs.release_sha }}
+      release_tag: ${{ needs.plan-version.outputs.tag }}

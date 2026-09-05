@@ -169,3 +169,11 @@ A linha canônica do produto iniciou em `1.0.0` e continua usando SemVer.
 Cada merge bem-sucedido em `main` executa validação, calcula a próxima versão SemVer, publica as imagens API/Manager no GHCR e somente depois cria a tag e a GitHub Release. O incremento padrão é `patch`; labels `version:minor` e `version:major` permitem promover a próxima versão sem edição manual de arquivos.
 
 Consulte [`RELEASE-AUTOMATION.md`](RELEASE-AUTOMATION.md) para o fluxo completo.
+
+## Implantador local e SSH
+
+O **Connect Deployer** é a ferramenta opcional em `tools/connect-deployer`, com
+binários para Windows, Linux e macOS gerados no workflow
+**Connect Deployer - Build Binaries**. PRs disponibilizam artefatos de teste; o
+fluxo estável anexa os executáveis à própria release do Connect|API.
+Consulte [binários do implantador](docs/guides/connect-deployer-binaries.md).
