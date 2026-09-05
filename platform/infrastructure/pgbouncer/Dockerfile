@@ -2,7 +2,7 @@ ARG PYTHON_IMAGE=ghcr.io/wkarts/argws-connect-python:3.13-slim
 FROM ${PYTHON_IMAGE} AS builder
 ARG PGBOUNCER_VERSION=1.25.2
 ARG PGBOUNCER_SHA256=924ad35113fd0a71c8e2dbe85b5d03445532e2b7b37a9f8a48983beea238b332
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential libevent-dev libssl-dev pkg-config curl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential libevent-dev libssl-dev pkg-config curl ca-certificates pandoc && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 # Pin the upstream release and verify its published checksum during the build.
 RUN curl --fail --show-error --location --retry 3 -O https://www.pgbouncer.org/downloads/files/${PGBOUNCER_VERSION}/pgbouncer-${PGBOUNCER_VERSION}.tar.gz \

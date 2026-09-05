@@ -1,0 +1,51 @@
+name: Temporary PgBouncer branch source synchronization
+
+# Development-only transfer of a reviewed, checksummed source patch.
+# Not a deployment workflow. Removed before the pull request is merged.
+on:
+  push:
+    branches: ['fix/pgbouncer-service-connection-budget']
+    paths:
+      - '.github/pgbouncer-source-sync.patch.gz'
+      - '.github/workflows/pgbouncer-source-sync.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  synchronize:
+    if: github.repository == 'wkarts/ARGWS-Connect-API' && github.ref == 'refs/heads/fix/pgbouncer-service-connection-budget'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify and apply reviewed source changes
+        shell: python
+        run: |
+          import gzip, hashlib, os, pathlib, subprocess
+          branch = 'refs/heads/fix/pgbouncer-service-connection-budget'
+          assert os.environ['GITHUB_REF'] == branch
+          assert os.environ['GITHUB_REPOSITORY'] == 'wkarts/ARGWS-Connect-API'
+          patch = gzip.decompress(pathlib.Path('.github/pgbouncer-source-sync.patch.gz').read_bytes())
+          assert hashlib.sha256(patch).hexdigest() == '6b07b4f87fc7472068225a0c99b3b78564fc12d22e3d8112ff226ce79ce97ee0'
+          def git(*args, **kwargs):
+              return subprocess.run(['git', *args], check=True, **kwargs)
+          git('merge-base', '--is-ancestor', 'e74aab0ca8310f08a2179da300b72b0071af1ffc', 'HEAD')
+          git('apply', '--check', '--index', '-', input=patch)
+          git('apply', '--index', '-', input=patch)
+          names = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          assert len(names) == 40
+          for name in names:
+              assert not name.startswith('.github/workflows/')
+              assert name.startswith(('deploy/', 'docs/guides/')) or name in {
+                  '.github/scripts/apply-version.mjs', 'AGENTS.md', 'DEVELOPMENT-FLOW.md', 'RELEASE-MANIFEST.json'
+              }, name
+          git('diff', '--cached', '--check')
+          git('config', 'user.name', 'github-actions[bot]')
+          git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          git('commit', '-m', 'fix(deploy): integra PgBouncer nas stacks existentes e documenta operação por serviços')
+          # A concurrent branch change causes a normal non-fast-forward failure.
+          git('push', 'origin', 'HEAD:' + branch)

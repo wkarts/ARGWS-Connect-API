@@ -132,6 +132,11 @@ def main() -> None:
         with connect(pooled_port, "customer_b", "customer_b", "rotated-ci-password-only") as connection:
             assert connection.execute("SELECT 1").fetchone()[0] == 1
         print("PASS: live pooling, new tenants, isolation, expiry/rotation, asyncpg and overload recovery")
+    except Exception:
+        # Diagnostics only from disposable CI containers, never production.
+        for name in (pool, pg):
+            subprocess.run(["docker", "logs", "--tail", "80", name], check=False)
+        raise
     finally:
         for name in (pool, pg):
             subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
