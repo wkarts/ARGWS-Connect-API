@@ -82,7 +82,8 @@ Exemplo sem aplicar alterações, usando chave já conhecida:
   --environment develop `
   --version develop `
   --deployment platform-develop `
-  --directory /opt/stacks/argws-connect-platform-develop
+  --directory /opt/stacks/argws-connect-platform-develop `
+  --accept-host-agent
 ```
 
 Para interagir com os prompts, inclua `--interactive` antes do separador.

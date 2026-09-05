@@ -27,7 +27,12 @@ def third_party_files() -> dict[str, bytes]:
             continue
         dependencies.append(f"{name}=={distribution.version}")
         safe = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
-        output[f"THIRD-PARTY/{safe}/METADATA.txt"] = str(distribution.metadata).encode("utf-8")
+        # Preserve wheel metadata verbatim. Serializing the parsed email.Message
+        # rejects valid multiline legacy Description headers (for example altgraph).
+        metadata = distribution.read_text("METADATA") or distribution.read_text("PKG-INFO")
+        if metadata is None:
+            metadata = json.dumps(list(distribution.metadata.items()), ensure_ascii=False, indent=2) + "\n"
+        output[f"THIRD-PARTY/{safe}/METADATA.txt"] = metadata.encode("utf-8")
         for file in distribution.files or []:
             parts = [part.lower() for part in file.parts]
             if (any(part.endswith((".dist-info", ".egg-info")) for part in parts)
