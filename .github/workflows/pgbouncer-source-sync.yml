@@ -35,7 +35,7 @@ jobs:
               return subprocess.run(['git', *args], check=True, **kwargs)
           git('merge-base', '--is-ancestor', 'e74aab0ca8310f08a2179da300b72b0071af1ffc', 'HEAD')
           git('apply', '--check', '--index', '-', input=patch)
-          git('apply', '--index', '-', input=patch)
+          git('apply', '--whitespace=fix', '--index', '-', input=patch)
           names = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
           assert len(names) == 40
           for name in names:
