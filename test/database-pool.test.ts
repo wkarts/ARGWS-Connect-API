@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { runtimeDatabaseUrl, isDatabaseUnavailable } from '../src/utils/database-pool';
+
+const direct = 'postgresql://user:pa%40ss@postgres:5432/database?schema=public';
+assert.equal(runtimeDatabaseUrl({ DATABASE_CONNECTION_URI: direct }), undefined);
+const env = { DATABASE_POOL_ENABLED: 'true', DATABASE_CONNECTION_URI: direct };
+const pooled = new URL(runtimeDatabaseUrl(env)!);
+assert.equal(pooled.hostname, 'connect-engine-pgbouncer');
+assert.equal(pooled.port, '6432');
+assert.equal(pooled.searchParams.get('schema'), 'public');
+assert.equal(pooled.searchParams.get('connection_limit'), '5');
+assert.equal(pooled.searchParams.get('pool_timeout'), '10');
+assert.equal(pooled.password, 'pa%40ss');
+assert.equal(env.DATABASE_CONNECTION_URI, direct);
+assert.throws(() => runtimeDatabaseUrl({ ...env, DATABASE_POOL_HOST: 'host/evil' }));
+assert.throws(() => runtimeDatabaseUrl({ ...env, DATABASE_POOL_CONNECTION_LIMIT: '-1' }));
+assert.throws(() => runtimeDatabaseUrl({ ...env, DATABASE_POOL_PORT: '65536' }));
+assert.throws(() => runtimeDatabaseUrl({ ...env, DATABASE_CONNECTION_URI: 'mysql://user:pw@db/test' }));
+for (const code of ['P2024', 'P2037', 'P1001', 'P1002', 'P1017']) assert.equal(isDatabaseUnavailable({ code }), true);
+for (const code of ['P2002', 'P2025', 'OTHER']) assert.equal(isDatabaseUnavailable({ code }), false);
+assert.equal(isDatabaseUnavailable(null), false);
+console.log('database pooling runtime: 20 assertions passed');

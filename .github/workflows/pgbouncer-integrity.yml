@@ -1,0 +1,43 @@
+name: PgBouncer Service Integrity
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop, 'fix/pgbouncer-service-connection-budget']
+
+permissions:
+  contents: read
+
+jobs:
+  pooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies
+        run: pip install -r platform/control-api/requirements.txt
+      - name: Isolated service and application tests
+        env:
+          APP_ENV: testing
+          PYTHONPATH: platform/control-api
+        run: pytest -q platform/control-api/tests/connect_platform/test_pgbouncer_service.py
+      - name: Build actual service image
+        run: docker build --build-arg PYTHON_IMAGE=python:3.13-slim -f platform/infrastructure/pgbouncer/Dockerfile -t connect-pgbouncer-ci:local .
+      - name: PostgreSQL 17 + PgBouncer live integration
+        env:
+          APP_ENV: testing
+          PYTHONPATH: platform/control-api
+        run: python platform/infrastructure/pgbouncer/integration_test.py
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Native Engine pooling checks
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsx test/database-pool.test.ts
+          npm run docs:check

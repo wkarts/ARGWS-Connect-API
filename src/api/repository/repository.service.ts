@@ -1,6 +1,7 @@
 import { ConfigService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { PrismaClient } from '@prisma/client';
+import { runtimeDatabaseUrl } from '@utils/database-pool';
 
 export class Query<T> {
   where?: T;
@@ -11,7 +12,8 @@ export class Query<T> {
 
 export class PrismaRepository extends PrismaClient {
   constructor(private readonly configService: ConfigService) {
-    super();
+    const pooledUrl = runtimeDatabaseUrl(process.env);
+    super(pooledUrl ? { datasources: { db: { url: pooledUrl } } } : undefined);
   }
 
   private readonly logger = new Logger('PrismaRepository');
