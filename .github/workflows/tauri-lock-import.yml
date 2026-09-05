@@ -1,0 +1,52 @@
+name: Temporary import of verified Tauri dependency locks
+
+# Import only the two dependency lockfiles produced by this PR's resolver.
+# No installer execution, release or host access. Removed after the import.
+on:
+  push:
+    branches: ['feat/connect-deployer-tauri-rust']
+    paths: ['.github/workflows/tauri-lock-import.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  import-locks:
+    if: github.repository == 'wkarts/ARGWS-Connect-API' && github.ref == 'refs/heads/feat/connect-deployer-tauri-rust'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          repository: wkarts/ARGWS-Connect-API
+          run-id: 33981698642
+          name: connect-tauri-source-locks
+          path: .verified-tauri-locks
+      - name: Verify exact lockfile bytes before committing
+        shell: python
+        run: |
+          import hashlib, pathlib, subprocess
+          expected = {
+              'Cargo.lock': '49438437c062baefa16bfe6f3a274a0cd928b8a07ab7cc036f02b8472f774acc',
+              'package-lock.json': '9ca3552b4b6ccf949ca8282479edf0e1054d3ed7c7195750b1594c58fd43e30d',
+          }
+          directory = pathlib.Path('.verified-tauri-locks')
+          assert sorted(p.name for p in directory.iterdir()) == sorted(expected)
+          names=[]
+          for name, digest in expected.items():
+              data=(directory/name).read_bytes()
+              assert hashlib.sha256(data).hexdigest()==digest
+              destination=pathlib.Path('tools/connect-deployer')/name
+              assert not destination.exists(), 'Do not replace an existing lockfile'
+              destination.write_bytes(data)
+              names.append(str(destination))
+          def git(*args): return subprocess.check_output(['git', *args])
+          git('add','--',*names)
+          assert set(git('diff','--cached','--name-only').decode().splitlines()) == set(names)
+          git('config','user.name','github-actions[bot]')
+          git('config','user.email','41898282+github-actions[bot]@users.noreply.github.com')
+          git('commit','-m','build(deployer): fixa dependências Rust e npm resolvidas nesta PR')
+          git('push','origin','HEAD:refs/heads/feat/connect-deployer-tauri-rust')
