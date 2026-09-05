@@ -25,3 +25,9 @@ Separar conexão de runtime, via PgBouncer, da conexão administrativa direta. M
 Aplicar pools e filas finitos, timeouts e contrapressão. Não aumentar `max_connections` como única solução. Limites por banco do PgBouncer não são um limite agregado do cluster: dimensionar a soma entre bancos, usuários, processos e réplicas, preservando capacidade administrativa.
 
 Indisponibilidade temporária deve produzir erro controlado, sem reiniciar a API, revelar credenciais ou repetir automaticamente gravações. Não prometer imunidade absoluta a falhas.
+
+## SSL wildcard no CloudPanel (contrato do produto)
+
+O modelo canônico é o mesmo adotado no Scheduler Pro: um único Reverse Proxy base por stack, com ACME DNS-01 Cloudflare e CloudPanel Agent dentro da stack. DNS wildcard deve ficar DNS-only; os serviços emitem/renovam, ajustam `server_name`, preservam `Host`, validam NGINX, instalam com `clpctl` e verificam o certificado servido. Não exigir edição de VHost, instalação manual de certificado ou script no VPS.
+
+O agente com acesso administrativo ao host não publica portas/endpoints. Falhas devem preservar o certificado/configuração anterior; emissão local não equivale a SSL ativo. Ver `docs/guides/platform-ssl-instances-corrective.md` para domínios, pré-requisitos, limites de wildcard e homologação.

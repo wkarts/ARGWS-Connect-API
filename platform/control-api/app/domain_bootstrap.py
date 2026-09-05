@@ -9,6 +9,8 @@ from app.providers.cloudflare import CloudflareDNSProvider
 
 
 async def reconcile_managed_wildcard() -> dict[str, str | bool]:
+    if settings.platform_tls_automation_enabled:
+        return {"status": "SERVICE_MANAGED", "reason": "acme_service_owns_platform_dns"}
     if not settings.cloudflare_enabled:
         return {"status": "SKIPPED", "reason": "cloudflare_disabled"}
     if settings.cloudflare_provisioning_mode != "wildcard":

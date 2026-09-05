@@ -10,12 +10,14 @@ from uuid import UUID
 from celery.signals import worker_process_shutdown
 from celery.utils.log import get_task_logger
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.services.audit import platform_audit
 from app.core.tenant_context import TenantContext, reset_tenant_context, set_tenant_context
 from app.db.platform import PlatformSessionLocal, platform_engine
 from app.db.tenant import tenant_engines
-from app.models.platform import Tenant, TenantDomain, TenantUsageSnapshot
+from app.models.platform import Tenant, TenantDomain, TenantUsageSnapshot, ProvisioningJob
 from app.models.tenant import OutboundWebhook, TenantApiKey, TenantUser
 from app.services.backup import BackupService
 from app.services.outbound_webhooks import OutboundWebhookService
@@ -252,4 +254,43 @@ def capture_connect_api_usage() -> dict[str, int]:
             await platform_session.commit()
         return captured
 
+    return run(action())
+
+
+@celery_app.task(name="app.tasks.reconcile_platform_tls")
+def reconcile_platform_tls() -> int:
+    if not settings.platform_tls_automation_enabled:
+        return 0
+
+    async def action() -> int:
+        from app.services.tls_status import apply_receipt
+        async with PlatformSessionLocal() as session:
+            rows = list((await session.scalars(select(TenantDomain).where(
+                TenantDomain.management_mode == "PLATFORM_SUBDOMAIN"))).all())
+            for domain in rows:
+                apply_receipt(domain)
+            await session.commit()
+            jobs = list((await session.scalars(select(ProvisioningJob).where(
+                ProvisioningJob.status == "WAITING_TLS").options(
+                selectinload(ProvisioningJob.tenant).selectinload(Tenant.domains),
+                selectinload(ProvisioningJob.tenant).selectinload(Tenant.database),
+                selectinload(ProvisioningJob.tenant).selectinload(Tenant.storage),
+            ).with_for_update(skip_locked=True))).all())
+            for job in jobs:
+                if job.tenant.status != "PROVISIONING": continue
+                primary = next((item for item in job.tenant.domains if item.is_primary), None)
+                if not primary or primary.status != "ACTIVE": continue
+                validation = await provisioning_service.validate_resources(session, job.tenant, reconcile_domain=False)
+                if not validation.get("ready"): continue
+                job.tenant.status = "ACTIVE"
+                job.tenant.activated_at = datetime.now(UTC)
+                job.status, job.current_step, job.progress = "SUCCEEDED", "COMPLETED", 100
+                job.finished_at, job.last_error = datetime.now(UTC), None
+                job.add_event("COMPLETED", "DNS/SSL verificados; banco e armazenamento revalidados pelo serviço.")
+                await platform_audit(session, action="tenant.provisioning.tls_completed",
+                                     entity_type="ProvisioningJob", entity_id=str(job.id),
+                                     tenant_id=str(job.tenant_id), actor_id=None,
+                                     after={"status": "SUCCEEDED", "domain": primary.hostname})
+            await session.commit()
+            return len(rows)
     return run(action())

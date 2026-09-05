@@ -168,6 +168,7 @@ def test_registry_cache_is_bounded_and_rotates_credentials(monkeypatch):
         assert kwargs["poolclass"] is NullPool
         return engine
     monkeypatch.setattr(tenant, "create_async_engine", engine_factory)
+    monkeypatch.setattr(tenant, "install_login_retry", lambda engine: None)
     monkeypatch.setattr(tenant, "async_sessionmaker", lambda *args, **kwargs: SimpleNamespace())
     monkeypatch.setattr(tenant.settings, "postgres_pgbouncer_enabled", True)
     monkeypatch.setattr(tenant.settings, "postgres_runtime_host", "pooler")

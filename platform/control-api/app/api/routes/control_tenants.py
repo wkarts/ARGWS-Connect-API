@@ -477,6 +477,7 @@ async def domain_agent_feed(
                     "dns_provider": domain.dns_provider,
                     "dns_target": domain.dns_target,
                     "dns_verified": domain.dns_verified_at is not None,
+                    "ownership_verified": domain.ownership_verified_at is not None,
                 }
                 for domain in domains
             ],

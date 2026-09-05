@@ -1,5 +1,7 @@
 FROM alpine:3.22
-RUN apk add --no-cache bash coreutils findutils grep python3 util-linux
-COPY infrastructure/cloudpanel-agent/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+RUN apk add --no-cache ca-certificates coreutils python3 py3-cryptography openssl
+COPY infrastructure/tls_common.py /app/tls_common.py
+COPY infrastructure/cloudpanel-agent/service.py /app/service.py
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+HEALTHCHECK --interval=60s --timeout=5s --start-period=120s --retries=3 CMD ["python3", "/app/service.py", "health"]
+ENTRYPOINT ["python3", "/app/service.py"]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -11,7 +11,7 @@ INSTANCE_ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,48}$")
 
 class EngineInstanceCreate(BaseModel):
     alias: str = Field(min_length=2, max_length=49)
-    integration: str = Field(default="WHATSAPP-BAILEYS", min_length=2, max_length=64)
+    integration: Literal["WHATSAPP-BAILEYS", "WHATSAPP-BUSINESS", "CONNECT"] = "WHATSAPP-BAILEYS"
     qrcode: bool = True
     number: str | None = None
     reject_call: bool = False
@@ -22,6 +22,15 @@ class EngineInstanceCreate(BaseModel):
     read_status: bool = False
     sync_full_history: bool = False
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("extra")
+    @classmethod
+    def safe_extra(cls, value: dict[str, Any]) -> dict[str, Any]:
+        # Integration options only. Authority and lifecycle are platform-owned.
+        allowed = {"businessId", "rejectCall", "msgCall", "groupsIgnore", "alwaysOnline", "readMessages", "readStatus", "syncFullHistory"}
+        if set(value) - allowed:
+            raise ValueError("Opções de instância não permitidas; identidade, token e pareamento são controlados pela Platform.")
+        return value
 
     @field_validator("alias")
     @classmethod
@@ -141,3 +150,17 @@ class EngineTemplateEdit(BaseModel):
 class EngineTemplateDelete(BaseModel):
     name: str = Field(min_length=1, max_length=512)
     hsmId: str | None = Field(default=None, max_length=512)
+
+
+class EnginePairingRequest(BaseModel):
+    number: str | None = None
+
+    @field_validator("number")
+    @classmethod
+    def valid_number(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        digits = re.sub(r"[^0-9]", "", value)
+        if not 8 <= len(digits) <= 15:
+            raise ValueError("Informe país, DDD e telefone (8 a 15 dígitos).")
+        return digits
