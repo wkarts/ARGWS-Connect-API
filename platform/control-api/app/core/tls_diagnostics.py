@@ -42,6 +42,11 @@ MESSAGES = {
 
 def error_code(value: object) -> str:
     raw = str(value) if isinstance(value, (str, ValueError, RuntimeError)) else ""
+    # Older service images persisted only the exception class name. Classify
+    # narrowly without inventing which file or credential was missing.
+    legacy = {"FileNotFoundError": "TLS_RESOURCE_MISSING", "PermissionError": "TLS_VOLUME_PERMISSION_DENIED"}
+    if raw in legacy:
+        return legacy[raw]
     if raw in KNOWN_CODES:
         return raw
     if re.fullmatch(r"CLOUDFLARE_HTTP_[1-5][0-9]{2}", raw):

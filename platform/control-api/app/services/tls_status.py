@@ -14,10 +14,14 @@ def covers(pattern: str, name: str) -> bool:
 
 
 def receipt(filename: str) -> dict:
+    if filename not in {'dns.json', 'acme.json', 'cloudpanel.json'}:
+        return {}
     path = settings.platform_tls_status_dir / filename
     try:
-        if path.stat().st_size > 131072: return {}
-        data = json.loads(path.read_text())
+        with path.open('rb') as handle:
+            raw = handle.read(131073)
+        if len(raw) > 131072: return {}
+        data = json.loads(raw)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -52,7 +56,7 @@ def dns_blocking_reason(proof: dict | None = None) -> str:
 
 
 def diagnostic_summary() -> dict:
-    """Control-plane export only. Never return env, PEMs, full receipts or raw messages."""
+    """Control-plane presentation/export only. Never return env, PEMs, full receipts or raw messages."""
     states = {'READY', 'ISSUING', 'DISABLED', 'STAGING', 'WAITING_CERTIFICATE', 'RECONCILIATION_FAILED'}
     stages = {'configuration', 'dns', 'account', 'issuance', 'host', 'installation'}
     reports = {}

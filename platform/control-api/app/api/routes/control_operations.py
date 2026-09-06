@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from app.providers.storage import S3StorageProvider
 from app.schemas.auth import AuthUser
 from app.schemas.common import SuccessResponse
 from app.services.audit import platform_audit
+from app.services.tls_panel import diagnostic_report
 from app.workers.tasks import backup_all, backup_tenant
 
 router = APIRouter(prefix="/api/control/v1", tags=["Control Plane - Operação"])
@@ -111,3 +112,14 @@ async def backup_policy(
             "dropbox": settings.backup_dropbox_enabled,
         },
     })
+
+
+@router.get("/tls/diagnostics", response_model=SuccessResponse[dict])
+def tls_diagnostics(
+    response: Response,
+    _: AuthUser = Depends(require_control_roles("PLATFORM_ADMIN", "PLATFORM_AUDITOR", "PLATFORM_SUPPORT")),
+) -> SuccessResponse[dict]:
+    """Consulta sanitizada do DNS/ACME/CloudPanel; não realiza operações no host."""
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return SuccessResponse(data=diagnostic_report())
