@@ -1,0 +1,9 @@
+{
+  "name": "argws-connect-manager-source-recovery",
+  "private": true,
+  "type": "module",
+  "description": "Isolated tooling dependencies for Connect|API Manager source recovery.",
+  "devDependencies": {
+    "@babel/parser": "7.28.4"
+  }
+}
