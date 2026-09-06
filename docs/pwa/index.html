@@ -99,6 +99,54 @@
         flex: 0 0 auto;
       }
 
+      .connect-docs-server-form {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .connect-docs-server-input {
+        box-sizing: border-box;
+        width: min(360px, 34vw);
+        height: 36px;
+        border: 1px solid #dbe2ea;
+        border-radius: 9px;
+        background: #ffffff;
+        color: #0f172a;
+        padding: 0 11px;
+        font: 500 12px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        outline: none;
+      }
+
+      .connect-docs-server-input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+      }
+
+      .connect-docs-server-input[readonly] {
+        background: #f8fafc;
+        color: #475569;
+        cursor: default;
+      }
+
+      .connect-docs-server-button {
+        height: 36px;
+        border: 1px solid #2563eb;
+        border-radius: 9px;
+        background: #2563eb;
+        color: #ffffff;
+        padding: 0 12px;
+        cursor: pointer;
+        font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .connect-docs-server-button:disabled {
+        border-color: #cbd5e1;
+        background: #e2e8f0;
+        color: #64748b;
+        cursor: default;
+      }
+
       .connect-docs-brandbar__label {
         color: #64748b;
         font: 500 12px/1.25 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -162,6 +210,17 @@
         background: rgba(11, 18, 32, 0.97);
       }
 
+      html[data-connect-docs-theme='dark'] .connect-docs-server-input {
+        border-color: #334155;
+        background: #111827;
+        color: #e2e8f0;
+      }
+
+      html[data-connect-docs-theme='dark'] .connect-docs-server-input[readonly] {
+        background: #172033;
+        color: #94a3b8;
+      }
+
       html[data-connect-docs-theme='dark'] .connect-docs-brandbar__label {
         color: #94a3b8;
       }
@@ -184,6 +243,16 @@
         display: block;
       }
 
+      @media (max-width: 980px) {
+        .connect-docs-brandbar__label {
+          display: none;
+        }
+
+        .connect-docs-server-input {
+          width: min(300px, 38vw);
+        }
+      }
+
       @media (max-width: 640px) {
         html {
           scroll-padding-top: 60px;
@@ -192,20 +261,34 @@
         .connect-docs-brandbar {
           min-height: 52px;
           padding: 7px 10px;
+          gap: 8px;
         }
 
         .connect-docs-brandbar__brand img {
           height: 32px;
-          max-width: 72vw;
+          max-width: 42vw;
         }
 
-        .connect-docs-brandbar__label {
-          display: none;
+        .connect-docs-server-input {
+          width: 34vw;
+          min-width: 130px;
+          height: 34px;
         }
 
+        .connect-docs-server-button,
         .connect-docs-theme-toggle {
           width: 34px;
           height: 34px;
+          padding: 0;
+        }
+
+        .connect-docs-server-button {
+          font-size: 0;
+        }
+
+        .connect-docs-server-button::after {
+          content: '✓';
+          font-size: 14px;
         }
 
         #app {
@@ -227,6 +310,18 @@
         />
       </div>
       <div class="connect-docs-brandbar__actions">
+        <form id="connect-docs-server-form" class="connect-docs-server-form" autocomplete="off">
+          <input
+            id="connect-docs-server-input"
+            class="connect-docs-server-input"
+            type="url"
+            inputmode="url"
+            placeholder="https://api.seudominio.com"
+            aria-label="Servidor da API"
+            spellcheck="false"
+          />
+          <button id="connect-docs-server-button" class="connect-docs-server-button" type="submit">Aplicar</button>
+        </form>
         <button
           id="connect-docs-theme-toggle"
           class="connect-docs-theme-toggle"
@@ -251,10 +346,34 @@
     <script src="{{env "CDN_URL"}}"></script>
     <script>
       const basePath = '{{env "BASE_PATH" | js}}'.replace(/\/$/, '')
-      const apiServerUrl = '{{env "SERVER_URL" | js}}'.trim().replace(/\/+$/, '')
+      const envApiServerUrl = normalizeApiServerUrl('{{env "SERVER_URL" | js}}')
+      const serverStorageKey = 'connect-api-docs-server-url'
       const themeStorageKey = 'connect-api-docs-theme'
       let currentTheme = document.documentElement.dataset.connectDocsTheme === 'dark' ? 'dark' : 'light'
+      let manualApiServerUrl = ''
+      let activeApiServerUrl = envApiServerUrl
       let scalarObserver = null
+
+      try {
+        manualApiServerUrl = normalizeApiServerUrl(localStorage.getItem(serverStorageKey) || '')
+      } catch (error) {
+        manualApiServerUrl = ''
+      }
+
+      if (!activeApiServerUrl) activeApiServerUrl = manualApiServerUrl
+
+      function normalizeApiServerUrl(value) {
+        const normalized = String(value || '').trim().replace(/\/+$/, '')
+        if (!normalized) return ''
+
+        try {
+          const parsed = new URL(normalized)
+          if (!['http:', 'https:'].includes(parsed.protocol)) return ''
+          return parsed.href.replace(/\/$/, '')
+        } catch (error) {
+          return ''
+        }
+      }
 
       function setTheme(theme, persist = true) {
         currentTheme = theme === 'dark' ? 'dark' : 'light'
@@ -346,24 +465,33 @@
         scalarObserver.observe(document.getElementById('app'), { childList: true, subtree: true })
       }
 
-      function runtimeServerTarget(source) {
+      function runtimeServerKind(source) {
         const fingerprint = [source && source.url, source && source.title, source && source.slug]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
 
-        if (fingerprint.includes('meta-compatible')) return `${apiServerUrl}/graph`
+        if (fingerprint.includes('meta-compatible') || fingerprint.includes('meta compatible')) return 'meta'
         if (fingerprint.includes('connect-api.openapi') || fingerprint.includes('rest api') || fingerprint.endsWith(' rest')) {
-          return apiServerUrl
+          return 'rest'
         }
         return ''
       }
 
+      function runtimeServerTarget(source) {
+        const kind = runtimeServerKind(source)
+        if (!kind || !activeApiServerUrl) return ''
+        if (kind === 'meta') return activeApiServerUrl.toLowerCase().endsWith('/graph') ? activeApiServerUrl : `${activeApiServerUrl}/graph`
+        return activeApiServerUrl
+      }
+
       async function applyRuntimeServer(source) {
-        if (!apiServerUrl || !source) return source
+        if (!source) return source
+
+        const kind = runtimeServerKind(source)
+        if (!kind) return source
 
         const targetUrl = runtimeServerTarget(source)
-        if (!targetUrl) return source
 
         try {
           let document = source.content
@@ -376,27 +504,79 @@
             document = JSON.parse(JSON.stringify(document))
           }
 
-          document.servers = [
-            {
-              url: targetUrl,
-              description: 'API pública configurada por SERVER_URL',
-            },
-          ]
+          document.servers = targetUrl
+            ? [
+                {
+                  url: targetUrl,
+                  description: envApiServerUrl ? 'API configurada por SERVER_URL' : 'API informada manualmente',
+                },
+              ]
+            : []
 
           const mapped = Object.assign({}, source, { content: document })
           delete mapped.url
           return mapped
         } catch (error) {
-          console.warn('[Connect|API DOCs] Não foi possível aplicar SERVER_URL ao documento.', error)
-          return source
+          console.warn('[Connect|API DOCs] Não foi possível sanitizar o servidor do documento.', error)
+          return {
+            title: source.title || 'Connect|API',
+            slug: source.slug,
+            content: {
+              openapi: '3.1.0',
+              info: {
+                title: source.title || 'Connect|API',
+                version: 'indisponível',
+                description: 'Não foi possível carregar o contrato OpenAPI sem expor servidores estáticos.',
+              },
+              servers: [],
+              paths: {},
+            },
+          }
         }
+      }
+
+      function configureServerInput() {
+        const form = document.getElementById('connect-docs-server-form')
+        const input = document.getElementById('connect-docs-server-input')
+        const button = document.getElementById('connect-docs-server-button')
+
+        if (!form || !input || !button) return
+
+        input.value = activeApiServerUrl
+
+        if (envApiServerUrl) {
+          input.readOnly = true
+          input.title = 'Servidor definido pela variável SERVER_URL do container de documentação.'
+          button.disabled = true
+          button.title = 'SERVER_URL está configurado no ambiente.'
+        } else {
+          input.readOnly = false
+          input.title = 'Informe a URL base da API. Deixe vazio para não publicar nenhum servidor.'
+          button.disabled = false
+        }
+
+        form.addEventListener('submit', (event) => {
+          event.preventDefault()
+          if (envApiServerUrl) return
+
+          const value = normalizeApiServerUrl(input.value)
+
+          try {
+            if (value) localStorage.setItem(serverStorageKey, value)
+            else localStorage.removeItem(serverStorageKey)
+          } catch (error) {
+            console.warn('[Connect|API DOCs] Não foi possível salvar o servidor informado.', error)
+          }
+
+          window.location.reload()
+        })
       }
 
       async function init() {
         let mountedDocuments = []
 
         try {
-          const response = await fetch(`${basePath}/configuration.json`)
+          const response = await fetch(`${basePath}/configuration.json`, { cache: 'no-store' })
 
           if (response.ok) {
             const mountedConfig = await response.json()
@@ -458,6 +638,7 @@
         setTheme(currentTheme === 'dark' ? 'light' : 'dark')
       })
 
+      configureServerInput()
       setTheme(currentTheme, false)
       init()
 
