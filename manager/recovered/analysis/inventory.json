@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T18:10:26.010Z",
+  "generatedAt": "2026-09-06T18:13:04.251Z",
   "input": "manager/recovered/legacy/index.js",
   "parser": "@babel/parser",
   "discoveredSymbolCount": 10320,
@@ -69,6 +69,14 @@
       "sourceEnd": 449726
     },
     {
+      "symbol": "sn",
+      "kind": "variable",
+      "file": "services/httpClient.sn.js",
+      "bytes": 19,
+      "sourceStart": 506595,
+      "sourceEnd": 506606
+    },
+    {
       "symbol": "sT",
       "kind": "variable",
       "file": "services/fetchServerStatus.sT.js",
@@ -77,12 +85,52 @@
       "sourceEnd": 507579
     },
     {
+      "symbol": "Vb",
+      "kind": "function",
+      "file": "layout/ManagerFooter.Vb.js",
+      "bytes": 1635,
+      "sourceStart": 543072,
+      "sourceEnd": 544706
+    },
+    {
+      "symbol": "zM",
+      "kind": "function",
+      "file": "layout/ManagerHeader.zM.js",
+      "bytes": 2189,
+      "sourceStart": 710402,
+      "sourceEnd": 712590
+    },
+    {
+      "symbol": "UM",
+      "kind": "variable",
+      "file": "context/InstanceContext.UM.js",
+      "bytes": 34,
+      "sourceStart": 712599,
+      "sourceEnd": 712625
+    },
+    {
       "symbol": "ct",
       "kind": "variable",
       "file": "services/useInstanceContext.ct.js",
       "bytes": 162,
       "sourceStart": 712631,
       "sourceEnd": 712785
+    },
+    {
+      "symbol": "VM",
+      "kind": "variable",
+      "file": "context/InstanceProvider.VM.js",
+      "bytes": 486,
+      "sourceStart": 712791,
+      "sourceEnd": 713269
+    },
+    {
+      "symbol": "j5",
+      "kind": "function",
+      "file": "layout/InstanceSidebar.j5.js",
+      "bytes": 6072,
+      "sourceStart": 716389,
+      "sourceEnd": 722460
     },
     {
       "symbol": "un",
@@ -117,12 +165,84 @@
       "sourceEnd": 746538
     },
     {
+      "symbol": "V5",
+      "kind": "variable",
+      "file": "services/instancesQueryKey.V5.js",
+      "bytes": 43,
+      "sourceStart": 748227,
+      "sourceEnd": 748262
+    },
+    {
+      "symbol": "H5",
+      "kind": "variable",
+      "file": "services/fetchInstances.H5.js",
+      "bytes": 72,
+      "sourceStart": 748268,
+      "sourceEnd": 748332
+    },
+    {
       "symbol": "q5",
       "kind": "variable",
       "file": "services/useInstancesQuery.q5.js",
       "bytes": 67,
       "sourceStart": 748338,
       "sourceEnd": 748397
+    },
+    {
+      "symbol": "nt",
+      "kind": "function",
+      "file": "services/useMutationAction.nt.js",
+      "bytes": 494,
+      "sourceStart": 748401,
+      "sourceEnd": 748894
+    },
+    {
+      "symbol": "K5",
+      "kind": "variable",
+      "file": "services/createInstance.K5.js",
+      "bytes": 69,
+      "sourceStart": 748903,
+      "sourceEnd": 748964
+    },
+    {
+      "symbol": "W5",
+      "kind": "variable",
+      "file": "services/restartInstance.W5.js",
+      "bytes": 72,
+      "sourceStart": 748970,
+      "sourceEnd": 749034
+    },
+    {
+      "symbol": "G5",
+      "kind": "variable",
+      "file": "services/logoutInstance.G5.js",
+      "bytes": 73,
+      "sourceStart": 749040,
+      "sourceEnd": 749105
+    },
+    {
+      "symbol": "J5",
+      "kind": "variable",
+      "file": "services/deleteInstance.J5.js",
+      "bytes": 73,
+      "sourceStart": 749111,
+      "sourceEnd": 749176
+    },
+    {
+      "symbol": "Q5",
+      "kind": "variable",
+      "file": "services/connectInstance.Q5.js",
+      "bytes": 167,
+      "sourceStart": 749182,
+      "sourceEnd": 749341
+    },
+    {
+      "symbol": "Z5",
+      "kind": "variable",
+      "file": "services/updateInstanceSettings.Z5.js",
+      "bytes": 142,
+      "sourceStart": 749347,
+      "sourceEnd": 749481
     },
     {
       "symbol": "Hh",

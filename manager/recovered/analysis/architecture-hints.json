@@ -1,6 +1,7 @@
 {
   "login": {
     "page": "Dse",
+    "httpClient": "sn",
     "serverStatus": "sT",
     "credentialsValidation": "Ise",
     "saveSession": "Rj",
@@ -9,15 +10,33 @@
   "instances": {
     "page": "CZ",
     "query": "q5",
+    "fetchInstances": "H5",
+    "queryKey": "V5",
     "actions": "Hh",
+    "mutationAdapter": "nt",
+    "connect": "Q5",
+    "updateSettings": "Z5",
+    "deleteInstance": "J5",
+    "logout": "G5",
+    "restart": "W5",
+    "createInstance": "K5",
     "createInstanceDialog": "dQ"
   },
   "instanceDashboard": {
     "page": "PX",
-    "instanceContext": "ct",
+    "instanceContext": "UM",
+    "instanceProvider": "VM",
+    "useInstanceContext": "ct",
     "actions": "Hh",
     "storageKeys": "jn",
     "readStorage": "dr"
+  },
+  "layout": {
+    "managerShell": "B5",
+    "instanceShell": "un",
+    "header": "zM",
+    "instanceSidebar": "j5",
+    "footer": "Vb"
   },
   "shared": {
     "theme": "tc",

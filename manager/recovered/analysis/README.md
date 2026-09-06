@@ -10,8 +10,11 @@ Arquivos extraídos automaticamente do bundle legado formatado. Eles ainda usam 
 - `PX` → dashboard da instância.
 - `Lse` → tabela principal de rotas React Router.
 - `Dae` → labels pt-BR da sidebar, incluindo os links públicos legados.
+- `sn` → cliente HTTP utilizado pelo login e pelos serviços recuperados.
+- `UM` / `VM` → contexto e provider da instância.
+- `zM`, `j5`, `Vb` → header, sidebar da instância e footer.
 
-Os arquivos `route-component-map.json` e `architecture-hints.json` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.
+Os arquivos `route-component-map.json`, `architecture-hints.json`, `dependency-graph.json` e `dependency-candidates.json` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.
 
 ## Regra desta fase
 
