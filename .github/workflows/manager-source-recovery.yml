@@ -102,29 +102,47 @@ jobs:
           node manager/recovery/generate-runtime-config.mjs \
             manager/recovered/analysis/runtime-config.default.js
 
-          grep -q '"primaryLocale": "pt-BR"' manager/recovered/analysis/runtime-config.default.js
-          grep -q '"defaultLocale": "pt-BR"' manager/recovered/analysis/runtime-config.default.js
-          grep -q '"extraLocalesEnabled": false' manager/recovered/analysis/runtime-config.default.js
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
 
-          if grep -A8 '"enabledLocales"' manager/recovered/analysis/runtime-config.default.js | grep -q 'en-US'; then
-            echo 'en-US must not be enabled by default.' >&2
-            exit 1
-          fi
+          const parseConfig = (file) => {
+            const source = fs.readFileSync(file, 'utf8');
+            const match = source.match(/Object\.freeze\(([\s\S]+)\);\s*$/);
+            if (!match) throw new Error(`Unable to parse runtime config: ${file}`);
+            return JSON.parse(match[1]);
+          };
+
+          const config = parseConfig('manager/recovered/analysis/runtime-config.default.js');
+          const locale = config.locale;
+
+          if (locale.primaryLocale !== 'pt-BR') throw new Error('Primary locale must be pt-BR.');
+          if (locale.defaultLocale !== 'pt-BR') throw new Error('Default locale must be pt-BR.');
+          if (locale.extraLocalesEnabled !== false) throw new Error('Extra locales must be disabled by default.');
+          if (JSON.stringify(locale.enabledLocales) !== JSON.stringify(['pt-BR'])) {
+            throw new Error(`Only pt-BR may be enabled by default: ${JSON.stringify(locale.enabledLocales)}`);
+          }
+          NODE
 
           MANAGER_ENABLE_EXTRA_LOCALES=true \
           MANAGER_DEFAULT_LOCALE=en-US \
           MANAGER_EXTRA_LOCALES=en-US,es-ES,invalid-locale \
           node manager/recovery/generate-runtime-config.mjs /tmp/manager-runtime-extra.js
 
-          grep -q '"defaultLocale": "en-US"' /tmp/manager-runtime-extra.js
-          grep -q '"extraLocalesEnabled": true' /tmp/manager-runtime-extra.js
-          grep -q '"en-US"' /tmp/manager-runtime-extra.js
-          grep -q '"es-ES"' /tmp/manager-runtime-extra.js
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
 
-          if grep -q 'invalid-locale' /tmp/manager-runtime-extra.js; then
-            echo 'Unknown locale must be ignored.' >&2
-            exit 1
-          fi
+          const source = fs.readFileSync('/tmp/manager-runtime-extra.js', 'utf8');
+          const match = source.match(/Object\.freeze\(([\s\S]+)\);\s*$/);
+          if (!match) throw new Error('Unable to parse extra-locale runtime config.');
+
+          const { locale } = JSON.parse(match[1]);
+          if (locale.defaultLocale !== 'en-US') throw new Error('Explicit enabled default locale was not honored.');
+          if (locale.extraLocalesEnabled !== true) throw new Error('Extra locale flag was not enabled.');
+          if (!locale.enabledLocales.includes('pt-BR')) throw new Error('pt-BR must remain enabled.');
+          if (!locale.enabledLocales.includes('en-US')) throw new Error('en-US was not enabled.');
+          if (!locale.enabledLocales.includes('es-ES')) throw new Error('es-ES was not enabled.');
+          if (locale.enabledLocales.includes('invalid-locale')) throw new Error('Unknown locale must be ignored.');
+          NODE
 
       - name: Validate recovered source
         shell: bash
@@ -144,6 +162,7 @@ jobs:
           test -s manager/recovered/analysis/runtime-config.default.js
           test -s manager/recovered/analysis/inventory.json
           test -s manager/recovered/analysis/route-component-map.json
+          test -s manager/recovered/analysis/architecture-hints.json
 
           node --input-type=module --check < manager/recovered/legacy/index.js
 
