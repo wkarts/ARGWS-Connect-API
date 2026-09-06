@@ -77,24 +77,45 @@ const symbols = [];
 const extractedSymbols = new Set();
 const visited = new Set();
 
-const writeContent = (content, fileName, symbol, kind) => {
+const writeContent = (content, fileName, symbol, kind, sourceStart, sourceEnd) => {
   if (extractedSymbols.has(symbol)) return;
   const normalized = content.trimEnd() + '\n';
   const filePath = path.join(outputDir, fileName);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, normalized);
-  extracted.push({ symbol, kind, file: fileName, bytes: Buffer.byteLength(normalized) });
+  extracted.push({
+    symbol,
+    kind,
+    file: fileName,
+    bytes: Buffer.byteLength(normalized),
+    sourceStart,
+    sourceEnd,
+  });
   extractedSymbols.add(symbol);
 };
 
 const writeFunction = (node, fileName, symbol) => {
-  writeContent(source.slice(node.start, node.end), fileName, symbol, 'function');
+  writeContent(
+    source.slice(node.start, node.end),
+    fileName,
+    symbol,
+    'function',
+    node.start,
+    node.end,
+  );
 };
 
 const writeVariable = (declarationNode, declarator, fileName, symbol) => {
   if (!declarator.init) return;
   const initializer = source.slice(declarator.init.start, declarator.init.end);
-  writeContent(`${declarationNode.kind} ${symbol} = ${initializer};`, fileName, symbol, 'variable');
+  writeContent(
+    `${declarationNode.kind} ${symbol} = ${initializer};`,
+    fileName,
+    symbol,
+    'variable',
+    declarator.start,
+    declarator.end,
+  );
 };
 
 const inspectNode = (node) => {
