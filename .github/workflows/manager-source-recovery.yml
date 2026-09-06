@@ -86,7 +86,7 @@ jobs:
           test -s manager/recovered/legacy/index.css
           test -s manager/recovered/recovery-report.json
 
-          node --check manager/recovered/legacy/index.js
+          node --input-type=module --check < manager/recovered/legacy/index.js
 
           grep -q 'Modern web interface for Connect|API management' manager/recovered/legacy/index.js
           grep -q 'Access Manager Dashboard' manager/recovered/legacy/index.js
