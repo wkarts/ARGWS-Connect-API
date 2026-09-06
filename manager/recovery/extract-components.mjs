@@ -39,15 +39,36 @@ const wantedSymbols = new Map([
   ['kk', 'pages/FlowisePage.kk.js'],
   ['Ore', 'pages/ProxyPage.Ore.js'],
   ['Sk', 'pages/EmbedChatPage.Sk.js'],
+
   ['Lse', 'router/Router.Lse.js'],
+
   ['jL', 'layout/LoginGuard.jL.js'],
   ['tn', 'layout/ManagerGuard.tn.js'],
   ['B5', 'layout/ManagerShell.B5.js'],
   ['un', 'layout/InstanceShell.un.js'],
+
   ['Dae', 'i18n/SidebarPtBR.Dae.js'],
   ['goe', 'i18n/SidebarEnUS.goe.js'],
   ['Boe', 'i18n/SidebarEsES.Boe.js'],
   ['dae', 'i18n/SidebarFrFR.dae.js'],
+  ['Ve', 'i18n/useTranslation.Ve.js'],
+
+  ['sT', 'services/fetchServerStatus.sT.js'],
+  ['Ise', 'services/validateCredentials.Ise.js'],
+  ['Hh', 'services/useInstanceActions.Hh.js'],
+  ['q5', 'services/useInstancesQuery.q5.js'],
+  ['ct', 'services/useInstanceContext.ct.js'],
+
+  ['Rj', 'session/saveSession.Rj.js'],
+  ['Pj', 'session/clearSession.Pj.js'],
+  ['jn', 'session/StorageKeys.jn.js'],
+  ['dr', 'session/readStorage.dr.js'],
+
+  ['tc', 'theme/useTheme.tc.js'],
+
+  ['dQ', 'components/CreateInstanceDialog.dQ.js'],
+  ['c_', 'components/TokenField.c_.js'],
+  ['l_', 'components/ConnectionStatus.l_.js'],
 ]);
 
 const requiredSymbols = new Set(['Fse', 'Dse', 'CZ', 'PX', 'Lse', 'Dae']);
@@ -146,6 +167,35 @@ const routeComponentMap = [
   { path: '/manager/embed-chat/:remoteJid', symbol: 'Sk', recoveredName: 'EmbedChatPage' },
 ];
 
+const architectureHints = {
+  login: {
+    page: 'Dse',
+    serverStatus: 'sT',
+    credentialsValidation: 'Ise',
+    saveSession: 'Rj',
+    clearSession: 'Pj',
+  },
+  instances: {
+    page: 'CZ',
+    query: 'q5',
+    actions: 'Hh',
+    createInstanceDialog: 'dQ',
+  },
+  instanceDashboard: {
+    page: 'PX',
+    instanceContext: 'ct',
+    actions: 'Hh',
+    storageKeys: 'jn',
+    readStorage: 'dr',
+  },
+  shared: {
+    theme: 'tc',
+    translation: 'Ve',
+    tokenField: 'c_',
+    connectionStatus: 'l_',
+  },
+};
+
 const inventory = {
   generatedAt: new Date().toISOString(),
   input: path.normalize(inputFile),
@@ -158,6 +208,7 @@ const inventory = {
 
 fs.writeFileSync(path.join(outputDir, 'inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`);
 fs.writeFileSync(path.join(outputDir, 'route-component-map.json'), `${JSON.stringify(routeComponentMap, null, 2)}\n`);
+fs.writeFileSync(path.join(outputDir, 'architecture-hints.json'), `${JSON.stringify(architectureHints, null, 2)}\n`);
 
 const readme = `# Manager recovered — análise de componentes\n\n` +
   `Arquivos extraídos automaticamente do bundle legado formatado. Eles ainda usam identificadores minificados e não são o fonte final.\n\n` +
@@ -168,7 +219,7 @@ const readme = `# Manager recovered — análise de componentes\n\n` +
   `- \`PX\` → dashboard da instância.\n` +
   `- \`Lse\` → tabela principal de rotas React Router.\n` +
   `- \`Dae\` → labels pt-BR da sidebar, incluindo os links públicos legados.\n\n` +
-  `O arquivo \`route-component-map.json\` documenta as rotas e os nomes recuperados adotados para a reconstrução.\n\n` +
+  `Os arquivos \`route-component-map.json\` e \`architecture-hints.json\` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.\n\n` +
   `## Regra desta fase\n\n` +
   `Esses arquivos servem como prova e referência para reconstrução. O \`manager/dist\` de produção não é substituído nesta etapa.\n`;
 
