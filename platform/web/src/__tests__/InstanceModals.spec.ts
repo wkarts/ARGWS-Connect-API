@@ -50,7 +50,7 @@ describe('janelas de instâncias reais, sem stub de ModalDialog', () => {
     expect(api.adoptEngineInstance).not.toHaveBeenCalled()
   })
   it('erro de criação mantém formulário acessível e mostra motivo', async () => {
-    api.createEngineInstance.mockRejectedValue({ response: { data: { error: { message: 'Limite contratado atingido.' } } } })
+    api.createEngineInstance.mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { error: { message: 'Limite contratado atingido.' } } } })
     create(ConnectInstancesPage); await flushPromises(); await click('Nova instância')
     document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flushPromises()
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
