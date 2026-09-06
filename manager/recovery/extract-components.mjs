@@ -55,8 +55,13 @@ const wantedSymbols = new Map([
   ['Boe', 'i18n/SidebarEsES.Boe.js'],
   ['dae', 'i18n/SidebarFrFR.dae.js'],
   ['Ve', 'i18n/useTranslation.Ve.js'],
+  ['iM', 'i18n/LanguageSwitcher.iM.js'],
 
   ['sn', 'services/httpClient.sn.js'],
+  ['nT', 'services/createHttpClient.nT.js'],
+  ['yd', 'services/httpClientBase.yd.js'],
+  ['bd', 'services/authenticatedHttpClient.bd.js'],
+  ['Ee', 'services/instanceHttpClient.Ee.js'],
   ['sT', 'services/fetchServerStatus.sT.js'],
   ['Ise', 'services/validateCredentials.Ise.js'],
   ['nt', 'services/useMutationAction.nt.js'],
@@ -64,6 +69,7 @@ const wantedSymbols = new Map([
   ['q5', 'services/useInstancesQuery.q5.js'],
   ['H5', 'services/fetchInstances.H5.js'],
   ['V5', 'services/instancesQueryKey.V5.js'],
+  ['vT', 'services/useInstanceQuery.vT.js'],
   ['Q5', 'services/connectInstance.Q5.js'],
   ['Z5', 'services/updateInstanceSettings.Z5.js'],
   ['J5', 'services/deleteInstance.J5.js'],
@@ -81,6 +87,7 @@ const wantedSymbols = new Map([
   ['dr', 'session/readStorage.dr.js'],
 
   ['tc', 'theme/useTheme.tc.js'],
+  ['lM', 'theme/ThemeSwitcher.lM.js'],
 
   ['dQ', 'components/CreateInstanceDialog.dQ.js'],
   ['c_', 'components/TokenField.c_.js'],
@@ -207,7 +214,9 @@ const routeComponentMap = [
 const architectureHints = {
   login: {
     page: 'Dse',
-    httpClient: 'sn',
+    rawHttpClient: 'sn',
+    createHttpClient: 'nT',
+    httpClientBase: 'yd',
     serverStatus: 'sT',
     credentialsValidation: 'Ise',
     saveSession: 'Rj',
@@ -215,9 +224,12 @@ const architectureHints = {
   },
   instances: {
     page: 'CZ',
+    authenticatedHttpClient: 'bd',
+    instanceHttpClient: 'Ee',
     query: 'q5',
     fetchInstances: 'H5',
     queryKey: 'V5',
+    fetchInstanceQuery: 'vT',
     actions: 'Hh',
     mutationAdapter: 'nt',
     connect: 'Q5',
@@ -244,9 +256,13 @@ const architectureHints = {
     instanceSidebar: 'j5',
     footer: 'Vb',
   },
-  shared: {
+  preferences: {
+    languageSwitcher: 'iM',
+    themeSwitcher: 'lM',
     theme: 'tc',
     translation: 'Ve',
+  },
+  shared: {
     tokenField: 'c_',
     connectionStatus: 'l_',
   },
@@ -277,7 +293,8 @@ const readme = `# Manager recovered — análise de componentes\n\n` +
   `- \`Dae\` → labels pt-BR da sidebar, incluindo os links públicos legados.\n` +
   `- \`sn\` → cliente HTTP utilizado pelo login e pelos serviços recuperados.\n` +
   `- \`UM\` / \`VM\` → contexto e provider da instância.\n` +
-  `- \`zM\`, \`j5\`, \`Vb\` → header, sidebar da instância e footer.\n\n` +
+  `- \`zM\`, \`j5\`, \`Vb\` → header, sidebar da instância e footer.\n` +
+  `- \`iM\` / \`lM\` → seletores de idioma e tema, recuperados para aplicação futura da política pt-BR-first.\n\n` +
   `Os arquivos \`route-component-map.json\`, \`architecture-hints.json\`, \`dependency-graph.json\` e \`dependency-candidates.json\` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.\n\n` +
   `## Regra desta fase\n\n` +
   `Esses arquivos servem como prova e referência para reconstrução. O \`manager/dist\` de produção não é substituído nesta etapa.\n`;
