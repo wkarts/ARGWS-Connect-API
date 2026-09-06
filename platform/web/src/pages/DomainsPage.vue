@@ -8,6 +8,7 @@ import { api, apiError } from '../api/client'
 import { appConfirm } from '../composables/useAppDialog'
 import type { ApiResponse } from '../types'
 import PageHeader from '../components/PageHeader.vue'
+import TlsDiagnosticsPanel from '../components/TlsDiagnosticsPanel.vue'
 import InlineAlert from '../components/InlineAlert.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -72,6 +73,7 @@ interface Management {
   cloudflare?:Record<string,unknown>|null
 }
 
+const tlsPanel=ref<InstanceType<typeof TlsDiagnosticsPanel>|null>(null)
 const items=ref<Domain[]>([])
 const loading=ref(false)
 const busy=ref(false)
@@ -120,6 +122,9 @@ const modeDescription=(item:Domain)=>item.management_mode==='PLATFORM_SUBDOMAIN'
     ?'Zona Cloudflare, DNS, proxy e DNSSEC são orquestrados pelo Control Plane.'
     :'O cliente mantém o provedor DNS; a plataforma valida apontamento e certificado.'
 
+async function refreshPage(){
+  await Promise.allSettled([load(), tlsPanel.value?.refresh()])
+}
 async function load(){
   loading.value=true;error.value=''
   try{
@@ -180,10 +185,12 @@ onMounted(load)
 
 <template>
   <PageHeader title="Domínios, DNS e certificados" subtitle="Centro operacional de domínios provisórios, zonas Cloudflare, apontamentos externos, DNSSEC e SSL dos clientes.">
-    <button class="btn-secondary" :disabled="loading" @click="load"><RefreshCw :size="18" :class="loading?'animate-spin':''"/>Atualizar</button>
+    <button class="btn-secondary" :disabled="loading" @click="refreshPage"><RefreshCw :size="18" :class="loading?'animate-spin':''"/>Atualizar</button>
   </PageHeader>
   <InlineAlert :message="error" @dismiss="error=''"/>
   <InlineAlert :message="success" type="success" @dismiss="success=''"/>
+
+  <TlsDiagnosticsPanel ref="tlsPanel" class="mb-5" />
 
   <div class="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
     <div class="card"><p class="text-xs font-semibold uppercase text-slate-400">Domínios</p><p class="mt-2 text-2xl font-bold">{{summary.total}}</p><p class="mt-1 text-xs text-slate-400">registro central</p></div>

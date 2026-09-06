@@ -18,6 +18,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from app.core.tls_diagnostics import error_details
+
 from tls_common import FILES, bundle, check_health, configured_names, hostname, run, served_fingerprint, state, enabled, verify_chain, covers
 
 HOST = Path(os.environ.get('HOST_ROOT', '/host'))
@@ -224,9 +226,13 @@ def reconcile_base(names: list[str], namespace: str) -> None:
     vhost = ensure_base(site)
     check_alias_conflicts(vhost, names)
     new_config = reconcile_proxy(vhost.read_text(), site, names)
-    source = (CERTS/'current').resolve(strict=True)
-    if not source.is_relative_to(CERTS.resolve()): raise ValueError('CERTIFICATE_PATH_ESCAPE')
-    info = bundle(source, names)
+    try:
+        source = (CERTS/'current').resolve(strict=True)
+        if not source.is_relative_to(CERTS.resolve()): raise ValueError('CERTIFICATE_PATH_ESCAPE')
+        info = bundle(source, names)
+    except FileNotFoundError as exc:
+        # An absent ACME bundle is an expected wait, not a request for manual PEMs.
+        raise ValueError('CERTIFICATE_NOT_READY') from exc
     verify_chain(source)
     must_install = False
     try: probe(names, info['fingerprint'])
@@ -273,6 +279,7 @@ def main() -> int:
     STATE.chmod(0o700)
     STATUS.mkdir(parents=True, exist_ok=True)
     while True:
+        stage = 'configuration'
         try:
             if not enabled():
                 state(STATUS/'cloudpanel.json', status='DISABLED')
@@ -281,15 +288,21 @@ def main() -> int:
             names = configured_names()
             namespace = hashlib.sha256(names[0].encode()).hexdigest()[:16]
             # Serialize NGINX validation/reload across all Connect|API stacks on this VPS.
+            stage = 'host'
             lock = HOST/'run'/'connect-api-cloudpanel-nginx.lock'
             with lock.open('w') as stream:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 recover_pending()
                 host_run('nginx', '-t')
+                stage = 'installation'
                 reconcile_base(names, namespace)
         except Exception as exc:
-            state(STATUS/'cloudpanel.json', status='RECONCILIATION_FAILED', error=str(exc) if isinstance(exc, ValueError) else type(exc).__name__)
-            print(f'cloudpanel_reconciliation_failed type={type(exc).__name__}', flush=True)
+            reason = error_details(exc)
+            waiting = reason['error'] in {'CERTIFICATE_NOT_READY', 'BASE_REVERSE_PROXY_MISSING'}
+            status = 'WAITING_CERTIFICATE' if reason['error'] == 'CERTIFICATE_NOT_READY' else 'RECONCILIATION_FAILED'
+            state(STATUS/'cloudpanel.json', status=status, stage=stage, **reason)
+            event = 'cloudpanel_waiting' if waiting else 'cloudpanel_reconciliation_failed'
+            print(f"{event} stage={stage} code={reason['error']}", flush=True)
         time.sleep(interval)
 
 

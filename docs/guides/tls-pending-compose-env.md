@@ -40,6 +40,58 @@ arquivos de certificado. A exportação de um cliente não inclui esse resumo gl
 Este JSON é criado automaticamente dentro do ZIP de diagnóstico; não é requisito
 adicional de deploy.
 
+## Diagnóstico integrado na página Domínios
+
+No Control Plane, abra **Domínios**. O bloco **Diagnóstico DNS/SSL da stack**
+consulta automaticamente os serviços DNS/wildcard, ACME e CloudPanel. Use
+**Atualizar diagnóstico** para uma nova leitura; o botão superior **Atualizar**
+também atualiza o bloco. Falha dessa consulta não impede listar os domínios.
+
+Não adicione `tls-diagnostico` ao Compose nem execute o script temporário proposto
+na investigação inicial. A consulta agora pertence à API e à interface publicadas.
+Nenhum serviço, montagem, porta ou arquivo de configuração foi acrescentado.
+
+São mostrados código seguro, explicação, etapa, atualização, validade e campos
+**do .env a conferir**, sem seus valores. Estados antigos não são mostrados como
+confirmação atual. Modo staging/desativado e emissão em andamento permanecem
+explícitos. Campos de certificado ausentes/expirados impedem indicação verde.
+
+O agente diferencia ausência comprovada do bundle ACME (aguardando certificado)
+de um recurso interno ausente em outra etapa. Não transforma todo FileNotFoundError
+em ausência de PEM e nunca pede importação manual. Falhas continuam sendo
+publicadas nos logs e no volume de estado somente com códigos/mensagens controlados.
+
+### Contrato da consulta
+
+`GET /api/control/v1/tls/diagnostics`, usando a autenticação do Control Plane
+(hostname correto, token e MFA existentes). Permite `PLATFORM_ADMIN`,
+`PLATFORM_SUPPORT`, `PLATFORM_AUDITOR` e `PLATFORM_SUPERADMIN`; as chaves da
+Platform seguem o gate existente `control.read`/`control.manage`. Contas de cliente
+ou parceiro não recebem esse estado global. Requisição sem autenticação não
+recebe os dados. A resposta usa `Cache-Control: private, no-store` e `Pragma: no-cache`.
+
+A resposta é `SuccessResponse` com `data.schema_version=1`,
+`scope=PLATFORM_SERVICES`, `read_only=true`, `operator_files=[compose.yaml, .env]`,
+`requires_manual_proof=false`, `queried_at`, `services_confirmed` e três itens
+`services` (`dns`, `acme`, `cloudpanel`). Cada item traz `state`, `code`,
+`message`, `stage`, `env_fields` e timestamps públicos disponíveis.
+
+Estados do painel: `READY`, `WAITING`, `ERROR`, `STALE`, `DISABLED`, `RUNNING` e
+`STAGING`. `services_confirmed` não é o estado ACTIVE de um cliente: diz respeito
+somente às confirmações recentes dos três serviços. DNS individual, banco, storage,
+isolamento e ativação permanecem sob as verificações existentes.
+
+A leitura não executa subprocessos, não chama Cloudflare/ACME e não força emissão,
+reload, mutação de DNS ou ativação. O backend lê somente os três arquivos fixos
+produzidos pelos serviços, com limite de tamanho. Esses arquivos são dados internos,
+não novos requisitos do operador. O OpenAPI automático da FastAPI inclui a rota;
+OpenAPI/AsyncAPI do Engine não mudaram porque suas rotas/eventos não foram alterados.
+
+Atualize API, frontend e agentes usando imagens publicadas do mesmo canal.
+Uma interface nova contra API antiga pode indicar que o endpoint ainda está
+indisponível. A aplicação não tenta contornar esse estado instalando serviços
+adicionais ou lendo arquivos do host pelo navegador.
+
 ## Parâmetros de desenvolvimento
 
 Mantenha seus segredos, bancos, volumes e project existentes. Confira no `.env`:
