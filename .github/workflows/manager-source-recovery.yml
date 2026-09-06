@@ -105,6 +105,11 @@ jobs:
             manager/recovered/analysis/inventory.json \
             manager/recovered/analysis/dependency-graph.json
 
+          node manager/recovery/summarize-dependency-graph.mjs \
+            manager/recovered/analysis/dependency-graph.json \
+            manager/recovered/analysis/dependency-candidates.json \
+            120
+
       - name: Recover i18n context
         shell: bash
         run: |
@@ -183,6 +188,7 @@ jobs:
           test -s manager/recovered/analysis/route-component-map.json
           test -s manager/recovered/analysis/architecture-hints.json
           test -s manager/recovered/analysis/dependency-graph.json
+          test -s manager/recovered/analysis/dependency-candidates.json
 
           node --input-type=module --check < manager/recovered/legacy/index.js
 
@@ -192,6 +198,7 @@ jobs:
           grep -q '"defaultLocale": "pt-BR"' manager/recovered/analysis/i18n/locale-context.json
           grep -q '"extraLocalesDisabledByDefault": true' manager/recovered/analysis/i18n/locale-context.json
           grep -q '"missingRequired": \[\]' manager/recovered/analysis/inventory.json
+          grep -q '"analysisMode": "lexical-scope-aware"' manager/recovered/analysis/dependency-graph.json
           grep -q '"sourceMapReference"' manager/recovered/recovery-report.json
 
       - name: Commit recovered readable source
