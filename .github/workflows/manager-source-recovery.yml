@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
 
           rm -rf manager/recovered
-          mkdir -p manager/recovered/legacy
+          mkdir -p manager/recovered/legacy manager/recovered/analysis
 
           cp "$JS_PATH" manager/recovered/legacy/index.js
           cp "$CSS_PATH" manager/recovered/legacy/index.css
@@ -77,6 +77,15 @@ jobs:
             manager/recovered/legacy/index.js \
             manager/recovered/recovery-report.json
 
+      - name: Extract recovered components
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false @babel/parser@7.28.4
+          node manager/recovery/extract-components.mjs \
+            manager/recovered/legacy/index.js \
+            manager/recovered/analysis
+
       - name: Validate recovered source
         shell: bash
         run: |
@@ -85,11 +94,18 @@ jobs:
           test -s manager/recovered/legacy/index.js
           test -s manager/recovered/legacy/index.css
           test -s manager/recovered/recovery-report.json
+          test -s manager/recovered/analysis/LandingPage.Fse.js
+          test -s manager/recovered/analysis/LoginPage.Dse.js
+          test -s manager/recovered/analysis/Router.Lse.js
+          test -s manager/recovered/analysis/SidebarPtBR.Dae.js
+          test -s manager/recovered/analysis/inventory.json
 
           node --input-type=module --check < manager/recovered/legacy/index.js
 
-          grep -q 'Modern web interface for Connect|API management' manager/recovered/legacy/index.js
-          grep -q 'Access Manager Dashboard' manager/recovered/legacy/index.js
+          grep -q 'Modern web interface for Connect|API management' manager/recovered/analysis/LandingPage.Fse.js
+          grep -q 'Access Manager Dashboard' manager/recovered/analysis/LandingPage.Fse.js
+          grep -q 'Suporte Premium' manager/recovered/analysis/SidebarPtBR.Dae.js
+          grep -q '"missing": \[\]' manager/recovered/analysis/inventory.json
           grep -q '"sourceMapReference"' manager/recovered/recovery-report.json
 
       - name: Commit recovered readable source
