@@ -54,3 +54,5 @@ jobs:
         run: docker build -f platform/infrastructure/acme/Dockerfile -t connect-acme-ci:local platform
       - name: Build CloudPanel agent image
         run: docker build -f platform/infrastructure/cloudpanel-agent/Dockerfile -t connect-cloudpanel-ci:local platform
+      - name: Grafana real auth, dashboard and persisted data (three Compose variants)
+        run: python platform/infrastructure/grafana/integration_test.py

@@ -23,12 +23,21 @@ interface InstanceRow {
   tenant_id:string
   tenant_name:string
   tenant_slug:string
+  binding_id?:string|null
+  alias?:string|null
+  binding_status?:string
+  provider?:string|null
+  pairing_available?:boolean
+  origin?:string|null
   instance?:string|null
   instance_mode:string
   operations_available:boolean
   connection:Connection
 }
 interface OperateResponse {
+  binding_id?:string|null
+  binding_status?:string
+  pairing_available?:boolean
   tenant_id:string
   tenant_name:string
   instance:string
@@ -59,29 +68,40 @@ const testBusy=ref(false)
 let timer:number|undefined
 
 const connected=computed(()=>items.value.filter(item=>item.connection.state==='CONNECTED').length)
+const rowKey=(item:InstanceRow)=>`${item.tenant_id}:${item.binding_id||'none'}`
+const customers=computed(()=>new Set(items.value.map(item=>item.tenant_id)).size)
 const configured=computed(()=>items.value.filter(item=>item.instance).length)
 const unavailable=computed(()=>items.value.filter(item=>['UNAVAILABLE','NOT_CONFIGURED'].includes(item.connection.state)).length)
 const stateTone=(state:string)=>state==='CONNECTED'?'ACTIVE':state==='UNAVAILABLE'?'ERROR':['CONNECTING','RECONNECTING'].includes(state)?'PENDING':'INACTIVE'
-const qrSource=(value?:string|null)=>value?(value.startsWith('data:')?value:`data:image/png;base64,${value}`):''
-const stateText=(value:string)=>({CONNECTED:'Conectado',CONNECTING:'Conectando',RECONNECTING:'Reconectando',DISCONNECTED:'Desconectado',NOT_CREATED:'Ainda não criado',NOT_CONFIGURED:'Não configurado',UNAVAILABLE:'Serviço indisponível',UNKNOWN:'Estado em atualização'} as Record<string,string>)[value]||statusLabel(value)
+const qrSource=(value?:string|null)=>value&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value)?value:''
+const stateText=(value:string)=>({CONNECTED:'Conectado',CONNECTING:'Conectando',RECONNECTING:'Reconectando',DISCONNECTED:'Desconectado',NOT_CREATED:'Sem instância vinculada',CREATE_PENDING:'Criação pendente de verificação',NOT_CONFIGURED:'Não configurado',UNAVAILABLE:'Serviço indisponível',UNKNOWN:'Estado em atualização'} as Record<string,string>)[value]||statusLabel(value)
 
 async function load(silent=false){
   if(!silent){loading.value=true;error.value=''}
-  try{items.value=(await api.get<ApiResponse<InstanceRow[]>>('/control/v1/whatsapp/instances')).data.data}
+  try{
+    const next=(await api.get<ApiResponse<InstanceRow[]>>('/control/v1/whatsapp/instances')).data.data
+    items.value=next.map(item=>{
+      const previous=items.value.find(old=>rowKey(old)===rowKey(item))
+      if(previous&&expanded.value===rowKey(item)&&!item.connection.session_exists){
+        item.connection={...item.connection,qr_base64:previous.connection.qr_base64,pairing_code:previous.connection.pairing_code}
+      }
+      return item
+    })
+  }
   catch(e){if(!silent)error.value=apiError(e)}finally{if(!silent)loading.value=false}
 }
 function updateRow(result:OperateResponse){
-  const index=items.value.findIndex(item=>item.tenant_id===result.tenant_id)
-  if(index>=0)items.value[index]={...items.value[index],instance:result.instance,connection:result.connection}
+  const index=items.value.findIndex(item=>item.tenant_id===result.tenant_id&&item.binding_id===result.binding_id)
+  if(index>=0)items.value[index]={...items.value[index],...result,instance:result.instance,connection:result.connection}
 }
 async function operate(item:InstanceRow,action:string,phoneValue?:string){
-  const key=`${item.tenant_id}:${action}`;actionBusy.value=key;error.value='';success.value=''
+  const key=`${rowKey(item)}:${action}`;actionBusy.value=key;error.value='';success.value=''
   try{
-    const response=await api.post<ApiResponse<OperateResponse>>(`/control/v1/whatsapp/instances/${item.tenant_id}/${action}`,{phone:phoneValue||null})
+    const response=await api.post<ApiResponse<OperateResponse>>(`/control/v1/whatsapp/instances/${item.tenant_id}/actions/${action}`,{phone:phoneValue||null,binding_id:item.binding_id||null})
     updateRow(response.data.data)
     const labels:Record<string,string>={create:'Conexão preparada.',connect:'Pareamento solicitado.',disconnect:'WhatsApp desconectado.',restart:'Reinicialização solicitada com preservação de sessão.',delete:'Conexão removida.'}
-    success.value=`${item.tenant_name}: ${labels[action]||'Operação concluída.'}`
-    if(action==='connect')expanded.value=item.tenant_id
+    success.value=`${item.tenant_name}: ${response.data.data.binding_status==='CREATE_PENDING'||response.data.data.binding_status==='CREATING'?'Criação ainda pendente; use Verificar criação.':labels[action]||'Operação concluída.'}`
+    if(action==='connect')expanded.value=rowKey(item)
     await load(true)
   }catch(e){error.value=apiError(e)}finally{actionBusy.value=''}
 }
@@ -98,7 +118,7 @@ async function remove(item:InstanceRow){
   if(ok)await operate(item,'delete')
 }
 function openPair(item:InstanceRow,mode:'QR'|'CODE'){
-  expanded.value=item.tenant_id;pairMode.value=mode;phone.value=''
+  expanded.value=rowKey(item);pairMode.value=mode;phone.value=''
   if(mode==='QR')void operate(item,'connect')
 }
 function openTest(item:InstanceRow){testTarget.value=item;testPhone.value='';testMessage.value='Mensagem de teste da Connect|API Platform.';testModal.value=true;error.value='';success.value=''}
@@ -106,7 +126,7 @@ async function sendTest(){
   if(!testTarget.value||!testPhone.value.trim()||!testMessage.value.trim())return
   testBusy.value=true;error.value='';success.value=''
   try{
-    const result=(await api.post<ApiResponse<TestMessageResult>>(`/control/v1/whatsapp/instances/${testTarget.value.tenant_id}/test-message`,{phone:testPhone.value,message:testMessage.value})).data.data
+    const result=(await api.post<ApiResponse<TestMessageResult>>(`/control/v1/whatsapp/instances/${testTarget.value.tenant_id}/test-message`,{phone:testPhone.value,message:testMessage.value,binding_id:testTarget.value.binding_id||null})).data.data
     success.value=`Mensagem de teste enviada para ${result.destination}${result.external_id?` · ID ${result.external_id}`:''}.`
     testModal.value=false
   }catch(e){error.value=apiError(e)}finally{testBusy.value=false}
@@ -122,31 +142,31 @@ onBeforeUnmount(()=>{if(timer)window.clearInterval(timer)})
   <InlineAlert :message="error" @dismiss="error=''"/><InlineAlert :message="success" type="success" @dismiss="success=''"/>
 
   <div class="mb-6 grid gap-4 sm:grid-cols-3">
-    <div class="card"><p class="text-xs uppercase text-slate-400">Clientes monitorados</p><p class="mt-2 text-3xl font-bold">{{items.length}}</p></div>
+    <div class="card"><p class="text-xs uppercase text-slate-400">Clientes monitorados</p><p class="mt-2 text-3xl font-bold">{{customers}}</p></div>
     <div class="card"><p class="text-xs uppercase text-slate-400">Conectados</p><p class="mt-2 text-3xl font-bold text-emerald-700">{{connected}}</p><p class="mt-1 text-xs text-slate-400">{{configured}} instância(s) identificada(s)</p></div>
     <div class="card"><p class="text-xs uppercase text-slate-400">Precisam de atenção</p><p class="mt-2 text-3xl font-bold" :class="unavailable?'text-rose-700':'text-slate-900'">{{unavailable}}</p><p class="mt-1 text-xs text-slate-400">não configurado ou indisponível</p></div>
   </div>
 
   <div class="space-y-4">
-    <article v-for="item in items" :key="item.tenant_id" class="card">
+    <article v-for="item in items" :key="rowKey(item)" class="card">
       <div class="flex flex-wrap items-start gap-4">
         <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><MessageCircle :size="24"/></div>
-        <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><h2 class="font-bold">{{item.tenant_name}}</h2><StatusBadge :status="stateTone(item.connection.state)"/></div><p class="mt-1 text-xs text-slate-400">{{item.tenant_slug}} · {{item.instance||'instância ainda não criada'}}</p><p class="mt-2 text-sm font-semibold" :class="item.connection.state==='CONNECTED'?'text-emerald-700':['CONNECTING','RECONNECTING'].includes(item.connection.state)?'text-amber-700':'text-slate-600'">{{stateText(item.connection.state)}}</p><p v-if="item.connection.profile_name||item.connection.number" class="mt-1 text-xs text-slate-500">{{item.connection.profile_name||'WhatsApp'}} · {{item.connection.number||'número não identificado'}}</p><p v-if="item.connection.message" class="mt-2 text-xs text-amber-700">{{item.connection.message}}</p></div>
+        <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><h2 class="font-bold">{{item.tenant_name}}</h2><StatusBadge :status="stateTone(item.connection.state)"/></div><p class="mt-1 text-xs text-slate-400">{{item.tenant_slug}} · {{item.alias || item.instance || 'Sem instância vinculada'}}</p><p class="mt-2 text-sm font-semibold" :class="item.connection.state==='CONNECTED'?'text-emerald-700':['CONNECTING','RECONNECTING'].includes(item.connection.state)?'text-amber-700':'text-slate-600'">{{stateText(item.connection.state)}}</p><p v-if="item.connection.profile_name||item.connection.number" class="mt-1 text-xs text-slate-500">{{item.connection.profile_name||'WhatsApp'}} · {{item.connection.number||'número não identificado'}}</p><p v-if="item.connection.message" class="mt-2 text-xs text-amber-700">{{item.connection.message}}</p></div>
         <div class="flex flex-wrap justify-end gap-2">
           <template v-if="item.operations_available">
-            <button v-if="item.connection.state==='NOT_CREATED'" class="btn-secondary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="operate(item,'create')"><PlugZap :size="15"/>Preparar</button>
-            <button v-if="!item.connection.session_exists&&item.connection.state!=='CONNECTED'" class="btn-primary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="openPair(item,'QR')"><Smartphone :size="15"/>QR Code</button>
-            <button v-if="!item.connection.session_exists&&item.connection.state!=='CONNECTED'" class="btn-secondary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="openPair(item,'CODE')"><Power :size="15"/>Código</button>
+            <button v-if="['NOT_CREATED','CREATE_PENDING'].includes(item.connection.state)" class="btn-secondary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="operate(item,'create')"><PlugZap :size="15"/>{{ item.connection.state==='CREATE_PENDING'?'Verificar criação':'Preparar instância' }}</button>
+            <button v-if="item.instance&&item.pairing_available!==false&&!item.connection.session_exists&&item.connection.state!=='CONNECTED'" class="btn-primary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="openPair(item,'QR')"><Smartphone :size="15"/>QR Code</button>
+            <button v-if="item.instance&&item.pairing_available!==false&&!item.connection.session_exists&&item.connection.state!=='CONNECTED'" class="btn-secondary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="openPair(item,'CODE')"><Power :size="15"/>Código</button>
             <button v-if="item.connection.state==='CONNECTED'" class="btn-secondary !px-3 !py-2 text-blue-700" @click="openTest(item)"><Send :size="15"/>Testar envio</button>
             <button v-if="item.connection.session_exists" class="btn-secondary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="restart(item)"><RotateCw :size="15"/>Reiniciar</button>
             <button v-if="item.connection.state==='CONNECTED'" class="btn-secondary !px-3 !py-2" :disabled="Boolean(actionBusy)" @click="disconnect(item)"><Unplug :size="15"/>Desconectar</button>
-            <button v-if="item.connection.state!=='NOT_CREATED'" class="btn-secondary !px-3 !py-2 text-rose-600" :disabled="Boolean(actionBusy)" @click="remove(item)"><Trash2 :size="15"/>Remover</button>
+            <button v-if="item.instance&&item.binding_status!=='CREATE_PENDING'&&item.binding_status!=='CREATING'&&item.origin!=='ADOPTED_EXISTING'" class="btn-secondary !px-3 !py-2 text-rose-600" :disabled="Boolean(actionBusy)" @click="remove(item)"><Trash2 :size="15"/>Remover</button>
           </template>
-          <span v-else class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500">Conexão compartilhada</span>
+          <span v-else class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500">Operações indisponíveis</span>
         </div>
       </div>
 
-      <div v-if="expanded===item.tenant_id&&item.operations_available&&!item.connection.session_exists" class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div v-if="expanded===rowKey(item)&&item.operations_available&&!item.connection.session_exists" class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div class="mb-3 flex items-center justify-between"><p class="font-semibold">Pareamento</p><button class="rounded-lg p-1.5 text-slate-400 hover:bg-white" @click="expanded=''"><X :size="17"/></button></div>
         <div class="grid gap-4 lg:grid-cols-2">
           <div><div class="mb-2 grid grid-cols-2 gap-2"><button class="rounded-xl border p-2.5 text-sm font-semibold" :class="pairMode==='QR'?'border-blue-400 bg-blue-50 text-blue-800':'border-slate-200 bg-white'" @click="pairMode='QR';operate(item,'connect')">QR Code</button><button class="rounded-xl border p-2.5 text-sm font-semibold" :class="pairMode==='CODE'?'border-blue-400 bg-blue-50 text-blue-800':'border-slate-200 bg-white'" @click="pairMode='CODE'">Código de pareamento</button></div><div v-if="pairMode==='CODE'" class="flex gap-2"><input v-model="phone" class="input" inputmode="tel" placeholder="99999-9999 ou 5575999999999"/><button class="btn-primary shrink-0" :disabled="!phone||Boolean(actionBusy)" @click="operate(item,'connect',phone)">Gerar</button></div><p v-if="pairMode==='CODE'" class="mt-2 text-xs text-slate-500">O DDI 55 é incluído automaticamente quando ausente. Sem DDD, a plataforma usa o DDD padrão da empresa emissora.</p></div>

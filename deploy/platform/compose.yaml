@@ -105,6 +105,9 @@ x-platform-env: &platform-env
   PROMETHEUS_LIFECYCLE_ENABLED: "${PROMETHEUS_LIFECYCLE_ENABLED:-false}"
   GRAFANA_BASE_URL: http://connect-grafana:3000
   GRAFANA_SERVICE_ACCOUNT_TOKEN: "${GRAFANA_SERVICE_ACCOUNT_TOKEN:-}"
+  GRAFANA_LOCAL_ADMIN_ENABLED: "${GRAFANA_LOCAL_ADMIN_ENABLED:-true}"
+  GRAFANA_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+  GRAFANA_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-}"
   GRAFANA_ORG_ID: "${GRAFANA_ORG_ID:-1}"
 
 x-platform-app: &platform-app
@@ -494,7 +497,13 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mkdir -p /tmp/grafana-provisioning/datasources /tmp/grafana-provisioning/dashboards
+        mkdir -p /tmp/grafana-provisioning/datasources /tmp/grafana-provisioning/dashboards /var/lib/grafana/dashboards
+        if [ ! -e /var/lib/grafana/dashboards/connect-platform-runtime.json ]; then
+          cat > /var/lib/grafana/dashboards/.connect-platform-runtime.tmp <<'DASHBOARD'
+        {"uid":"connect-platform-runtime","title":"Connect|API — Saúde dos serviços","tags":["connect-api","provisionado"],"schemaVersion":39,"version":1,"editable":true,"refresh":"30s","time":{"from":"now-1h","to":"now"},"panels":[{"id":1,"type":"timeseries","title":"API acessível pelo Prometheus","datasource":"Prometheus","gridPos":{"h":8,"w":8,"x":0,"y":0},"targets":[{"refId":"A","expr":"up{job=\"connect-api\"}"}]},{"id":2,"type":"timeseries","title":"Duração da coleta (segundos)","datasource":"Prometheus","gridPos":{"h":8,"w":8,"x":8,"y":0},"targets":[{"refId":"A","expr":"scrape_duration_seconds{job=\"connect-api\"}"}]},{"id":3,"type":"timeseries","title":"Amostras coletadas","datasource":"Prometheus","gridPos":{"h":8,"w":8,"x":16,"y":0},"targets":[{"refId":"A","expr":"scrape_samples_scraped{job=\"connect-api\"}"}]}]}
+        DASHBOARD
+          mv /var/lib/grafana/dashboards/.connect-platform-runtime.tmp /var/lib/grafana/dashboards/connect-platform-runtime.json
+        fi
         cat > /tmp/grafana-provisioning/datasources/prometheus.yml <<'EOF'
         apiVersion: 1
         datasources:
@@ -511,8 +520,8 @@ services:
           - name: Connect|API Platform
             folder: Connect|API Platform
             type: file
-            disableDeletion: false
-            editable: true
+            disableDeletion: true
+            allowUiUpdates: true
             options:
               path: /var/lib/grafana/dashboards
         EOF

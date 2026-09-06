@@ -168,6 +168,9 @@ class Settings(BaseSettings):
     prometheus_lifecycle_enabled: bool = False
     grafana_base_url: str = "http://connect-grafana:3000"
     grafana_service_account_token: str = ""
+    grafana_local_admin_enabled: bool = False
+    grafana_admin_user: str = "admin"
+    grafana_admin_password: str = ""
     grafana_org_id: int = 1
 
     @field_validator("app_env", mode="before")
