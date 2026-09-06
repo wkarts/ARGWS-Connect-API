@@ -2,13 +2,13 @@
 import { computed } from 'vue'
 import { X } from 'lucide-vue-next'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   open?: boolean
   modelValue?: boolean
   title: string
   description?: string
   size?: 'md' | 'lg' | 'xl'
-}>()
+}>(), { open: undefined, modelValue: undefined })
 
 const emit = defineEmits<{
   close: []
@@ -27,7 +27,7 @@ function close() {
 <template>
   <teleport to="body">
     <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" @click.self="close">
-      <div class="max-h-[92vh] w-full overflow-auto rounded-2xl bg-white shadow-2xl" :class="sizes[size || 'md']">
+      <div role="dialog" aria-modal="true" :aria-label="title" class="max-h-[92vh] w-full overflow-auto rounded-2xl bg-white shadow-2xl" :class="sizes[size || 'md']">
         <div class="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
           <div>
             <h2 class="text-lg font-semibold">{{ title }}</h2>

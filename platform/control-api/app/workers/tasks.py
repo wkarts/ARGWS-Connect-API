@@ -281,21 +281,9 @@ def reconcile_platform_tls() -> int:
                 selectinload(ProvisioningJob.tenant).selectinload(Tenant.database),
                 selectinload(ProvisioningJob.tenant).selectinload(Tenant.storage),
             ).with_for_update(skip_locked=True))).all())
+            from app.services.tls_job_completion import complete_waiting_job
             for job in jobs:
-                if job.tenant.status != "PROVISIONING": continue
-                primary = next((item for item in job.tenant.domains if item.is_primary), None)
-                if not primary or primary.status != "ACTIVE": continue
-                validation = await provisioning_service.validate_resources(session, job.tenant, reconcile_domain=False)
-                if not validation.get("ready"): continue
-                job.tenant.status = "ACTIVE"
-                job.tenant.activated_at = datetime.now(UTC)
-                job.status, job.current_step, job.progress = "SUCCEEDED", "COMPLETED", 100
-                job.finished_at, job.last_error = datetime.now(UTC), None
-                job.add_event("COMPLETED", "DNS/SSL verificados; banco e armazenamento revalidados pelo serviço.")
-                await platform_audit(session, action="tenant.provisioning.tls_completed",
-                                     entity_type="ProvisioningJob", entity_id=str(job.id),
-                                     tenant_id=str(job.tenant_id), actor_id=None,
-                                     after={"status": "SUCCEEDED", "domain": primary.hostname})
+                await complete_waiting_job(session, job)
             await session.commit()
             return len(rows)
     return run(action())

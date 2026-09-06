@@ -11,6 +11,8 @@ from sqlalchemy import select
 
 from app.api.deps import require_control_roles
 from app.core.errors import APIError
+from app.core.config import settings
+from app.services import control_engine_instances
 from app.db.platform import PlatformSessionLocal, get_platform_session
 from app.db.tenant import tenant_engines
 from app.models.platform import Tenant
@@ -26,11 +28,14 @@ router = APIRouter(prefix="/api/control/v1/whatsapp", tags=["Control Plane - Wha
 
 
 class WhatsAppControlRequest(BaseModel):
+    binding_id: UUID | None = None
+    alias: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     phone: str | None = Field(default=None, max_length=32)
     company_id: UUID | None = None
 
 
 class WhatsAppControlTestRequest(BaseModel):
+    binding_id: UUID | None = None
     phone: str = Field(min_length=8, max_length=32)
     message: str = Field(min_length=1, max_length=4096)
     company_id: UUID | None = None
@@ -157,6 +162,8 @@ async def _status(tenant: Tenant, semaphore: asyncio.Semaphore) -> dict[str, Any
 async def list_whatsapp_instances(
     _: AuthUser = Depends(require_control_roles("PLATFORM_ADMIN", "PLATFORM_SUPERADMIN")),
 ) -> SuccessResponse[list[dict]]:
+    if not settings.enable_reference_financial_domain:
+        return SuccessResponse(data=await control_engine_instances.list_instances())
     async with PlatformSessionLocal() as session:
         tenants = list((await session.scalars(select(Tenant).order_by(Tenant.name))).all())
     semaphore = asyncio.Semaphore(8)
@@ -174,6 +181,10 @@ async def test_whatsapp_message(
     tenant = await session.get(Tenant, tenant_id)
     if tenant is None:
         raise APIError("TENANT_NOT_FOUND", "Cliente não encontrado.", 404)
+    if not settings.enable_reference_financial_domain:
+        company = await _tenant_company(session, tenant, payload.company_id)
+        phone = normalize_brazil_phone(payload.phone, company=company, field_name="número de destino")
+        return SuccessResponse(data=await control_engine_instances.test_message(session, tenant, user, payload.binding_id, phone, payload.message))
     service = await managed_whatsapp_for_tenant(tenant.slug, tenant.id)
     if not service.managed_instance:
         raise APIError(
@@ -238,6 +249,13 @@ async def operate_whatsapp_instance(
     tenant = await session.get(Tenant, tenant_id)
     if tenant is None:
         raise APIError("TENANT_NOT_FOUND", "Cliente não encontrado.", 404)
+    if not settings.enable_reference_financial_domain:
+        phone = None
+        if action.strip().lower() == "connect" and payload.phone:
+            company = await _tenant_company(session, tenant, payload.company_id)
+            phone = normalize_brazil_phone(payload.phone, company=company, field_name="número usado no pareamento")
+        return SuccessResponse(data=await control_engine_instances.operate(
+            session, tenant, user, action.strip().lower(), payload.binding_id, phone, payload.alias))
     service = await managed_whatsapp_for_tenant(tenant.slug, tenant.id)
     if not service.managed_instance:
         raise APIError(

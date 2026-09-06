@@ -455,31 +455,46 @@ class GrafanaAdminService:
     def __init__(self) -> None:
         self.base_url = settings.grafana_base_url.rstrip("/")
 
+    def _auth_mode(self) -> str:
+        if settings.grafana_service_account_token:
+            return "SERVICE_ACCOUNT"
+        if (settings.grafana_local_admin_enabled and settings.grafana_admin_user
+                and settings.grafana_admin_password and not settings.grafana_admin_password.startswith("CHANGE_ME")
+                and self.base_url == "http://connect-grafana:3000"):
+            return "LOCAL_ADMIN"
+        return "NOT_CONFIGURED"
+
     def _headers(self) -> dict[str, str]:
-        if not settings.grafana_service_account_token:
-            raise APIError(
-                "GRAFANA_ADMIN_NOT_CONFIGURED",
-                "Configure GRAFANA_SERVICE_ACCOUNT_TOKEN para administrar o Grafana pelo Control Plane.",
-                409,
-            )
-        headers = {"Authorization": f"Bearer {settings.grafana_service_account_token}", "Accept": "application/json"}
+        mode = self._auth_mode()
+        if mode == "NOT_CONFIGURED":
+            raise APIError("GRAFANA_ADMIN_NOT_CONFIGURED", "Configure um token de serviço ou as credenciais existentes do Grafana local no .env.", 409)
+        headers = {"Accept": "application/json"}
+        if mode == "SERVICE_ACCOUNT":
+            headers["Authorization"] = f"Bearer {settings.grafana_service_account_token}"
         if settings.grafana_org_id:
             headers["X-Grafana-Org-Id"] = str(settings.grafana_org_id)
         return headers
 
     async def _json(self, method: str, path: str, **kwargs: Any) -> Any:
+        auth = (httpx.BasicAuth(settings.grafana_admin_user, settings.grafana_admin_password)
+                if self._auth_mode() == "LOCAL_ADMIN" else None)
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers(), timeout=20.0) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers(), auth=auth,
+                                         timeout=20.0, follow_redirects=False, trust_env=False) as client:
                 response = await client.request(method, path, **kwargs)
                 response.raise_for_status()
                 data: Any = response.json() if response.content else {}
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {401, 403}:
+                raise APIError("GRAFANA_CREDENTIAL_REJECTED", "Grafana recusou a credencial configurada. Confira o token ou a senha já persistida no Grafana; alterar o .env não redefine essa senha.", 502) from exc
+            raise APIError("GRAFANA_API_FAILED", "A API administrativa do Grafana não concluiu a operação.", 502) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise APIError("GRAFANA_API_FAILED", "A API administrativa do Grafana não respondeu corretamente.", 502) from exc
         return _safe_mapping(data)
 
     async def health(self) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=10.0) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=10.0, trust_env=False, follow_redirects=False) as client:
                 response = await client.get("/api/health")
                 healthy = response.is_success
                 data = response.json() if response.content and response.is_success else {}
@@ -488,21 +503,23 @@ class GrafanaAdminService:
         return {"healthy": healthy, "base_url": self.base_url, "details": _safe_mapping(data)}
 
     async def overview(self) -> dict[str, Any]:
-        health = await self.health()
-        if not settings.grafana_service_account_token:
-            return {"health": health, "admin_configured": False, "dashboards": [], "folders": [], "datasources": []}
-        dashboards, folders, datasources = await asyncio.gather(
-            self._json("GET", "/api/search", params={"type": "dash-db", "limit": 1000}),
-            self._json("GET", "/api/folders", params={"limit": 1000}),
-            self._json("GET", "/api/datasources"),
-        )
-        return {
-            "health": health,
-            "admin_configured": True,
-            "dashboards": dashboards if isinstance(dashboards, list) else [],
-            "folders": folders if isinstance(folders, list) else [],
-            "datasources": datasources if isinstance(datasources, list) else [],
-        }
+        result = {"health": await self.health(), "admin_configured": False, "auth_mode": self._auth_mode(),
+                  "dashboards": [], "folders": [], "datasources": [], "admin_message": None}
+        if self._auth_mode() == "NOT_CONFIGURED":
+            result["admin_message"] = "Configure o token de serviço ou habilite as credenciais do Grafana local já existentes no .env."
+            return result
+        try:
+            dashboards, folders, datasources = await asyncio.gather(
+                self._json("GET", "/api/search", params={"type": "dash-db", "limit": 1000}),
+                self._json("GET", "/api/folders", params={"limit": 1000}),
+                self._json("GET", "/api/datasources"),
+            )
+        except APIError as exc:
+            result.update(admin_message=exc.message, admin_error_code=exc.code)
+            return result
+        result.update(admin_configured=True, dashboards=dashboards if isinstance(dashboards, list) else [],
+                      folders=folders if isinstance(folders, list) else [], datasources=datasources if isinstance(datasources, list) else [])
+        return result
 
     async def dashboard(self, uid: str) -> dict[str, Any]:
         data = await self._json("GET", f"/api/dashboards/uid/{uid}")
