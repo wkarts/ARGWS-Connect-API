@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T18:02:57.617Z",
+  "generatedAt": "2026-09-06T18:07:06.802Z",
   "input": "manager/recovered/legacy/index.js",
   "parser": "@babel/parser",
   "discoveredSymbolCount": 10320,
@@ -8,259 +8,345 @@
       "symbol": "Ve",
       "kind": "variable",
       "file": "i18n/useTranslation.Ve.js",
-      "bytes": 2410
+      "bytes": 2410,
+      "sourceStart": 319541,
+      "sourceEnd": 321943
     },
     {
       "symbol": "tc",
       "kind": "variable",
       "file": "theme/useTheme.tc.js",
-      "bytes": 157
+      "bytes": 157,
+      "sourceStart": 447236,
+      "sourceEnd": 447385
     },
     {
       "symbol": "jn",
       "kind": "variable",
       "file": "session/StorageKeys.jn.js",
-      "bytes": 420
+      "bytes": 420,
+      "sourceStart": 447897,
+      "sourceEnd": 448311
     },
     {
       "symbol": "Rj",
       "kind": "variable",
       "file": "session/saveSession.Rj.js",
-      "bytes": 639
+      "bytes": 639,
+      "sourceStart": 448321,
+      "sourceEnd": 448952
     },
     {
       "symbol": "Pj",
       "kind": "variable",
       "file": "session/clearSession.Pj.js",
-      "bytes": 359
+      "bytes": 359,
+      "sourceStart": 448958,
+      "sourceEnd": 449309
     },
     {
       "symbol": "dr",
       "kind": "variable",
       "file": "session/readStorage.dr.js",
-      "bytes": 43
+      "bytes": 43,
+      "sourceStart": 449315,
+      "sourceEnd": 449350
     },
     {
       "symbol": "tn",
       "kind": "variable",
       "file": "layout/ManagerGuard.tn.js",
-      "bytes": 198
+      "bytes": 198,
+      "sourceStart": 449356,
+      "sourceEnd": 449546
     },
     {
       "symbol": "jL",
       "kind": "variable",
       "file": "layout/LoginGuard.jL.js",
-      "bytes": 182
+      "bytes": 182,
+      "sourceStart": 449552,
+      "sourceEnd": 449726
     },
     {
       "symbol": "sT",
       "kind": "variable",
       "file": "services/fetchServerStatus.sT.js",
-      "bytes": 63
+      "bytes": 63,
+      "sourceStart": 507524,
+      "sourceEnd": 507579
     },
     {
       "symbol": "ct",
       "kind": "variable",
       "file": "services/useInstanceContext.ct.js",
-      "bytes": 162
+      "bytes": 162,
+      "sourceStart": 712631,
+      "sourceEnd": 712785
     },
     {
       "symbol": "un",
       "kind": "function",
       "file": "layout/InstanceShell.un.js",
-      "bytes": 1001
+      "bytes": 1001,
+      "sourceStart": 743088,
+      "sourceEnd": 744088
     },
     {
       "symbol": "B5",
       "kind": "function",
       "file": "layout/ManagerShell.B5.js",
-      "bytes": 225
+      "bytes": 225,
+      "sourceStart": 744091,
+      "sourceEnd": 744315
     },
     {
       "symbol": "l_",
       "kind": "function",
       "file": "components/ConnectionStatus.l_.js",
-      "bytes": 455
+      "bytes": 455,
+      "sourceStart": 745201,
+      "sourceEnd": 745655
     },
     {
       "symbol": "c_",
       "kind": "function",
       "file": "components/TokenField.c_.js",
-      "bytes": 762
+      "bytes": 762,
+      "sourceStart": 745777,
+      "sourceEnd": 746538
     },
     {
       "symbol": "q5",
       "kind": "variable",
       "file": "services/useInstancesQuery.q5.js",
-      "bytes": 67
+      "bytes": 67,
+      "sourceStart": 748338,
+      "sourceEnd": 748397
     },
     {
       "symbol": "Hh",
       "kind": "function",
       "file": "services/useInstanceActions.Hh.js",
-      "bytes": 870
+      "bytes": 870,
+      "sourceStart": 749485,
+      "sourceEnd": 750354
     },
     {
       "symbol": "dQ",
       "kind": "function",
       "file": "components/CreateInstanceDialog.dQ.js",
-      "bytes": 3155
+      "bytes": 3155,
+      "sourceStart": 1086596,
+      "sourceEnd": 1089750
     },
     {
       "symbol": "CZ",
       "kind": "function",
       "file": "pages/InstancesPage.CZ.js",
-      "bytes": 9738
+      "bytes": 9738,
+      "sourceStart": 1126903,
+      "sourceEnd": 1136640
     },
     {
       "symbol": "tk",
       "kind": "function",
       "file": "pages/ChatPage.tk.js",
-      "bytes": 11106
+      "bytes": 11106,
+      "sourceStart": 1280490,
+      "sourceEnd": 1291595
     },
     {
       "symbol": "yX",
       "kind": "function",
       "file": "pages/ChatwootPage.yX.js",
-      "bytes": 7724
+      "bytes": 7724,
+      "sourceStart": 1293040,
+      "sourceEnd": 1300763
     },
     {
       "symbol": "PX",
       "kind": "function",
       "file": "pages/InstanceDashboard.PX.js",
-      "bytes": 10491
+      "bytes": 10491,
+      "sourceStart": 1333725,
+      "sourceEnd": 1344215
     },
     {
       "symbol": "xk",
       "kind": "function",
       "file": "pages/DifyPage.xk.js",
-      "bytes": 2794
+      "bytes": 2794,
+      "sourceStart": 1473503,
+      "sourceEnd": 1476296
     },
     {
       "symbol": "Sk",
       "kind": "function",
       "file": "pages/EmbedChatPage.Sk.js",
-      "bytes": 177
+      "bytes": 177,
+      "sourceStart": 1518137,
+      "sourceEnd": 1518313
     },
     {
       "symbol": "Ck",
       "kind": "function",
       "file": "pages/ConnectAIPage.Ck.js",
-      "bytes": 2502
+      "bytes": 2502,
+      "sourceStart": 1550165,
+      "sourceEnd": 1552666
     },
     {
       "symbol": "Ek",
       "kind": "function",
       "file": "pages/ConnectBotPage.Ek.js",
-      "bytes": 2507
+      "bytes": 2507,
+      "sourceStart": 1584921,
+      "sourceEnd": 1587427
     },
     {
       "symbol": "kk",
       "kind": "function",
       "file": "pages/FlowisePage.kk.js",
-      "bytes": 2492
+      "bytes": 2492,
+      "sourceStart": 1618722,
+      "sourceEnd": 1621213
     },
     {
       "symbol": "jk",
       "kind": "function",
       "file": "pages/N8nPage.jk.js",
-      "bytes": 2472
+      "bytes": 2472,
+      "sourceStart": 1651997,
+      "sourceEnd": 1654468
     },
     {
       "symbol": "Tk",
       "kind": "function",
       "file": "pages/OpenAIPage.Tk.js",
-      "bytes": 2817
+      "bytes": 2817,
+      "sourceStart": 1700962,
+      "sourceEnd": 1703778
     },
     {
       "symbol": "Ore",
       "kind": "function",
       "file": "pages/ProxyPage.Ore.js",
-      "bytes": 3606
+      "bytes": 3606,
+      "sourceStart": 1704646,
+      "sourceEnd": 1708251
     },
     {
       "symbol": "Bre",
       "kind": "function",
       "file": "pages/RabbitMQPage.Bre.js",
-      "bytes": 5525
+      "bytes": 5525,
+      "sourceStart": 1709060,
+      "sourceEnd": 1714584
     },
     {
       "symbol": "qre",
       "kind": "function",
       "file": "pages/SettingsPage.qre.js",
-      "bytes": 5125
+      "bytes": 5125,
+      "sourceStart": 1715307,
+      "sourceEnd": 1720431
     },
     {
       "symbol": "Yre",
       "kind": "function",
       "file": "pages/SQSPage.Yre.js",
-      "bytes": 5480
+      "bytes": 5480,
+      "sourceStart": 1721194,
+      "sourceEnd": 1726673
     },
     {
       "symbol": "Nk",
       "kind": "function",
       "file": "pages/TypebotPage.Nk.js",
-      "bytes": 3626
+      "bytes": 3626,
+      "sourceStart": 1755917,
+      "sourceEnd": 1759542
     },
     {
       "symbol": "jse",
       "kind": "function",
       "file": "pages/WebhookPage.jse.js",
-      "bytes": 6367
+      "bytes": 6367,
+      "sourceStart": 1760453,
+      "sourceEnd": 1766819
     },
     {
       "symbol": "Ose",
       "kind": "function",
       "file": "pages/WebSocketPage.Ose.js",
-      "bytes": 5534
+      "bytes": 5534,
+      "sourceStart": 1767636,
+      "sourceEnd": 1773169
     },
     {
       "symbol": "Ise",
       "kind": "variable",
       "file": "services/validateCredentials.Ise.js",
-      "bytes": 421
+      "bytes": 421,
+      "sourceStart": 1773178,
+      "sourceEnd": 1773591
     },
     {
       "symbol": "Dse",
       "kind": "function",
       "file": "pages/LoginPage.Dse.js",
-      "bytes": 3112
+      "bytes": 3112,
+      "sourceStart": 1773782,
+      "sourceEnd": 1776893
     },
     {
       "symbol": "Fse",
       "kind": "function",
       "file": "pages/LandingPage.Fse.js",
-      "bytes": 7218
+      "bytes": 7218,
+      "sourceStart": 1776896,
+      "sourceEnd": 1784112
     },
     {
       "symbol": "Lse",
       "kind": "variable",
       "file": "router/Router.Lse.js",
-      "bytes": 4168
+      "bytes": 4168,
+      "sourceStart": 1784121,
+      "sourceEnd": 1788281
     },
     {
       "symbol": "goe",
       "kind": "variable",
       "file": "i18n/SidebarEnUS.goe.js",
-      "bytes": 659
+      "bytes": 659,
+      "sourceStart": 1865591,
+      "sourceEnd": 1866242
     },
     {
       "symbol": "Boe",
       "kind": "variable",
       "file": "i18n/SidebarEsES.Boe.js",
-      "bytes": 654
+      "bytes": 654,
+      "sourceStart": 1897624,
+      "sourceEnd": 1898268
     },
     {
       "symbol": "dae",
       "kind": "variable",
       "file": "i18n/SidebarFrFR.dae.js",
-      "bytes": 652
+      "bytes": 652,
+      "sourceStart": 1932640,
+      "sourceEnd": 1933283
     },
     {
       "symbol": "Dae",
       "kind": "variable",
       "file": "i18n/SidebarPtBR.Dae.js",
-      "bytes": 650
+      "bytes": 650,
+      "sourceStart": 1968178,
+      "sourceEnd": 1968813
     }
   ],
   "missing": [],
