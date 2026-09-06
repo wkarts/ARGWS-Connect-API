@@ -46,6 +46,9 @@ const wantedSymbols = new Map([
   ['tn', 'layout/ManagerGuard.tn.js'],
   ['B5', 'layout/ManagerShell.B5.js'],
   ['un', 'layout/InstanceShell.un.js'],
+  ['zM', 'layout/ManagerHeader.zM.js'],
+  ['j5', 'layout/InstanceSidebar.j5.js'],
+  ['Vb', 'layout/ManagerFooter.Vb.js'],
 
   ['Dae', 'i18n/SidebarPtBR.Dae.js'],
   ['goe', 'i18n/SidebarEnUS.goe.js'],
@@ -53,11 +56,24 @@ const wantedSymbols = new Map([
   ['dae', 'i18n/SidebarFrFR.dae.js'],
   ['Ve', 'i18n/useTranslation.Ve.js'],
 
+  ['sn', 'services/httpClient.sn.js'],
   ['sT', 'services/fetchServerStatus.sT.js'],
   ['Ise', 'services/validateCredentials.Ise.js'],
+  ['nt', 'services/useMutationAction.nt.js'],
   ['Hh', 'services/useInstanceActions.Hh.js'],
   ['q5', 'services/useInstancesQuery.q5.js'],
+  ['H5', 'services/fetchInstances.H5.js'],
+  ['V5', 'services/instancesQueryKey.V5.js'],
+  ['Q5', 'services/connectInstance.Q5.js'],
+  ['Z5', 'services/updateInstanceSettings.Z5.js'],
+  ['J5', 'services/deleteInstance.J5.js'],
+  ['G5', 'services/logoutInstance.G5.js'],
+  ['W5', 'services/restartInstance.W5.js'],
+  ['K5', 'services/createInstance.K5.js'],
   ['ct', 'services/useInstanceContext.ct.js'],
+
+  ['UM', 'context/InstanceContext.UM.js'],
+  ['VM', 'context/InstanceProvider.VM.js'],
 
   ['Rj', 'session/saveSession.Rj.js'],
   ['Pj', 'session/clearSession.Pj.js'],
@@ -191,6 +207,7 @@ const routeComponentMap = [
 const architectureHints = {
   login: {
     page: 'Dse',
+    httpClient: 'sn',
     serverStatus: 'sT',
     credentialsValidation: 'Ise',
     saveSession: 'Rj',
@@ -199,15 +216,33 @@ const architectureHints = {
   instances: {
     page: 'CZ',
     query: 'q5',
+    fetchInstances: 'H5',
+    queryKey: 'V5',
     actions: 'Hh',
+    mutationAdapter: 'nt',
+    connect: 'Q5',
+    updateSettings: 'Z5',
+    deleteInstance: 'J5',
+    logout: 'G5',
+    restart: 'W5',
+    createInstance: 'K5',
     createInstanceDialog: 'dQ',
   },
   instanceDashboard: {
     page: 'PX',
-    instanceContext: 'ct',
+    instanceContext: 'UM',
+    instanceProvider: 'VM',
+    useInstanceContext: 'ct',
     actions: 'Hh',
     storageKeys: 'jn',
     readStorage: 'dr',
+  },
+  layout: {
+    managerShell: 'B5',
+    instanceShell: 'un',
+    header: 'zM',
+    instanceSidebar: 'j5',
+    footer: 'Vb',
   },
   shared: {
     theme: 'tc',
@@ -239,8 +274,11 @@ const readme = `# Manager recovered — análise de componentes\n\n` +
   `- \`CZ\` → lista principal de instâncias.\n` +
   `- \`PX\` → dashboard da instância.\n` +
   `- \`Lse\` → tabela principal de rotas React Router.\n` +
-  `- \`Dae\` → labels pt-BR da sidebar, incluindo os links públicos legados.\n\n` +
-  `Os arquivos \`route-component-map.json\` e \`architecture-hints.json\` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.\n\n` +
+  `- \`Dae\` → labels pt-BR da sidebar, incluindo os links públicos legados.\n` +
+  `- \`sn\` → cliente HTTP utilizado pelo login e pelos serviços recuperados.\n` +
+  `- \`UM\` / \`VM\` → contexto e provider da instância.\n` +
+  `- \`zM\`, \`j5\`, \`Vb\` → header, sidebar da instância e footer.\n\n` +
+  `Os arquivos \`route-component-map.json\`, \`architecture-hints.json\`, \`dependency-graph.json\` e \`dependency-candidates.json\` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.\n\n` +
   `## Regra desta fase\n\n` +
   `Esses arquivos servem como prova e referência para reconstrução. O \`manager/dist\` de produção não é substituído nesta etapa.\n`;
 
