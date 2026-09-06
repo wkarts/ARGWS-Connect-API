@@ -1,0 +1,28 @@
+{
+  "login": {
+    "page": "Dse",
+    "serverStatus": "sT",
+    "credentialsValidation": "Ise",
+    "saveSession": "Rj",
+    "clearSession": "Pj"
+  },
+  "instances": {
+    "page": "CZ",
+    "query": "q5",
+    "actions": "Hh",
+    "createInstanceDialog": "dQ"
+  },
+  "instanceDashboard": {
+    "page": "PX",
+    "instanceContext": "ct",
+    "actions": "Hh",
+    "storageKeys": "jn",
+    "readStorage": "dr"
+  },
+  "shared": {
+    "theme": "tc",
+    "translation": "Ve",
+    "tokenField": "c_",
+    "connectionStatus": "l_"
+  }
+}

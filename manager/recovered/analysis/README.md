@@ -11,7 +11,7 @@ Arquivos extraídos automaticamente do bundle legado formatado. Eles ainda usam 
 - `Lse` → tabela principal de rotas React Router.
 - `Dae` → labels pt-BR da sidebar, incluindo os links públicos legados.
 
-O arquivo `route-component-map.json` documenta as rotas e os nomes recuperados adotados para a reconstrução.
+Os arquivos `route-component-map.json` e `architecture-hints.json` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.
 
 ## Regra desta fase
 

@@ -1,9 +1,45 @@
 {
-  "generatedAt": "2026-09-06T17:47:39.738Z",
+  "generatedAt": "2026-09-06T18:02:33.986Z",
   "input": "manager/recovered/legacy/index.js",
   "parser": "@babel/parser",
   "discoveredSymbolCount": 10320,
   "extracted": [
+    {
+      "symbol": "Ve",
+      "kind": "variable",
+      "file": "i18n/useTranslation.Ve.js",
+      "bytes": 2410
+    },
+    {
+      "symbol": "tc",
+      "kind": "variable",
+      "file": "theme/useTheme.tc.js",
+      "bytes": 157
+    },
+    {
+      "symbol": "jn",
+      "kind": "variable",
+      "file": "session/StorageKeys.jn.js",
+      "bytes": 420
+    },
+    {
+      "symbol": "Rj",
+      "kind": "variable",
+      "file": "session/saveSession.Rj.js",
+      "bytes": 639
+    },
+    {
+      "symbol": "Pj",
+      "kind": "variable",
+      "file": "session/clearSession.Pj.js",
+      "bytes": 359
+    },
+    {
+      "symbol": "dr",
+      "kind": "variable",
+      "file": "session/readStorage.dr.js",
+      "bytes": 43
+    },
     {
       "symbol": "tn",
       "kind": "variable",
@@ -17,6 +53,18 @@
       "bytes": 182
     },
     {
+      "symbol": "sT",
+      "kind": "variable",
+      "file": "services/fetchServerStatus.sT.js",
+      "bytes": 63
+    },
+    {
+      "symbol": "ct",
+      "kind": "variable",
+      "file": "services/useInstanceContext.ct.js",
+      "bytes": 162
+    },
+    {
       "symbol": "un",
       "kind": "function",
       "file": "layout/InstanceShell.un.js",
@@ -27,6 +75,36 @@
       "kind": "function",
       "file": "layout/ManagerShell.B5.js",
       "bytes": 225
+    },
+    {
+      "symbol": "l_",
+      "kind": "function",
+      "file": "components/ConnectionStatus.l_.js",
+      "bytes": 455
+    },
+    {
+      "symbol": "c_",
+      "kind": "function",
+      "file": "components/TokenField.c_.js",
+      "bytes": 762
+    },
+    {
+      "symbol": "q5",
+      "kind": "variable",
+      "file": "services/useInstancesQuery.q5.js",
+      "bytes": 67
+    },
+    {
+      "symbol": "Hh",
+      "kind": "function",
+      "file": "services/useInstanceActions.Hh.js",
+      "bytes": 870
+    },
+    {
+      "symbol": "dQ",
+      "kind": "function",
+      "file": "components/CreateInstanceDialog.dQ.js",
+      "bytes": 3155
     },
     {
       "symbol": "CZ",
@@ -135,6 +213,12 @@
       "kind": "function",
       "file": "pages/WebSocketPage.Ose.js",
       "bytes": 5534
+    },
+    {
+      "symbol": "Ise",
+      "kind": "variable",
+      "file": "services/validateCredentials.Ise.js",
+      "bytes": 421
     },
     {
       "symbol": "Dse",

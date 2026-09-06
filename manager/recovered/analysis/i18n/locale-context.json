@@ -1,0 +1,243 @@
+{
+  "generatedAt": "2026-09-06T18:02:35.036Z",
+  "input": "manager/recovered/legacy/index.js",
+  "policyTarget": {
+    "defaultLocale": "pt-BR",
+    "extraLocalesDisabledByDefault": true,
+    "runtimeEnvironment": {
+      "MANAGER_DEFAULT_LOCALE": "pt-BR",
+      "MANAGER_ENABLE_EXTRA_LOCALES": "false",
+      "MANAGER_EXTRA_LOCALES": "en-US,es-ES,fr-FR"
+    }
+  },
+  "detectedLocales": [
+    "en-US",
+    "es-ES",
+    "fr-FR",
+    "pt-BR"
+  ],
+  "occurrences": [
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 21415,
+      "column": 40,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 21416,
+      "column": 31,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "en-US",
+      "locale": "en-US",
+      "line": 21420,
+      "column": 40,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "en-US",
+      "locale": "en-US",
+      "line": 21421,
+      "column": 31,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "es-ES",
+      "locale": "es-ES",
+      "line": 21425,
+      "column": 40,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "es-ES",
+      "locale": "es-ES",
+      "line": 21426,
+      "column": 31,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "fr-FR",
+      "locale": "fr-FR",
+      "line": 21430,
+      "column": 40,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "fr-FR",
+      "locale": "fr-FR",
+      "line": 21431,
+      "column": 31,
+      "declaration": {
+        "kind": "function",
+        "symbol": "iM"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 34932,
+      "column": 74,
+      "declaration": {
+        "kind": "function",
+        "symbol": "CZ"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 34941,
+      "column": 74,
+      "declaration": {
+        "kind": "function",
+        "symbol": "CZ"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 38764,
+      "column": 35,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "XE"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 38765,
+      "column": 35,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "XE"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 53505,
+      "column": 10,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "Qse"
+      }
+    },
+    {
+      "literal": "en-US",
+      "locale": "en-US",
+      "line": 58111,
+      "column": 6,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "tie"
+      }
+    },
+    {
+      "literal": "pt-BR",
+      "locale": "pt-BR",
+      "line": 58112,
+      "column": 6,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "tie"
+      }
+    },
+    {
+      "literal": "es-ES",
+      "locale": "es-ES",
+      "line": 58113,
+      "column": 6,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "tie"
+      }
+    },
+    {
+      "literal": "fr-FR",
+      "locale": "fr-FR",
+      "line": 58114,
+      "column": 6,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "tie"
+      }
+    },
+    {
+      "literal": "en-US",
+      "locale": "en-US",
+      "line": 58116,
+      "column": 47,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "tie"
+      }
+    },
+    {
+      "literal": "en-US",
+      "locale": "en-US",
+      "line": 58117,
+      "column": 17,
+      "declaration": {
+        "kind": "variable",
+        "symbol": "tie"
+      }
+    }
+  ],
+  "extracted": [
+    {
+      "symbol": "iM",
+      "kind": "function",
+      "file": "context/iM.function.js",
+      "bytes": 1533
+    },
+    {
+      "symbol": "CZ",
+      "kind": "function",
+      "file": "context/CZ.function.js",
+      "bytes": 9738
+    },
+    {
+      "symbol": "XE",
+      "kind": "variable",
+      "file": "context/XE.variable.js",
+      "bytes": 16006
+    },
+    {
+      "symbol": "Qse",
+      "kind": "variable",
+      "file": "context/Qse.variable.js",
+      "bytes": 4559
+    },
+    {
+      "symbol": "tie",
+      "kind": "variable",
+      "file": "context/tie.variable.js",
+      "bytes": 2002901
+    }
+  ]
+}
