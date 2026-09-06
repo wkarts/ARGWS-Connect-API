@@ -13,6 +13,7 @@ services:
     container_name: docs-argws-connect-standalone
     restart: unless-stopped
     environment:
+      SERVER_URL: ${SERVER_URL:-}
       API_REFERENCE_CONFIG: >-
         {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost"}
     ports:

@@ -251,6 +251,7 @@
     <script src="{{env "CDN_URL"}}"></script>
     <script>
       const basePath = '{{env "BASE_PATH" | js}}'.replace(/\/$/, '')
+      const apiServerUrl = '{{env "SERVER_URL" | js}}'.trim().replace(/\/+$/, '')
       const themeStorageKey = 'connect-api-docs-theme'
       let currentTheme = document.documentElement.dataset.connectDocsTheme === 'dark' ? 'dark' : 'light'
       let scalarObserver = null
@@ -345,6 +346,52 @@
         scalarObserver.observe(document.getElementById('app'), { childList: true, subtree: true })
       }
 
+      function runtimeServerTarget(source) {
+        const fingerprint = [source && source.url, source && source.title, source && source.slug]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+
+        if (fingerprint.includes('meta-compatible')) return `${apiServerUrl}/graph`
+        if (fingerprint.includes('connect-api.openapi') || fingerprint.includes('rest api') || fingerprint.endsWith(' rest')) {
+          return apiServerUrl
+        }
+        return ''
+      }
+
+      async function applyRuntimeServer(source) {
+        if (!apiServerUrl || !source) return source
+
+        const targetUrl = runtimeServerTarget(source)
+        if (!targetUrl) return source
+
+        try {
+          let document = source.content
+          if (!document || typeof document !== 'object') {
+            if (!source.url) return source
+            const response = await fetch(source.url, { cache: 'no-store' })
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            document = await response.json()
+          } else {
+            document = JSON.parse(JSON.stringify(document))
+          }
+
+          document.servers = [
+            {
+              url: targetUrl,
+              description: 'API pública configurada por SERVER_URL',
+            },
+          ]
+
+          const mapped = Object.assign({}, source, { content: document })
+          delete mapped.url
+          return mapped
+        } catch (error) {
+          console.warn('[Connect|API DOCs] Não foi possível aplicar SERVER_URL ao documento.', error)
+          return source
+        }
+      }
+
       async function init() {
         let mountedDocuments = []
 
@@ -368,8 +415,17 @@
         baseConfiguration.darkMode = currentTheme === 'dark'
         baseConfiguration.hideDarkModeToggle = true
 
-        if (mountedDocuments.length > 0) {
-          Scalar.createApiReference('#app', Object.assign({}, baseConfiguration, { sources: mountedDocuments }))
+        const configuredSources = mountedDocuments.length > 0
+          ? mountedDocuments
+          : Array.isArray(baseConfiguration.sources)
+            ? baseConfiguration.sources
+            : []
+
+        if (configuredSources.length > 0) {
+          const runtimeSources = await Promise.all(configuredSources.map((source) => applyRuntimeServer(source)))
+          delete baseConfiguration.url
+          delete baseConfiguration.content
+          Scalar.createApiReference('#app', Object.assign({}, baseConfiguration, { sources: runtimeSources }))
         } else if (configuration) {
           Scalar.createApiReference('#app', baseConfiguration)
         } else {

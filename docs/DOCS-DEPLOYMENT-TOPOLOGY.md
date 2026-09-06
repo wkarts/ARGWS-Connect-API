@@ -39,6 +39,25 @@ Os contratos Scalar usam URLs relativas `openapi/...`. Com isso, a mesma imagem 
 - em hostname dedicado, como `https://docs.connect.argws.com.br/`;
 - opcionalmente atrás de `/docs/` com reverse proxy que remova o prefixo antes de encaminhar ao container.
 
+## URL pública da API usada pelo Scalar
+
+O servidor exibido pelo Scalar e utilizado pelas operações interativas (`Try It`) é resolvido em runtime pela variável já existente `SERVER_URL`.
+
+Exemplo de produção white-label:
+
+```env
+SERVER_URL=https://api.connect.fersofterp.com.br
+ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.fersofterp.com.br
+```
+
+O container de DOCs recebe `SERVER_URL` do ambiente e aplica a URL sem recompilar a imagem:
+
+- REST API: `SERVER_URL`;
+- Meta Compatible: `SERVER_URL/graph`;
+- Events/AsyncAPI: não é alterado por essa regra.
+
+A mesma imagem `ghcr.io/wkarts/argws-connect-docs:latest` pode, portanto, ser reutilizada por ARGWS, Fersoft ou outro deployment sem carregar no seletor `Server` a URL de outro ambiente. Se `SERVER_URL` estiver ausente ou vazia, a documentação mantém os servidores presentes no contrato estático como fallback.
+
 ## Variável pública canônica
 
 A aplicação utiliza:
