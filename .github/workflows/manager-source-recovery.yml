@@ -1,0 +1,111 @@
+name: Manager Source Recovery
+
+on:
+  push:
+    branches:
+      - recovery/manager-source-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manager-source-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip recovery]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout recovery branch
+        uses: actions/checkout@v5
+        with:
+          ref: recovery/manager-source-v1
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20.x'
+
+      - name: Detect current Manager bundles
+        id: bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          js_asset="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' manager/dist/index.html | head -n1)"
+          css_asset="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.css' manager/dist/index.html | head -n1)"
+
+          if [[ -z "$js_asset" || -z "$css_asset" ]]; then
+            echo 'Could not detect Manager JS/CSS assets from manager/dist/index.html' >&2
+            exit 1
+          fi
+
+          js_path="manager/dist${js_asset}"
+          css_path="manager/dist${css_asset}"
+
+          test -f "$js_path"
+          test -f "$css_path"
+
+          echo "js_path=$js_path" >> "$GITHUB_OUTPUT"
+          echo "css_path=$css_path" >> "$GITHUB_OUTPUT"
+          echo "Detected JS:  $js_path"
+          echo "Detected CSS: $css_path"
+
+      - name: Materialize readable legacy source
+        shell: bash
+        env:
+          JS_PATH: ${{ steps.bundles.outputs.js_path }}
+          CSS_PATH: ${{ steps.bundles.outputs.css_path }}
+        run: |
+          set -euo pipefail
+
+          rm -rf manager/recovered
+          mkdir -p manager/recovered/legacy
+
+          cp "$JS_PATH" manager/recovered/legacy/index.js
+          cp "$CSS_PATH" manager/recovered/legacy/index.css
+
+          npx --yes prettier@3.6.2 --parser babel --write manager/recovered/legacy/index.js
+          npx --yes prettier@3.6.2 --parser css --write manager/recovered/legacy/index.css
+
+          node manager/recovery/analyze-bundle.mjs \
+            manager/recovered/legacy/index.js \
+            manager/recovered/recovery-report.json
+
+      - name: Validate recovered source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s manager/recovered/legacy/index.js
+          test -s manager/recovered/legacy/index.css
+          test -s manager/recovered/recovery-report.json
+
+          node --check manager/recovered/legacy/index.js
+
+          grep -q 'Modern web interface for Connect|API management' manager/recovered/legacy/index.js
+          grep -q 'Access Manager Dashboard' manager/recovered/legacy/index.js
+          grep -q '"sourceMapReference"' manager/recovered/recovery-report.json
+
+      - name: Commit recovered readable source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add manager/recovered
+
+          if git diff --cached --quiet; then
+            echo 'Recovered source is already synchronized.'
+            exit 0
+          fi
+
+          git commit -m 'chore(manager): recover readable legacy source [skip recovery]'
+          git push origin HEAD:recovery/manager-source-v1
