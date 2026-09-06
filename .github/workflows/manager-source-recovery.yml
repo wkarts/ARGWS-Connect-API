@@ -86,6 +86,14 @@ jobs:
             manager/recovered/legacy/index.js \
             manager/recovered/analysis
 
+      - name: Recover i18n context
+        shell: bash
+        run: |
+          set -euo pipefail
+          node manager/recovery/extract-i18n-context.mjs \
+            manager/recovered/legacy/index.js \
+            manager/recovered/analysis/i18n
+
       - name: Validate recovered source
         shell: bash
         run: |
@@ -100,6 +108,7 @@ jobs:
           test -s manager/recovered/analysis/pages/InstanceDashboard.PX.js
           test -s manager/recovered/analysis/router/Router.Lse.js
           test -s manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
+          test -s manager/recovered/analysis/i18n/locale-context.json
           test -s manager/recovered/analysis/inventory.json
           test -s manager/recovered/analysis/route-component-map.json
 
@@ -108,6 +117,8 @@ jobs:
           grep -q 'Modern web interface for Connect|API management' manager/recovered/analysis/pages/LandingPage.Fse.js
           grep -q 'Access Manager Dashboard' manager/recovered/analysis/pages/LandingPage.Fse.js
           grep -q 'Suporte Premium' manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
+          grep -q '"defaultLocale": "pt-BR"' manager/recovered/analysis/i18n/locale-context.json
+          grep -q '"extraLocalesDisabledByDefault": true' manager/recovered/analysis/i18n/locale-context.json
           grep -q '"missingRequired": \[\]' manager/recovered/analysis/inventory.json
           grep -q '"sourceMapReference"' manager/recovered/recovery-report.json
 
