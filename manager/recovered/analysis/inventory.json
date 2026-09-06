@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T18:07:06.802Z",
+  "generatedAt": "2026-09-06T18:08:28.698Z",
   "input": "manager/recovered/legacy/index.js",
   "parser": "@babel/parser",
   "discoveredSymbolCount": 10320,
