@@ -15,7 +15,6 @@ import {
   SendTextDto,
 } from '@api/dto/sendMessage.dto';
 import { WAMonitoringService } from '@api/services/monitor.service';
-import { TemplateEngineService } from '@api/services/template-engine.service';
 import { BadRequestException } from '@exceptions';
 import { isBase64, isURL } from 'class-validator';
 import emojiRegex from 'emoji-regex';
@@ -30,14 +29,10 @@ function isEmoji(str: string) {
 }
 
 export class SendMessageController {
-  constructor(
-    private readonly waMonitor: WAMonitoringService,
-    private readonly templateEngine?: TemplateEngineService,
-  ) {}
+  constructor(private readonly waMonitor: WAMonitoringService) {}
 
-  public async sendTemplate(instance: InstanceDto, data: SendTemplateDto) {
-    if (this.templateEngine) return await this.templateEngine.send(instance, data);
-    return await this.waMonitor.waInstances[instance.instanceName].templateMessage(data);
+  public async sendTemplate({ instanceName }: InstanceDto, data: SendTemplateDto) {
+    return await this.waMonitor.waInstances[instanceName].templateMessage(data);
   }
 
   public async sendText({ instanceName }: InstanceDto, data: SendTextDto) {
@@ -71,6 +66,7 @@ export class SendMessageController {
 
   public async sendWhatsAppAudio({ instanceName }: InstanceDto, data: SendAudioDto, file?: any) {
     if (file?.buffer || isURL(data.audio) || isBase64(data.audio)) {
+      // Si file existe y tiene buffer, o si es una URL o Base64, continúa
       return await this.waMonitor.waInstances[instanceName].audioWhatsapp(data, file);
     } else {
       console.error('El archivo no tiene buffer o el audio no es una URL o Base64 válida');

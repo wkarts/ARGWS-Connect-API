@@ -20,7 +20,9 @@ export class MediaMessage {
   mediatype: MediaType;
   mimetype?: string;
   caption?: string;
+  // for document
   fileName?: string;
+  // url or base64
   media: string;
 }
 
@@ -75,7 +77,9 @@ export class SendMediaDto extends Metadata {
   mediatype: MediaType;
   mimetype?: string;
   caption?: string;
+  // for document
   fileName?: string;
+  // url or base64
   media: string;
 }
 
@@ -153,7 +157,6 @@ export class SendTemplateDto extends Metadata {
   name: string;
   language: string;
   components: any;
-  variables?: Record<string, unknown>;
   webhookUrl?: string;
 }
 export class SendContactDto extends Metadata {

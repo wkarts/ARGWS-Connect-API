@@ -100,11 +100,6 @@ model Instance {
   OpenaiBot               OpenaiBot[]
   OpenaiSetting           OpenaiSetting?
   Template                Template[]
-  IntegrationAction       IntegrationAction[]
-  Recipe                  Recipe[]
-  ActionExecution         ActionExecution[]
-  TemplateInteractionSession TemplateInteractionSession[]
-  MetaConversationWindow       MetaConversationWindow[]
   Dify                    Dify[]
   DifySetting             DifySetting?
   IntegrationSession      IntegrationSession[]
@@ -506,121 +501,16 @@ model OpenaiSetting {
 }
 
 model Template {
-  id                 String    @id @default(cuid())
-  templateId         String    @db.VarChar(255)
-  externalTemplateId String?   @db.VarChar(255)
-  name               String    @db.VarChar(255)
-  language           String    @default("pt_BR") @db.VarChar(20)
-  category           String    @default("UTILITY") @db.VarChar(30)
-  status             String    @default("APPROVED") @db.VarChar(30)
-  origin             String    @default("LOCAL") @db.VarChar(30)
-  enabled            Boolean   @default(true)
-  isDefault          Boolean   @default(false)
-  template           Json
-  actions            Json?
-  policy             Json?
-  webhookUrl         String?   @db.VarChar(500)
-  createdAt          DateTime? @default(now()) @db.Timestamp
-  updatedAt          DateTime  @updatedAt @db.Timestamp
-  Instance           Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  instanceId         String
-
-  @@unique([instanceId, templateId])
-  @@unique([instanceId, name, language])
-  @@index([instanceId])
-  @@index([instanceId, category, status])
+  id         String    @id @default(cuid())
+  templateId String    @unique @db.VarChar(255)
+  name       String    @unique @db.VarChar(255)
+  template   Json      @db.JsonB
+  webhookUrl String?   @db.VarChar(500)
+  createdAt  DateTime? @default(now()) @db.Timestamp
+  updatedAt  DateTime  @updatedAt @db.Timestamp
+  Instance   Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  instanceId String
 }
-
-model IntegrationAction {
-  id                  String    @id @default(cuid())
-  actionKey           String    @db.VarChar(150)
-  name                String    @db.VarChar(255)
-  description         String?   @db.Text
-  method              String    @db.VarChar(10)
-  baseUrl             String    @db.VarChar(500)
-  path                String    @db.VarChar(500)
-  credentialRef       String?   @db.VarChar(100)
-  headers             Json?
-  requestTemplate     Json?
-  inputSchema         Json?
-  outputMapping       Json?
-  timeoutMs           Int       @default(10000)
-  confirmation        String    @default("NONE") @db.VarChar(20)
-  allowPrivateNetwork Boolean   @default(false)
-  enabled             Boolean   @default(true)
-  createdAt           DateTime  @default(now()) @db.Timestamp
-  updatedAt           DateTime  @updatedAt @db.Timestamp
-  Instance            Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  instanceId          String
-
-  @@unique([instanceId, actionKey])
-  @@index([instanceId, enabled])
-}
-
-model Recipe {
-  id             String    @id @default(cuid())
-  recipeKey      String    @db.VarChar(150)
-  name           String    @db.VarChar(255)
-  description    String?   @db.Text
-  version        Int       @default(1)
-  steps          Json
-  inputSchema    Json?
-  outputTemplate Json?
-  confirmation   String    @default("NONE") @db.VarChar(20)
-  enabled        Boolean   @default(true)
-  createdAt      DateTime  @default(now()) @db.Timestamp
-  updatedAt      DateTime  @updatedAt @db.Timestamp
-  Instance       Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  instanceId     String
-
-  @@unique([instanceId, recipeKey])
-  @@index([instanceId, enabled])
-}
-
-model ActionExecution {
-  id           String    @id @default(cuid())
-  actionKey    String    @db.VarChar(150)
-  recipeKey    String?   @db.VarChar(150)
-  status       String    @db.VarChar(30)
-  requestMeta  Json?
-  responseMeta Json?
-  errorMeta    Json?
-  startedAt    DateTime  @default(now()) @db.Timestamp
-  finishedAt   DateTime? @db.Timestamp
-  Instance     Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  instanceId   String
-
-  @@index([instanceId, actionKey, startedAt])
-}
-
-model TemplateInteractionSession {
-  id                String    @id @default(cuid())
-  outboundMessageId String    @db.VarChar(255)
-  inboundMessageId  String?   @db.VarChar(255)
-  remoteJid         String    @db.VarChar(150)
-  templateName      String    @db.VarChar(255)
-  language          String    @default("pt_BR") @db.VarChar(20)
-  variables         Json?     @db.JsonB
-  actions           Json?     @db.JsonB
-  status            String    @default("OPEN") @db.VarChar(40)
-  expiresAt         DateTime? @db.Timestamp
-  lastError         String?
-  strongBindingId    String?   @db.VarChar(255)
-  strongInput        Json?
-  strongRequestedAt  DateTime?
-  strongDecisionAt   DateTime?
-  strongDecisionBy   String?   @db.VarChar(255)
-  strongDecisionReason String?  @db.Text
-  createdAt         DateTime  @default(now()) @db.Timestamp
-  updatedAt         DateTime  @updatedAt @db.Timestamp
-  Instance          Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  instanceId        String
-
-  @@unique([instanceId, outboundMessageId])
-  @@index([instanceId, remoteJid, status])
-}
-
-
 
 model Dify {
   id              String           @id @default(cuid())
@@ -876,33 +766,11 @@ model ConnectAISetting {
 model MetaCompatibility {
   id         String   @id @default(cuid())
   enabled    Boolean  @default(true) @db.Boolean
-  webhookUrl String?
-  policyMode String   @default("PERMISSIVE") @db.VarChar(20)
-  windowSeconds Int   @default(86400)
-  templateRequiredOutsideWindow Boolean @default(true)
+  webhookUrl String?  @db.VarChar(500)
   createdAt  DateTime @default(now()) @db.Timestamp
   updatedAt  DateTime @updatedAt @db.Timestamp
   instanceId String   @unique
   Instance   Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
   @@index([instanceId])
-}
-
-
-model MetaConversationWindow {
-  id                 String    @id @default(cuid())
-  instanceId         String
-  remoteJid          String    @db.VarChar(150)
-  lastInboundAt      DateTime?
-  windowExpiresAt    DateTime?
-  lastOutboundAt     DateTime?
-  lastPolicyDecision String?   @db.VarChar(100)
-  lastPolicyAt       DateTime?
-  violationCount     Int       @default(0)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  Instance           Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-
-  @@unique([instanceId, remoteJid])
-  @@index([instanceId, windowExpiresAt])
 }

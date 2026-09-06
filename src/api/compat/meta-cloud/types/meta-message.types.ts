@@ -7,8 +7,7 @@ export type MetaCloudMessageType =
   | 'location'
   | 'contacts'
   | 'reaction'
-  | 'interactive'
-  | 'template';
+  | 'interactive';
 
 export interface MetaCloudMessageRequest {
   messaging_product?: string;
@@ -24,11 +23,6 @@ export interface MetaCloudMessageRequest {
   contacts?: any[];
   reaction?: { message_id?: string; emoji?: string };
   interactive?: any;
-  template?: {
-    name?: string;
-    language?: { code?: string; policy?: string };
-    components?: any[];
-  };
   status?: 'read';
   message_id?: string;
 }

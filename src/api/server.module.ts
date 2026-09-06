@@ -9,25 +9,20 @@ import { MetaCloudGraphController } from './compat/meta-cloud/meta-cloud-graph.c
 import { MetaCloudIdentityResolver } from './compat/meta-cloud/meta-cloud-identity.resolver';
 import { MetaCloudMediaService } from './compat/meta-cloud/meta-cloud-media.service';
 import { MetaCloudMessageAdapter } from './compat/meta-cloud/meta-cloud-message.adapter';
-import { MetaCloudPolicyService } from './compat/meta-cloud/meta-cloud-policy.service';
 import { MetaCloudResponseSerializer } from './compat/meta-cloud/meta-cloud-response.serializer';
 import { MetaCloudStatusMapper } from './compat/meta-cloud/meta-cloud-status.mapper';
 import { MetaCloudTemplateService } from './compat/meta-cloud/meta-cloud-template.service';
 import { MetaCloudWebhookDispatcher } from './compat/meta-cloud/meta-cloud-webhook.dispatcher';
 import { MetaCloudWebhookSerializer } from './compat/meta-cloud/meta-cloud-webhook.serializer';
-import { ActionController } from './controllers/action.controller';
 import { BusinessController } from './controllers/business.controller';
 import { CallController } from './controllers/call.controller';
 import { ChatController } from './controllers/chat.controller';
 import { GroupController } from './controllers/group.controller';
 import { InstanceController } from './controllers/instance.controller';
 import { LabelController } from './controllers/label.controller';
-import { MicroAppController } from './controllers/micro-app.controller';
 import { ProxyController } from './controllers/proxy.controller';
-import { RecipeController } from './controllers/recipe.controller';
 import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
-import { StrongConfirmationController } from './controllers/strong-confirmation.controller';
 import { TemplateController } from './controllers/template.controller';
 import { ChannelController } from './integrations/channel/channel.controller';
 import { ConnectController } from './integrations/channel/connect/connect.controller';
@@ -55,18 +50,11 @@ import { S3Controller } from './integrations/storage/s3/controllers/s3.controlle
 import { S3Service } from './integrations/storage/s3/services/s3.service';
 import { ProviderFiles } from './provider/sessions';
 import { PrismaRepository } from './repository/repository.service';
-import { ActionExecutionService } from './services/action-execution.service';
-import { ActionRegistryService } from './services/action-registry.service';
 import { CacheService } from './services/cache.service';
-import { InteractionEngineService } from './services/interaction-engine.service';
-import { MicroAppService } from './services/micro-app.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
-import { RecipeService } from './services/recipe.service';
-import { RecipeLibraryService } from './services/recipe-library.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
-import { TemplateEngineService } from './services/template-engine.service';
 
 const logger = new Logger('WA MODULE');
 
@@ -84,20 +72,9 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 }
 
 export const prismaRepository = new PrismaRepository(configService);
-export const actionRegistryService = new ActionRegistryService(prismaRepository);
-export const actionExecutionService = new ActionExecutionService(prismaRepository);
-export const actionController = new ActionController(actionRegistryService, actionExecutionService);
-export const recipeService = new RecipeService(prismaRepository, actionExecutionService);
-export const recipeLibraryService = new RecipeLibraryService(prismaRepository, actionRegistryService, recipeService);
-export const recipeController = new RecipeController(recipeService, recipeLibraryService);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
-export const metaCloudPolicyService = new MetaCloudPolicyService(prismaRepository);
 export const metaCloudAuthService = new MetaCloudAuthService();
-export const metaCloudController = new MetaCloudController(
-  prismaRepository,
-  metaCloudIdentityResolver,
-  metaCloudPolicyService,
-);
+export const metaCloudController = new MetaCloudController(prismaRepository, metaCloudIdentityResolver);
 
 export const waMonitor = new WAMonitoringService(
   eventEmitter,
@@ -114,26 +91,6 @@ export const s3Controller = new S3Controller(s3Service);
 
 const templateService = new TemplateService(waMonitor, prismaRepository, configService);
 export const templateController = new TemplateController(templateService);
-export const templateEngine = new TemplateEngineService(waMonitor, prismaRepository);
-export const microAppService = new MicroAppService(
-  prismaRepository,
-  cache,
-  configService,
-  actionExecutionService,
-  recipeService,
-  templateEngine,
-);
-templateEngine.setMicroAppSessionCreator((instance, data) => microAppService.createSession(instance, data));
-export const microAppController = new MicroAppController(microAppService);
-export const interactionEngine = new InteractionEngineService(
-  prismaRepository,
-  actionExecutionService,
-  recipeService,
-  templateEngine,
-  waMonitor,
-);
-
-export const strongConfirmationController = new StrongConfirmationController(interactionEngine);
 
 const proxyService = new ProxyService(waMonitor);
 export const proxyController = new ProxyController(proxyService, waMonitor);
@@ -157,7 +114,7 @@ export const instanceController = new InstanceController(
   baileysCache,
   providerFiles,
 );
-export const sendMessageController = new SendMessageController(waMonitor, templateEngine);
+export const sendMessageController = new SendMessageController(waMonitor);
 export const callController = new CallController(waMonitor);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
@@ -182,7 +139,6 @@ export const metaCloudGraphController = new MetaCloudGraphController(
   metaCloudMessageAdapter,
   metaCloudMediaService,
   metaCloudTemplateService,
-  metaCloudPolicyService,
 );
 export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
   metaCloudIdentityResolver,
@@ -190,8 +146,6 @@ export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
 );
 
 export const eventManager = new EventManager(prismaRepository, waMonitor);
-eventManager.setInteractionEngine(interactionEngine);
-eventManager.setMetaCloudPolicy(metaCloudPolicyService);
 export const metaCloudWebhookDispatcher = new MetaCloudWebhookDispatcher(
   prismaRepository,
   metaCloudIdentityResolver,

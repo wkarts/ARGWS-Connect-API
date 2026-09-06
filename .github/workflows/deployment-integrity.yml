@@ -45,6 +45,7 @@ jobs:
             docker compose --env-file "$env_file" -f "$compose_file" config >/dev/null
             docker compose --env-file "$env_file" --profile '*' -f "$compose_file" config >/dev/null
           done
+<<<<<<< Updated upstream
           docker compose --env-file deploy/cloudpanel/env.example -f deploy/cloudpanel/docker-compose.yml config >/dev/null
           docker compose --env-file deploy/cloudpanel/env.example --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
           docker compose --env-file deploy/dockge/env.example -f deploy/dockge/compose.yaml config >/dev/null
@@ -109,6 +110,12 @@ jobs:
 
           print('Deployment naming contract OK')
           PY
+=======
+          docker compose -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose --profile '*' -f deploy/cloudpanel/docker-compose.yml config >/dev/null
+          docker compose -f deploy/dockge/compose.yaml config >/dev/null
+          docker compose --profile '*' -f deploy/dockge/compose.yaml config >/dev/null
+>>>>>>> Stashed changes
 
       - name: Enforce official deployment contract
         shell: bash

@@ -15,7 +15,11 @@ container_name idêntico ao service
 
 O workflow **Deployment Naming Integrity** descobre automaticamente todos os arquivos `compose*.yaml/yml` e `docker-compose*.yaml/yml` versionados e falha caso exista um Compose fora do contrato.
 
+<<<<<<< Updated upstream
 ## Stacks operacionais principais
+=======
+Manager, healthcheck, métricas, WebSocket e webhooks usam esse mesmo endpoint.
+>>>>>>> Stashed changes
 
 | Deployment | Project |
 | --- | --- |

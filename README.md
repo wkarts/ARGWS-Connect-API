@@ -169,6 +169,7 @@ A linha canônica do produto iniciou em `1.0.0` e continua usando SemVer.
 Cada merge bem-sucedido em `main` executa validação, calcula a próxima versão SemVer, publica as imagens API/Manager no GHCR e somente depois cria a tag e a GitHub Release. O incremento padrão é `patch`; labels `version:minor` e `version:major` permitem promover a próxima versão sem edição manual de arquivos.
 
 Consulte [`RELEASE-AUTOMATION.md`](RELEASE-AUTOMATION.md) para o fluxo completo.
+<<<<<<< Updated upstream
 
 ## Implantador desktop Tauri/Rust
 
@@ -178,3 +179,5 @@ computador local ou no servidor. O workflow **Connect Deployer - Build Binaries*
 gera os executáveis e instaladores; a distribuição estável pertence à própria
 release do Connect|API. O instalador Python da raiz continua independente.
 Consulte [binários do implantador](docs/guides/connect-deployer-binaries.md).
+=======
+>>>>>>> Stashed changes

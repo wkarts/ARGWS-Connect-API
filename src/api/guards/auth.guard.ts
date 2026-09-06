@@ -50,13 +50,4 @@ async function apikey(req: Request, _: Response, next: NextFunction) {
   throw new UnauthorizedException();
 }
 
-async function globalApiKey(req: Request, _: Response, next: NextFunction) {
-  const configured = configService.get<Auth>('AUTHENTICATION').API_KEY?.KEY;
-  const key = req.get('apikey');
-  if (!configured || !key || key !== configured) {
-    throw new UnauthorizedException();
-  }
-  return next();
-}
-
-export const authGuard = { apikey, globalApiKey };
+export const authGuard = { apikey };

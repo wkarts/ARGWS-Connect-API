@@ -1,4 +1,3 @@
-import { MetaCloudPolicyService } from '@api/compat/meta-cloud/meta-cloud-policy.service';
 import { MetaCloudWebhookDispatcher } from '@api/compat/meta-cloud/meta-cloud-webhook.dispatcher';
 import { KafkaController } from '@api/integrations/event/kafka/kafka.controller';
 import { NatsController } from '@api/integrations/event/nats/nats.controller';
@@ -8,7 +7,6 @@ import { SqsController } from '@api/integrations/event/sqs/sqs.controller';
 import { WebhookController } from '@api/integrations/event/webhook/webhook.controller';
 import { WebsocketController } from '@api/integrations/event/websocket/websocket.controller';
 import { PrismaRepository } from '@api/repository/repository.service';
-import { InteractionEngineService } from '@api/services/interaction-engine.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { Server } from 'http';
 
@@ -23,8 +21,6 @@ export class EventManager {
   private pusherController: PusherController;
   private kafkaController: KafkaController;
   private metaCloudDispatcher?: MetaCloudWebhookDispatcher;
-  private interactionEngine?: InteractionEngineService;
-  private metaCloudPolicy?: MetaCloudPolicyService;
 
   constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
     this.prisma = prismaRepository;
@@ -113,14 +109,6 @@ export class EventManager {
     this.metaCloudDispatcher = dispatcher;
   }
 
-  public setInteractionEngine(engine: InteractionEngineService): void {
-    this.interactionEngine = engine;
-  }
-
-  public setMetaCloudPolicy(policy: MetaCloudPolicyService): void {
-    this.metaCloudPolicy = policy;
-  }
-
   public init(httpServer: Server): void {
     this.websocket.init(httpServer);
     this.rabbitmq.init();
@@ -143,14 +131,8 @@ export class EventManager {
     integration?: string[];
     extra?: Record<string, any>;
   }): Promise<void> {
-    if (this.metaCloudPolicy) {
-      await this.metaCloudPolicy.handleEvent(eventData).catch(() => undefined);
-    }
     if (this.metaCloudDispatcher) {
       void this.metaCloudDispatcher.handleEvent(eventData).catch(() => undefined);
-    }
-    if (this.interactionEngine) {
-      void this.interactionEngine.handleEvent(eventData).catch(() => undefined);
     }
     await this.websocket.emit(eventData);
     await this.rabbitmq.emit(eventData);
