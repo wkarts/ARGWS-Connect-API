@@ -18,31 +18,62 @@ const ast = parse(source, {
 
 fs.mkdirSync(outputDir, { recursive: true });
 
-const wantedFunctions = new Map([
-  ['Fse', 'LandingPage.Fse.js'],
-  ['Dse', 'LoginPage.Dse.js'],
+const wantedSymbols = new Map([
+  ['Fse', 'pages/LandingPage.Fse.js'],
+  ['Dse', 'pages/LoginPage.Dse.js'],
+  ['CZ', 'pages/InstancesPage.CZ.js'],
+  ['PX', 'pages/InstanceDashboard.PX.js'],
+  ['tk', 'pages/ChatPage.tk.js'],
+  ['qre', 'pages/SettingsPage.qre.js'],
+  ['Tk', 'pages/OpenAIPage.Tk.js'],
+  ['jse', 'pages/WebhookPage.jse.js'],
+  ['Ose', 'pages/WebSocketPage.Ose.js'],
+  ['Bre', 'pages/RabbitMQPage.Bre.js'],
+  ['Yre', 'pages/SQSPage.Yre.js'],
+  ['yX', 'pages/ChatwootPage.yX.js'],
+  ['Nk', 'pages/TypebotPage.Nk.js'],
+  ['xk', 'pages/DifyPage.xk.js'],
+  ['jk', 'pages/N8nPage.jk.js'],
+  ['Ck', 'pages/ConnectAIPage.Ck.js'],
+  ['Ek', 'pages/ConnectBotPage.Ek.js'],
+  ['kk', 'pages/FlowisePage.kk.js'],
+  ['Ore', 'pages/ProxyPage.Ore.js'],
+  ['Sk', 'pages/EmbedChatPage.Sk.js'],
+  ['Lse', 'router/Router.Lse.js'],
+  ['jL', 'layout/LoginGuard.jL.js'],
+  ['tn', 'layout/ManagerGuard.tn.js'],
+  ['B5', 'layout/ManagerShell.B5.js'],
+  ['un', 'layout/InstanceShell.un.js'],
+  ['Dae', 'i18n/SidebarPtBR.Dae.js'],
+  ['goe', 'i18n/SidebarEnUS.goe.js'],
+  ['Boe', 'i18n/SidebarEsES.Boe.js'],
+  ['dae', 'i18n/SidebarFrFR.dae.js'],
 ]);
 
-const wantedVariables = new Map([
-  ['Lse', 'Router.Lse.js'],
-  ['Dae', 'SidebarPtBR.Dae.js'],
-  ['goe', 'SidebarEnUS.goe.js'],
-  ['Boe', 'SidebarEsES.Boe.js'],
-  ['dae', 'SidebarFrFR.dae.js'],
-]);
-
+const requiredSymbols = new Set(['Fse', 'Dse', 'CZ', 'PX', 'Lse', 'Dae']);
 const extracted = [];
 const symbols = [];
 const extractedSymbols = new Set();
 const visited = new Set();
 
-const writeNode = (node, fileName, symbol, kind) => {
+const writeContent = (content, fileName, symbol, kind) => {
   if (extractedSymbols.has(symbol)) return;
-  const content = source.slice(node.start, node.end).trimEnd() + '\n';
+  const normalized = content.trimEnd() + '\n';
   const filePath = path.join(outputDir, fileName);
-  fs.writeFileSync(filePath, content);
-  extracted.push({ symbol, kind, file: fileName, bytes: Buffer.byteLength(content) });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, normalized);
+  extracted.push({ symbol, kind, file: fileName, bytes: Buffer.byteLength(normalized) });
   extractedSymbols.add(symbol);
+};
+
+const writeFunction = (node, fileName, symbol) => {
+  writeContent(source.slice(node.start, node.end), fileName, symbol, 'function');
+};
+
+const writeVariable = (declarationNode, declarator, fileName, symbol) => {
+  if (!declarator.init) return;
+  const initializer = source.slice(declarator.init.start, declarator.init.end);
+  writeContent(`${declarationNode.kind} ${symbol} = ${initializer};`, fileName, symbol, 'variable');
 };
 
 const inspectNode = (node) => {
@@ -50,18 +81,19 @@ const inspectNode = (node) => {
   visited.add(node);
 
   if (node.type === 'FunctionDeclaration' && node.id?.name) {
-    symbols.push({ kind: 'function', name: node.id.name, start: node.start, end: node.end });
-    const fileName = wantedFunctions.get(node.id.name);
-    if (fileName) writeNode(node, fileName, node.id.name, 'function');
+    const name = node.id.name;
+    symbols.push({ kind: 'function', name, start: node.start, end: node.end });
+    const fileName = wantedSymbols.get(name);
+    if (fileName) writeFunction(node, fileName, name);
   }
 
   if (node.type === 'VariableDeclaration') {
-    for (const declaration of node.declarations ?? []) {
-      if (declaration.id?.type !== 'Identifier') continue;
-      const name = declaration.id.name;
-      symbols.push({ kind: 'variable', name, start: node.start, end: node.end });
-      const fileName = wantedVariables.get(name);
-      if (fileName) writeNode(node, fileName, name, 'variable');
+    for (const declarator of node.declarations ?? []) {
+      if (declarator.id?.type !== 'Identifier') continue;
+      const name = declarator.id.name;
+      symbols.push({ kind: 'variable', name, start: declarator.start, end: declarator.end });
+      const fileName = wantedSymbols.get(name);
+      if (fileName) writeVariable(node, declarator, fileName, name);
     }
   }
 
@@ -77,9 +109,42 @@ const inspectNode = (node) => {
 
 inspectNode(ast.program);
 
-const expected = [...wantedFunctions.keys(), ...wantedVariables.keys()];
+const expected = [...wantedSymbols.keys()];
 const found = new Set(extracted.map((entry) => entry.symbol));
 const missing = expected.filter((symbol) => !found.has(symbol));
+const missingRequired = [...requiredSymbols].filter((symbol) => !found.has(symbol));
+
+const routeComponentMap = [
+  { path: '/', symbol: 'Fse', recoveredName: 'LandingPage' },
+  { path: '/manager/login', symbol: 'Dse', recoveredName: 'LoginPage' },
+  { path: '/manager/', symbol: 'CZ', recoveredName: 'InstancesPage' },
+  { path: '/manager/instance/:instanceId/dashboard', symbol: 'PX', recoveredName: 'InstanceDashboard' },
+  { path: '/manager/instance/:instanceId/chat', symbol: 'tk', recoveredName: 'ChatPage' },
+  { path: '/manager/instance/:instanceId/chat/:remoteJid', symbol: 'tk', recoveredName: 'ChatPage' },
+  { path: '/manager/instance/:instanceId/settings', symbol: 'qre', recoveredName: 'SettingsPage' },
+  { path: '/manager/instance/:instanceId/openai', symbol: 'Tk', recoveredName: 'OpenAIPage' },
+  { path: '/manager/instance/:instanceId/openai/:botId', symbol: 'Tk', recoveredName: 'OpenAIPage' },
+  { path: '/manager/instance/:instanceId/webhook', symbol: 'jse', recoveredName: 'WebhookPage' },
+  { path: '/manager/instance/:instanceId/websocket', symbol: 'Ose', recoveredName: 'WebSocketPage' },
+  { path: '/manager/instance/:instanceId/rabbitmq', symbol: 'Bre', recoveredName: 'RabbitMQPage' },
+  { path: '/manager/instance/:instanceId/sqs', symbol: 'Yre', recoveredName: 'SQSPage' },
+  { path: '/manager/instance/:instanceId/chatwoot', symbol: 'yX', recoveredName: 'ChatwootPage' },
+  { path: '/manager/instance/:instanceId/typebot', symbol: 'Nk', recoveredName: 'TypebotPage' },
+  { path: '/manager/instance/:instanceId/typebot/:typebotId', symbol: 'Nk', recoveredName: 'TypebotPage' },
+  { path: '/manager/instance/:instanceId/dify', symbol: 'xk', recoveredName: 'DifyPage' },
+  { path: '/manager/instance/:instanceId/dify/:difyId', symbol: 'xk', recoveredName: 'DifyPage' },
+  { path: '/manager/instance/:instanceId/n8n', symbol: 'jk', recoveredName: 'N8nPage' },
+  { path: '/manager/instance/:instanceId/n8n/:n8nId', symbol: 'jk', recoveredName: 'N8nPage' },
+  { path: '/manager/instance/:instanceId/connectAI', symbol: 'Ck', recoveredName: 'ConnectAIPage' },
+  { path: '/manager/instance/:instanceId/connectAI/:connectAIId', symbol: 'Ck', recoveredName: 'ConnectAIPage' },
+  { path: '/manager/instance/:instanceId/connectBot', symbol: 'Ek', recoveredName: 'ConnectBotPage' },
+  { path: '/manager/instance/:instanceId/connectBot/:connectBotId', symbol: 'Ek', recoveredName: 'ConnectBotPage' },
+  { path: '/manager/instance/:instanceId/flowise', symbol: 'kk', recoveredName: 'FlowisePage' },
+  { path: '/manager/instance/:instanceId/flowise/:flowiseId', symbol: 'kk', recoveredName: 'FlowisePage' },
+  { path: '/manager/instance/:instanceId/proxy', symbol: 'Ore', recoveredName: 'ProxyPage' },
+  { path: '/manager/embed-chat', symbol: 'Sk', recoveredName: 'EmbedChatPage' },
+  { path: '/manager/embed-chat/:remoteJid', symbol: 'Sk', recoveredName: 'EmbedChatPage' },
+];
 
 const inventory = {
   generatedAt: new Date().toISOString(),
@@ -88,26 +153,34 @@ const inventory = {
   discoveredSymbolCount: symbols.length,
   extracted,
   missing,
+  missingRequired,
 };
 
 fs.writeFileSync(path.join(outputDir, 'inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`);
+fs.writeFileSync(path.join(outputDir, 'route-component-map.json'), `${JSON.stringify(routeComponentMap, null, 2)}\n`);
 
 const readme = `# Manager recovered — análise de componentes\n\n` +
   `Arquivos extraídos automaticamente do bundle legado formatado. Eles ainda usam identificadores minificados e não são o fonte final.\n\n` +
   `## Mapeamentos confirmados\n\n` +
   `- \`Fse\` → landing page raiz do Manager.\n` +
   `- \`Dse\` → página de login do Manager.\n` +
+  `- \`CZ\` → lista principal de instâncias.\n` +
+  `- \`PX\` → dashboard da instância.\n` +
   `- \`Lse\` → tabela principal de rotas React Router.\n` +
-  `- \`Dae\` → labels pt-BR da sidebar, incluindo os links públicos legados.\n` +
-  `- \`goe\`, \`Boe\`, \`dae\` → variantes en-US, es-ES e fr-FR dessas labels.\n\n` +
+  `- \`Dae\` → labels pt-BR da sidebar, incluindo os links públicos legados.\n\n` +
+  `O arquivo \`route-component-map.json\` documenta as rotas e os nomes recuperados adotados para a reconstrução.\n\n` +
   `## Regra desta fase\n\n` +
   `Esses arquivos servem como prova e referência para reconstrução. O \`manager/dist\` de produção não é substituído nesta etapa.\n`;
 
 fs.writeFileSync(path.join(outputDir, 'README.md'), readme);
 
-if (missing.length) {
-  console.error(`Expected symbols not found: ${missing.join(', ')}`);
+if (missingRequired.length) {
+  console.error(`Required symbols not found: ${missingRequired.join(', ')}`);
   process.exit(2);
+}
+
+if (missing.length) {
+  console.warn(`Optional symbols not found: ${missing.join(', ')}`);
 }
 
 console.log(`Extracted ${extracted.length} recovered symbols into ${outputDir}`);
