@@ -94,18 +94,21 @@ jobs:
           test -s manager/recovered/legacy/index.js
           test -s manager/recovered/legacy/index.css
           test -s manager/recovered/recovery-report.json
-          test -s manager/recovered/analysis/LandingPage.Fse.js
-          test -s manager/recovered/analysis/LoginPage.Dse.js
-          test -s manager/recovered/analysis/Router.Lse.js
-          test -s manager/recovered/analysis/SidebarPtBR.Dae.js
+          test -s manager/recovered/analysis/pages/LandingPage.Fse.js
+          test -s manager/recovered/analysis/pages/LoginPage.Dse.js
+          test -s manager/recovered/analysis/pages/InstancesPage.CZ.js
+          test -s manager/recovered/analysis/pages/InstanceDashboard.PX.js
+          test -s manager/recovered/analysis/router/Router.Lse.js
+          test -s manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
           test -s manager/recovered/analysis/inventory.json
+          test -s manager/recovered/analysis/route-component-map.json
 
           node --input-type=module --check < manager/recovered/legacy/index.js
 
-          grep -q 'Modern web interface for Connect|API management' manager/recovered/analysis/LandingPage.Fse.js
-          grep -q 'Access Manager Dashboard' manager/recovered/analysis/LandingPage.Fse.js
-          grep -q 'Suporte Premium' manager/recovered/analysis/SidebarPtBR.Dae.js
-          grep -q '"missing": \[\]' manager/recovered/analysis/inventory.json
+          grep -q 'Modern web interface for Connect|API management' manager/recovered/analysis/pages/LandingPage.Fse.js
+          grep -q 'Access Manager Dashboard' manager/recovered/analysis/pages/LandingPage.Fse.js
+          grep -q 'Suporte Premium' manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
+          grep -q '"missingRequired": \[\]' manager/recovered/analysis/inventory.json
           grep -q '"sourceMapReference"' manager/recovered/recovery-report.json
 
       - name: Commit recovered readable source
