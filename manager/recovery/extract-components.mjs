@@ -32,33 +32,50 @@ const wantedVariables = new Map([
 ]);
 
 const extracted = [];
-const topLevel = [];
+const symbols = [];
+const extractedSymbols = new Set();
+const visited = new Set();
 
 const writeNode = (node, fileName, symbol, kind) => {
+  if (extractedSymbols.has(symbol)) return;
   const content = source.slice(node.start, node.end).trimEnd() + '\n';
   const filePath = path.join(outputDir, fileName);
   fs.writeFileSync(filePath, content);
   extracted.push({ symbol, kind, file: fileName, bytes: Buffer.byteLength(content) });
+  extractedSymbols.add(symbol);
 };
 
-for (const node of ast.program.body) {
+const inspectNode = (node) => {
+  if (!node || typeof node !== 'object' || visited.has(node)) return;
+  visited.add(node);
+
   if (node.type === 'FunctionDeclaration' && node.id?.name) {
-    topLevel.push({ kind: 'function', name: node.id.name, start: node.start, end: node.end });
+    symbols.push({ kind: 'function', name: node.id.name, start: node.start, end: node.end });
     const fileName = wantedFunctions.get(node.id.name);
     if (fileName) writeNode(node, fileName, node.id.name, 'function');
-    continue;
   }
 
   if (node.type === 'VariableDeclaration') {
-    for (const declaration of node.declarations) {
+    for (const declaration of node.declarations ?? []) {
       if (declaration.id?.type !== 'Identifier') continue;
       const name = declaration.id.name;
-      topLevel.push({ kind: 'variable', name, start: node.start, end: node.end });
+      symbols.push({ kind: 'variable', name, start: node.start, end: node.end });
       const fileName = wantedVariables.get(name);
       if (fileName) writeNode(node, fileName, name, 'variable');
     }
   }
-}
+
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'loc' || key === 'extra' || key === 'tokens' || key === 'comments') continue;
+    if (Array.isArray(value)) {
+      for (const child of value) inspectNode(child);
+    } else if (value && typeof value === 'object') {
+      inspectNode(value);
+    }
+  }
+};
+
+inspectNode(ast.program);
 
 const expected = [...wantedFunctions.keys(), ...wantedVariables.keys()];
 const found = new Set(extracted.map((entry) => entry.symbol));
@@ -68,7 +85,7 @@ const inventory = {
   generatedAt: new Date().toISOString(),
   input: path.normalize(inputFile),
   parser: '@babel/parser',
-  topLevelSymbolCount: topLevel.length,
+  discoveredSymbolCount: symbols.length,
   extracted,
   missing,
 };
