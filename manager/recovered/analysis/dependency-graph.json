@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T18:09:50.631Z",
+  "generatedAt": "2026-09-06T18:10:26.762Z",
   "input": "manager/recovered/legacy/index.js",
   "analysisMode": "lexical-scope-aware",
   "recoveredSymbolCount": 43,

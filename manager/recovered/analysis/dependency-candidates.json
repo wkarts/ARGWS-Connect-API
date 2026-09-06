@@ -1,0 +1,1635 @@
+{
+  "generatedAt": "2026-09-06T18:10:26.899Z",
+  "sourceGraph": "manager/recovered/analysis/dependency-graph.json",
+  "analysisMode": "lexical-scope-aware",
+  "recoveredSymbolCount": 43,
+  "totalCandidates": 182,
+  "limit": 120,
+  "applicationCandidates": [
+    {
+      "symbol": "se",
+      "bindingKind": "variable-const",
+      "sourceStart": 542810,
+      "sourceEnd": 543039,
+      "referencedBy": [
+        "Bre",
+        "CZ",
+        "Ck",
+        "Dse",
+        "Ek",
+        "Fse",
+        "Nk",
+        "Ore",
+        "Ose",
+        "PX",
+        "Tk",
+        "Yre",
+        "c_",
+        "dQ",
+        "jk",
+        "jse",
+        "kk",
+        "qre",
+        "tk",
+        "xk",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 21,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "dn",
+      "bindingKind": "function",
+      "sourceStart": 397795,
+      "sourceEnd": 397889,
+      "referencedBy": [
+        "Ck",
+        "Dse",
+        "Ek",
+        "Fse",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "tk",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 10,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "ls",
+      "bindingKind": "function",
+      "sourceStart": 398724,
+      "sourceEnd": 398843,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "tk",
+        "un",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 9,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "me",
+      "bindingKind": "function",
+      "sourceStart": 434158,
+      "sourceEnd": 434217,
+      "referencedBy": [
+        "Bre",
+        "CZ",
+        "Ore",
+        "Ose",
+        "Yre",
+        "dQ",
+        "jse",
+        "qre",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 9,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "on",
+      "bindingKind": "function",
+      "sourceStart": 788997,
+      "sourceEnd": 790911,
+      "referencedBy": [
+        "Bre",
+        "Dse",
+        "Ore",
+        "Ose",
+        "Yre",
+        "dQ",
+        "jse",
+        "qre",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 9,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "an",
+      "bindingKind": "variable-var",
+      "sourceStart": 792598,
+      "sourceEnd": 793723,
+      "referencedBy": [
+        "Bre",
+        "Dse",
+        "Ore",
+        "Ose",
+        "Yre",
+        "dQ",
+        "jse",
+        "qre",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 9,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "On",
+      "bindingKind": "variable-const",
+      "sourceStart": 1333125,
+      "sourceEnd": 1333721,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "PX",
+        "Tk",
+        "jk",
+        "kk",
+        "qre",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 9,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Fo",
+      "bindingKind": "variable-const",
+      "sourceStart": 1079515,
+      "sourceEnd": 1079522,
+      "referencedBy": [
+        "Bre",
+        "Dse",
+        "Ore",
+        "Ose",
+        "Yre",
+        "jse",
+        "qre",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 8,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "$o",
+      "bindingKind": "variable-const",
+      "sourceStart": 1177336,
+      "sourceEnd": 1177481,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "tk",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 8,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Hn",
+      "bindingKind": "variable-const",
+      "sourceStart": 1177487,
+      "sourceEnd": 1177494,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "tk",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 8,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Bo",
+      "bindingKind": "variable-const",
+      "sourceStart": 1177500,
+      "sourceEnd": 1178547,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "tk",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 8,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "zo",
+      "bindingKind": "function",
+      "sourceStart": 1183651,
+      "sourceEnd": 1184173,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "tk",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 8,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "$t",
+      "bindingKind": "variable-const",
+      "sourceStart": 1344712,
+      "sourceEnd": 1345012,
+      "referencedBy": [
+        "Ck",
+        "Ek",
+        "Nk",
+        "Tk",
+        "jk",
+        "kk",
+        "qre",
+        "xk"
+      ],
+      "referencedByRecoveredSymbols": 8,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Pe",
+      "bindingKind": "variable-const",
+      "sourceStart": 1082411,
+      "sourceEnd": 1083452,
+      "referencedBy": [
+        "Bre",
+        "Ore",
+        "Ose",
+        "Yre",
+        "jse",
+        "qre",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 7,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Oa",
+      "bindingKind": "variable-var",
+      "sourceStart": 690818,
+      "sourceEnd": 690825,
+      "referencedBy": [
+        "Bre",
+        "Ore",
+        "Ose",
+        "Yre",
+        "jse",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 6,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "ne",
+      "bindingKind": "variable-const",
+      "sourceStart": 748055,
+      "sourceEnd": 748189,
+      "referencedBy": [
+        "CZ",
+        "Dse",
+        "Ore",
+        "dQ",
+        "jse",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 6,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "le",
+      "bindingKind": "variable-const",
+      "sourceStart": 1081562,
+      "sourceEnd": 1082405,
+      "referencedBy": [
+        "Dse",
+        "Ore",
+        "dQ",
+        "jse",
+        "qre",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 6,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Ie",
+      "bindingKind": "function",
+      "sourceStart": 541566,
+      "sourceEnd": 541611,
+      "referencedBy": [
+        "Bre",
+        "Ose",
+        "Yre",
+        "c_",
+        "jse"
+      ],
+      "referencedByRecoveredSymbols": 5,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "So",
+      "bindingKind": "variable-const",
+      "sourceStart": 746547,
+      "sourceEnd": 746750,
+      "referencedBy": [
+        "CZ",
+        "Dse",
+        "Fse",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Co",
+      "bindingKind": "variable-const",
+      "sourceStart": 746787,
+      "sourceEnd": 746926,
+      "referencedBy": [
+        "CZ",
+        "Dse",
+        "Fse",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Eo",
+      "bindingKind": "variable-const",
+      "sourceStart": 747355,
+      "sourceEnd": 747465,
+      "referencedBy": [
+        "CZ",
+        "Dse",
+        "Fse",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "gc",
+      "bindingKind": "variable-const",
+      "sourceStart": 1078685,
+      "sourceEnd": 1079470,
+      "referencedBy": [
+        "Bre",
+        "Ose",
+        "Yre",
+        "jse"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Lo",
+      "bindingKind": "variable-const",
+      "sourceStart": 1079558,
+      "sourceEnd": 1079655,
+      "referencedBy": [
+        "Bre",
+        "Ose",
+        "Yre",
+        "jse"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "no",
+      "bindingKind": "variable-const",
+      "sourceStart": 1080183,
+      "sourceEnd": 1080418,
+      "referencedBy": [
+        "Bre",
+        "Ose",
+        "Yre",
+        "jse"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Nr",
+      "bindingKind": "variable-const",
+      "sourceStart": 1080459,
+      "sourceEnd": 1080652,
+      "referencedBy": [
+        "Bre",
+        "Ose",
+        "Yre",
+        "jse"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "_s",
+      "bindingKind": "variable-const",
+      "sourceStart": 1080694,
+      "sourceEnd": 1080935,
+      "referencedBy": [
+        "Bre",
+        "Ose",
+        "Yre",
+        "jse"
+      ],
+      "referencedByRecoveredSymbols": 4,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Vb",
+      "bindingKind": "function",
+      "sourceStart": 543072,
+      "sourceEnd": 544706,
+      "referencedBy": [
+        "B5",
+        "Dse",
+        "un"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Bl",
+      "bindingKind": "variable-const",
+      "sourceStart": 564340,
+      "sourceEnd": 564432,
+      "referencedBy": [
+        "CZ",
+        "PX",
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Ei",
+      "bindingKind": "variable-const",
+      "sourceStart": 699563,
+      "sourceEnd": 699731,
+      "referencedBy": [
+        "CZ",
+        "PX",
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "ki",
+      "bindingKind": "variable-const",
+      "sourceStart": 699776,
+      "sourceEnd": 699910,
+      "referencedBy": [
+        "CZ",
+        "PX",
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Pt",
+      "bindingKind": "variable-const",
+      "sourceStart": 707731,
+      "sourceEnd": 707738,
+      "referencedBy": [
+        "CZ",
+        "PX",
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Nt",
+      "bindingKind": "variable-const",
+      "sourceStart": 708173,
+      "sourceEnd": 709618,
+      "referencedBy": [
+        "CZ",
+        "PX",
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Mt",
+      "bindingKind": "variable-const",
+      "sourceStart": 709663,
+      "sourceEnd": 709794,
+      "referencedBy": [
+        "CZ",
+        "PX",
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "gi",
+      "bindingKind": "variable-const",
+      "sourceStart": 746969,
+      "sourceEnd": 747128,
+      "referencedBy": [
+        "Dse",
+        "Fse",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Vh",
+      "bindingKind": "variable-const",
+      "sourceStart": 747509,
+      "sourceEnd": 747645,
+      "referencedBy": [
+        "CZ",
+        "Dse",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 3,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Cj",
+      "bindingKind": "function",
+      "sourceStart": 406376,
+      "sourceEnd": 406820,
+      "referencedBy": [
+        "jL",
+        "tn"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Fu",
+      "bindingKind": "variable-const",
+      "sourceStart": 416966,
+      "sourceEnd": 418041,
+      "referencedBy": [
+        "CZ",
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "sn",
+      "bindingKind": "variable-const",
+      "sourceStart": 506595,
+      "sourceEnd": 506606,
+      "referencedBy": [
+        "Ise",
+        "sT"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "pT",
+      "bindingKind": "variable-const",
+      "sourceStart": 550958,
+      "sourceEnd": 551201,
+      "referencedBy": [
+        "CZ",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "cs",
+      "bindingKind": "variable-const",
+      "sourceStart": 566007,
+      "sourceEnd": 566125,
+      "referencedBy": [
+        "dQ",
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Ip",
+      "bindingKind": "variable-const",
+      "sourceStart": 566318,
+      "sourceEnd": 566625,
+      "referencedBy": [
+        "CZ",
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Bt",
+      "bindingKind": "variable-const",
+      "sourceStart": 707744,
+      "sourceEnd": 707751,
+      "referencedBy": [
+        "PX",
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Yt",
+      "bindingKind": "variable-const",
+      "sourceStart": 709839,
+      "sourceEnd": 709981,
+      "referencedBy": [
+        "CZ",
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "zM",
+      "bindingKind": "function",
+      "sourceStart": 710402,
+      "sourceEnd": 712590,
+      "referencedBy": [
+        "B5",
+        "un"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "VM",
+      "bindingKind": "variable-const",
+      "sourceStart": 712791,
+      "sourceEnd": 713269,
+      "referencedBy": [
+        "Sk",
+        "un"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "vu",
+      "bindingKind": "function",
+      "sourceStart": 745072,
+      "sourceEnd": 745198,
+      "referencedBy": [
+        "Fse",
+        "l_"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Kp",
+      "bindingKind": "variable-const",
+      "sourceStart": 747170,
+      "sourceEnd": 747307,
+      "referencedBy": [
+        "Dse",
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 2,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "qe",
+      "bindingKind": "variable-const",
+      "sourceStart": 63425,
+      "sourceEnd": 63435,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Yk",
+      "bindingKind": "variable-var",
+      "sourceStart": 63693,
+      "sourceEnd": 63933,
+      "referencedBy": [
+        "Sk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "mt",
+      "bindingKind": "function",
+      "sourceStart": 66168,
+      "sourceEnd": 66213,
+      "referencedBy": [
+        "q5"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "jy",
+      "bindingKind": "variable-const",
+      "sourceStart": 316577,
+      "sourceEnd": 316680,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Y0",
+      "bindingKind": "variable-const",
+      "sourceStart": 316944,
+      "sourceEnd": 317006,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "X0",
+      "bindingKind": "variable-const",
+      "sourceStart": 317012,
+      "sourceEnd": 317208,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "vF",
+      "bindingKind": "variable-const",
+      "sourceStart": 317214,
+      "sourceEnd": 317743,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "fi",
+      "bindingKind": "variable-const",
+      "sourceStart": 317749,
+      "sourceEnd": 317781,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "yF",
+      "bindingKind": "variable-const",
+      "sourceStart": 317787,
+      "sourceEnd": 317833,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "EF",
+      "bindingKind": "variable-const",
+      "sourceStart": 318764,
+      "sourceEnd": 318777,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "jF",
+      "bindingKind": "variable-const",
+      "sourceStart": 318836,
+      "sourceEnd": 318849,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "sj",
+      "bindingKind": "variable-const",
+      "sourceStart": 318960,
+      "sourceEnd": 318982,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "NF",
+      "bindingKind": "class",
+      "sourceStart": 318986,
+      "sourceEnd": 319244,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "MF",
+      "bindingKind": "variable-const",
+      "sourceStart": 319253,
+      "sourceEnd": 319418,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "oj",
+      "bindingKind": "variable-const",
+      "sourceStart": 319424,
+      "sourceEnd": 319465,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "_F",
+      "bindingKind": "variable-const",
+      "sourceStart": 319471,
+      "sourceEnd": 319535,
+      "referencedBy": [
+        "Ve"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Z2",
+      "bindingKind": "function",
+      "sourceStart": 410200,
+      "sourceEnd": 410556,
+      "referencedBy": [
+        "Lse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Mj",
+      "bindingKind": "variable-const",
+      "sourceStart": 446523,
+      "sourceEnd": 446547,
+      "referencedBy": [
+        "tc"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "_j",
+      "bindingKind": "variable-const",
+      "sourceStart": 447410,
+      "sourceEnd": 447889,
+      "referencedBy": [
+        "Sk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Th",
+      "bindingKind": "variable-const",
+      "sourceStart": 547417,
+      "sourceEnd": 547546,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "J$",
+      "bindingKind": "variable-const",
+      "sourceStart": 549858,
+      "sourceEnd": 549995,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Oo",
+      "bindingKind": "variable-const",
+      "sourceStart": 552056,
+      "sourceEnd": 552863,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "X$",
+      "bindingKind": "variable-const",
+      "sourceStart": 553056,
+      "sourceEnd": 553267,
+      "referencedBy": [
+        "c_"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "tB",
+      "bindingKind": "variable-const",
+      "sourceStart": 554982,
+      "sourceEnd": 555373,
+      "referencedBy": [
+        "c_"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "nB",
+      "bindingKind": "variable-const",
+      "sourceStart": 555566,
+      "sourceEnd": 555734,
+      "referencedBy": [
+        "c_"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "aB",
+      "bindingKind": "variable-const",
+      "sourceStart": 557608,
+      "sourceEnd": 558022,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "iB",
+      "bindingKind": "variable-const",
+      "sourceStart": 558215,
+      "sourceEnd": 558437,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "vB",
+      "bindingKind": "variable-const",
+      "sourceStart": 563593,
+      "sourceEnd": 563781,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "xB",
+      "bindingKind": "variable-const",
+      "sourceStart": 567175,
+      "sourceEnd": 567443,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Ap",
+      "bindingKind": "variable-const",
+      "sourceStart": 570652,
+      "sourceEnd": 570817,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "jB",
+      "bindingKind": "variable-const",
+      "sourceStart": 571010,
+      "sourceEnd": 571242,
+      "referencedBy": [
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Kr",
+      "bindingKind": "variable-const",
+      "sourceStart": 690861,
+      "sourceEnd": 690868,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Wr",
+      "bindingKind": "variable-const",
+      "sourceStart": 690874,
+      "sourceEnd": 690881,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "hr",
+      "bindingKind": "variable-const",
+      "sourceStart": 691989,
+      "sourceEnd": 692673,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "aM",
+      "bindingKind": "variable-const",
+      "sourceStart": 693172,
+      "sourceEnd": 693840,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "iM",
+      "bindingKind": "function",
+      "sourceStart": 694959,
+      "sourceEnd": 696491,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "lM",
+      "bindingKind": "function",
+      "sourceStart": 696494,
+      "sourceEnd": 697621,
+      "referencedBy": [
+        "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Up",
+      "bindingKind": "variable-const",
+      "sourceStart": 699955,
+      "sourceEnd": 700153,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "$M",
+      "bindingKind": "variable-const",
+      "sourceStart": 707770,
+      "sourceEnd": 707777,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "zt",
+      "bindingKind": "variable-const",
+      "sourceStart": 710026,
+      "sourceEnd": 710182,
+      "referencedBy": [
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "eo",
+      "bindingKind": "variable-const",
+      "sourceStart": 710227,
+      "sourceEnd": 710363,
+      "referencedBy": [
+        "PX"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "UM",
+      "bindingKind": "variable-const",
+      "sourceStart": 712599,
+      "sourceEnd": 712625,
+      "referencedBy": [
+        "ct"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "j5",
+      "bindingKind": "function",
+      "sourceStart": 716389,
+      "sourceEnd": 722460,
+      "referencedBy": [
+        "un"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Wy",
+      "bindingKind": "variable-const",
+      "sourceStart": 742087,
+      "sourceEnd": 742483,
+      "referencedBy": [
+        "un"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "U5",
+      "bindingKind": "variable-const",
+      "sourceStart": 745664,
+      "sourceEnd": 745773,
+      "referencedBy": [
+        "c_"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "V5",
+      "bindingKind": "variable-const",
+      "sourceStart": 748227,
+      "sourceEnd": 748262,
+      "referencedBy": [
+        "q5"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "H5",
+      "bindingKind": "variable-const",
+      "sourceStart": 748268,
+      "sourceEnd": 748332,
+      "referencedBy": [
+        "q5"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "nt",
+      "bindingKind": "function",
+      "sourceStart": 748401,
+      "sourceEnd": 748894,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "K5",
+      "bindingKind": "variable-const",
+      "sourceStart": 748903,
+      "sourceEnd": 748964,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "W5",
+      "bindingKind": "variable-const",
+      "sourceStart": 748970,
+      "sourceEnd": 749034,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "G5",
+      "bindingKind": "variable-const",
+      "sourceStart": 749040,
+      "sourceEnd": 749105,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "J5",
+      "bindingKind": "variable-const",
+      "sourceStart": 749111,
+      "sourceEnd": 749176,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Q5",
+      "bindingKind": "variable-const",
+      "sourceStart": 749182,
+      "sourceEnd": 749341,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Z5",
+      "bindingKind": "variable-const",
+      "sourceStart": 749347,
+      "sourceEnd": 749481,
+      "referencedBy": [
+        "Hh"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Gn",
+      "bindingKind": "variable-const",
+      "sourceStart": 752693,
+      "sourceEnd": 752812,
+      "referencedBy": [
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "E1",
+      "bindingKind": "function",
+      "sourceStart": 794733,
+      "sourceEnd": 794945,
+      "referencedBy": [
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Jt",
+      "bindingKind": "variable-const",
+      "sourceStart": 1083458,
+      "sourceEnd": 1084432,
+      "referencedBy": [
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Da",
+      "bindingKind": "variable-const",
+      "sourceStart": 1084438,
+      "sourceEnd": 1086314,
+      "referencedBy": [
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "uQ",
+      "bindingKind": "variable-const",
+      "sourceStart": 1086408,
+      "sourceEnd": 1086592,
+      "referencedBy": [
+        "dQ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "FE",
+      "bindingKind": "function",
+      "sourceStart": 1126207,
+      "sourceEnd": 1126900,
+      "referencedBy": [
+        "CZ"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Yx",
+      "bindingKind": "variable-const",
+      "sourceStart": 1182105,
+      "sourceEnd": 1182112,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "hg",
+      "bindingKind": "variable-const",
+      "sourceStart": 1182118,
+      "sourceEnd": 1182350,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Jl",
+      "bindingKind": "variable-const",
+      "sourceStart": 1182395,
+      "sourceEnd": 1182937,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "Ql",
+      "bindingKind": "variable-const",
+      "sourceStart": 1182982,
+      "sourceEnd": 1183264,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "sY",
+      "bindingKind": "variable-const",
+      "sourceStart": 1183469,
+      "sourceEnd": 1183647,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "sw",
+      "bindingKind": "variable-const",
+      "sourceStart": 1246261,
+      "sourceEnd": 1247370,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "ow",
+      "bindingKind": "variable-const",
+      "sourceStart": 1247376,
+      "sourceEnd": 1247596,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "bi",
+      "bindingKind": "variable-const",
+      "sourceStart": 1247854,
+      "sourceEnd": 1248327,
+      "referencedBy": [
+        "qre"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "lX",
+      "bindingKind": "function",
+      "sourceStart": 1251401,
+      "sourceEnd": 1253211,
+      "referencedBy": [
+        "Sk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "ZO",
+      "bindingKind": "function",
+      "sourceStart": 1269216,
+      "sourceEnd": 1280450,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "dX",
+      "bindingKind": "variable-const",
+      "sourceStart": 1280459,
+      "sourceEnd": 1280486,
+      "referencedBy": [
+        "tk"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "hX",
+      "bindingKind": "variable-const",
+      "sourceStart": 1291798,
+      "sourceEnd": 1292045,
+      "referencedBy": [
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    },
+    {
+      "symbol": "mX",
+      "bindingKind": "function",
+      "sourceStart": 1292189,
+      "sourceEnd": 1292300,
+      "referencedBy": [
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 1,
+      "category": "application-or-library"
+    }
+  ],
+  "runtimeCandidates": [
+    {
+      "symbol": "i",
+      "bindingKind": "variable-var",
+      "sourceStart": 14310,
+      "sourceEnd": 14318,
+      "referencedBy": [
+        "B5",
+        "Bre",
+        "CZ",
+        "Ck",
+        "Dse",
+        "Ek",
+        "Fse",
+        "Lse",
+        "Nk",
+        "Ore",
+        "Ose",
+        "PX",
+        "Sk",
+        "Tk",
+        "Yre",
+        "c_",
+        "dQ",
+        "jL",
+        "jk",
+        "jse",
+        "kk",
+        "l_",
+        "qre",
+        "tk",
+        "tn",
+        "un",
+        "xk",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 28,
+      "category": "runtime"
+    },
+    {
+      "symbol": "y",
+      "bindingKind": "variable-var",
+      "sourceStart": 63407,
+      "sourceEnd": 63415,
+      "referencedBy": [
+        "Bre",
+        "CZ",
+        "Ore",
+        "Ose",
+        "PX",
+        "Ve",
+        "Yre",
+        "c_",
+        "ct",
+        "dQ",
+        "jse",
+        "qre",
+        "tc",
+        "tk",
+        "yX"
+      ],
+      "referencedByRecoveredSymbols": 15,
+      "category": "runtime"
+    }
+  ],
+  "unresolvedExternalIdentifiers": [
+    {
+      "identifier": "console",
+      "referencedByRecoveredSymbols": 11
+    },
+    {
+      "identifier": "Array",
+      "referencedByRecoveredSymbols": 10
+    },
+    {
+      "identifier": "localStorage",
+      "referencedByRecoveredSymbols": 4
+    },
+    {
+      "identifier": "Error",
+      "referencedByRecoveredSymbols": 3
+    },
+    {
+      "identifier": "Intl",
+      "referencedByRecoveredSymbols": 2
+    },
+    {
+      "identifier": "Promise",
+      "referencedByRecoveredSymbols": 2
+    },
+    {
+      "identifier": "getComputedStyle",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "identifier": "Map",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "identifier": "Math",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "identifier": "parseInt",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "identifier": "setTimeout",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "identifier": "window",
+      "referencedByRecoveredSymbols": 1
+    }
+  ]
+}
