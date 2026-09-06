@@ -110,6 +110,14 @@ jobs:
             manager/recovered/analysis/dependency-candidates.json \
             120
 
+      - name: Recover HTTP client configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node manager/recovery/extract-http-client-config.mjs \
+            manager/recovered/legacy/index.js \
+            manager/recovered/analysis/services
+
       - name: Recover i18n context
         shell: bash
         run: |
@@ -182,7 +190,10 @@ jobs:
           test -s manager/recovered/analysis/pages/InstanceDashboard.PX.js
           test -s manager/recovered/analysis/router/Router.Lse.js
           test -s manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
+          test -s manager/recovered/analysis/i18n/LanguageSwitcher.iM.js
           test -s manager/recovered/analysis/i18n/locale-context.json
+          test -s manager/recovered/analysis/services/http-client-config.json
+          test -s manager/recovered/analysis/services/http-client-config.js
           test -s manager/recovered/analysis/runtime-config.default.js
           test -s manager/recovered/analysis/inventory.json
           test -s manager/recovered/analysis/route-component-map.json
@@ -195,6 +206,7 @@ jobs:
           grep -q 'Modern web interface for Connect|API management' manager/recovered/analysis/pages/LandingPage.Fse.js
           grep -q 'Access Manager Dashboard' manager/recovered/analysis/pages/LandingPage.Fse.js
           grep -q 'Suporte Premium' manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
+          grep -q "changeLanguage('pt-BR')\|n('pt-BR')" manager/recovered/analysis/i18n/LanguageSwitcher.iM.js
           grep -q '"defaultLocale": "pt-BR"' manager/recovered/analysis/i18n/locale-context.json
           grep -q '"extraLocalesDisabledByDefault": true' manager/recovered/analysis/i18n/locale-context.json
           grep -q '"missingRequired": \[\]' manager/recovered/analysis/inventory.json
