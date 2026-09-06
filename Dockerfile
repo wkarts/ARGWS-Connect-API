@@ -1,10 +1,13 @@
-ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:24-alpine
+ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
 ARG APP_VERSION=1.0.0
 FROM ${NODE_IMAGE} AS builder
 ARG APP_VERSION
 
-RUN apk update && \
-    apk add --no-cache git ffmpeg wget curl bash openssl
+# Zapo VOIP uses @roamhq/wrtc, whose Linux prebuilt is glibc-based.
+# Debian Bookworm + Node 22 is the supported production base for the voice-enabled API.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ffmpeg wget curl bash openssl ca-certificates dos2unix && \
+    rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.title="ARGWS Connect API" \
       org.opencontainers.image.description="Communication & Integration Platform" \
@@ -37,8 +40,9 @@ FROM ${NODE_IMAGE} AS final
 ARG APP_VERSION=1.0.0
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 
-RUN apk update && \
-    apk add --no-cache tzdata ffmpeg bash openssl curl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tzdata ffmpeg bash openssl curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV TZ=America/Bahia
 ENV DOCKER_ENV=true

@@ -124,6 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           skopeo copy --all docker://docker.io/library/node:24-alpine docker://ghcr.io/${OWNER}/argws-connect-node:24-alpine
+          skopeo copy --all docker://docker.io/library/node:22-bookworm-slim docker://ghcr.io/${OWNER}/argws-connect-node:22-bookworm-slim
           skopeo copy --all docker://docker.io/library/nginx:1.27-alpine docker://ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
 
   build-native:

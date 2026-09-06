@@ -25,7 +25,6 @@ import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
 import { TemplateController } from './controllers/template.controller';
 import { ChannelController } from './integrations/channel/channel.controller';
-import { ConnectController } from './integrations/channel/connect/connect.controller';
 import { MetaController } from './integrations/channel/meta/meta.controller';
 import { BaileysController } from './integrations/channel/whatsapp/baileys.controller';
 import { ChatbotController } from './integrations/chatbot/chatbot.controller';
@@ -157,7 +156,6 @@ export const chatbotController = new ChatbotController(prismaRepository, waMonit
 export const channelController = new ChannelController(prismaRepository, waMonitor);
 
 // channels
-export const connectController = new ConnectController(prismaRepository, waMonitor);
 export const metaController = new MetaController(prismaRepository, waMonitor);
 export const baileysController = new BaileysController(waMonitor);
 

@@ -16,7 +16,7 @@ Usar `/graph` e a API nativa em paralelo não duplica uma mensagem por si só. D
 
 A compatibilidade `/graph` é uma capacidade nativa do Connect|API e não precisa ser habilitada por ENV, banco ou toggle no Manager.
 
-Uma instância `WHATSAPP-BUSINESS`, `WHATSAPP-BAILEYS` ou `CONNECT` com identidade telefônica estável fica Graph-addressable automaticamente.
+Uma instância `WHATSAPP-BUSINESS`, `WHATSAPP-BAILEYS` ou `WHATSAPP-ZAPO` com identidade telefônica estável fica Graph-addressable automaticamente.
 
 Consulte a identidade e configuração:
 
@@ -113,7 +113,7 @@ GET /graph/{version}/{businessAccountId}/message_templates
 
 - `WHATSAPP-BUSINESS`: delega ao serviço real de templates;
 - `WHATSAPP-BAILEYS`: lista vazia (`data: []`);
-- `CONNECT`: depende da capacidade real disponível.
+- `WHATSAPP-ZAPO`: lista vazia (`data: []`) enquanto templates nativos não forem expostos pelo adapter.
 
 ## Webhooks
 

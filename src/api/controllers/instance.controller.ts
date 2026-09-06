@@ -72,13 +72,23 @@ export class InstanceController {
   }
 
   private async requestExplicitPairingCode(instance: any, number: string): Promise<wa.QrCode> {
-    if (instance.client?.authState?.creds?.registered) {
+    const registered =
+      typeof instance.isRegistered === 'function'
+        ? instance.isRegistered()
+        : Boolean(instance.client?.authState?.creds?.registered);
+    if (registered) {
       throw new BadRequestException('This WhatsApp session is already registered.');
     }
 
     await instance.preparePairingConnection(number);
-    const qrCode = await this.waitForQrCode(instance, false);
-    const pairingCode = await instance.client.requestPairingCode(number);
+    const qrCode =
+      instance.integration === Integration.WHATSAPP_BAILEYS
+        ? await this.waitForQrCode(instance, false)
+        : (instance.qrCode ?? {});
+    const pairingCode =
+      typeof instance.requestPairingCode === 'function'
+        ? await instance.requestPairingCode(number)
+        : await instance.client.requestPairingCode(number);
 
     if (!pairingCode) {
       throw new BadRequestException(
@@ -192,7 +202,6 @@ export class InstanceController {
         readMessages: instanceData.readMessages === true,
         readStatus: instanceData.readStatus === true,
         syncFullHistory: instanceData.syncFullHistory === true,
-        wavoipToken: instanceData.wavoipToken || '',
       };
 
       await this.settingsService.create(instanceDto, settings);
@@ -212,7 +221,11 @@ export class InstanceController {
       if (!instanceData.chatwootAccountId || !instanceData.chatwootToken || !instanceData.chatwootUrl) {
         let getQrcode: wa.QrCode;
 
-        if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
+        const supportsDevicePairing =
+          instanceData.integration === Integration.WHATSAPP_BAILEYS ||
+          instanceData.integration === Integration.WHATSAPP_ZAPO;
+
+        if (instanceData.qrcode && supportsDevicePairing) {
           const pairingNumber = this.normalizePairingPhoneNumber(instanceData.number);
 
           // QR and pairing-code are independent authentication modes.
@@ -221,7 +234,7 @@ export class InstanceController {
             getQrcode = await this.requestExplicitPairingCode(instance, pairingNumber);
           } else {
             if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
-              throw new BadRequestException('QR connection is only available for the Baileys provider');
+              throw new BadRequestException('QR connection is not available for the selected WhatsApp provider');
             }
             await instance.prepareQrConnection();
             getQrcode = await this.waitForQrCode(instance, false);
@@ -400,7 +413,7 @@ export class InstanceController {
         }
 
         if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
-          throw new BadRequestException('QR connection is only available for the Baileys provider');
+          throw new BadRequestException('QR connection is not available for the selected WhatsApp provider');
         }
         await instance.prepareQrConnection();
         return await this.waitForQrCode(instance, false);
@@ -414,7 +427,7 @@ export class InstanceController {
         }
 
         if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
-          throw new BadRequestException('QR connection is only available for the Baileys provider');
+          throw new BadRequestException('QR connection is not available for the selected WhatsApp provider');
         }
         await instance.prepareQrConnection();
         return await this.waitForQrCode(instance, false);

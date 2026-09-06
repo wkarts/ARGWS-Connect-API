@@ -153,7 +153,6 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
-import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
   remoteJidAlt?: string;
@@ -743,9 +742,6 @@ export class BaileysStartupService extends ChannelStartupService {
     const client = makeWASocket(socketConfig);
     this.client = client;
 
-    if (this.localSettings.wavoipToken && this.localSettings.wavoipToken.length > 0) {
-      useVoiceCallsBaileys(this.localSettings.wavoipToken, client, this.connectionStatus.state as any, true);
-    }
 
     this.eventHandler(client, generation);
 
@@ -804,6 +800,17 @@ export class BaileysStartupService extends ChannelStartupService {
     this.phoneNumber = mode === 'pairing-code' ? normalizedPhoneNumber : undefined;
 
     return await this.connectToWhatsapp(this.phoneNumber, mode);
+  }
+
+  public isRegistered(): boolean {
+    return Boolean(this.client?.authState?.creds?.registered);
+  }
+
+  public async requestPairingCode(number: string): Promise<string> {
+    if (!this.client) {
+      await this.preparePairingConnection(number);
+    }
+    return this.client.requestPairingCode(number);
   }
 
   public async preparePairingConnection(number: string): Promise<WASocket> {

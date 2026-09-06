@@ -8,9 +8,9 @@ import { ConfigService } from '@config/env.config';
 import { BadRequestException } from '@exceptions';
 import EventEmitter2 from 'eventemitter2';
 
-import { ConnectStartupService } from './connect/connect.channel.service';
 import { BusinessStartupService } from './meta/whatsapp.business.service';
 import { BaileysStartupService } from './whatsapp/whatsapp.baileys.service';
+import { ZapoStartupService } from './whatsapp/zapo.whatsapp.service';
 
 type ChannelDataType = {
   configService: ConfigService;
@@ -68,8 +68,8 @@ export class ChannelController {
       );
     }
 
-    if (instanceData.integration === Integration.CONNECT) {
-      return new ConnectStartupService(
+    if (instanceData.integration === Integration.WHATSAPP_ZAPO) {
+      return new ZapoStartupService(
         data.configService,
         data.eventEmitter,
         data.prismaRepository,

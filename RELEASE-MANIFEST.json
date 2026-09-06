@@ -3,8 +3,8 @@
   "package": "argws-connect-api",
   "version": "1.0.21",
   "revision_date": "2026-09-06",
-  "source_files_excluding_node_modules": 430,
-  "typescript_files_in_src": 186,
+  "source_files_excluding_node_modules": 667,
+  "typescript_files_in_src": 204,
   "distribution": {
     "registry": "ghcr.io",
     "owner": "wkarts",
@@ -15,6 +15,7 @@
     ],
     "infrastructure_images": [
       "ghcr.io/wkarts/argws-connect-node:24-alpine",
+      "ghcr.io/wkarts/argws-connect-node:22-bookworm-slim",
       "ghcr.io/wkarts/argws-connect-nginx:1.27-alpine",
       "ghcr.io/wkarts/argws-connect-postgres:15",
       "ghcr.io/wkarts/argws-connect-redis:latest",
@@ -34,10 +35,10 @@
     "runtime_branding_embedded_in_images": true
   },
   "dependency_policy": {
-    "runtime": 60,
+    "runtime": 65,
     "development": 27,
-    "removed": 0,
-    "added": 0,
+    "removed": 1,
+    "added": 6,
     "declared_versions_changed": 0
   },
   "telemetry": {
@@ -56,7 +57,7 @@
     ]
   },
   "deployment_env": {
-    "unique_variables": 363,
+    "unique_variables": 398,
     "cloudpanel": "deploy/cloudpanel/.env.example",
     "dockge": "deploy/dockge/.env.example"
   },
@@ -65,12 +66,19 @@
     "json_errors": 0,
     "runtime_non_ghcr_image_references": 0,
     "missing_runtime_env_variables": 0,
-    "application_source_changed": false,
-    "prisma_changed": false,
+    "application_source_changed": true,
+    "prisma_changed": true,
     "package_manifest_changed": true,
     "package_lock_changed": true,
     "automatic_release_workflow_yaml_valid": true,
-    "release_scripts_smoke_tested": true
+    "release_scripts_smoke_tested": true,
+    "manager_check_passed": true,
+    "manager_api_smoke_calls": 100,
+    "manager_runtime_smoke_passed": true,
+    "zapo_provider_invariants_passed": true,
+    "typescript_parse_errors": 0,
+    "shell_syntax_errors": 0,
+    "legacy_platform_module_present": false
   },
   "release_automation": {
     "enabled": true,
@@ -98,5 +106,37 @@
       "latest",
       "sha-<commit>"
     ]
+  },
+  "zapo_provider": {
+    "integration": "WHATSAPP-ZAPO",
+    "library": "@innovatorssoft/zapo-js@1.6.3",
+    "messaging": [
+      "text",
+      "location",
+      "contact",
+      "image",
+      "video",
+      "document",
+      "audio_ptt",
+      "ptv",
+      "sticker",
+      "reaction",
+      "poll"
+    ],
+    "pairing": [
+      "qr_code",
+      "pairing_code"
+    ],
+    "voice": {
+      "library": "@innovatorssoft/voip@1.0.0",
+      "direct_whatsapp_voip": true,
+      "external_bridge": false,
+      "video_encoding": false,
+      "pcm_internal_bridge": "16 kHz mono Float32Array"
+    },
+    "protocol_state": "PostgreSQL via @innovatorssoft/store-postgres@1.0.2",
+    "legacy_connect_provider_removed": true,
+    "wavoip_removed": true,
+    "legacy_platform_module_reintroduced": false
   }
 }

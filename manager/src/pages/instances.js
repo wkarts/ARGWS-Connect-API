@@ -132,7 +132,7 @@ export function renderInstances() {
     const integration = select('WHATSAPP-BAILEYS', [
       { value: 'WHATSAPP-BAILEYS', label: 'WhatsApp (Baileys)' },
       { value: 'WHATSAPP-BUSINESS', label: 'WhatsApp Business / Cloud' },
-      { value: 'CONNECT', label: 'Connect' },
+      { value: 'WHATSAPP-ZAPO', label: 'WhatsApp (Zapo)' },
     ]);
     const token = input(generateToken(), { required: true, autocomplete: 'off' });
     const number = input('', {
@@ -158,7 +158,7 @@ export function renderInstances() {
       field('Nome', name),
       field('Canal', integration),
       field('Token da instância', token, 'Pode ser personalizado; um valor seguro já foi gerado.'),
-      field('Número', number, 'Opcional para Baileys; use DDI + DDD + número, somente dígitos.'),
+      field('Número', number, 'Opcional para Baileys/Zapo; use DDI + DDD + número, somente dígitos.'),
       businessField,
       button('Criar instância', { class: 'primary', type: 'submit' }),
     );

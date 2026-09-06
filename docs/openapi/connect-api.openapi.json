@@ -4,7 +4,7 @@
     "title": "Connect|API — REST API",
     "version": "1.0.21",
     "summary": "Referência interativa da API nativa do Connect|API.",
-    "description": "![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)\n\nAPI nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.\n\n### Autenticação\nA API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.\n\n### Providers\n- `WHATSAPP-BUSINESS`\n- `WHATSAPP-BAILEYS`\n- `CONNECT`\n\n### Atualização automática\nEste documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado."
+    "description": "![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)\n\nAPI nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.\n\n### Autenticação\nA API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.\n\n### Providers\n- `WHATSAPP-BUSINESS`\n- `WHATSAPP-BAILEYS`\n- `WHATSAPP-ZAPO`\n\n### Atualização automática\nEste documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado."
   },
   "servers": [
     {
@@ -920,6 +920,275 @@
         }
       }
     },
+    "/call/accept/{instanceName}": {
+      "post": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "Accept",
+        "operationId": "post_call_accept_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/call/end/{instanceName}": {
+      "post": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "End",
+        "operationId": "post_call_end_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/call/list/{instanceName}": {
+      "get": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "List",
+        "operationId": "get_call_list_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts"
+      }
+    },
+    "/call/mute/{instanceName}": {
+      "post": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "Mute",
+        "operationId": "post_call_mute_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/call/offer/{instanceName}": {
       "post": {
         "tags": [
@@ -927,6 +1196,76 @@
         ],
         "summary": "Offer",
         "operationId": "post_call_offer_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/call/reject/{instanceName}": {
+      "post": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "Reject",
+        "operationId": "post_call_reject_instancename",
         "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
         "parameters": [
           {
@@ -12194,64 +12533,6 @@
         "x-source-file": "src/api/routes/index.router.ts"
       }
     },
-    "/webhook/connect": {
-      "post": {
-        "tags": [
-          "Webhooks"
-        ],
-        "summary": "Webhook/Connect",
-        "operationId": "post_webhook_connect",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/connect/connect.router.ts`.",
-        "security": [
-          {
-            "apiKey": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        },
-        "x-source-file": "src/api/integrations/channel/connect/connect.router.ts",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          }
-        }
-      }
-    },
     "/webhook/find/{instanceName}": {
       "get": {
         "tags": [
@@ -12643,7 +12924,7 @@
             "enum": [
               "WHATSAPP-BUSINESS",
               "WHATSAPP-BAILEYS",
-              "CONNECT"
+              "WHATSAPP-ZAPO"
             ]
           },
           "phoneNumberId": {
@@ -12740,7 +13021,7 @@
             "enum": [
               "WHATSAPP-BUSINESS",
               "WHATSAPP-BAILEYS",
-              "CONNECT"
+              "WHATSAPP-ZAPO"
             ]
           },
           "token": {

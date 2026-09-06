@@ -7,12 +7,12 @@
 - package: `argws-connect-api`
 - bot: `ConnectBot` / `connectBot`
 - IA: `ConnectAI` / `connectAI`
-- canal interno: `Connect`
-- enum de integração: `CONNECT`
+- providers WhatsApp nativos: `WHATSAPP-BAILEYS`, `WHATSAPP-ZAPO`, `WHATSAPP-BUSINESS`
+- `CONNECT` deixa de ser provider e é migrado para `WHATSAPP-ZAPO`
 
 ## Banco de dados
 
-Foram adicionadas migrations específicas para MySQL e PostgreSQL que preservam a cadeia histórica e renomeiam as estruturas persistidas para a nomenclatura ARGWS Connect.
+As migrations específicas de MySQL e PostgreSQL preservam a cadeia histórica. A migração Zapo converte instâncias antigas com `integration=CONNECT` para `WHATSAPP-ZAPO`, fecha a conexão para novo pareamento e remove `Setting.wavoipToken`.
 
 Não altere migrations históricas já aplicadas.
 
@@ -47,6 +47,10 @@ ARGWS_CONNECT_TELEMETRY_TIMEOUT_MS=3000
 
 Em modo `direct`, configure a URL completa do endpoint `/api/v1/telemetry/batch` e o activation token correspondente.
 
-## Dependências
+## Dependências e runtime do Zapo
 
-Nenhuma dependência foi removida ou atualizada nesta revisão. Consulte `DEPENDENCY-AUDIT.md` antes de qualquer limpeza futura.
+Esta revisão adiciona `@innovatorssoft/zapo-js`, `@innovatorssoft/voip`, `@innovatorssoft/store-postgres`, `@roamhq/wrtc` e `libmlow-wasm`, alinha `ws` para `^8.20.1` e remove `socket.io-client`, que era usado apenas pelo bridge WavoIP removido.
+
+O provider `WHATSAPP-ZAPO` persiste o estado criptográfico/protocolo no PostgreSQL da própria Connect|API. Nesta primeira entrega, instâncias Zapo exigem `DATABASE_PROVIDER=postgresql`. O restante da Connect|API continua preservando os providers de banco já existentes.
+
+A imagem da API passa a usar Node 22 sobre Debian Bookworm Slim para suportar o binário Linux glibc do WebRTC utilizado em chamadas reais. Manager e demais imagens podem continuar utilizando suas bases atuais.

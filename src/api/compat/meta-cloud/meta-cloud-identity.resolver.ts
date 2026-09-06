@@ -23,7 +23,7 @@ export class MetaCloudIdentityResolver {
       phoneNumberId = this.normalizePhone(instance?.number) || String(instance?.number || '') || null;
       businessAccountId = instance?.businessId ? String(instance.businessId) : null;
       displayPhoneNumber = this.normalizePhone(instance?.number) || phoneNumberId;
-    } else if (provider === 'WHATSAPP-BAILEYS' || provider === 'CONNECT') {
+    } else if (provider === 'WHATSAPP-BAILEYS' || provider === 'WHATSAPP-ZAPO') {
       const stablePhone = this.normalizePhone(instance?.number) || this.normalizePhone(instance?.ownerJid);
       phoneNumberId = stablePhone;
       businessAccountId = stablePhone;
@@ -60,7 +60,7 @@ export class MetaCloudIdentityResolver {
     if (!target) throw new MetaCloudGraphError(404, 'phoneNumberId was not found.');
 
     const instances = await this.prisma.instance.findMany({
-      where: { integration: { in: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'CONNECT'] } },
+      where: { integration: { in: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] } },
     });
 
     for (const instance of instances) {
@@ -77,7 +77,7 @@ export class MetaCloudIdentityResolver {
 
   public async resolveByBusinessAccountId(businessAccountId: string): Promise<MetaCloudIdentity> {
     const instances = await this.prisma.instance.findMany({
-      where: { integration: { in: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'CONNECT'] } },
+      where: { integration: { in: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] } },
     });
     for (const instance of instances) {
       try {

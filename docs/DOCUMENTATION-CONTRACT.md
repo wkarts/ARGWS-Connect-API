@@ -99,7 +99,7 @@ A documentação deve diferenciar claramente as capacidades de:
 
 - `WHATSAPP-BUSINESS`;
 - `WHATSAPP-BAILEYS`;
-- `CONNECT`.
+- `WHATSAPP-ZAPO`.
 
 Não declarar equivalência onde o provider não oferece a mesma capacidade.
 

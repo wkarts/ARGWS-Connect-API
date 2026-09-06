@@ -15,7 +15,6 @@ import { NotFoundException } from '@exceptions';
 import { Contact, Message, Prisma } from '@prisma/client';
 import { createJid } from '@utils/createJid';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
-import { WASocket } from 'baileys';
 import { isArray } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
 import { v4 } from 'uuid';
@@ -32,7 +31,7 @@ export class ChannelStartupService {
 
   public readonly logger = new Logger('ChannelStartupService');
 
-  public client: WASocket;
+  public client: any;
   public readonly instance: wa.Instance = {};
   public readonly localChatwoot: wa.LocalChatwoot = {};
   public readonly localProxy: wa.LocalProxy = {};
@@ -154,7 +153,6 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
-    this.localSettings.wavoipToken = data?.wavoipToken;
   }
 
   public async setSettings(data: SettingsDto) {
@@ -170,7 +168,6 @@ export class ChannelStartupService {
         readMessages: data.readMessages,
         readStatus: data.readStatus,
         syncFullHistory: data.syncFullHistory,
-        wavoipToken: data.wavoipToken,
       },
       create: {
         rejectCall: data.rejectCall,
@@ -180,7 +177,6 @@ export class ChannelStartupService {
         readMessages: data.readMessages,
         readStatus: data.readStatus,
         syncFullHistory: data.syncFullHistory,
-        wavoipToken: data.wavoipToken,
         instanceId: this.instanceId,
       },
     });
@@ -192,12 +188,7 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
-    this.localSettings.wavoipToken = data?.wavoipToken;
 
-    if (this.localSettings.wavoipToken && this.localSettings.wavoipToken.length > 0) {
-      this.client.ws.close();
-      this.client.ws.connect();
-    }
   }
 
   public async findSettings() {
@@ -219,7 +210,6 @@ export class ChannelStartupService {
       readMessages: data.readMessages,
       readStatus: data.readStatus,
       syncFullHistory: data.syncFullHistory,
-      wavoipToken: data.wavoipToken,
     };
   }
 

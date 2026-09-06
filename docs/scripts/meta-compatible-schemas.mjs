@@ -9,7 +9,7 @@ export const metaCompatibilityAdminSchemas = {
     properties: {
       enabled: { type: 'boolean', const: true, description: 'Mantido por compatibilidade. Meta Compatible é sempre habilitado para instâncias endereçáveis.' },
       instanceName: string('Nome exato da instância Connect|API.'),
-      provider: string('Provider real da instância.', { enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'CONNECT'] }),
+      provider: string('Provider real da instância.', { enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }),
       phoneNumberId: string('Identificador telefônico usado nas rotas /graph.'),
       businessAccountId: string('Identificador business usado nas rotas de templates.'),
       displayPhoneNumber: string('Número telefônico real normalizado da instância.'),

@@ -60,9 +60,28 @@ export const offerCallSchema: JSONSchema7 = {
   properties: {
     number: { ...numberDefinition },
     isVideo: { type: 'boolean', enum: [true, false] },
-    callDuration: { type: 'integer', minimum: 1, maximum: 15 },
+    callDuration: { type: 'integer', minimum: 1 },
   },
-  required: ['number', 'callDuration'],
+  required: ['number'],
+};
+
+export const callIdSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    callId: { type: 'string', minLength: 1 },
+  },
+  required: ['callId'],
+};
+
+export const muteCallSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    callId: { type: 'string', minLength: 1 },
+    muted: { type: 'boolean' },
+  },
+  required: ['callId', 'muted'],
 };
 
 export const textMessageSchema: JSONSchema7 = {

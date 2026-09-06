@@ -320,7 +320,7 @@ function nativeSpec(routes, version) {
         '![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)', '',
         'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.', '',
         '### Autenticação', 'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.', '',
-        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `CONNECT`', '',
+        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `WHATSAPP-ZAPO`', '',
         '### Atualização automática', 'Este documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado.',
       ].join('\n'),
     },
@@ -343,7 +343,7 @@ function nativeSpec(routes, version) {
         ...metaCompatibilityAdminSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
-        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'CONNECT'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
+        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
       },
@@ -390,7 +390,7 @@ function graphSpec(version) {
         get: {
           tags: ['Templates'], summary: 'Listar templates', operationId: 'meta_list_templates', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e CONNECT retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
+          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{mediaId}': {

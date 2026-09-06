@@ -7,7 +7,7 @@ A instância é a unidade principal de isolamento do Connect|API. Operações p�
 ```text
 WHATSAPP-BUSINESS
 WHATSAPP-BAILEYS
-CONNECT
+WHATSAPP-ZAPO
 ```
 
 ## Ciclo de vida
@@ -26,7 +26,7 @@ DELETE /instance/delete/{instanceName}
 
 ## QR Code e pareamento
 
-Em `WHATSAPP-BAILEYS`:
+Em `WHATSAPP-BAILEYS` e `WHATSAPP-ZAPO`:
 
 - chamada sem `number` solicita QR Code;
 - chamada com `number` internacional normalizado solicita código de pareamento;

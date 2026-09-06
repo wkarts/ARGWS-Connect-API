@@ -230,7 +230,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS e CONNECT retornam `data: []`.",
+            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.",
             "content": {
               "application/json": {
                 "schema": {
