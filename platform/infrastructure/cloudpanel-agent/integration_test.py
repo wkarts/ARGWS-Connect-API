@@ -19,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
+sys.path.insert(0, str(ROOT.parents[1] / "control-api"))
 spec = importlib.util.spec_from_file_location('cloudpanel_nginx_integration', ROOT/'service.py')
 agent = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(agent)

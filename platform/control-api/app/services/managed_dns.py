@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from app.core.config import settings
 from app.core.errors import APIError
 from app.providers.cloudflare import CloudflareDNSProvider
-from app.services.tls_status import covers, fresh, receipt
+from app.services.tls_status import covers, fresh, receipt, dns_blocking_reason
 
 
 async def reconcile_known_subdomain(domain, *, provider=None, force: bool = False) -> bool:
@@ -25,7 +25,7 @@ async def reconcile_known_subdomain(domain, *, provider=None, force: bool = Fals
                 or name in {settings.control_plane_host, settings.api_host, settings.platform_domain}):
             raise ValueError('DOMAIN_OUTSIDE_MANAGED_CUSTOMER_SCOPE')
         if proof.get('status') != 'READY' or not fresh(proof, settings.platform_dns_receipt_max_age):
-            raise ValueError('WILDCARD_DNS_PROOF_PENDING')
+            raise ValueError(dns_blocking_reason(proof))
         if not fingerprint or not proof.get('origin'):
             raise ValueError('WILDCARD_DNS_PROOF_REQUIRES_SERVICE_UPDATE')
         if not any(covers(p, name) for p in proof.get('domains', [])):

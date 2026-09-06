@@ -1,6 +1,7 @@
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates coreutils python3 py3-cryptography openssl
 COPY infrastructure/tls_common.py /app/tls_common.py
+COPY control-api/app/core/tls_diagnostics.py /app/app/core/tls_diagnostics.py
 COPY infrastructure/cloudpanel-agent/service.py /app/service.py
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 HEALTHCHECK --interval=60s --timeout=5s --start-period=120s --retries=3 CMD ["python3", "/app/service.py", "health"]

@@ -12,6 +12,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.core.tls_diagnostics import error_details
+
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -54,11 +56,23 @@ def state(path: Path, **values) -> None:
     temporary.write_text(json.dumps({'checked_at': datetime.now(timezone.utc).isoformat(), **values}), encoding='utf-8')
     temporary.chmod(0o644)
     os.replace(temporary, path)
+    if path.name in {"dns.json", "acme.json", "cloudpanel.json"}:
+        # Only allowlisted codes/stages; never serialize receipt payloads or raw exceptions.
+        stage = values.get("stage")
+        stage = stage if stage in {"configuration", "dns", "account", "issuance", "host", "installation"} else None
+        status = values.get("status")
+        status = status if status in {"READY", "ISSUING", "DISABLED", "STAGING", "WAITING_CERTIFICATE", "RECONCILIATION_FAILED"} else "PENDING"
+        safe = {"event": "tls_service_status", "service": path.stem, "status": status, "stage": stage}
+        if values.get("error"): safe.update(error_details(values["error"]))
+        print(json.dumps(safe, ensure_ascii=False), flush=True)
 
 
 def run(argv: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
     # CA/CLI output may contain sensitive data. Never dump it into central logs.
-    result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
+    try:
+        result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
+    except FileNotFoundError as exc:
+        raise RuntimeError("TLS_COMMAND_NOT_FOUND") from exc
     if result.returncode:
         raise RuntimeError(f'{Path(argv[0]).name}_EXIT_{result.returncode}')
     return result

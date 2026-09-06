@@ -16,6 +16,7 @@ ROOT = Path('/certs')
 STATUS = Path('/tls-status')
 DATA = Path(os.environ.get('ACME_CONFIG_HOME', '/acme.sh'))
 from cloudflare_dns import reconcile_dns
+from app.core.tls_diagnostics import error_details
 
 
 def issue(target: Path, names: list[str], dns: bool, staging: bool) -> None:
@@ -104,39 +105,46 @@ def main() -> int:
     retry = 60
     registered = False
     while True:
+        stage = "configuration"
         try:
             if not enabled():
                 state(STATUS/'acme.json', status='DISABLED')
                 time.sleep(interval)
                 continue
             names = configured_names()
+            email = os.environ.get('ACME_EMAIL', '').strip()
+            token = os.environ.get('CF_Token', '').strip()
+            if not email or '@' not in email or not token or token.startswith('CHANGE_ME'):
+                raise ValueError('ACME_EMAIL_AND_CLOUDFLARE_TOKEN_REQUIRED')
+            os.environ['CF_Token'] = token
+            stage = "dns"
             try:
                 dns = reconcile_dns(names)
             except Exception as exc:
-                state(STATUS/'dns.json', status='RECONCILIATION_FAILED', domains=names, error=type(exc).__name__)
+                state(STATUS/'dns.json', status='RECONCILIATION_FAILED', domains=names, stage=stage, **error_details(exc))
                 raise
             origin = [(r['type'], r['content']) for r in dns if r['name'] == names[0]]
             origin_fingerprint = hashlib.sha256(json.dumps(sorted(origin)).encode()).hexdigest()
             state(STATUS/'dns.json', status='READY', domains=names, records=dns,
                   origin=origin, origin_fingerprint=origin_fingerprint, schema_version=2)
-            email = os.environ.get('ACME_EMAIL', '').strip()
-            token = os.environ.get('CF_Token', '')
-            if not email or '@' not in email or not token or token.startswith('CHANGE_ME'):
-                raise ValueError('ACME_EMAIL_AND_CLOUDFLARE_TOKEN_REQUIRED')
             staging = os.environ.get('ACME_STAGING', 'false').lower() in {'true', '1'}
+            stage = "account"
             if not registered:
                 (DATA/'staging' if staging else DATA).mkdir(mode=0o700, parents=True, exist_ok=True)
                 run(['acme.sh', '--config-home', str(DATA/'staging' if staging else DATA), '--register-account', '-m', email,
                      '--server', 'letsencrypt_test' if staging else 'letsencrypt'], timeout=120)
                 registered = True
+            stage = "issuance"
             issue(ROOT/'staging' if staging else ROOT, names, True, staging)
             if staging: state(STATUS/'acme.json', status='STAGING', message='Certificado de teste não é instalado no CloudPanel.')
             retry = 60
             time.sleep(interval)
         except Exception as exc:
             # Preserve the last usable certificate on ALL renewal/issuance failures.
-            state(STATUS/'acme.json', status='RECONCILIATION_FAILED', error=str(exc) if isinstance(exc, ValueError) else type(exc).__name__)
-            print(f'acme_reconciliation_failed type={type(exc).__name__} retry_seconds={retry}', flush=True)
+            if stage == "configuration":
+                state(STATUS/'dns.json', status='RECONCILIATION_FAILED', stage=stage, **error_details(exc))
+            state(STATUS/'acme.json', status='RECONCILIATION_FAILED', stage=stage, **error_details(exc))
+            print(json.dumps({'event': 'acme_reconciliation_failed', 'stage': stage, 'retry_seconds': retry, **error_details(exc)}, ensure_ascii=False), flush=True)
             time.sleep(retry)
             retry = min(retry * 2, 3600)
 

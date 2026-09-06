@@ -263,6 +263,10 @@ class ObservabilityService:
                 "includes": ["runtime logs", "platform audit", "provisioning events", "container inventory", "Docker stdout/stderr"],
                 "max_bundle_mb": max_bytes // (1024 * 1024),
             }
+            if not tenant_id:
+                from app.services.tls_status import diagnostic_summary
+                manifest["includes"].append("sanitized TLS service status")
+                archive.writestr("platform/tls-status.json", json.dumps(diagnostic_summary(), ensure_ascii=False, indent=2))
             archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
 
             log_filters = [PlatformRuntimeLog.tenant_id == tenant_id] if tenant_id else []
