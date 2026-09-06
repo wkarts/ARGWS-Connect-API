@@ -1,51 +1,184 @@
 {
-  "generatedAt": "2026-09-06T17:42:24.763Z",
+  "generatedAt": "2026-09-06T17:47:39.738Z",
   "input": "manager/recovered/legacy/index.js",
   "parser": "@babel/parser",
   "discoveredSymbolCount": 10320,
   "extracted": [
     {
+      "symbol": "tn",
+      "kind": "variable",
+      "file": "layout/ManagerGuard.tn.js",
+      "bytes": 198
+    },
+    {
+      "symbol": "jL",
+      "kind": "variable",
+      "file": "layout/LoginGuard.jL.js",
+      "bytes": 182
+    },
+    {
+      "symbol": "un",
+      "kind": "function",
+      "file": "layout/InstanceShell.un.js",
+      "bytes": 1001
+    },
+    {
+      "symbol": "B5",
+      "kind": "function",
+      "file": "layout/ManagerShell.B5.js",
+      "bytes": 225
+    },
+    {
+      "symbol": "CZ",
+      "kind": "function",
+      "file": "pages/InstancesPage.CZ.js",
+      "bytes": 9738
+    },
+    {
+      "symbol": "tk",
+      "kind": "function",
+      "file": "pages/ChatPage.tk.js",
+      "bytes": 11106
+    },
+    {
+      "symbol": "yX",
+      "kind": "function",
+      "file": "pages/ChatwootPage.yX.js",
+      "bytes": 7724
+    },
+    {
+      "symbol": "PX",
+      "kind": "function",
+      "file": "pages/InstanceDashboard.PX.js",
+      "bytes": 10491
+    },
+    {
+      "symbol": "xk",
+      "kind": "function",
+      "file": "pages/DifyPage.xk.js",
+      "bytes": 2794
+    },
+    {
+      "symbol": "Sk",
+      "kind": "function",
+      "file": "pages/EmbedChatPage.Sk.js",
+      "bytes": 177
+    },
+    {
+      "symbol": "Ck",
+      "kind": "function",
+      "file": "pages/ConnectAIPage.Ck.js",
+      "bytes": 2502
+    },
+    {
+      "symbol": "Ek",
+      "kind": "function",
+      "file": "pages/ConnectBotPage.Ek.js",
+      "bytes": 2507
+    },
+    {
+      "symbol": "kk",
+      "kind": "function",
+      "file": "pages/FlowisePage.kk.js",
+      "bytes": 2492
+    },
+    {
+      "symbol": "jk",
+      "kind": "function",
+      "file": "pages/N8nPage.jk.js",
+      "bytes": 2472
+    },
+    {
+      "symbol": "Tk",
+      "kind": "function",
+      "file": "pages/OpenAIPage.Tk.js",
+      "bytes": 2817
+    },
+    {
+      "symbol": "Ore",
+      "kind": "function",
+      "file": "pages/ProxyPage.Ore.js",
+      "bytes": 3606
+    },
+    {
+      "symbol": "Bre",
+      "kind": "function",
+      "file": "pages/RabbitMQPage.Bre.js",
+      "bytes": 5525
+    },
+    {
+      "symbol": "qre",
+      "kind": "function",
+      "file": "pages/SettingsPage.qre.js",
+      "bytes": 5125
+    },
+    {
+      "symbol": "Yre",
+      "kind": "function",
+      "file": "pages/SQSPage.Yre.js",
+      "bytes": 5480
+    },
+    {
+      "symbol": "Nk",
+      "kind": "function",
+      "file": "pages/TypebotPage.Nk.js",
+      "bytes": 3626
+    },
+    {
+      "symbol": "jse",
+      "kind": "function",
+      "file": "pages/WebhookPage.jse.js",
+      "bytes": 6367
+    },
+    {
+      "symbol": "Ose",
+      "kind": "function",
+      "file": "pages/WebSocketPage.Ose.js",
+      "bytes": 5534
+    },
+    {
       "symbol": "Dse",
       "kind": "function",
-      "file": "LoginPage.Dse.js",
+      "file": "pages/LoginPage.Dse.js",
       "bytes": 3112
     },
     {
       "symbol": "Fse",
       "kind": "function",
-      "file": "LandingPage.Fse.js",
+      "file": "pages/LandingPage.Fse.js",
       "bytes": 7218
     },
     {
       "symbol": "Lse",
       "kind": "variable",
-      "file": "Router.Lse.js",
-      "bytes": 4473
+      "file": "router/Router.Lse.js",
+      "bytes": 4168
     },
     {
       "symbol": "goe",
       "kind": "variable",
-      "file": "SidebarEnUS.goe.js",
-      "bytes": 138004
+      "file": "i18n/SidebarEnUS.goe.js",
+      "bytes": 659
     },
     {
       "symbol": "Boe",
       "kind": "variable",
-      "file": "SidebarEsES.Boe.js",
-      "bytes": 138004
+      "file": "i18n/SidebarEsES.Boe.js",
+      "bytes": 654
     },
     {
       "symbol": "dae",
       "kind": "variable",
-      "file": "SidebarFrFR.dae.js",
-      "bytes": 138004
+      "file": "i18n/SidebarFrFR.dae.js",
+      "bytes": 652
     },
     {
       "symbol": "Dae",
       "kind": "variable",
-      "file": "SidebarPtBR.Dae.js",
-      "bytes": 138004
+      "file": "i18n/SidebarPtBR.Dae.js",
+      "bytes": 650
     }
   ],
-  "missing": []
+  "missing": [],
+  "missingRequired": []
 }

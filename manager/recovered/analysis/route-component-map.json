@@ -1,0 +1,147 @@
+[
+  {
+    "path": "/",
+    "symbol": "Fse",
+    "recoveredName": "LandingPage"
+  },
+  {
+    "path": "/manager/login",
+    "symbol": "Dse",
+    "recoveredName": "LoginPage"
+  },
+  {
+    "path": "/manager/",
+    "symbol": "CZ",
+    "recoveredName": "InstancesPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/dashboard",
+    "symbol": "PX",
+    "recoveredName": "InstanceDashboard"
+  },
+  {
+    "path": "/manager/instance/:instanceId/chat",
+    "symbol": "tk",
+    "recoveredName": "ChatPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/chat/:remoteJid",
+    "symbol": "tk",
+    "recoveredName": "ChatPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/settings",
+    "symbol": "qre",
+    "recoveredName": "SettingsPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/openai",
+    "symbol": "Tk",
+    "recoveredName": "OpenAIPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/openai/:botId",
+    "symbol": "Tk",
+    "recoveredName": "OpenAIPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/webhook",
+    "symbol": "jse",
+    "recoveredName": "WebhookPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/websocket",
+    "symbol": "Ose",
+    "recoveredName": "WebSocketPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/rabbitmq",
+    "symbol": "Bre",
+    "recoveredName": "RabbitMQPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/sqs",
+    "symbol": "Yre",
+    "recoveredName": "SQSPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/chatwoot",
+    "symbol": "yX",
+    "recoveredName": "ChatwootPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/typebot",
+    "symbol": "Nk",
+    "recoveredName": "TypebotPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/typebot/:typebotId",
+    "symbol": "Nk",
+    "recoveredName": "TypebotPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/dify",
+    "symbol": "xk",
+    "recoveredName": "DifyPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/dify/:difyId",
+    "symbol": "xk",
+    "recoveredName": "DifyPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/n8n",
+    "symbol": "jk",
+    "recoveredName": "N8nPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/n8n/:n8nId",
+    "symbol": "jk",
+    "recoveredName": "N8nPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/connectAI",
+    "symbol": "Ck",
+    "recoveredName": "ConnectAIPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/connectAI/:connectAIId",
+    "symbol": "Ck",
+    "recoveredName": "ConnectAIPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/connectBot",
+    "symbol": "Ek",
+    "recoveredName": "ConnectBotPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/connectBot/:connectBotId",
+    "symbol": "Ek",
+    "recoveredName": "ConnectBotPage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/flowise",
+    "symbol": "kk",
+    "recoveredName": "FlowisePage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/flowise/:flowiseId",
+    "symbol": "kk",
+    "recoveredName": "FlowisePage"
+  },
+  {
+    "path": "/manager/instance/:instanceId/proxy",
+    "symbol": "Ore",
+    "recoveredName": "ProxyPage"
+  },
+  {
+    "path": "/manager/embed-chat",
+    "symbol": "Sk",
+    "recoveredName": "EmbedChatPage"
+  },
+  {
+    "path": "/manager/embed-chat/:remoteJid",
+    "symbol": "Sk",
+    "recoveredName": "EmbedChatPage"
+  }
+]

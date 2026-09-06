@@ -1,0 +1,68 @@
+function Ek() {
+    const { t: e } = Ve(),
+      t = zo('(min-width: 768px)'),
+      { instance: n } = ct(),
+      { connectBotId: r } = ls(),
+      { data: s, isLoading: o, refetch: l } = NI({ instanceName: n?.name }),
+      u = dn(),
+      d = (h) => {
+        n && u(`/manager/instance/${n.id}/connectBot/${h}`);
+      },
+      f = () => {
+        l();
+      };
+    return i.jsxs('main', {
+      className: 'pt-5',
+      children: [
+        i.jsxs('div', {
+          className: 'mb-1 flex items-center justify-between',
+          children: [
+            i.jsx('h3', { className: 'text-lg font-medium', children: e('connectBot.title') }),
+            i.jsxs('div', {
+              className: 'flex items-center justify-end gap-2',
+              children: [i.jsx(MI, {}), i.jsx(ene, {}), i.jsx(one, { resetTable: f })],
+            }),
+          ],
+        }),
+        i.jsx($t, { className: 'my-4' }),
+        i.jsxs($o, {
+          direction: t ? 'horizontal' : 'vertical',
+          children: [
+            i.jsx(Hn, {
+              defaultSize: 35,
+              className: 'pr-4',
+              children: i.jsx('div', {
+                className: 'flex flex-col gap-3',
+                children: o
+                  ? i.jsx(On, {})
+                  : i.jsx(i.Fragment, {
+                      children:
+                        s && s.length > 0 && Array.isArray(s)
+                          ? s.map((h) =>
+                              i.jsx(
+                                se,
+                                {
+                                  className: 'flex h-auto flex-col items-start justify-start',
+                                  onClick: () => d(`${h.id}`),
+                                  variant: r === h.id ? 'secondary' : 'outline',
+                                  children: i.jsx('h4', { className: 'text-base', children: h.description || h.id }),
+                                },
+                                h.id,
+                              ),
+                            )
+                          : i.jsx(se, { variant: 'link', children: e('connectBot.table.none') }),
+                    }),
+              }),
+            }),
+            r &&
+              i.jsxs(i.Fragment, {
+                children: [
+                  i.jsx(Bo, { withHandle: !0, className: 'border border-border' }),
+                  i.jsx(Hn, { children: i.jsx(cne, { connectBotId: r, resetTable: f }) }),
+                ],
+              }),
+          ],
+        }),
+      ],
+    });
+  }

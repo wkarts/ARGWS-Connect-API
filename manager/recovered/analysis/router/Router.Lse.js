@@ -100,19 +100,4 @@ const Lse = Z2([
       },
       { path: '/manager/embed-chat', element: i.jsx(Sk, {}) },
       { path: '/manager/embed-chat/:remoteJid', element: i.jsx(Sk, {}) },
-    ]),
-    $se = {
-      type: 'logger',
-      log(e) {
-        this.output('log', e);
-      },
-      warn(e) {
-        this.output('warn', e);
-      },
-      error(e) {
-        this.output('error', e);
-      },
-      output(e, t) {
-        console && console[e] && console[e].apply(console, t);
-      },
-    };
+    ]);

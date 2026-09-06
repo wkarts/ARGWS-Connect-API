@@ -6,9 +6,12 @@ Arquivos extraídos automaticamente do bundle legado formatado. Eles ainda usam 
 
 - `Fse` → landing page raiz do Manager.
 - `Dse` → página de login do Manager.
+- `CZ` → lista principal de instâncias.
+- `PX` → dashboard da instância.
 - `Lse` → tabela principal de rotas React Router.
 - `Dae` → labels pt-BR da sidebar, incluindo os links públicos legados.
-- `goe`, `Boe`, `dae` → variantes en-US, es-ES e fr-FR dessas labels.
+
+O arquivo `route-component-map.json` documenta as rotas e os nomes recuperados adotados para a reconstrução.
 
 ## Regra desta fase
 
