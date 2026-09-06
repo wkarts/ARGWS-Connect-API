@@ -171,7 +171,7 @@ jobs:
           if (manifest.name !== 'Connect|API DOCs') throw new Error('Manifest runtime incorreto')
           if (manifest.display !== 'standalone') throw new Error('Manifest runtime não é standalone')
           NODE
-          grep -q 'connect-api-docs-pwa-v1' /tmp/sw.js
+          grep -Eq 'connect-api-docs-pwa-v[0-9]+' /tmp/sw.js
           grep -q '<svg' /tmp/favicon.svg
           test -s /tmp/favicon.ico
           test -s /tmp/apple-touch-icon.png

@@ -11,23 +11,21 @@ import { StorageRouter } from '@api/integrations/storage/storage.router';
 import { waMonitor } from '@api/server.module';
 import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
-import { NextFunction, Request, Response, Router } from 'express';
+import express, { NextFunction, Request, Response, Router } from 'express';
 import fs from 'fs';
+import path from 'path';
 
-import { ActionRouter } from './action.router';
 import { BusinessRouter } from './business.router';
 import { CallRouter } from './call.router';
 import { ChatRouter } from './chat.router';
 import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
-import { MicroAppRouter } from './micro-app.router';
 import { ProxyRouter } from './proxy.router';
-import { RecipeRouter } from './recipe.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
-import { StrongConfirmationRouter } from './strong-confirmation.router';
 import { TemplateRouter } from './template.router';
+import { ViewsRouter } from './view.router';
 
 enum HttpStatus {
   OK = 200,
@@ -165,6 +163,19 @@ if (metricsConfig.ENABLED) {
   });
 }
 
+if (!serverConfig.DISABLE_MANAGER) router.use('/manager', new ViewsRouter().router);
+
+const managerAssetsPath = path.join(process.cwd(), 'manager', 'dist', 'assets');
+router.use(
+  '/assets',
+  express.static(managerAssetsPath, {
+    dotfiles: 'deny',
+    fallthrough: true,
+    index: false,
+    maxAge: '1h',
+  }),
+);
+
 router
   .use((req, res, next) => telemetry.collectTelemetry(req, res, next))
 
@@ -176,13 +187,16 @@ router
       uptime: Math.floor(process.uptime()),
     });
   })
-  .get('/', async (_req, res) => {
+  .get('/', async (req, res) => {
+    const documentationUrl = process.env.ARGWS_CONNECT_DOCS_PUBLIC_URL?.trim();
+
     res.status(HttpStatus.OK).json({
       status: HttpStatus.OK,
-      message: 'Welcome to the ARGWS Connect API, it is working!',
+      message: 'Welcome to the Connect API, it is working!',
       version: packageJson.version,
       clientName: configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE').CLIENT,
-      documentation: `https://github.com/wkarts/argws-connect-api`,
+      manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
+      ...(documentationUrl ? { documentation: documentationUrl } : {}),
       whatsappWebVersion: (await fetchLatestWaWebVersion({})).version.join('.'),
     });
   })
@@ -205,10 +219,6 @@ router
   .use('/business', new BusinessRouter(...guards).router)
   .use('/group', new GroupRouter(...guards).router)
   .use('/template', new TemplateRouter(configService, ...guards).router)
-  .use('/action', new ActionRouter(...guards).router)
-  .use('/recipe', new RecipeRouter(...guards).router)
-  .use('/micro-app', new MicroAppRouter(...guards).router)
-  .use('/interaction/strong', new StrongConfirmationRouter(instanceExistsGuard, authGuard['globalApiKey']).router)
   .use('/settings', new SettingsRouter(...guards).router)
   .use('/proxy', new ProxyRouter(...guards).router)
   .use('/label', new LabelRouter(...guards).router)

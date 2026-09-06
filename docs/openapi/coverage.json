@@ -1,32 +1,12 @@
 {
-  "generatedAt": "2026-09-02T17:36:27.842Z",
-  "version": "1.0.16",
-  "sourceDigest": "02016cef0ecb320bdd08527c2bae8f5d350cba26aa2967b9ce25edadf4067476",
+  "generatedAt": "2026-09-06T15:46:10.289Z",
+  "version": "1.0.21",
+  "sourceDigest": "fc9761cc54df80401d42df9241bd95ce87df7deba1e06646d1728c3846735800",
   "operations": [
     {
       "method": "GET",
       "path": "/",
       "source": "src/api/routes/index.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/action/create/{instanceName}",
-      "source": "src/api/routes/action.router.ts"
-    },
-    {
-      "method": "DELETE",
-      "path": "/action/delete/{instanceName}",
-      "source": "src/api/routes/action.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/action/execute/{instanceName}",
-      "source": "src/api/routes/action.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/action/find/{instanceName}",
-      "source": "src/api/routes/action.router.ts"
     },
     {
       "method": "POST",
@@ -226,11 +206,6 @@
     {
       "method": "PUT",
       "path": "/compat/meta/{instanceName}",
-      "source": "src/api/compat/meta-cloud/meta-cloud.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/compat/meta/{instanceName}/window/{recipient}",
       "source": "src/api/compat/meta-cloud/meta-cloud.router.ts"
     },
     {
@@ -559,21 +534,6 @@
       "source": "src/api/routes/instance.router.ts"
     },
     {
-      "method": "POST",
-      "path": "/interaction/strong/approve/{instanceName}",
-      "source": "src/api/routes/strong-confirmation.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/interaction/strong/pending/{instanceName}",
-      "source": "src/api/routes/strong-confirmation.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/interaction/strong/reject/{instanceName}",
-      "source": "src/api/routes/strong-confirmation.router.ts"
-    },
-    {
       "method": "GET",
       "path": "/kafka/find/{instanceName}",
       "source": "src/api/integrations/event/kafka/kafka.router.ts"
@@ -662,31 +622,6 @@
       "method": "GET",
       "path": "/metrics",
       "source": "src/api/routes/index.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/micro-app/{token}",
-      "source": "src/api/routes/micro-app.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/micro-app/runtime.js",
-      "source": "src/api/routes/micro-app.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/micro-app/session/{instanceName}",
-      "source": "src/api/routes/micro-app.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/micro-app/state/{token}",
-      "source": "src/api/routes/micro-app.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/micro-app/submit/{token}",
-      "source": "src/api/routes/micro-app.router.ts"
     },
     {
       "method": "POST",
@@ -850,36 +785,6 @@
     },
     {
       "method": "POST",
-      "path": "/recipe/create/{instanceName}",
-      "source": "src/api/routes/recipe.router.ts"
-    },
-    {
-      "method": "DELETE",
-      "path": "/recipe/delete/{instanceName}",
-      "source": "src/api/routes/recipe.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/recipe/execute/{instanceName}",
-      "source": "src/api/routes/recipe.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/recipe/find/{instanceName}",
-      "source": "src/api/routes/recipe.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/recipe/install/{instanceName}",
-      "source": "src/api/routes/recipe.router.ts"
-    },
-    {
-      "method": "GET",
-      "path": "/recipe/library/{instanceName}",
-      "source": "src/api/routes/recipe.router.ts"
-    },
-    {
-      "method": "POST",
       "path": "/s3/getMedia/{instanceName}",
       "source": "src/api/integrations/storage/s3/routes/s3.router.ts"
     },
@@ -909,11 +814,6 @@
       "source": "src/api/integrations/event/sqs/sqs.router.ts"
     },
     {
-      "method": "GET",
-      "path": "/template/capabilities/{instanceName}",
-      "source": "src/api/routes/template.router.ts"
-    },
-    {
       "method": "POST",
       "path": "/template/create/{instanceName}",
       "source": "src/api/routes/template.router.ts"
@@ -931,11 +831,6 @@
     {
       "method": "GET",
       "path": "/template/find/{instanceName}",
-      "source": "src/api/routes/template.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/template/preview/{instanceName}",
       "source": "src/api/routes/template.router.ts"
     },
     {

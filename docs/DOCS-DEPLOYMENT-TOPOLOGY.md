@@ -39,6 +39,25 @@ Os contratos Scalar usam URLs relativas `openapi/...`. Com isso, a mesma imagem 
 - em hostname dedicado, como `https://docs.connect.argws.com.br/`;
 - opcionalmente atrás de `/docs/` com reverse proxy que remova o prefixo antes de encaminhar ao container.
 
+## URL pública da API usada pelo Scalar
+
+O servidor exibido pelo Scalar e utilizado pelas operações interativas (`Try It`) é resolvido em runtime pela variável já existente `SERVER_URL`.
+
+Exemplo de produção white-label:
+
+```env
+SERVER_URL=https://api.connect.fersofterp.com.br
+ARGWS_CONNECT_DOCS_PUBLIC_URL=https://docs.connect.fersofterp.com.br
+```
+
+O container de DOCs recebe `SERVER_URL` do ambiente e aplica a URL sem recompilar a imagem:
+
+- REST API: `SERVER_URL`;
+- Meta Compatible: `SERVER_URL/graph`;
+- Events/AsyncAPI: não é alterado por essa regra.
+
+A mesma imagem `ghcr.io/wkarts/argws-connect-docs:latest` pode, portanto, ser reutilizada por ARGWS, Fersoft ou outro deployment sem carregar no seletor `Server` a URL de outro ambiente. Se `SERVER_URL` estiver ausente ou vazia, a documentação mantém os servidores presentes no contrato estático como fallback.
+
 ## Variável pública canônica
 
 A aplicação utiliza:
@@ -53,4 +72,12 @@ Somente o canal `develop` utiliza:
 ARGWS_CONNECT_DOCS_PUBLIC_URL=https://d.docs.connect.argws.com.br
 ```
 
-O frontend não deve conhecer portas Docker ou nomes internos de services; deve navegar para `ARGWS_CONNECT_DOCS_PUBLIC_URL` ou, quando configurado no mesmo hostname, para uma rota pública relativa como `/docs/`.
+A variável é opcional para a exposição pública da documentação. Quando `ARGWS_CONNECT_DOCS_PUBLIC_URL` estiver ausente ou vazia:
+
+- a resposta `GET /` não inclui a propriedade `documentation`;
+- o Manager não exibe os atalhos `Documentação`/`Docs`;
+- não existe fallback para GitHub ou para qualquer outro endereço externo.
+
+Quando a variável possuir uma URL não vazia, a mesma URL é publicada em `GET /` e utilizada pelos atalhos de documentação do Manager.
+
+O frontend não deve conhecer portas Docker ou nomes internos de services; deve navegar exclusivamente para a URL pública informada por `ARGWS_CONNECT_DOCS_PUBLIC_URL` ou, quando configurado no mesmo hostname, para uma rota pública relativa como `/docs/`.
