@@ -31,6 +31,17 @@ jobs:
         with:
           node-version: '20.x'
 
+      - name: Install isolated recovery tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install \
+            --prefix manager/recovery \
+            --no-package-lock \
+            --ignore-scripts \
+            --no-audit \
+            --no-fund
+
       - name: Detect current Manager bundles
         id: bundles
         shell: bash
@@ -81,10 +92,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save --package-lock=false @babel/parser@7.28.4
           node manager/recovery/extract-components.mjs \
             manager/recovered/legacy/index.js \
             manager/recovered/analysis
+
+      - name: Build recovered dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          node manager/recovery/build-dependency-graph.mjs \
+            manager/recovered/legacy/index.js \
+            manager/recovered/analysis/inventory.json \
+            manager/recovered/analysis/dependency-graph.json
 
       - name: Recover i18n context
         shell: bash
@@ -163,6 +182,7 @@ jobs:
           test -s manager/recovered/analysis/inventory.json
           test -s manager/recovered/analysis/route-component-map.json
           test -s manager/recovered/analysis/architecture-hints.json
+          test -s manager/recovered/analysis/dependency-graph.json
 
           node --input-type=module --check < manager/recovered/legacy/index.js
 
