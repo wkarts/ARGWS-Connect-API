@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-09-06T17:42:24.763Z",
+  "input": "manager/recovered/legacy/index.js",
+  "parser": "@babel/parser",
+  "discoveredSymbolCount": 10320,
+  "extracted": [
+    {
+      "symbol": "Dse",
+      "kind": "function",
+      "file": "LoginPage.Dse.js",
+      "bytes": 3112
+    },
+    {
+      "symbol": "Fse",
+      "kind": "function",
+      "file": "LandingPage.Fse.js",
+      "bytes": 7218
+    },
+    {
+      "symbol": "Lse",
+      "kind": "variable",
+      "file": "Router.Lse.js",
+      "bytes": 4473
+    },
+    {
+      "symbol": "goe",
+      "kind": "variable",
+      "file": "SidebarEnUS.goe.js",
+      "bytes": 138004
+    },
+    {
+      "symbol": "Boe",
+      "kind": "variable",
+      "file": "SidebarEsES.Boe.js",
+      "bytes": 138004
+    },
+    {
+      "symbol": "dae",
+      "kind": "variable",
+      "file": "SidebarFrFR.dae.js",
+      "bytes": 138004
+    },
+    {
+      "symbol": "Dae",
+      "kind": "variable",
+      "file": "SidebarPtBR.Dae.js",
+      "bytes": 138004
+    }
+  ],
+  "missing": []
+}
