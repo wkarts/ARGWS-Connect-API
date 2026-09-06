@@ -1,6 +1,7 @@
 FROM neilpang/acme.sh:3.1.1
 RUN apk add --no-cache ca-certificates coreutils python3 py3-cryptography openssl
 COPY infrastructure/tls_common.py /app/tls_common.py
+COPY control-api/app/core/tls_diagnostics.py /app/app/core/tls_diagnostics.py
 COPY infrastructure/acme/service.py /app/service.py
 COPY infrastructure/acme/cloudflare_dns.py /app/cloudflare_dns.py
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AUTO_UPGRADE=0
