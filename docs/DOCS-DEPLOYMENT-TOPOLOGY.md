@@ -53,4 +53,12 @@ Somente o canal `develop` utiliza:
 ARGWS_CONNECT_DOCS_PUBLIC_URL=https://d.docs.connect.argws.com.br
 ```
 
-O frontend não deve conhecer portas Docker ou nomes internos de services; deve navegar para `ARGWS_CONNECT_DOCS_PUBLIC_URL` ou, quando configurado no mesmo hostname, para uma rota pública relativa como `/docs/`.
+A variável é opcional para a exposição pública da documentação. Quando `ARGWS_CONNECT_DOCS_PUBLIC_URL` estiver ausente ou vazia:
+
+- a resposta `GET /` não inclui a propriedade `documentation`;
+- o Manager não exibe os atalhos `Documentação`/`Docs`;
+- não existe fallback para GitHub ou para qualquer outro endereço externo.
+
+Quando a variável possuir uma URL não vazia, a mesma URL é publicada em `GET /` e utilizada pelos atalhos de documentação do Manager.
+
+O frontend não deve conhecer portas Docker ou nomes internos de services; deve navegar exclusivamente para a URL pública informada por `ARGWS_CONNECT_DOCS_PUBLIC_URL` ou, quando configurado no mesmo hostname, para uma rota pública relativa como `/docs/`.

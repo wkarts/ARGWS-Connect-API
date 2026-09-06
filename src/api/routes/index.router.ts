@@ -188,13 +188,15 @@ router
     });
   })
   .get('/', async (req, res) => {
+    const documentationUrl = process.env.ARGWS_CONNECT_DOCS_PUBLIC_URL?.trim();
+
     res.status(HttpStatus.OK).json({
       status: HttpStatus.OK,
-      message: 'Welcome to the ARGWS Connect API, it is working!',
+      message: 'Welcome to the Connect API, it is working!',
       version: packageJson.version,
       clientName: configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE').CLIENT,
       manager: !serverConfig.DISABLE_MANAGER ? `${req.protocol}://${req.get('host')}/manager` : undefined,
-      documentation: `https://github.com/wkarts/argws-connect-api`,
+      ...(documentationUrl ? { documentation: documentationUrl } : {}),
       whatsappWebVersion: (await fetchLatestWaWebVersion({})).version.join('.'),
     });
   })
