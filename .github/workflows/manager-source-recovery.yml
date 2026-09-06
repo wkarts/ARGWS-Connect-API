@@ -94,6 +94,38 @@ jobs:
             manager/recovered/legacy/index.js \
             manager/recovered/analysis/i18n
 
+      - name: Validate locale runtime policy
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node manager/recovery/generate-runtime-config.mjs \
+            manager/recovered/analysis/runtime-config.default.js
+
+          grep -q '"primaryLocale": "pt-BR"' manager/recovered/analysis/runtime-config.default.js
+          grep -q '"defaultLocale": "pt-BR"' manager/recovered/analysis/runtime-config.default.js
+          grep -q '"extraLocalesEnabled": false' manager/recovered/analysis/runtime-config.default.js
+
+          if grep -A8 '"enabledLocales"' manager/recovered/analysis/runtime-config.default.js | grep -q 'en-US'; then
+            echo 'en-US must not be enabled by default.' >&2
+            exit 1
+          fi
+
+          MANAGER_ENABLE_EXTRA_LOCALES=true \
+          MANAGER_DEFAULT_LOCALE=en-US \
+          MANAGER_EXTRA_LOCALES=en-US,es-ES,invalid-locale \
+          node manager/recovery/generate-runtime-config.mjs /tmp/manager-runtime-extra.js
+
+          grep -q '"defaultLocale": "en-US"' /tmp/manager-runtime-extra.js
+          grep -q '"extraLocalesEnabled": true' /tmp/manager-runtime-extra.js
+          grep -q '"en-US"' /tmp/manager-runtime-extra.js
+          grep -q '"es-ES"' /tmp/manager-runtime-extra.js
+
+          if grep -q 'invalid-locale' /tmp/manager-runtime-extra.js; then
+            echo 'Unknown locale must be ignored.' >&2
+            exit 1
+          fi
+
       - name: Validate recovered source
         shell: bash
         run: |
@@ -109,6 +141,7 @@ jobs:
           test -s manager/recovered/analysis/router/Router.Lse.js
           test -s manager/recovered/analysis/i18n/SidebarPtBR.Dae.js
           test -s manager/recovered/analysis/i18n/locale-context.json
+          test -s manager/recovered/analysis/runtime-config.default.js
           test -s manager/recovered/analysis/inventory.json
           test -s manager/recovered/analysis/route-component-map.json
 
