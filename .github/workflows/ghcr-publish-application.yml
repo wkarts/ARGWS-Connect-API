@@ -52,11 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-<<<<<<< Updated upstream
-        component: [api, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent, pgbouncer]
-=======
         component: [api, manager]
->>>>>>> Stashed changes
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -69,37 +65,10 @@ jobs:
             context: .
             dockerfile: ./Dockerfile
             image: argws-connect-api
-<<<<<<< Updated upstream
-          - component: platform-api
-            context: .
-            dockerfile: ./platform/control-api/Dockerfile
-            image: argws-connect-platform-api
-          - component: platform-web
-            context: .
-            dockerfile: ./platform/web/Dockerfile
-            image: argws-connect-platform-web
-          - component: platform-gateway
-            context: .
-            dockerfile: ./platform/gateway/Dockerfile
-            image: argws-connect-platform-gateway
-          - component: platform-acme
-            context: ./platform
-            dockerfile: ./platform/infrastructure/acme/Dockerfile
-            image: argws-connect-platform-acme
-          - component: platform-cloudpanel-agent
-            context: ./platform
-            dockerfile: ./platform/infrastructure/cloudpanel-agent/Dockerfile
-            image: argws-connect-platform-cloudpanel-agent
-          - component: pgbouncer
-            context: .
-            dockerfile: ./platform/infrastructure/pgbouncer/Dockerfile
-            image: argws-connect-pgbouncer
-=======
           - component: manager
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
->>>>>>> Stashed changes
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout develop
@@ -176,23 +145,8 @@ jobs:
         include:
           - component: api
             image: argws-connect-api
-<<<<<<< Updated upstream
-          - component: platform-api
-            image: argws-connect-platform-api
-          - component: platform-web
-            image: argws-connect-platform-web
-          - component: platform-gateway
-            image: argws-connect-platform-gateway
-          - component: platform-acme
-            image: argws-connect-platform-acme
-          - component: platform-cloudpanel-agent
-            image: argws-connect-platform-cloudpanel-agent
-          - component: pgbouncer
-            image: argws-connect-pgbouncer
-=======
           - component: manager
             image: argws-connect-manager
->>>>>>> Stashed changes
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5

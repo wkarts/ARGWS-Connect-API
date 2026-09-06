@@ -1,11 +1,9 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-postgres}
-
 services:
-  postgres-argws-connect-postgres:
-    container_name: postgres-argws-connect-postgres
+  postgres:
+    container_name: argws_connect_postgres
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
-    networks: [argws-connect-postgres-net]
+    networks: [connect-net]
     command: ["postgres", "-c", "max_connections=1000"]
     restart: unless-stopped
     ports:
@@ -18,11 +16,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  pgadmin-argws-connect-postgres:
-    container_name: pgadmin-argws-connect-postgres
+  pgadmin:
+    container_name: argws_connect_pgadmin
     image: ${ARGWS_CONNECT_PGADMIN_IMAGE:-ghcr.io/wkarts/argws-connect-pgadmin:latest}
     pull_policy: always
-    networks: [argws-connect-postgres-net]
+    networks: [connect-net]
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
@@ -31,13 +29,13 @@ services:
       - pgadmin_data:/var/lib/pgadmin
     ports:
       - "${PGADMIN_BIND_ADDRESS:-127.0.0.1}:${PGADMIN_HOST_PORT:-4000}:80"
-    depends_on: [postgres-argws-connect-postgres]
+    depends_on: [postgres]
 
 volumes:
   postgres_data:
   pgadmin_data:
 
 networks:
-  argws-connect-postgres-net:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-postgres-net}
+  connect-net:
+    name: connect-net
     driver: bridge

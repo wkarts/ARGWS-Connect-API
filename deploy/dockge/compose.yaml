@@ -1,4 +1,4 @@
-name: ${COMPOSE_PROJECT_NAME:-argws-connect-dockge}
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-api}
 
 x-logging: &default-logging
   driver: json-file
@@ -7,35 +7,29 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
-  api-argws-connect-dockge:
+  api:
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
     pull_policy: always
-    container_name: api-argws-connect-dockge
+    container_name: argws_connect_api
     restart: unless-stopped
     env_file: [.env]
     environment:
       SERVER_TYPE: http
       SERVER_PORT: "8080"
       DOCKER_ENV: "true"
-      DATABASE_POOL_ENABLED: "${DATABASE_POOL_ENABLED:-true}"
-      DATABASE_POOL_HOST: connect-engine-pgbouncer
-      DATABASE_POOL_PORT: "6432"
-      DATABASE_POOL_CONNECTION_LIMIT: "${DATABASE_POOL_CONNECTION_LIMIT:-5}"
-      DATABASE_POOL_TIMEOUT: "${DATABASE_POOL_TIMEOUT:-10}"
       DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
     depends_on:
-      pgbouncer-argws-connect-dockge: {condition: service_healthy}
-      postgres-argws-connect-dockge: {condition: service_healthy}
-      redis-argws-connect-dockge: {condition: service_healthy}
-      rabbitmq-argws-connect-dockge: {condition: service_healthy}
-      minio-argws-connect-dockge: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      minio: {condition: service_healthy}
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
-    networks: [argws-connect-dockge-net]
+    networks: [argws-connect-net]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -44,10 +38,10 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  docs-argws-connect-dockge:
+  docs:
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
     pull_policy: always
-    container_name: docs-argws-connect-dockge
+    container_name: argws_connect_docs
     restart: unless-stopped
     environment:
       SERVER_URL: ${SERVER_URL:-}
@@ -55,7 +49,7 @@ services:
         {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost","customCss":".light-mode{--scalar-color-accent:#2563eb;--scalar-background-1:#ffffff;--scalar-background-2:#f7f9fc;--scalar-background-3:#eef3f9;--scalar-color-1:#0f172a;--scalar-color-2:#475569;--scalar-color-3:#64748b;--scalar-border-color:#dbe4ef}.dark-mode{--scalar-color-accent:#2f6df6;--scalar-background-1:#0f172a;--scalar-background-2:#111827;--scalar-background-3:#172033;--scalar-color-1:#f8fafc;--scalar-color-2:#cbd5e1;--scalar-color-3:#94a3b8;--scalar-border-color:#263249}"}
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180}:8080"
-    networks: [argws-connect-dockge-net]
+    networks: [argws-connect-net]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
       interval: 30s
@@ -64,10 +58,10 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  postgres-argws-connect-dockge:
+  postgres:
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     pull_policy: always
-    container_name: postgres-argws-connect-dockge
+    container_name: argws_connect_postgres
     restart: unless-stopped
     command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "listen_addresses=*"]
     environment:
@@ -79,7 +73,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U '${POSTGRES_USERNAME:-argws_connect}' -d '${POSTGRES_DATABASE:-argws_connect_api}'"]
@@ -89,10 +83,10 @@ services:
       start_period: 20s
     logging: *default-logging
 
-  redis-argws-connect-dockge:
+  redis:
     image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
     pull_policy: always
-    container_name: redis-argws-connect-dockge
+    container_name: argws_connect_redis
     restart: unless-stopped
     command: ["redis-server", "--port", "6379", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE_ME_REDIS_PASSWORD}"]
     environment:
@@ -101,7 +95,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_REDIS_DATA_PATH:-./volumes/redis}:/data
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-redis]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a '$${REDIS_PASSWORD}' ping | grep PONG"]
@@ -111,10 +105,10 @@ services:
       start_period: 10s
     logging: *default-logging
 
-  rabbitmq-argws-connect-dockge:
+  rabbitmq:
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
-    container_name: rabbitmq-argws-connect-dockge
+    container_name: argws_connect_rabbitmq
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-argws_connect}
@@ -124,7 +118,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-./volumes/rabbitmq}:/var/lib/rabbitmq
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-rabbitmq]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -134,10 +128,10 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  minio-argws-connect-dockge:
+  minio:
     image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
     pull_policy: always
-    container_name: minio-argws-connect-dockge
+    container_name: argws_connect_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -147,7 +141,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MINIO_DATA_PATH:-./volumes/minio}:/data
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-minio]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
@@ -157,26 +151,26 @@ services:
       start_period: 30s
     logging: *default-logging
 
-  nats-argws-connect-dockge:
+  nats:
     profiles: ["nats", "extended"]
     image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
     pull_policy: always
-    container_name: nats-argws-connect-dockge
+    container_name: argws_connect_nats
     restart: unless-stopped
     command: ["-js", "-m", "8222", "--store_dir", "/data"]
     expose: ["4222", "8222"]
     volumes:
       - ${ARGWS_CONNECT_NATS_DATA_PATH:-./volumes/nats}:/data
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-nats]
     logging: *default-logging
 
-  zookeeper-argws-connect-dockge:
+  zookeeper:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
-    container_name: zookeeper-argws-connect-dockge
+    container_name: argws_connect_zookeeper
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -186,17 +180,17 @@ services:
       - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/var/lib/zookeeper/data
       - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/var/lib/zookeeper/log
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-zookeeper]
     logging: *default-logging
 
-  kafka-argws-connect-dockge:
+  kafka:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
     pull_policy: always
-    container_name: kafka-argws-connect-dockge
+    container_name: argws_connect_kafka
     restart: unless-stopped
-    depends_on: [zookeeper-argws-connect-dockge]
+    depends_on: [zookeeper]
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: argws-connect-zookeeper:2181
@@ -210,15 +204,15 @@ services:
     volumes:
       - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/var/lib/kafka/data
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-kafka]
     logging: *default-logging
 
-  mysql-argws-connect-dockge:
+  mysql:
     profiles: ["mysql"]
     image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
     pull_policy: always
-    container_name: mysql-argws-connect-dockge
+    container_name: argws_connect_mysql
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
@@ -230,7 +224,7 @@ services:
     volumes:
       - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/var/lib/mysql
     networks:
-      argws-connect-dockge-net:
+      argws-connect-net:
         aliases: [argws-connect-mysql]
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p'$${MYSQL_ROOT_PASSWORD}' --silent"]
@@ -240,46 +234,7 @@ services:
       start_period: 40s
     logging: *default-logging
 
-  pgbouncer-argws-connect-dockge:
-    container_name: pgbouncer-argws-connect-dockge
-    image: ${ARGWS_CONNECT_PGBOUNCER_IMAGE:-ghcr.io/wkarts/argws-connect-pgbouncer:latest}
-    pull_policy: always
-    restart: unless-stopped
-    environment:
-      POOL_NAME: engine
-      POOL_POSTGRES_HOST: postgres-argws-connect-dockge
-      POOL_POSTGRES_PORT: "5432"
-      POOL_POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
-      POOL_POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
-      POOL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
-      POOL_TENANT_USER_PREFIX: ""
-      POOL_MAX_CLIENTS: "${PGBOUNCER_MAX_CLIENTS:-256}"
-      POOL_MAIN_SIZE: "${PGBOUNCER_POOL_SIZE:-32}"
-      POOL_TENANT_SIZE: "${PLATFORM_PGBOUNCER_TENANT_POOL_SIZE:-4}"
-      POOL_WAIT_SECONDS: "${PGBOUNCER_QUERY_WAIT_TIMEOUT:-10}"
-      POOL_QUERY_SECONDS: "${PGBOUNCER_QUERY_TIMEOUT:-60}"
-      POOL_SERVER_IDLE_SECONDS: "${PGBOUNCER_SERVER_IDLE_TIMEOUT:-15}"
-    depends_on:
-      postgres-argws-connect-dockge: {condition: service_healthy}
-    networks:
-      argws-connect-dockge-net:
-        aliases: [connect-engine-pgbouncer]
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
-    ulimits:
-      nofile: {soft: 8192, hard: 8192}
-    healthcheck:
-      test: ["CMD", "python", "/app/service.py", "health"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-    logging: *default-logging
-
 networks:
-  argws-connect-dockge-net:
-    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-dockge-net}
+  argws-connect-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-net}
     driver: bridge

@@ -137,11 +137,7 @@ Deployment:
 
 ```bash
 cd deploy/develop
-<<<<<<< Updated upstream
-Atualizar a stack pelo gerenciador usando compose.yaml + .env (sem script de host).
-=======
 ./update.sh
->>>>>>> Stashed changes
 ```
 
 O Compose usa projeto, containers, rede, volumes e porta próprios do ambiente `develop` e não compartilha identidade de stack com produção/canonical.

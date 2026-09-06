@@ -59,19 +59,9 @@ jobs:
 
           # develop: API/Manager e DOCs são canais móveis independentes.
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
-<<<<<<< Updated upstream
-          grep -q 'component: \[api, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent, pgbouncer\]' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-api' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-platform-api' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-platform-web' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-platform-gateway' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-platform-acme' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-platform-cloudpanel-agent' .github/workflows/ghcr-publish-application.yml
-=======
           grep -q 'component: \[api, manager\]' .github/workflows/ghcr-publish-application.yml
           grep -q 'image: argws-connect-api' .github/workflows/ghcr-publish-application.yml
           grep -q 'image: argws-connect-manager' .github/workflows/ghcr-publish-application.yml
->>>>>>> Stashed changes
           grep -q 'docker buildx imagetools create -t "${repo}:develop"' .github/workflows/ghcr-publish-application.yml
           grep -q 'refs/heads/develop' .github/workflows/ghcr-publish-application.yml
 
@@ -85,11 +75,7 @@ jobs:
             exit 1
           fi
 
-<<<<<<< Updated upstream
-          if grep -nE 'argws-connect-(api|platform-api|platform-web|platform-gateway|platform-acme|platform-cloudpanel-agent|pgbouncer):(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' .github/workflows/ghcr-publish-application.yml; then
-=======
           if grep -nE 'argws-connect-(api|manager):(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' .github/workflows/ghcr-publish-application.yml; then
->>>>>>> Stashed changes
             echo "Develop application workflow may publish only :develop." >&2
             exit 1
           fi
@@ -101,19 +87,9 @@ jobs:
 
           # main owns stable SemVer/latest for API, Manager and DOCs.
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
-<<<<<<< Updated upstream
-          grep -Fq 'component: [api, docs, platform-api, platform-web, platform-gateway, platform-acme, platform-cloudpanel-agent, pgbouncer]' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-api' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-platform-api' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-platform-web' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-platform-gateway' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-platform-acme' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-platform-cloudpanel-agent' .github/workflows/auto-version-release.yml
-=======
           grep -q 'component: \[api, manager, docs\]' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-api' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-manager' .github/workflows/auto-version-release.yml
->>>>>>> Stashed changes
           grep -q 'image: argws-connect-docs' .github/workflows/auto-version-release.yml
           grep -q '"${repo}:latest"' .github/workflows/auto-version-release.yml
           grep -q 'gh release create' .github/workflows/auto-version-release.yml
