@@ -13,6 +13,7 @@ Arquivos extraídos automaticamente do bundle legado formatado. Eles ainda usam 
 - `sn` → cliente HTTP utilizado pelo login e pelos serviços recuperados.
 - `UM` / `VM` → contexto e provider da instância.
 - `zM`, `j5`, `Vb` → header, sidebar da instância e footer.
+- `iM` / `lM` → seletores de idioma e tema, recuperados para aplicação futura da política pt-BR-first.
 
 Os arquivos `route-component-map.json`, `architecture-hints.json`, `dependency-graph.json` e `dependency-candidates.json` documentam as rotas e as dependências recuperadas que serão renomeadas durante a reconstrução.
 

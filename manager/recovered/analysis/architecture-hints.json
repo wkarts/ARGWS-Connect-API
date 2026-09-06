@@ -1,7 +1,9 @@
 {
   "login": {
     "page": "Dse",
-    "httpClient": "sn",
+    "rawHttpClient": "sn",
+    "createHttpClient": "nT",
+    "httpClientBase": "yd",
     "serverStatus": "sT",
     "credentialsValidation": "Ise",
     "saveSession": "Rj",
@@ -9,9 +11,12 @@
   },
   "instances": {
     "page": "CZ",
+    "authenticatedHttpClient": "bd",
+    "instanceHttpClient": "Ee",
     "query": "q5",
     "fetchInstances": "H5",
     "queryKey": "V5",
+    "fetchInstanceQuery": "vT",
     "actions": "Hh",
     "mutationAdapter": "nt",
     "connect": "Q5",
@@ -38,9 +43,13 @@
     "instanceSidebar": "j5",
     "footer": "Vb"
   },
-  "shared": {
+  "preferences": {
+    "languageSwitcher": "iM",
+    "themeSwitcher": "lM",
     "theme": "tc",
-    "translation": "Ve",
+    "translation": "Ve"
+  },
+  "shared": {
     "tokenField": "c_",
     "connectionStatus": "l_"
   }

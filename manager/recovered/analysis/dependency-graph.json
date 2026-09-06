@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-09-06T18:13:05.361Z",
+  "generatedAt": "2026-09-06T18:16:11.365Z",
   "input": "manager/recovered/legacy/index.js",
   "analysisMode": "lexical-scope-aware",
-  "recoveredSymbolCount": 58,
+  "recoveredSymbolCount": 65,
   "indexedNamedDeclarationCount": 10394,
   "lexicalScopeCount": 12726,
   "rootResolutionFailures": [],
@@ -270,6 +270,121 @@
       ],
       "unresolvedExternalIdentifiers": []
     },
+    "yd": {
+      "file": "services/httpClientBase.yd.js",
+      "sourceStart": 468090,
+      "sourceEnd": 470363,
+      "dependencies": [
+        {
+          "symbol": "ce",
+          "bindingKind": "variable-const",
+          "sourceStart": 457738,
+          "sourceEnd": 458996,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "vt",
+          "bindingKind": "function",
+          "sourceStart": 459000,
+          "sourceEnd": 459399,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Ch",
+          "bindingKind": "function",
+          "sourceStart": 461417,
+          "sourceEnd": 463601,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Kj",
+          "bindingKind": "variable-const",
+          "sourceStart": 465406,
+          "sourceEnd": 465484,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "rr",
+          "bindingKind": "variable-const",
+          "sourceStart": 466535,
+          "sourceEnd": 466556,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "E4",
+          "bindingKind": "function",
+          "sourceStart": 466560,
+          "sourceEnd": 466855,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Wj",
+          "bindingKind": "function",
+          "sourceStart": 467157,
+          "sourceEnd": 467853,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "T4",
+          "bindingKind": "function",
+          "sourceStart": 467856,
+          "sourceEnd": 468081,
+          "recovered": false,
+          "recoveredFile": null
+        }
+      ],
+      "unresolvedExternalIdentifiers": [
+        "FormData",
+        "JSON"
+      ]
+    },
+    "nT": {
+      "file": "services/createHttpClient.nT.js",
+      "sourceStart": 506296,
+      "sourceEnd": 506586,
+      "dependencies": [
+        {
+          "symbol": "Oj",
+          "bindingKind": "function",
+          "sourceStart": 449730,
+          "sourceEnd": 449821,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "ce",
+          "bindingKind": "variable-const",
+          "sourceStart": 457738,
+          "sourceEnd": 458996,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Si",
+          "bindingKind": "function",
+          "sourceStart": 480791,
+          "sourceEnd": 482532,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "hi",
+          "bindingKind": "variable-let",
+          "sourceStart": 499059,
+          "sourceEnd": 502299,
+          "recovered": false,
+          "recoveredFile": null
+        }
+      ],
+      "unresolvedExternalIdentifiers": []
+    },
     "sn": {
       "file": "services/httpClient.sn.js",
       "sourceStart": 506595,
@@ -280,16 +395,16 @@
           "bindingKind": "variable-const",
           "sourceStart": 468090,
           "sourceEnd": 470363,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/httpClientBase.yd.js"
         },
         {
           "symbol": "nT",
           "bindingKind": "function",
           "sourceStart": 506296,
           "sourceEnd": 506586,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/createHttpClient.nT.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -374,6 +489,233 @@
       ],
       "unresolvedExternalIdentifiers": []
     },
+    "Ee": {
+      "file": "services/instanceHttpClient.Ee.js",
+      "sourceStart": 572441,
+      "sourceEnd": 572473,
+      "dependencies": [
+        {
+          "symbol": "sn",
+          "bindingKind": "variable-const",
+          "sourceStart": 506595,
+          "sourceEnd": 506606,
+          "recovered": true,
+          "recoveredFile": "services/httpClient.sn.js"
+        }
+      ],
+      "unresolvedExternalIdentifiers": []
+    },
+    "bd": {
+      "file": "services/authenticatedHttpClient.bd.js",
+      "sourceStart": 572807,
+      "sourceEnd": 572839,
+      "dependencies": [
+        {
+          "symbol": "sn",
+          "bindingKind": "variable-const",
+          "sourceStart": 506595,
+          "sourceEnd": 506606,
+          "recovered": true,
+          "recoveredFile": "services/httpClient.sn.js"
+        }
+      ],
+      "unresolvedExternalIdentifiers": []
+    },
+    "vT": {
+      "file": "services/useInstanceQuery.vT.js",
+      "sourceStart": 573423,
+      "sourceEnd": 573595,
+      "dependencies": [
+        {
+          "symbol": "mt",
+          "bindingKind": "function",
+          "sourceStart": 66168,
+          "sourceEnd": 66213,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "NB",
+          "bindingKind": "variable-const",
+          "sourceStart": 573164,
+          "sourceEnd": 573224,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "MB",
+          "bindingKind": "variable-const",
+          "sourceStart": 573230,
+          "sourceEnd": 573417,
+          "recovered": false,
+          "recoveredFile": null
+        }
+      ],
+      "unresolvedExternalIdentifiers": []
+    },
+    "iM": {
+      "file": "i18n/LanguageSwitcher.iM.js",
+      "sourceStart": 694959,
+      "sourceEnd": 696491,
+      "dependencies": [
+        {
+          "symbol": "i",
+          "bindingKind": "variable-var",
+          "sourceStart": 14310,
+          "sourceEnd": 14318,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Ve",
+          "bindingKind": "variable-const",
+          "sourceStart": 319541,
+          "sourceEnd": 321943,
+          "recovered": true,
+          "recoveredFile": "i18n/useTranslation.Ve.js"
+        },
+        {
+          "symbol": "se",
+          "bindingKind": "variable-const",
+          "sourceStart": 542810,
+          "sourceEnd": 543039,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "fB",
+          "bindingKind": "variable-const",
+          "sourceStart": 560568,
+          "sourceEnd": 560893,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Kr",
+          "bindingKind": "variable-const",
+          "sourceStart": 690861,
+          "sourceEnd": 690868,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Wr",
+          "bindingKind": "variable-const",
+          "sourceStart": 690874,
+          "sourceEnd": 690881,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "hr",
+          "bindingKind": "variable-const",
+          "sourceStart": 691989,
+          "sourceEnd": 692673,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "wt",
+          "bindingKind": "variable-const",
+          "sourceStart": 692718,
+          "sourceEnd": 693127,
+          "recovered": false,
+          "recoveredFile": null
+        }
+      ],
+      "unresolvedExternalIdentifiers": [
+        "localStorage",
+        "window"
+      ]
+    },
+    "lM": {
+      "file": "theme/ThemeSwitcher.lM.js",
+      "sourceStart": 696494,
+      "sourceEnd": 697621,
+      "dependencies": [
+        {
+          "symbol": "i",
+          "bindingKind": "variable-var",
+          "sourceStart": 14310,
+          "sourceEnd": 14318,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Ve",
+          "bindingKind": "variable-const",
+          "sourceStart": 319541,
+          "sourceEnd": 321943,
+          "recovered": true,
+          "recoveredFile": "i18n/useTranslation.Ve.js"
+        },
+        {
+          "symbol": "tc",
+          "bindingKind": "variable-const",
+          "sourceStart": 447236,
+          "sourceEnd": 447385,
+          "recovered": true,
+          "recoveredFile": "theme/useTheme.tc.js"
+        },
+        {
+          "symbol": "se",
+          "bindingKind": "variable-const",
+          "sourceStart": 542810,
+          "sourceEnd": 543039,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "bB",
+          "bindingKind": "variable-const",
+          "sourceStart": 565070,
+          "sourceEnd": 565157,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "EB",
+          "bindingKind": "variable-const",
+          "sourceStart": 569527,
+          "sourceEnd": 570045,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Kr",
+          "bindingKind": "variable-const",
+          "sourceStart": 690861,
+          "sourceEnd": 690868,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "Wr",
+          "bindingKind": "variable-const",
+          "sourceStart": 690874,
+          "sourceEnd": 690881,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "hr",
+          "bindingKind": "variable-const",
+          "sourceStart": 691989,
+          "sourceEnd": 692673,
+          "recovered": false,
+          "recoveredFile": null
+        },
+        {
+          "symbol": "wt",
+          "bindingKind": "variable-const",
+          "sourceStart": 692718,
+          "sourceEnd": 693127,
+          "recovered": false,
+          "recoveredFile": null
+        }
+      ],
+      "unresolvedExternalIdentifiers": []
+    },
     "zM": {
       "file": "layout/ManagerHeader.zM.js",
       "sourceStart": 710402,
@@ -448,24 +790,24 @@
           "bindingKind": "variable-const",
           "sourceStart": 573423,
           "sourceEnd": 573595,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/useInstanceQuery.vT.js"
         },
         {
           "symbol": "iM",
           "bindingKind": "function",
           "sourceStart": 694959,
           "sourceEnd": 696491,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "i18n/LanguageSwitcher.iM.js"
         },
         {
           "symbol": "lM",
           "bindingKind": "function",
           "sourceStart": 696494,
           "sourceEnd": 697621,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "theme/ThemeSwitcher.lM.js"
         },
         {
           "symbol": "Ei",
@@ -602,8 +944,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 573423,
           "sourceEnd": 573595,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/useInstanceQuery.vT.js"
         },
         {
           "symbol": "UM",
@@ -1011,8 +1353,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572807,
           "sourceEnd": 572839,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/authenticatedHttpClient.bd.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -1096,8 +1438,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572807,
           "sourceEnd": 572839,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/authenticatedHttpClient.bd.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -1112,8 +1454,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572441,
           "sourceEnd": 572473,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/instanceHttpClient.Ee.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -1128,8 +1470,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572441,
           "sourceEnd": 572473,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/instanceHttpClient.Ee.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -1144,8 +1486,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572807,
           "sourceEnd": 572839,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/authenticatedHttpClient.bd.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -1160,8 +1502,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572441,
           "sourceEnd": 572473,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/instanceHttpClient.Ee.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -1176,8 +1518,8 @@
           "bindingKind": "variable-const",
           "sourceStart": 572441,
           "sourceEnd": 572473,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "services/instanceHttpClient.Ee.js"
         }
       ],
       "unresolvedExternalIdentifiers": []
@@ -4722,16 +5064,16 @@
           "bindingKind": "function",
           "sourceStart": 694959,
           "sourceEnd": 696491,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "i18n/LanguageSwitcher.iM.js"
         },
         {
           "symbol": "lM",
           "bindingKind": "function",
           "sourceStart": 696494,
           "sourceEnd": 697621,
-          "recovered": false,
-          "recoveredFile": null
+          "recovered": true,
+          "recoveredFile": "theme/ThemeSwitcher.lM.js"
         },
         {
           "symbol": "vu",
@@ -5055,11 +5397,13 @@
         "Yre",
         "c_",
         "dQ",
+        "iM",
         "j5",
         "jL",
         "jk",
         "jse",
         "kk",
+        "lM",
         "l_",
         "qre",
         "tk",
@@ -5069,7 +5413,7 @@
         "yX",
         "zM"
       ],
-      "referencedByRecoveredSymbols": 32
+      "referencedByRecoveredSymbols": 34
     },
     {
       "symbol": "se",
@@ -5092,17 +5436,19 @@
         "Yre",
         "c_",
         "dQ",
+        "iM",
         "j5",
         "jk",
         "jse",
         "kk",
+        "lM",
         "qre",
         "tk",
         "xk",
         "yX",
         "zM"
       ],
-      "referencedByRecoveredSymbols": 24
+      "referencedByRecoveredSymbols": 26
     },
     {
       "symbol": "y",
@@ -5450,19 +5796,6 @@
       "referencedByRecoveredSymbols": 4
     },
     {
-      "symbol": "Ee",
-      "bindingKind": "variable-const",
-      "sourceStart": 572441,
-      "sourceEnd": 572473,
-      "referencedBy": [
-        "G5",
-        "Q5",
-        "W5",
-        "Z5"
-      ],
-      "referencedByRecoveredSymbols": 4
-    },
-    {
       "symbol": "Ei",
       "bindingKind": "variable-const",
       "sourceStart": 699563,
@@ -5632,14 +5965,38 @@
       "referencedByRecoveredSymbols": 4
     },
     {
-      "symbol": "bd",
+      "symbol": "Kr",
       "bindingKind": "variable-const",
-      "sourceStart": 572807,
-      "sourceEnd": 572839,
+      "sourceStart": 690861,
+      "sourceEnd": 690868,
       "referencedBy": [
-        "H5",
-        "J5",
-        "K5"
+        "CZ",
+        "iM",
+        "lM"
+      ],
+      "referencedByRecoveredSymbols": 3
+    },
+    {
+      "symbol": "Wr",
+      "bindingKind": "variable-const",
+      "sourceStart": 690874,
+      "sourceEnd": 690881,
+      "referencedBy": [
+        "CZ",
+        "iM",
+        "lM"
+      ],
+      "referencedByRecoveredSymbols": 3
+    },
+    {
+      "symbol": "hr",
+      "bindingKind": "variable-const",
+      "sourceStart": 691989,
+      "sourceEnd": 692673,
+      "referencedBy": [
+        "CZ",
+        "iM",
+        "lM"
       ],
       "referencedByRecoveredSymbols": 3
     },
@@ -5680,6 +6037,17 @@
       "referencedByRecoveredSymbols": 3
     },
     {
+      "symbol": "mt",
+      "bindingKind": "function",
+      "sourceStart": 66168,
+      "sourceEnd": 66213,
+      "referencedBy": [
+        "q5",
+        "vT"
+      ],
+      "referencedByRecoveredSymbols": 2
+    },
+    {
       "symbol": "Cj",
       "bindingKind": "function",
       "sourceStart": 406376,
@@ -5687,6 +6055,17 @@
       "referencedBy": [
         "jL",
         "tn"
+      ],
+      "referencedByRecoveredSymbols": 2
+    },
+    {
+      "symbol": "ce",
+      "bindingKind": "variable-const",
+      "sourceStart": 457738,
+      "sourceEnd": 458996,
+      "referencedBy": [
+        "nT",
+        "yd"
       ],
       "referencedByRecoveredSymbols": 2
     },
@@ -5735,35 +6114,13 @@
       "referencedByRecoveredSymbols": 2
     },
     {
-      "symbol": "vT",
+      "symbol": "wt",
       "bindingKind": "variable-const",
-      "sourceStart": 573423,
-      "sourceEnd": 573595,
+      "sourceStart": 692718,
+      "sourceEnd": 693127,
       "referencedBy": [
-        "VM",
-        "zM"
-      ],
-      "referencedByRecoveredSymbols": 2
-    },
-    {
-      "symbol": "iM",
-      "bindingKind": "function",
-      "sourceStart": 694959,
-      "sourceEnd": 696491,
-      "referencedBy": [
-        "Fse",
-        "zM"
-      ],
-      "referencedByRecoveredSymbols": 2
-    },
-    {
-      "symbol": "lM",
-      "bindingKind": "function",
-      "sourceStart": 696494,
-      "sourceEnd": 697621,
-      "referencedBy": [
-        "Fse",
-        "zM"
+        "iM",
+        "lM"
       ],
       "referencedByRecoveredSymbols": 2
     },
@@ -5838,16 +6195,6 @@
       "sourceEnd": 63933,
       "referencedBy": [
         "Sk"
-      ],
-      "referencedByRecoveredSymbols": 1
-    },
-    {
-      "symbol": "mt",
-      "bindingKind": "function",
-      "sourceStart": 66168,
-      "sourceEnd": 66213,
-      "referencedBy": [
-        "q5"
       ],
       "referencedByRecoveredSymbols": 1
     },
@@ -6032,22 +6379,102 @@
       "referencedByRecoveredSymbols": 1
     },
     {
-      "symbol": "yd",
-      "bindingKind": "variable-const",
-      "sourceStart": 468090,
-      "sourceEnd": 470363,
+      "symbol": "Oj",
+      "bindingKind": "function",
+      "sourceStart": 449730,
+      "sourceEnd": 449821,
       "referencedBy": [
-        "sn"
+        "nT"
       ],
       "referencedByRecoveredSymbols": 1
     },
     {
-      "symbol": "nT",
+      "symbol": "vt",
       "bindingKind": "function",
-      "sourceStart": 506296,
-      "sourceEnd": 506586,
+      "sourceStart": 459000,
+      "sourceEnd": 459399,
       "referencedBy": [
-        "sn"
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "Ch",
+      "bindingKind": "function",
+      "sourceStart": 461417,
+      "sourceEnd": 463601,
+      "referencedBy": [
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "Kj",
+      "bindingKind": "variable-const",
+      "sourceStart": 465406,
+      "sourceEnd": 465484,
+      "referencedBy": [
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "rr",
+      "bindingKind": "variable-const",
+      "sourceStart": 466535,
+      "sourceEnd": 466556,
+      "referencedBy": [
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "E4",
+      "bindingKind": "function",
+      "sourceStart": 466560,
+      "sourceEnd": 466855,
+      "referencedBy": [
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "Wj",
+      "bindingKind": "function",
+      "sourceStart": 467157,
+      "sourceEnd": 467853,
+      "referencedBy": [
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "T4",
+      "bindingKind": "function",
+      "sourceStart": 467856,
+      "sourceEnd": 468081,
+      "referencedBy": [
+        "yd"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "Si",
+      "bindingKind": "function",
+      "sourceStart": 480791,
+      "sourceEnd": 482532,
+      "referencedBy": [
+        "nT"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "hi",
+      "bindingKind": "variable-let",
+      "sourceStart": 499059,
+      "sourceEnd": 502299,
+      "referencedBy": [
+        "nT"
       ],
       "referencedByRecoveredSymbols": 1
     },
@@ -6182,6 +6609,16 @@
       "referencedByRecoveredSymbols": 1
     },
     {
+      "symbol": "fB",
+      "bindingKind": "variable-const",
+      "sourceStart": 560568,
+      "sourceEnd": 560893,
+      "referencedBy": [
+        "iM"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
       "symbol": "pB",
       "bindingKind": "variable-const",
       "sourceStart": 561086,
@@ -6212,12 +6649,32 @@
       "referencedByRecoveredSymbols": 1
     },
     {
+      "symbol": "bB",
+      "bindingKind": "variable-const",
+      "sourceStart": 565070,
+      "sourceEnd": 565157,
+      "referencedBy": [
+        "lM"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
       "symbol": "xB",
       "bindingKind": "variable-const",
       "sourceStart": 567175,
       "sourceEnd": 567443,
       "referencedBy": [
         "Fse"
+      ],
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "symbol": "EB",
+      "bindingKind": "variable-const",
+      "sourceStart": 569527,
+      "sourceEnd": 570045,
+      "referencedBy": [
+        "lM"
       ],
       "referencedByRecoveredSymbols": 1
     },
@@ -6252,32 +6709,22 @@
       "referencedByRecoveredSymbols": 1
     },
     {
-      "symbol": "Kr",
+      "symbol": "NB",
       "bindingKind": "variable-const",
-      "sourceStart": 690861,
-      "sourceEnd": 690868,
+      "sourceStart": 573164,
+      "sourceEnd": 573224,
       "referencedBy": [
-        "CZ"
+        "vT"
       ],
       "referencedByRecoveredSymbols": 1
     },
     {
-      "symbol": "Wr",
+      "symbol": "MB",
       "bindingKind": "variable-const",
-      "sourceStart": 690874,
-      "sourceEnd": 690881,
+      "sourceStart": 573230,
+      "sourceEnd": 573417,
       "referencedBy": [
-        "CZ"
-      ],
-      "referencedByRecoveredSymbols": 1
-    },
-    {
-      "symbol": "hr",
-      "bindingKind": "variable-const",
-      "sourceStart": 691989,
-      "sourceEnd": 692673,
-      "referencedBy": [
-        "CZ"
+        "vT"
       ],
       "referencedByRecoveredSymbols": 1
     },
@@ -7183,7 +7630,7 @@
     },
     {
       "identifier": "localStorage",
-      "referencedByRecoveredSymbols": 4
+      "referencedByRecoveredSymbols": 5
     },
     {
       "identifier": "Error",
@@ -7194,11 +7641,11 @@
       "referencedByRecoveredSymbols": 3
     },
     {
-      "identifier": "Intl",
-      "referencedByRecoveredSymbols": 2
+      "identifier": "window",
+      "referencedByRecoveredSymbols": 3
     },
     {
-      "identifier": "window",
+      "identifier": "Intl",
       "referencedByRecoveredSymbols": 2
     },
     {
@@ -7210,7 +7657,15 @@
       "referencedByRecoveredSymbols": 1
     },
     {
+      "identifier": "FormData",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
       "identifier": "getComputedStyle",
+      "referencedByRecoveredSymbols": 1
+    },
+    {
+      "identifier": "JSON",
       "referencedByRecoveredSymbols": 1
     },
     {

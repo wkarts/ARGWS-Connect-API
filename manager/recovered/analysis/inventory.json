@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T18:13:04.251Z",
+  "generatedAt": "2026-09-06T18:16:10.417Z",
   "input": "manager/recovered/legacy/index.js",
   "parser": "@babel/parser",
   "discoveredSymbolCount": 10320,
@@ -69,6 +69,22 @@
       "sourceEnd": 449726
     },
     {
+      "symbol": "yd",
+      "kind": "variable",
+      "file": "services/httpClientBase.yd.js",
+      "bytes": 2281,
+      "sourceStart": 468090,
+      "sourceEnd": 470363
+    },
+    {
+      "symbol": "nT",
+      "kind": "function",
+      "file": "services/createHttpClient.nT.js",
+      "bytes": 291,
+      "sourceStart": 506296,
+      "sourceEnd": 506586
+    },
+    {
       "symbol": "sn",
       "kind": "variable",
       "file": "services/httpClient.sn.js",
@@ -91,6 +107,46 @@
       "bytes": 1635,
       "sourceStart": 543072,
       "sourceEnd": 544706
+    },
+    {
+      "symbol": "Ee",
+      "kind": "variable",
+      "file": "services/instanceHttpClient.Ee.js",
+      "bytes": 40,
+      "sourceStart": 572441,
+      "sourceEnd": 572473
+    },
+    {
+      "symbol": "bd",
+      "kind": "variable",
+      "file": "services/authenticatedHttpClient.bd.js",
+      "bytes": 40,
+      "sourceStart": 572807,
+      "sourceEnd": 572839
+    },
+    {
+      "symbol": "vT",
+      "kind": "variable",
+      "file": "services/useInstanceQuery.vT.js",
+      "bytes": 180,
+      "sourceStart": 573423,
+      "sourceEnd": 573595
+    },
+    {
+      "symbol": "iM",
+      "kind": "function",
+      "file": "i18n/LanguageSwitcher.iM.js",
+      "bytes": 1533,
+      "sourceStart": 694959,
+      "sourceEnd": 696491
+    },
+    {
+      "symbol": "lM",
+      "kind": "function",
+      "file": "theme/ThemeSwitcher.lM.js",
+      "bytes": 1128,
+      "sourceStart": 696494,
+      "sourceEnd": 697621
     },
     {
       "symbol": "zM",
