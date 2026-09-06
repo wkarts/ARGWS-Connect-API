@@ -56,6 +56,8 @@ describe('Diagnóstico TLS integrado', () => {
   it('bloqueia duplo clique durante a consulta e aborta ao sair da página', async () => {
     get.mockReturnValue(new Promise(() => {}))
     const wrapper = create()
+    // onMounted starts the request synchronously; Vue updates the DOM on its next tick.
+    await flushPromises()
     expect(wrapper.find('button').attributes()).toHaveProperty('disabled')
     await wrapper.find('button').trigger('click')
     expect(get).toHaveBeenCalledOnce()
