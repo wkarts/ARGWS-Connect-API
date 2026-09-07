@@ -5,4 +5,5 @@ for(const file of files) execFileSync(process.execPath,['--check',file],{stdio:'
 const forbidden=['github.com/wkarts','Postman','Discord','Suporte Premium','Support Premium'];
 for(const file of files){const text=fs.readFileSync(file,'utf8');for(const token of forbidden)if(text.includes(token))throw new Error(`Conteúdo público proibido em ${path.relative(root,file)}: ${token}`)}
 const sidebar=fs.readFileSync(path.join(src,'components','shell.js'),'utf8'); if(!sidebar.includes('Documentação'))throw new Error('Link condicional de documentação não encontrado.');
+const login=fs.readFileSync(path.join(src,'pages','login.js'),'utf8'); if(!/button\('Entrar',[\s\S]*?type:\s*'submit'/.test(login))throw new Error('O botão Entrar precisa ser type="submit" para disparar a autenticação.');
 console.log(`OK: ${files.length} módulos JS validados.`);
