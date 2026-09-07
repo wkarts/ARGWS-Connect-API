@@ -28,13 +28,13 @@ cfe5fed9baa9082d28e4de349b565ea4fe13901982c5205540094c5b4e325dc2  ./.github/ISSU
 33ecbb64bc6487a6fb2a75f5b859b17f3919cf106ea590d0ffea239e4750db3b  ./.github/pull_request_template.md
 461ab3be99776ec8c64918dbb0bb502325403199d7f6c326a1c759c1714c57c3  ./.github/scripts/apply-version.mjs
 706b47cfbafe79d6977920d1136b3bfdbfd61bb5ffbd7423910d0dc726108583  ./.github/scripts/compute-next-version.mjs
-24b91be4c8a4b786a997ffc9de92c414847033c790b8fe90fb079ba0ec895353  ./.github/workflows/auto-version-release.yml
+ebf99f3214553f5c79bd7eb63b7beb55ee2f8d1b039906d98bd5506b5663f107  ./.github/workflows/auto-version-release.yml
 c45ae9228a216c7ed7e7cd7eec73a624bca8d6054827aa3f20d2b5c24814a02d  ./.github/workflows/check_code_quality.yml
 f06ab828c65cd7e97fa3d7d7cc6a315bcb3060b0fc2f30d1dd30031607a92efc  ./.github/workflows/database-integrity.yml
-de8dab161cf1d62e4197335de4c135753b4b298e57dd0b4b3c233b0063cd022f  ./.github/workflows/deployment-integrity.yml
+8a594671b497c6c7fc63ae011572a1176660fddf06b9a3e0a4e27e4d455cdc0c  ./.github/workflows/deployment-integrity.yml
 5f51273eb64973d5bd1e90bcc48bff1c95215c1eb5fa6196ffb2ea9f922d145f  ./.github/workflows/docs-deployment-integrity.yml
 500575229f7de581a7efc2f9e185e604e3966cac0093e2dc01bd3ed54d4b843a  ./.github/workflows/docs-integrity.yml
-9c027f15bb5f016637c3f648d370d3328a837f6d80d7b4ac7e9a7e41cef16171  ./.github/workflows/ghcr-publish-application.yml
+b24767c92e4a067fd1ec25d6c37a749d715bdc1eea9c889b45071f123b8930a4  ./.github/workflows/ghcr-publish-application.yml
 7b415e22fec3626abfd7754e7883951e98003e5b08d5cef6364a6adad064d6d4  ./.github/workflows/ghcr-publish-docs.yml
 f688c559e04d33418d082ac1d439c3a05b6e9838f8eb9e5aef61ec5497269d95  ./.github/workflows/ghcr-sync-infrastructure.yml
 af317524ef26b86bac86f56ef30b70c12a9dd1b67217b01f25f2a2ec82c687be  ./.github/workflows/image-promotion-integrity.yml
@@ -78,6 +78,7 @@ a4e52e730aff91a57844b4d7fdc6f481bcf5357a4f0d883260bbb590c5eccef1  ./Docker/swarm
 d033cb94e4a4413291e3c175c1cb4216380f2b4c68a40260654b483b72e283d8  ./Extras/chatwoot/criador_de_empresas.json
 b678b7f4b87844049bd45055fffed343b83176d47eb024c1ed9b525a9665ae91  ./Extras/chatwoot/criador_de_inbox.json
 25c49b667f883079438a47c7185bac37816fcb30a9b8e44ed1f7b33cc3405467  ./LICENSE
+425d09936cc80ffba9fac57ba8f61a30cf68fc250fa5fe7b5899db03a363d9c6  ./MANAGER-GHCR-HOTFIX.md
 c943390a46d8482058688cb1e276e1b07c0dfd6bf4002f9f8cacef5d72e26995  ./MANAGER-PROFESSIONAL-DELIVERY.md
 418564453b8a7c55877819bee0c00ed349eb68178d251d0c2283b770e4cc4915  ./MESSAGE-PAYLOAD-COMPATIBILITY.md
 f157fa9d41d7e57d5c8e221952fce9d5ba7294f9fe1b5a7f29d842bfa7d7bf62  ./MIGRATION-NOTES.md
@@ -86,7 +87,7 @@ f157fa9d41d7e57d5c8e221952fce9d5ba7294f9fe1b5a7f29d842bfa7d7bf62  ./MIGRATION-NO
 3d5fc6f3f5f0fc8bbfcba9761d96160b7d4f8a49742e99a422041b4cf39aa8a5  ./PHASE1-DATABASE-OBSERVABILITY.md
 18d6c59b6b79289eb8fb92fd35e42671cd109f2fd66ca20bce74ee32fc1fe475  ./README.md
 12456cfdd3d2da42e1e2364536925b564813ad70914fb919d88cb3e2c693ea44  ./RELEASE-AUTOMATION.md
-b3fc7dc62dbeb33bac2b51a4915d2bbd5b9c8bc1d99c50dd0c7d3693755c8035  ./RELEASE-MANIFEST.json
+fe67f3b6809644d0a6f4a313b014fda415453ff07ee81ecda7367fb14dee8342  ./RELEASE-MANIFEST.json
 c65ba0e3a35e2ad8da8b86dcb77791be2f9c04b09400daadc4433e5ade9130d1  ./SECURITY-2FA-IMPLEMENTATION.md
 2f9d3f73a2851c2877e9c359fe758b68fd55da0006e40dc2e47b971921177953  ./SECURITY.md
 74ceb54810e1835b919912e5a87834f8bd99eb7efec9a96e341255052fe5b688  ./TRADEMARKS.md
