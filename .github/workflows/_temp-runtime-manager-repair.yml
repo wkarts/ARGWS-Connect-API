@@ -2,7 +2,8 @@ name: Temporary Runtime Manager Repair
 
 on:
   push:
-    branches: [develop]
+    branches:
+      - develop
     paths:
       - .github/workflows/_temp-runtime-manager-repair.yml
 
@@ -23,35 +24,8 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Harden destructive instance cleanup
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          path = Path('src/api/services/monitor.service.ts')
-          text = path.read_text()
-          old = """        if (typeof current?.purgeProviderState === 'function') {
-          await current.purgeProviderState();
-        }
-
-        await this.cleaningUp(instanceName);
-        await this.cleaningStoreData(instanceName);
-"""
-          new = """        if (typeof current?.purgeProviderState === 'function') {
-          try {
-            await current.purgeProviderState();
-          } catch (error) {
-            this.logger.error({ localError: 'purgeProviderState', instanceName, error });
-          }
-        }
-
-        await this.cleaningUp(instanceName);
-        await this.cleaningStoreData(instanceName);
-"""
-          if old not in text:
-              raise SystemExit('expected removal block not found')
-          path.write_text(text.replace(old, new, 1))
-          PY
+      - name: Apply lifecycle hardening
+        run: python3 .github/scripts/harden-instance-cleanup.py
 
       - name: Install API dependencies
         run: npm ci
