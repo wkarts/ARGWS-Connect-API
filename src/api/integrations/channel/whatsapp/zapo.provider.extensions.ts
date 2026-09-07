@@ -1,7 +1,7 @@
 import { OnWhatsAppDto, WhatsAppNumberDto } from '@api/dto/chat.dto';
 import { HandleLabelDto, LabelDto } from '@api/dto/label.dto';
 import { Events } from '@api/types/wa.types';
-import { Database } from '@config/env.config';
+import type { Database } from '@config/env.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
 import { createJid } from '@utils/createJid';
 
@@ -10,7 +10,6 @@ import { ZapoStartupService } from './zapo.whatsapp.service';
 type ZapoAppStateMutationEvent = {
   schema?: string;
   operation?: 'set' | 'remove';
-  source?: string;
   timestamp?: number;
   id?: string;
   labelId?: string;
@@ -20,12 +19,10 @@ type ZapoAppStateMutationEvent = {
   color?: string | number;
   isActive?: boolean;
   predefinedId?: string;
-  _raw?: { index?: string };
 };
 
 type ZapoRawMutation = {
   operation?: 'set' | 'remove';
-  source?: string;
   timestamp?: number;
   index?: string;
   value?: {
@@ -34,12 +31,27 @@ type ZapoRawMutation = {
   } | null;
 };
 
-type NumberPlan = {
+type BaseNumberPlan = {
   index: number;
   number: string;
   jid: string;
-  kind: 'user' | 'lid' | 'group' | 'broadcast' | 'invalid';
-  phoneNumber?: string;
+};
+
+type UserNumberPlan = BaseNumberPlan & {
+  kind: 'user';
+  phoneNumber: string;
+};
+
+type NumberPlan =
+  | UserNumberPlan
+  | (BaseNumberPlan & {
+      kind: 'lid' | 'group' | 'broadcast' | 'invalid';
+    });
+
+type ZapoLidLookupResult = {
+  phoneJid?: string;
+  lidJid?: string;
+  exists?: boolean;
 };
 
 /**
@@ -70,7 +82,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     return client;
   }
 
-  private bindExtendedClientEvents(client: any) {
+  private bindExtendedClientEvents(client: any): void {
     if (!client || (typeof client !== 'object' && typeof client !== 'function')) return;
     if (this.extendedBoundClients.has(client)) return;
     this.extendedBoundClients.add(client);
@@ -87,10 +99,9 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
       void this.handleAppStateMutation(event).catch((error: Error) => this.logger.error(error));
     });
 
-    // The native coordinator emits the local action here immediately after a
+    // The native coordinator emits the local action immediately after a
     // successful app-state flush. Keeping this listener makes label updates
-    // visible to the same webhook consumers that already receive Baileys label
-    // events, without waiting for a later server echo.
+    // visible to the same consumers that already receive Baileys label events.
     client.on('mutation_send', (event: ZapoAppStateMutationEvent) => {
       void this.handleAppStateMutation(event).catch((error: Error) => this.logger.error(error));
     });
@@ -106,7 +117,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     return this.localSettings.groupsIgnore === true;
   }
 
-  private async handlePresenceEvent(event: any) {
+  private async handlePresenceEvent(event: any): Promise<void> {
     const chatJid = this.tryNormalizeJid(event?.chatJid);
     if (!chatJid) return;
     if (this.isGroupsIgnored() && chatJid.endsWith('@g.us')) return;
@@ -126,14 +137,13 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     });
   }
 
-  private async handleChatstateEvent(event: any) {
+  private async handleChatstateEvent(event: any): Promise<void> {
     const chatJid = this.tryNormalizeJid(event?.chatJid);
     if (!chatJid) return;
     if (this.isGroupsIgnored() && chatJid.endsWith('@g.us')) return;
 
     const participantJid = this.tryNormalizeJid(event?.participantJid) ?? chatJid;
-    const state =
-      event?.state === 'paused' ? 'paused' : event?.media === 'audio' ? 'recording' : 'composing';
+    const state = event?.state === 'paused' ? 'paused' : event?.media === 'audio' ? 'recording' : 'composing';
 
     this.sendDataWebhook(Events.PRESENCE_UPDATE, {
       id: chatJid,
@@ -177,7 +187,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     return false;
   }
 
-  private async handleAppStateMutation(event: ZapoAppStateMutationEvent) {
+  private async handleAppStateMutation(event: ZapoAppStateMutationEvent): Promise<void> {
     if (!event?.schema || this.isDuplicateMutation(event)) return;
 
     if (event.schema === 'LabelEdit') {
@@ -190,7 +200,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     }
   }
 
-  private async handleLabelEditMutation(event: ZapoAppStateMutationEvent) {
+  private async handleLabelEditMutation(event: ZapoAppStateMutationEvent): Promise<void> {
     const labelId = String(event.id ?? '').trim();
     if (!labelId) return;
 
@@ -201,10 +211,13 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
 
     const name = String(event.name ?? saved?.name ?? '').trim();
     const color = String(event.color ?? saved?.color ?? '0');
+    const predefinedId = event.predefinedId ?? saved?.predefinedId ?? undefined;
 
     if (deleted) {
       if (this.configService.get<Database>('DATABASE').SAVE_DATA.LABELS) {
-        await this.prismaRepository.label.deleteMany({ where: { instanceId: this.instanceId, labelId } });
+        await this.prismaRepository.label.deleteMany({
+          where: { instanceId: this.instanceId, labelId },
+        });
       }
     } else if (name && this.configService.get<Database>('DATABASE').SAVE_DATA.LABELS) {
       await this.prismaRepository.label.upsert({
@@ -212,13 +225,13 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
         update: {
           name,
           color,
-          predefinedId: event.predefinedId ?? saved?.predefinedId,
+          predefinedId,
         },
         create: {
           labelId,
           name,
           color,
-          predefinedId: event.predefinedId,
+          predefinedId,
           instanceId: this.instanceId,
         },
       });
@@ -228,13 +241,13 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
       id: labelId,
       name,
       color,
-      predefinedId: event.predefinedId ?? saved?.predefinedId,
+      predefinedId,
       deleted,
       instance: this.instance.name,
     });
   }
 
-  private async handleLabelAssociationMutation(event: ZapoAppStateMutationEvent) {
+  private async handleLabelAssociationMutation(event: ZapoAppStateMutationEvent): Promise<void> {
     const labelId = String(event.labelId ?? '').trim();
     const chatJid = this.tryNormalizeJid(event.chatJid);
     if (!labelId || !chatJid) return;
@@ -252,7 +265,11 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     });
   }
 
-  private async updateLocalChatLabel(labelId: string, chatJid: string, action: 'add' | 'remove') {
+  private async updateLocalChatLabel(
+    labelId: string,
+    chatJid: string,
+    action: 'add' | 'remove',
+  ): Promise<void> {
     if (!this.configService.get<Database>('DATABASE').SAVE_DATA.CHATS) return;
 
     const existing = await this.prismaRepository.chat.findUnique({
@@ -277,7 +294,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     });
   }
 
-  private async bootstrapLabelsFromAppState() {
+  private async bootstrapLabelsFromAppState(): Promise<void> {
     if (this.labelBootstrapAttempted || !this.client?.chat?.sync) return;
     this.labelBootstrapAttempted = true;
 
@@ -299,7 +316,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     }
   }
 
-  private async handleRawMutation(mutation: ZapoRawMutation) {
+  private async handleRawMutation(mutation: ZapoRawMutation): Promise<void> {
     if (!mutation?.index) return;
 
     let indexParts: unknown;
@@ -315,7 +332,6 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
       await this.handleAppStateMutation({
         schema: 'LabelEdit',
         operation: mutation.operation,
-        source: mutation.source,
         timestamp: mutation.timestamp,
         id: typeof indexParts[1] === 'string' ? indexParts[1] : undefined,
         name: typeof action.name === 'string' ? action.name : undefined,
@@ -333,7 +349,6 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
       await this.handleAppStateMutation({
         schema: 'LabelJid',
         operation: mutation.operation,
-        source: mutation.source,
         timestamp: mutation.timestamp,
         labelId: typeof indexParts[1] === 'string' ? indexParts[1] : undefined,
         chatJid: typeof indexParts[2] === 'string' ? indexParts[2] : undefined,
@@ -391,8 +406,8 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     });
 
     const results = new Array<OnWhatsAppDto>(plans.length);
-    const phonePlans = plans.filter((plan) => plan.kind === 'user');
-    let lidLookup: readonly any[] = [];
+    const phonePlans = plans.filter((plan): plan is UserNumberPlan => plan.kind === 'user');
+    let lidLookup: readonly ZapoLidLookupResult[] = [];
 
     if (phonePlans.length > 0) {
       try {
@@ -403,18 +418,21 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     }
 
     const lookupJids = new Set<string>();
-    for (const plan of plans) if (plan.jid) lookupJids.add(plan.jid);
+    for (const plan of plans) {
+      if (plan.jid) lookupJids.add(plan.jid);
+    }
     for (const item of lidLookup) {
       if (item?.phoneJid) lookupJids.add(item.phoneJid);
       if (item?.lidJid) lookupJids.add(item.lidJid);
     }
+
     const contacts = lookupJids.size
       ? await this.prismaRepository.contact.findMany({
           where: { instanceId: this.instanceId, remoteJid: { in: [...lookupJids] } },
         })
       : [];
-    const contactName = (...jids: Array<string | null | undefined>) =>
-      contacts.find((contact) => jids.includes(contact.remoteJid))?.pushName;
+    const contactName = (...jids: Array<string | null | undefined>): string | undefined =>
+      contacts.find((contact) => jids.includes(contact.remoteJid))?.pushName ?? undefined;
 
     let phoneIndex = 0;
     for (const plan of plans) {
@@ -476,13 +494,15 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
 
   public async fetchLabels(): Promise<LabelDto[]> {
     await this.bootstrapLabelsFromAppState();
-    const labels = await this.prismaRepository.label.findMany({ where: { instanceId: this.instanceId } });
+    const labels = await this.prismaRepository.label.findMany({
+      where: { instanceId: this.instanceId },
+    });
 
     return labels.map((label) => ({
       color: label.color,
       name: label.name,
-      id: label.labelId,
-      predefinedId: label.predefinedId,
+      id: label.labelId ?? undefined,
+      predefinedId: label.predefinedId ?? undefined,
     }));
   }
 
