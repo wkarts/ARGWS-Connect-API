@@ -99,6 +99,7 @@ export function renderChat(instance, initialJid = '', { embedded = false } = {})
     const name = chatName(chat);
     const node = el('div', { class: `avatar ${size}`.trim(), text: name[0]?.toUpperCase() || '?' });
     if (!jid || jid.endsWith('@g.us') || jid.endsWith('@lid') || isStatusJid(jid)) return node;
+    if (instance.connectionStatus !== 'open') return node;
     const cached = avatarCache.get(jid);
     if (cached) {
       node.replaceChildren(el('img', { src: cached, alt: '' }));

@@ -111,8 +111,10 @@ export class ZapoStartupService extends ChannelStartupService {
   private pairingReadyPromise: Promise<void> | null = null;
   private resolvePairingReady: (() => void) | null = null;
   private pairingReady = false;
+  private authMode: 'qrcode' | 'pairing-code' = 'qrcode';
   private lidReconciliationDone = false;
   private readonly outgoingCallPeers = new Map<string, string>();
+  private readonly callMuteStates = new Map<string, boolean>();
   private readonly audioEmitter = new EventEmitter2();
   private reconnectTimer?: NodeJS.Timeout;
   private intentionalDisconnect = false;
@@ -233,7 +235,34 @@ export class ZapoStartupService extends ChannelStartupService {
     return { wuid: jid, profilePictureUrl: result?.url ?? null };
   }
 
+  private async resetLinkingClient() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+
+    const current = this.client;
+    this.client = null;
+    this.connectPromise = null;
+    this.pairingReady = false;
+    this.pairingReadyPromise = null;
+    this.resolvePairingReady = null;
+    this.stateConnection = { state: 'close' };
+
+    await current?.disconnect?.().catch(() => undefined);
+    this.cleanupPoller?.stop?.();
+    this.cleanupPoller = null;
+    this.store = null;
+  }
+
   public async prepareQrConnection() {
+    if (this.isRegistered()) return this.client;
+
+    // Reuse a still-valid QR from the same mode, otherwise create a clean auth client.
+    if (this.client && this.authMode === 'qrcode' && (this.instance.qrcode?.code || this.instance.qrcode?.base64)) {
+      return this.client;
+    }
+    if (this.client) await this.resetLinkingClient();
+
+    this.authMode = 'qrcode';
     this.instance.qrcode = { count: 0 };
     this.phoneNumber = undefined;
     await this.loadRuntimeConfiguration();
@@ -245,12 +274,16 @@ export class ZapoStartupService extends ChannelStartupService {
   public async preparePairingConnection(number: string) {
     const normalized = String(number || '').replace(/\D/g, '');
     if (!normalized) throw new BadRequestException('Pairing-code phone number is required');
+    if (this.isRegistered()) throw new BadRequestException('This WhatsApp session is already registered.');
 
+    // Pairing is an explicit operation. Never reuse QR/stale/failed companion state.
+    if (this.client) await this.resetLinkingClient();
+    this.authMode = 'pairing-code';
     this.phoneNumber = normalized;
     this.instance.qrcode = { count: 0 };
     await this.loadRuntimeConfiguration();
     await this.ensureClient();
-    if (!this.pairingReady && !this.pairingReadyPromise) this.resetPairingReady();
+    this.resetPairingReady();
     this.startConnect();
     await this.waitPairingReady();
     return this.client;
@@ -259,11 +292,19 @@ export class ZapoStartupService extends ChannelStartupService {
   public async requestPairingCode(number: string) {
     const normalized = String(number || '').replace(/\D/g, '');
     if (!normalized) throw new BadRequestException('Pairing-code phone number is required');
-    await this.ensureClient();
-    await this.waitPairingReady();
-    const code = await this.client.auth.requestPairingCode(normalized);
-    this.setPairingCode(code);
-    return code;
+
+    try {
+      await this.ensureClient();
+      await this.waitPairingReady();
+      const code = await this.client.auth.requestPairingCode(normalized);
+      this.setPairingCode(code);
+      return code;
+    } catch (error) {
+      this.setPairingCode(undefined);
+      // A rejected companion_hello cannot be reused safely on the next request.
+      await this.resetLinkingClient();
+      throw error;
+    }
   }
 
   public async connectToWhatsapp(): Promise<any> {
@@ -510,6 +551,7 @@ export class ZapoStartupService extends ChannelStartupService {
     const jid = createJid(number);
     const callId = await this.client.voip.startCall({ peerJid: jid, isVideo: Boolean(isVideo) });
     this.outgoingCallPeers.set(callId, jid);
+    this.callMuteStates.set(callId, false);
 
     if (callDuration && callDuration > 0) {
       const timer = setTimeout(() => {
@@ -531,21 +573,28 @@ export class ZapoStartupService extends ChannelStartupService {
   public async rejectCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
+    const snapshot = this.normalizeCall(this.client.voip.getCall(callId));
     await this.client.voip.rejectCall(callId);
-    return this.normalizeCall(this.client.voip.getCall(callId));
+    this.callMuteStates.delete(callId);
+    this.outgoingCallPeers.delete(callId);
+    return snapshot;
   }
 
   public async endCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
+    const snapshot = this.normalizeCall(this.client.voip.getCall(callId));
     await this.client.voip.endCall(callId);
-    return this.normalizeCall(this.client.voip.getCall(callId));
+    this.callMuteStates.delete(callId);
+    this.outgoingCallPeers.delete(callId);
+    return snapshot;
   }
 
   public async muteCall(callId: string, muted: boolean) {
     await this.ensureConnected();
     this.ensureVoip();
     this.client.voip.setMute(callId, muted);
+    this.callMuteStates.set(callId, muted);
     return this.normalizeCall(this.client.voip.getCall(callId)) ?? { callId, muted };
   }
 
@@ -624,10 +673,17 @@ export class ZapoStartupService extends ChannelStartupService {
     const plugins =
       process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })];
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
-    const deviceBrowser =
+    const configuredBrowser =
       process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || process.env.ZAPO_DEVICE_BROWSER || session.NAME || 'Chrome';
-    const deviceDisplayName =
+    const configuredDisplayName =
       process.env.WHATSAPP_PROTOCOL_BROWSER_CLIENT || session.CLIENT || process.env.ZAPO_DEVICE_OS || 'Connect|API';
+
+    // WhatsApp validates link-code companion_hello much more strictly than QR pairing.
+    // Keep the pairing fingerprint canonical until Zapo exposes a separated public label/handshake identity.
+    const deviceBrowser =
+      this.authMode === 'pairing-code' ? process.env.ZAPO_PAIRING_DEVICE_BROWSER || 'Chrome' : configuredBrowser;
+    const deviceDisplayName =
+      this.authMode === 'pairing-code' ? process.env.ZAPO_PAIRING_DEVICE_OS || 'Linux' : configuredDisplayName;
 
     this.pairingReady = false;
     this.pairingReadyPromise = null;
@@ -698,6 +754,10 @@ export class ZapoStartupService extends ChannelStartupService {
 
     this.client.on('voip_call_ended', (call: any) => {
       this.emitCall('ended', call);
+      if (call?.callId) {
+        this.callMuteStates.delete(call.callId);
+        this.outgoingCallPeers.delete(call.callId);
+      }
     });
 
     this.client.on('voip_call_error', (error: Error) => {
@@ -745,7 +805,7 @@ export class ZapoStartupService extends ChannelStartupService {
       this.instance.ownerJid = credentials.meJid;
       this.instance.profileName = credentials.meDisplayName ?? this.instance.profileName;
       if (state === 'open') {
-        await this.refreshOwnProfilePicture(credentials);
+        void this.refreshOwnProfilePicture(credentials).catch((error: Error) => this.logger.error(error));
       }
     }
 
@@ -831,15 +891,41 @@ export class ZapoStartupService extends ChannelStartupService {
     });
   }
 
+  private normalizeDeviceJid(value?: string): string {
+    if (!value) return '';
+    return String(value).replace(/:\d+(?=@)/, '');
+  }
+
+  private resolveAlternatePhoneJid(event: any, kind: 'remote' | 'participant'): string | undefined {
+    const attrs = event?.rawNode?.attrs || {};
+    const candidates =
+      kind === 'participant'
+        ? [event?.key?.participantAlt, attrs.participant_pn, attrs.sender_pn]
+        : [
+            event?.key?.remoteJidAlt,
+            event?.key?.recipientAlt,
+            attrs.sender_pn,
+            attrs.peer_recipient_pn,
+            attrs.recipient_pn,
+          ];
+
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const normalized = this.normalizeDeviceJid(String(candidate));
+      if (normalized.includes('@') && !normalized.endsWith('@lid')) return normalized;
+    }
+    return undefined;
+  }
+
   private async handleIncomingMessage(event: any) {
     if (!event?.message || !event?.key?.remoteJid) return;
 
-    const rawRemoteJid = String(event.key.remoteJid);
-    const remoteJidAlt = event.key.remoteJidAlt ? String(event.key.remoteJidAlt) : undefined;
+    const rawRemoteJid = this.normalizeDeviceJid(String(event.key.remoteJid));
+    const remoteJidAlt = this.resolveAlternatePhoneJid(event, 'remote');
     const canonicalRemoteJid =
       rawRemoteJid.endsWith('@lid') && remoteJidAlt && !remoteJidAlt.endsWith('@lid') ? remoteJidAlt : rawRemoteJid;
-    const rawParticipant = event.key.participant ? String(event.key.participant) : undefined;
-    const participantAlt = event.key.participantAlt ? String(event.key.participantAlt) : undefined;
+    const rawParticipant = event.key.participant ? this.normalizeDeviceJid(String(event.key.participant)) : undefined;
+    const participantAlt = this.resolveAlternatePhoneJid(event, 'participant');
     const canonicalParticipant =
       rawParticipant?.endsWith('@lid') && participantAlt && !participantAlt.endsWith('@lid')
         ? participantAlt
@@ -954,13 +1040,25 @@ export class ZapoStartupService extends ChannelStartupService {
   }
 
   private async refreshOwnProfilePicture(credentials: any) {
-    const candidates = [credentials?.meJid, credentials?.meLid, this.instance.ownerJid].filter(Boolean);
-    for (const jid of [...new Set(candidates.map(String))]) {
-      for (const type of ['image', 'preview'] as const) {
-        const picture = await this.client.profile.getProfilePicture(jid, type).catch(() => null);
-        if (picture?.url) {
-          this.instance.profilePictureUrl = picture.url;
-          return;
+    const candidates = [credentials?.meJid, credentials?.meLid, this.instance.ownerJid]
+      .filter(Boolean)
+      .map((jid) => this.normalizeDeviceJid(String(jid)));
+
+    const delays = [0, 1000, 3000];
+    for (const delayMs of delays) {
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (this.stateConnection.state !== 'open') return;
+
+      for (const jid of [...new Set(candidates)]) {
+        for (const type of ['image', 'preview'] as const) {
+          const picture = await this.client?.profile?.getProfilePicture?.(jid, type).catch(() => null);
+          if (picture?.url) {
+            this.instance.profilePictureUrl = picture.url;
+            await this.prismaRepository.instance
+              .update({ where: { id: this.instanceId }, data: { profilePicUrl: picture.url } })
+              .catch((error: Error) => this.logger.error(error));
+            return;
+          }
         }
       }
     }
@@ -1072,18 +1170,20 @@ export class ZapoStartupService extends ChannelStartupService {
     const rawPeerJid = call.peerJid;
     const displayPeerJid =
       (call.callerPn ? createJid(String(call.callerPn)) : undefined) ||
+      (call.peerJidAlt && !String(call.peerJidAlt).endsWith('@lid') ? String(call.peerJidAlt) : undefined) ||
       this.outgoingCallPeers.get(call.callId) ||
       rawPeerJid;
     return this.toJson({
       callId: call.callId,
       peerJid: displayPeerJid,
+      displayPeerJid,
       peerJidRaw: rawPeerJid,
       callerPn: call.callerPn,
       isVideo: call.isVideo,
       direction: call.direction,
       state: call.stateData?.state ?? call.state,
       stateData: call.stateData,
-      muted: Boolean(call.stateData?.audioMuted),
+      muted: this.callMuteStates.get(call.callId) ?? Boolean(call.stateData?.audioMuted),
       canAccept: call.canAccept,
       canReject: call.canReject,
       createdAt: call.createdAt,

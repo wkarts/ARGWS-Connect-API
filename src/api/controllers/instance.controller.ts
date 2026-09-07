@@ -13,6 +13,7 @@ import { BadRequestException, InternalServerErrorException, UnauthorizedExceptio
 import { delay } from 'baileys';
 import { isArray, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
+import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import { v4 } from 'uuid';
 
 import { ProxyController } from './proxy.controller';
@@ -33,8 +34,33 @@ export class InstanceController {
   ) {}
 
   private readonly logger = new Logger('InstanceController');
-  private readonly qrCodeRequests = new Map<string, Promise<wa.QrCode>>();
-  private readonly pairingCodeRequests = new Map<string, Promise<wa.QrCode>>();
+  private readonly authenticationQueues = new Map<string, Promise<void>>();
+
+  private authenticationKey(instance: any): string {
+    return String(instance.instanceId || instance.instanceName || instance.instance?.id || instance.instance?.name);
+  }
+
+  /** Serialize QR/pairing operations per instance while keeping different instances fully concurrent. */
+  private async withAuthenticationLock<T>(instance: any, operation: () => Promise<T>): Promise<T> {
+    const key = this.authenticationKey(instance);
+    const previous = this.authenticationQueues.get(key) ?? Promise.resolve();
+    let release: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => gate);
+    this.authenticationQueues.set(key, queued);
+
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.authenticationQueues.get(key) === queued) {
+        this.authenticationQueues.delete(key);
+      }
+    }
+  }
 
   private normalizePairingPhoneNumber(number?: string | null): string | undefined {
     if (!number) return undefined;
@@ -47,18 +73,30 @@ export class InstanceController {
     return normalized;
   }
 
+  private async normalizeQrCode(qrCode: wa.QrCode): Promise<wa.QrCode> {
+    if (!qrCode) return qrCode;
+    if (qrCode.base64 || !qrCode.code) return qrCode;
+
+    const opts: QRCodeToDataURLOptions = {
+      margin: 3,
+      scale: 4,
+      errorCorrectionLevel: 'H',
+      color: {
+        light: '#ffffff',
+        dark: this.configService.get<QrCode>('QRCODE').COLOR,
+      },
+    };
+    return { ...qrCode, base64: await qrcode.toDataURL(qrCode.code, opts) };
+  }
+
   private async waitForQrCode(instance: any, pairingCodeRequested: boolean): Promise<wa.QrCode> {
     const timeoutMs = this.configService.get<QrCode>('QRCODE').AUTH_TIMEOUT_MS;
     const startedAt = Date.now();
 
     do {
       const qrCode = instance.qrCode;
-      // QR is only ready for presentation after the provider finishes
-      // rendering the protocol payload as an image. Returning on `code`
-      // alone races Zapo's async qrcode.toDataURL() and makes the Manager
-      // display the raw WhatsApp payload instead of a scannable QR image.
-      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.base64) {
-        return qrCode;
+      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code || qrCode?.base64) {
+        return pairingCodeRequested ? qrCode : await this.normalizeQrCode(qrCode);
       }
       await delay(250);
     } while (Date.now() - startedAt < timeoutMs);
@@ -70,40 +108,26 @@ export class InstanceController {
       );
     }
 
-    if (!pairingCodeRequested && !qrCode?.base64) {
+    if (!pairingCodeRequested && !qrCode?.code && !qrCode?.base64) {
       throw new BadRequestException('Unable to generate QR code. Try again.');
     }
 
-    return qrCode;
+    return pairingCodeRequested ? qrCode : await this.normalizeQrCode(qrCode);
   }
 
   private async requestExplicitQrCode(instance: any): Promise<wa.QrCode> {
-    const requestKey = String(instance.instanceId || instance.instanceName || instance.instance?.name);
-    const running = this.qrCodeRequests.get(requestKey);
-    if (running) return running;
-
-    const operation = (async () => {
+    return await this.withAuthenticationLock(instance, async () => {
       if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
         throw new BadRequestException('QR connection is not available for the selected WhatsApp provider');
       }
+
       await instance.prepareQrConnection();
       return await this.waitForQrCode(instance, false);
-    })();
-
-    this.qrCodeRequests.set(requestKey, operation);
-    try {
-      return await operation;
-    } finally {
-      this.qrCodeRequests.delete(requestKey);
-    }
+    });
   }
 
   private async requestExplicitPairingCode(instance: any, number: string): Promise<wa.QrCode> {
-    const requestKey = `${String(instance.instanceId || instance.instanceName || instance.instance?.name)}:${number}`;
-    const running = this.pairingCodeRequests.get(requestKey);
-    if (running) return running;
-
-    const operation = (async () => {
+    return await this.withAuthenticationLock(instance, async () => {
       const registered =
         typeof instance.isRegistered === 'function'
           ? instance.isRegistered()
@@ -118,8 +142,8 @@ export class InstanceController {
 
       await instance.preparePairingConnection(number);
 
-      // Baileys needs the pair-device challenge before requestPairingCode.
-      // Zapo exposes an explicit auth_pairing_required readiness signal internally.
+      // Baileys exposes its pair-device challenge as the initial QR event.
+      // Zapo has its own auth_pairing_required readiness signal and does not need this wait.
       const qrCode =
         instance.integration === Integration.WHATSAPP_BAILEYS
           ? await this.waitForQrCode(instance, false)
@@ -143,14 +167,7 @@ export class InstanceController {
       const maskedNumber = `${'*'.repeat(Math.max(0, number.length - 4))}${number.slice(-4)}`;
       this.logger.info(`Explicit pairing code generated for ${maskedNumber}`);
       return { ...qrCode, pairingCode };
-    })();
-
-    this.pairingCodeRequests.set(requestKey, operation);
-    try {
-      return await operation;
-    } finally {
-      this.pairingCodeRequests.delete(requestKey);
-    }
+    });
   }
 
   public async createInstance(instanceData: InstanceDto) {

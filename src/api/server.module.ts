@@ -54,6 +54,7 @@ import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
+import { VoiceMediaService } from './services/voice-media.service';
 
 const logger = new Logger('WA MODULE');
 
@@ -84,6 +85,7 @@ export const waMonitor = new WAMonitoringService(
   chatwootCache,
   baileysCache,
 );
+export const voiceMediaService = new VoiceMediaService(waMonitor);
 
 const s3Service = new S3Service(prismaRepository);
 export const s3Controller = new S3Controller(s3Service);

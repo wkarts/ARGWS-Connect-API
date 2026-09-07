@@ -3,8 +3,8 @@ import { WAMonitoringService } from '@api/services/monitor.service';
 import { Auth, configService, Cors, Log, Websocket } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { Server } from 'http';
-import { Server as SocketIO } from 'socket.io';
 import type { Socket } from 'socket.io';
+import { Server as SocketIO } from 'socket.io';
 
 import { EmitData, EventController, EventControllerInterface } from '../event.controller';
 
@@ -290,7 +290,9 @@ export class WebsocketController extends EventController implements EventControl
           const callId = String(data?.callId || '').trim();
           if (!callId) throw new Error('callId is required');
           const runtime =
-            voiceRuntime && voiceCallId === callId ? voiceRuntime : await this.voiceInstance(socket, data?.instanceName);
+            voiceRuntime && voiceCallId === callId
+              ? voiceRuntime
+              : await this.voiceInstance(socket, data?.instanceName);
           runtime.feedLiveAudio(callId, this.decodeFloat32Base64(data?.pcm));
           acknowledge?.({ ok: true });
         } catch (error) {

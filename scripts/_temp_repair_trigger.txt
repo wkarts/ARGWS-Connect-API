@@ -1,1 +1,0 @@
-Trigger isolated Manager syntax/format validation for the staged WhatsApp repair.

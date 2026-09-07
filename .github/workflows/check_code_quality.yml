@@ -1,170 +1,20 @@
 name: Check Code Quality
 
 on:
-  workflow_dispatch:
+  pull_request:
+    branches: [develop]
   push:
     branches: [develop]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check-lint-and-build:
-    name: WhatsApp auth and voice stability repair
+    name: Canonical CI Core (main)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout develop
-        uses: actions/checkout@v4
-        with:
-          ref: develop
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Apply focused repair
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('scripts/_temp_auth_voice_stability_repair.py')
-          text = path.read_text(encoding='utf-8')
-          old = "updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S | re.M)"
-          new = "updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S | re.M)"
-          if old not in text:
-              raise SystemExit('regex helper line not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
-          python3 scripts/_temp_auth_voice_stability_repair.py
-          cp scripts/_temp_voip.js manager/src/pages/voip.js
-          cat > test/zapo-provider.integration.test.mjs <<'EOF'
-          import fs from 'node:fs';
-
-          const read = (path) => fs.readFileSync(path, 'utf8');
-          const assert = (condition, message) => {
-            if (!condition) throw new Error(message);
-          };
-
-          const zapo = read('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts');
-          const baileys = read('src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts');
-          const instanceController = read('src/api/controllers/instance.controller.ts');
-          const callController = read('src/api/controllers/call.controller.ts');
-          const callRouter = read('src/api/routes/call.router.ts');
-          const voiceMedia = read('src/api/services/voice-media.service.ts');
-          const packageJson = JSON.parse(read('package.json'));
-
-          assert(zapo.includes('class ZapoStartupService'), 'Native Zapo startup service is missing');
-          assert(zapo.includes("Integration.WHATSAPP_ZAPO"), 'Zapo provider integration identifier is missing');
-          assert(zapo.includes('public async offerCall'), 'Zapo voice offerCall implementation is missing');
-          assert(zapo.includes('public async listCalls'), 'Zapo voice listCalls implementation is missing');
-          assert(zapo.includes("this.client.on('voip_call_incoming'"), 'Zapo incoming-call listener is missing');
-          assert(zapo.includes("this.client.on('voip_call_inbound_audio'"), 'Zapo inbound audio hook is missing');
-          assert(zapo.includes("rawRemoteJid.endsWith('@lid')"), 'Zapo LID-to-PN canonicalization is missing');
-          assert(zapo.includes("authMode: 'qrcode' | 'pairing-code'"), 'Zapo QR/pairing mode isolation is missing');
-          assert(zapo.includes('resetLinkingClient'), 'Zapo stale linking-client reset is missing');
-          assert(zapo.includes('ZAPO_PAIRING_DEVICE_OS'), 'Zapo stable pairing fingerprint is missing');
-          assert(zapo.includes("this.configService.get<QrCode>('QRCODE').COLOR"), 'Zapo must use the shared QR color');
-          assert(zapo.includes('WHATSAPP_PROTOCOL_BROWSER_CLIENT'), 'Zapo must inherit the shared Connect|API QR device label');
-          assert(instanceController.includes('authenticationQueues'), 'Per-instance WhatsApp authentication serialization is missing');
-          assert(instanceController.includes('withAuthenticationLock'), 'Shared WhatsApp authentication lock is missing');
-          assert(instanceController.includes('normalizeQrCode'), 'Provider-neutral QR normalization is missing');
-          assert(instanceController.includes("get<QrCode>('QRCODE').AUTH_TIMEOUT_MS"), 'Shared WhatsApp auth timeout is missing');
-          assert(baileys.includes("const pairingCodeBrowser: WABrowserDescription = ['Ubuntu', 'Chrome', '20.0.04']"), 'Stable Baileys pairing fingerprint changed unexpectedly');
-          assert(callController.includes("this.method(instanceName, 'offerCall')"), 'Provider-neutral call delegation is missing');
-          assert(callRouter.includes("this.routerPath('list')"), 'Call list route is missing');
-          assert(voiceMedia.includes("VOICE_MEDIA_PATH = '/voice/media'"), 'Dedicated voice media gateway is missing');
-          assert(voiceMedia.includes('feedLiveAudio'), 'Browser-to-provider voice media bridge is missing');
-          assert(voiceMedia.includes('onInboundVoiceAudio'), 'Provider-to-browser voice media bridge is missing');
-          assert(packageJson.dependencies?.['@innovatorssoft/zapo-js'] === '1.6.3', 'Zapo JS version must stay pinned at 1.6.3');
-          assert(packageJson.dependencies?.['@innovatorssoft/voip'] === '1.0.0', 'Zapo VoIP version must stay pinned at 1.0.0');
-          assert(packageJson.dependencies?.['zapo-js'] === 'npm:@innovatorssoft/zapo-js@1.6.3', 'Legacy zapo-js runtime alias is missing');
-
-          console.log('Zapo provider invariants: OK');
-          EOF
-
-      - name: Install API dependencies
-        run: npm ci
-
-      - name: Generate PostgreSQL Prisma client
-        env:
-          DATABASE_PROVIDER: postgresql
-          DATABASE_CONNECTION_URI: postgresql://argws_connect:argws_connect@localhost:5432/argws_connect?schema=public
-        run: npx prisma generate --schema ./prisma/postgresql-schema.prisma
-
-      - name: Format changed TypeScript
-        run: npm run lint
-
-      - name: Validate API lint
-        run: npm run lint:check
-
-      - name: Validate API build
-        run: npm run build
-
-      - name: Validate provider invariants
-        run: npm run test:zapo
-
-      - name: Validate docs
-        run: npm run docs:check
-
-      - name: Syntax check Manager VoIP
-        run: node --check manager/src/pages/voip.js
-
-      - name: Syntax check Manager Chat
-        run: node --check manager/src/pages/chat.js
-
-      - name: Format Manager VoIP
-        run: npx prettier --write manager/src/pages/voip.js
-
-      - name: Format Manager Chat
-        run: npx prettier --write manager/src/pages/chat.js
-
-      - name: Format Manager CSS
-        run: npx prettier --write manager/src/styles/app.css
-
-      - name: Validate Manager
-        working-directory: manager
-        run: |
-          npm install --no-package-lock --ignore-scripts
-          npm test
-
-      - name: Restore canonical workflow and remove repair staging
-        run: |
-          rm -f scripts/_temp_auth_voice_stability_repair.py scripts/_temp_voip.js scripts/_temp_repair_trigger.txt
-          cat > .github/workflows/check_code_quality.yml <<'EOF'
-          name: Check Code Quality
-
-          on:
-            pull_request:
-              branches: [develop]
-            push:
-              branches: [develop]
-
-          permissions:
-            contents: read
-
-          jobs:
-            check-lint-and-build:
-              name: Canonical CI Core (main)
-              runs-on: ubuntu-latest
-              timeout-minutes: 15
-
-              steps:
-                - name: Run canonical validation core from main
-                  uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
-          EOF
-
-      - name: Commit validated repair
-        run: |
-          if git diff --quiet; then
-            echo 'No changes to commit.'
-            exit 0
-          fi
-          git config user.name 'wkarts'
-          git config user.email '57051272+wkarts@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix(whatsapp): stabilize authentication and add browser voice media'
-          git push origin HEAD:develop
+      - name: Run canonical validation core from main
+        uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
