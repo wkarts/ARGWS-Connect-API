@@ -113,6 +113,7 @@ jobs:
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             APP_VERSION=${{ steps.metadata.outputs.version }}
+            MANAGER_BUILD_MODE=development
           labels: |
             org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
             org.opencontainers.image.version=develop
