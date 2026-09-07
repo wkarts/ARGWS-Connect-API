@@ -4,6 +4,8 @@
 
 O Softphone é uma interface do Connect|API. O provider de WhatsApp (Zapo hoje) fornece sinalização e mídia; o usuário não precisa conhecer a implementação interna.
 
+> Estado atual: a sinalização de chamadas está integrada. O áudio do navegador ainda depende do Voice Media Gateway descrito abaixo e não deve ser apresentado como concluído antes dessa camada.
+
 ## Camadas
 
 1. **WhatsApp Voice Provider** — Zapo: sinalização, estados da chamada e PCM de áudio.
