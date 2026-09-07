@@ -27,6 +27,7 @@ COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
+COPY ./scripts ./scripts
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
@@ -57,9 +58,14 @@ COPY --from=builder /argws-connect/dist ./dist
 COPY --from=builder /argws-connect/prisma ./prisma
 COPY --from=builder /argws-connect/manager ./manager
 COPY --from=builder /argws-connect/public ./public
+COPY --from=builder /argws-connect/scripts ./scripts
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /argws-connect/tsup.config.ts ./tsup.config.ts
+
+# Validate the exact Zapo module path required by the published stores/VOIP packages
+# in the same final filesystem that will run in production.
+RUN npm run runtime:deps:check
 
 EXPOSE 8080
 
