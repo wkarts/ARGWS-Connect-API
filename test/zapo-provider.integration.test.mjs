@@ -57,6 +57,18 @@ assert(zapoExtensions.includes('public async profilePicture'), 'Zapo profile-pic
 
 assert(zapoAccountExtensions.includes('public async markMessageAsRead'), 'Zapo read-receipt compatibility is missing');
 assert(zapoAccountExtensions.includes("sendReceipt(jid, ids, { type: 'read' })"), 'Zapo read receipts must use native receipt API');
+assert(zapoAccountExtensions.includes('public async archiveChat'), 'Zapo archive/unarchive compatibility is missing');
+assert(zapoAccountExtensions.includes('chat.setChatArchive'), 'Zapo archive must use the public app-state coordinator');
+assert(zapoAccountExtensions.includes('public async markChatUnread'), 'Zapo mark-unread compatibility is missing');
+assert(zapoAccountExtensions.includes('chat.setChatRead(jid, false)'), 'Zapo mark-unread must use the public app-state coordinator');
+assert(zapoAccountExtensions.includes('public async deleteMessage'), 'Zapo message revoke compatibility is missing');
+assert(zapoAccountExtensions.includes("type: 'revoke'"), 'Zapo message deletion must use the native revoke message type');
+assert(zapoAccountExtensions.includes('Events.MESSAGES_DELETE'), 'Zapo delete webhook parity is missing');
+assert(zapoAccountExtensions.includes('public async updateMessage'), 'Zapo message edit compatibility is missing');
+assert(zapoAccountExtensions.includes('editKey:'), 'Zapo message edit must use the native editKey option');
+assert(zapoAccountExtensions.includes('Events.MESSAGES_UPDATE'), 'Zapo edit webhook parity is missing');
+assert(zapoAccountExtensions.includes("status: 'EDITED'"), 'Zapo local edited-message state is missing');
+assert(zapoAccountExtensions.includes("status: 'DELETED'"), 'Zapo local deleted-message state is missing');
 assert(zapoAccountExtensions.includes('public async fetchPrivacySettings'), 'Zapo privacy read compatibility is missing');
 assert(zapoAccountExtensions.includes('public async updatePrivacySettings'), 'Zapo privacy write compatibility is missing');
 assert(zapoAccountExtensions.includes("setPrivacySetting('profilePicture'"), 'Zapo profile privacy mapping is missing');
