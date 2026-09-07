@@ -2,7 +2,22 @@ const KEYS = {
   apiUrl: 'apiUrl', token: 'token', version: 'version', clientName: 'clientName', documentationUrl: 'documentationUrl',
   instanceId: 'instanceId', instanceName: 'instanceName', instanceToken: 'instanceToken', locale: 'managerLocale', theme: 'managerTheme'
 };
-export const normalizeUrl = (value) => String(value || '').trim().replace(/\/+$/, '');
+
+export const normalizeUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  try {
+    const url = new URL(raw);
+    if (/^\/manager(?:\/|$)/.test(url.pathname)) url.pathname = '/';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return raw.replace(/\/+$/, '');
+  }
+};
+
 export function loadSession() {
   const apiUrl = localStorage.getItem(KEYS.apiUrl) || '';
   const apiKey = localStorage.getItem(KEYS.token) || '';
@@ -11,7 +26,7 @@ export function loadSession() {
 }
 export function saveSession(session) {
   localStorage.setItem(KEYS.apiUrl, normalizeUrl(session.apiUrl));
-  localStorage.setItem(KEYS.token, session.apiKey);
+  localStorage.setItem(KEYS.token, String(session.apiKey || '').trim());
   if (session.version) localStorage.setItem(KEYS.version, session.version);
   if (session.clientName) localStorage.setItem(KEYS.clientName, session.clientName);
   session.documentationUrl ? localStorage.setItem(KEYS.documentationUrl, session.documentationUrl) : localStorage.removeItem(KEYS.documentationUrl);
