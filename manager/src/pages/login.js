@@ -12,7 +12,7 @@ export function renderLogin() {
   });
   const key = input('', { type: 'password', required: true });
   const error = el('div');
-  const submit = button('Entrar', { class: 'primary full' });
+  const submit = button('Entrar', { class: 'primary full', type: 'submit' });
   const form = el(
     'form',
     { class: 'form-stack' },
