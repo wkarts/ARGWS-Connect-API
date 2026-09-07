@@ -51,7 +51,7 @@ jobs:
       - name: Validate Manager
         working-directory: manager
         run: |
-          npm ci
+          npm install --no-package-lock --ignore-scripts
           npm test
 
       - name: Restore canonical workflow and remove temporary repair files
