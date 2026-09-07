@@ -53,7 +53,11 @@ export class InstanceController {
 
     do {
       const qrCode = instance.qrCode;
-      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code || qrCode?.base64) {
+      // QR is only ready for presentation after the provider finishes
+      // rendering the protocol payload as an image. Returning on `code`
+      // alone races Zapo's async qrcode.toDataURL() and makes the Manager
+      // display the raw WhatsApp payload instead of a scannable QR image.
+      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.base64) {
         return qrCode;
       }
       await delay(250);
@@ -66,7 +70,7 @@ export class InstanceController {
       );
     }
 
-    if (!pairingCodeRequested && !qrCode?.code && !qrCode?.base64) {
+    if (!pairingCodeRequested && !qrCode?.base64) {
       throw new BadRequestException('Unable to generate QR code. Try again.');
     }
 

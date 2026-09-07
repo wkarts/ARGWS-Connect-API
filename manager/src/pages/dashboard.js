@@ -28,8 +28,10 @@ function tokenControl(value) {
 function assertAuthenticationResult(data, mode) {
   if (data?.error) throw new Error(data.message || `Não foi possível gerar ${mode}.`);
   if (mode === 'QR Code') {
-    const code = data?.base64 || data?.qrcode?.base64 || data?.code || data?.qrcode?.code;
-    if (!code) throw new Error('A API não retornou um QR Code. Tente novamente.');
+    const code = data?.base64 || data?.qrcode?.base64;
+    if (!String(code || '').startsWith('data:image')) {
+      throw new Error('A API ainda não retornou a imagem do QR Code. Tente novamente.');
+    }
     return;
   }
   const pairingCode = data?.pairingCode || data?.qrcode?.pairingCode || data?.code;
@@ -98,10 +100,10 @@ export function renderDashboard(instance, reloadInstance) {
   }
 
   function showQr(data) {
-    const code = data?.base64 || data?.qrcode?.base64 || data?.code || data?.qrcode?.code || '';
+    const code = data?.base64 || data?.qrcode?.base64 || '';
     const content = el('div', { class: 'qr-wrap' });
     if (String(code).startsWith('data:image')) content.append(el('img', { src: code, alt: 'QR Code' }));
-    else content.append(el('pre', { class: 'qr-text', text: code || 'QR Code não retornado pela API' }));
+    else content.append(alertBox('QR Code ainda não disponível. Gere novamente.'));
     return modal('QR Code', content);
   }
 

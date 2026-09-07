@@ -801,8 +801,6 @@ export class ZapoStartupService extends ChannelStartupService {
 
   private async handleQr(qr: string) {
     if (!qr) return;
-    this.instance.qrcode.count = (this.instance.qrcode.count || 0) + 1;
-    this.instance.qrcode.code = qr;
 
     const opts: QRCodeToDataURLOptions = {
       margin: 3,
@@ -810,7 +808,17 @@ export class ZapoStartupService extends ChannelStartupService {
       errorCorrectionLevel: 'H',
       color: { light: '#ffffff', dark: this.configService.get<QrCode>('QRCODE').COLOR },
     };
-    this.instance.qrcode.base64 = await qrcode.toDataURL(qr, opts);
+    const base64 = await qrcode.toDataURL(qr, opts);
+
+    // Publish QR state atomically. `InstanceController.waitForQrCode()` polls
+    // this object, so exposing `code` before `base64` creates a race where the
+    // raw WhatsApp payload is returned to the Manager as if it were an image.
+    this.instance.qrcode = {
+      ...this.instance.qrcode,
+      count: (this.instance.qrcode.count || 0) + 1,
+      code: qr,
+      base64,
+    };
 
     this.sendDataWebhook(Events.QRCODE_UPDATED, {
       qrcode: {
