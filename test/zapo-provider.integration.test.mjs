@@ -6,6 +6,8 @@ const assert = (condition, message) => {
 };
 
 const zapo = read('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts');
+const zapoExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.extensions.ts');
+const channelController = read('src/api/integrations/channel/channel.controller.ts');
 const baileys = read('src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts');
 const instanceController = read('src/api/controllers/instance.controller.ts');
 const callController = read('src/api/controllers/call.controller.ts');
@@ -38,5 +40,18 @@ assert(voiceMedia.includes('onInboundVoiceAudio'), 'Provider-to-browser voice me
 assert(packageJson.dependencies?.['@innovatorssoft/zapo-js'] === '1.6.3', 'Zapo JS version must stay pinned at 1.6.3');
 assert(packageJson.dependencies?.['@innovatorssoft/voip'] === '1.0.0', 'Zapo VoIP version must stay pinned at 1.0.0');
 assert(packageJson.dependencies?.['zapo-js'] === 'npm:@innovatorssoft/zapo-js@1.6.3', 'Legacy zapo-js runtime alias is missing');
+
+assert(channelController.includes('ZapoExtendedStartupService'), 'Extended Zapo compatibility layer is not wired');
+assert(zapoExtensions.includes("client.on('presence'"), 'Zapo presence listener is missing');
+assert(zapoExtensions.includes("client.on('chatstate'"), 'Zapo chatstate listener is missing');
+assert(zapoExtensions.includes("client.on('app_state_mutation'"), 'Zapo app-state mutation listener is missing');
+assert(zapoExtensions.includes("client.on('mutation_send'"), 'Zapo outbound mutation listener is missing');
+assert(zapoExtensions.includes("schema: 'LabelJid'"), 'Zapo label association mutation is missing');
+assert(zapoExtensions.includes("schema: 'LabelEdit'"), 'Zapo label edit mutation parsing is missing');
+assert(zapoExtensions.includes('public async fetchLabels'), 'Zapo label listing compatibility is missing');
+assert(zapoExtensions.includes('public async handleLabel'), 'Zapo label mutation compatibility is missing');
+assert(zapoExtensions.includes('public async whatsappNumber'), 'Zapo registration lookup compatibility is missing');
+assert(zapoExtensions.includes('getLidsByPhoneNumbers'), 'Zapo registration lookup must use native LID usync');
+assert(zapoExtensions.includes('public async profilePicture'), 'Zapo profile-picture hardening is missing');
 
 console.log('Zapo provider invariants: OK');
