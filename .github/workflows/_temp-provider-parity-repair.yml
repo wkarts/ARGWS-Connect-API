@@ -1,0 +1,60 @@
+name: Temporary Provider Parity Repair
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/_temp-provider-parity-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'chore: enable provider parity repair'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply provider parity repair
+        run: python3 scripts/_temp_provider_parity_repair.py
+
+      - name: Install API dependencies
+        run: npm ci
+
+      - name: Validate API lint
+        run: npm run lint:check
+
+      - name: Validate API build
+        run: npm run build
+
+      - name: Validate Zapo/provider invariants
+        run: npm run test:zapo
+
+      - name: Validate Manager
+        working-directory: manager
+        run: |
+          npm ci
+          npm test
+
+      - name: Commit validated repair
+        run: |
+          if git diff --quiet; then
+            echo 'No repair changes to commit.'
+            exit 0
+          fi
+          git config user.name 'wkarts'
+          git config user.email '57051272+wkarts@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(whatsapp): stabilize provider auth parity and manager voice/chat'
+          git push origin HEAD:develop
