@@ -23,8 +23,8 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Apply core repair
-        run: python3 .github/scripts/repair-core-context.py
+      - name: Apply focused Manager/runtime repairs
+        run: python3 .github/scripts/repair-manager-runtime.py
 
       - name: Install API dependencies
         run: npm ci
@@ -44,10 +44,10 @@ jobs:
           MANAGER_BUILD_MODE: development
         run: npm test
 
-      - name: Commit repaired sources
+      - name: Commit validated repairs
         run: |
           git config user.name "wkarts"
           git config user.email "57051272+wkarts@users.noreply.github.com"
-          git add src manager test
-          git commit -m "fix(core): isolate multi-instance state and stabilize Zapo QR"
+          git add src manager
+          git commit -m "fix(manager): restore WhatsApp UX, Zapo voice and lifecycle integrity"
           git push origin HEAD:develop
