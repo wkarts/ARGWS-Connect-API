@@ -1,7 +1,9 @@
 ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
 ARG APP_VERSION=1.0.0
+ARG MANAGER_BUILD_MODE=production
 FROM ${NODE_IMAGE} AS builder
 ARG APP_VERSION
+ARG MANAGER_BUILD_MODE
 
 # Zapo VOIP uses @roamhq/wrtc, whose Linux prebuilt is glibc-based.
 # Debian Bookworm + Node 22 is the supported production base for the voice-enabled API.
@@ -32,6 +34,10 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
+# /manager is served by the API image in the official develop stack. Always
+# regenerate it from source so a stale committed dist can never reach runtime.
+RUN MANAGER_BUILD_MODE="${MANAGER_BUILD_MODE}" npm --prefix manager run test
+
 RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
 RUN ./Docker/scripts/generate_database.sh
 RUN npm run build
@@ -56,7 +62,7 @@ COPY --from=builder /argws-connect/package-lock.json ./package-lock.json
 COPY --from=builder /argws-connect/node_modules ./node_modules
 COPY --from=builder /argws-connect/dist ./dist
 COPY --from=builder /argws-connect/prisma ./prisma
-COPY --from=builder /argws-connect/manager ./manager
+COPY --from=builder /argws-connect/manager/dist ./manager/dist
 COPY --from=builder /argws-connect/public ./public
 COPY --from=builder /argws-connect/scripts ./scripts
 COPY --from=builder /argws-connect/Docker ./Docker
