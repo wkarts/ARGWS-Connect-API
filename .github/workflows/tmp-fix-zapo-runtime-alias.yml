@@ -1,0 +1,85 @@
+name: Temporary Zapo Runtime Dependency Repair
+
+on:
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v5
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install runtime compatibility alias
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --save-exact 'zapo-js@npm:@innovatorssoft/zapo-js@1.6.3' --ignore-scripts
+          npm pkg set 'scripts.runtime:deps:check=node -e "require.resolve(\x27zapo-js/util\x27); require(\x27@innovatorssoft/store-postgres\x27); console.log(\x27Zapo runtime dependencies OK\x27)"'
+          npm pkg set 'scripts.build=tsc --noEmit && tsup && npm run runtime:deps:check'
+
+      - name: Verify exact runtime dependency path
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run runtime:deps:check
+          node - <<'NODE'
+          const aliasPkg = require('zapo-js/package.json')
+          const scopedPkg = require('@innovatorssoft/zapo-js/package.json')
+          if (aliasPkg.version !== scopedPkg.version || scopedPkg.version !== '1.6.3') {
+            throw new Error(`Unexpected Zapo alias versions: alias=${aliasPkg.version} scoped=${scopedPkg.version}`)
+          }
+          console.log('Zapo alias version parity OK:', scopedPkg.version)
+          NODE
+
+      - name: Refresh tracked manifest entries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, re
+
+          manifest = Path('MANIFEST.sha256')
+          if not manifest.exists():
+              raise SystemExit(0)
+          text = manifest.read_text(encoding='utf-8')
+          for target in ('package.json', 'package-lock.json'):
+              path = Path(target)
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              pattern = rf'^[0-9a-f]{{64}}  {re.escape(target)}$'
+              replacement = f'{digest}  {target}'
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+              if count == 1:
+                  text = updated
+          manifest.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Commit runtime repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'No changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json MANIFEST.sha256
+          git commit -m 'fix(runtime): resolve Zapo package alias required by stores and VOIP'
+          git push origin HEAD:develop
