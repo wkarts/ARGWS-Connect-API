@@ -314,6 +314,33 @@ jobs:
           print('Auxiliary DOCs deployment contract OK')
           PY
 
+      - name: Validate Manager reverse proxy contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cases = {
+              'production': ('deploy/production/nginx-location.conf.example', 38281),
+              'develop': ('deploy/develop/nginx-location.conf.example', 38282),
+              'canonical': ('deploy/canonical/nginx-location.conf.example', 38283),
+              'homologation': ('deploy/homologation/nginx-location.conf.example', 38284),
+              'cloudpanel': ('deploy/cloudpanel/nginx/api-location.conf.example', 38281),
+          }
+          for name, (path, port) in cases.items():
+              text = Path(path).read_text()
+              assert 'location /manager/' in text, f'{name}: rota /manager/ ausente'
+              assert 'location /manager-api/' in text, f'{name}: rota /manager-api/ ausente'
+              assert f'proxy_pass http://127.0.0.1:{port}' in text, f'{name}: upstream Manager incorreto'
+
+          index = Path('manager/index.html').read_text()
+          assert '/manager/assets/app/main.js' in index
+          assert '/manager/assets/app/styles/app.css' in index
+          assert '/manager/assets/runtime-config.js' in index
+          print('Manager reverse proxy contract OK')
+          PY
+
       - name: Validate deployment scripts
         run: |
           set -euo pipefail
@@ -331,30 +358,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          canonical_image="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
-          canonical_docs_image="$(grep '^ARGWS_CONNECT_DOCS_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
-          canonical_manager_image="$(grep '^ARGWS_CONNECT_MANAGER_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
-          canonical_manager_api_image="$(grep '^ARGWS_CONNECT_MANAGER_API_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
-          for image in \
-            ghcr.io/wkarts/argws-connect-api:latest \
-            ghcr.io/wkarts/argws-connect-api:develop \
-            ghcr.io/wkarts/argws-connect-manager:latest \
-            ghcr.io/wkarts/argws-connect-manager:develop \
-            ghcr.io/wkarts/argws-connect-manager-api:latest \
-            ghcr.io/wkarts/argws-connect-manager-api:develop \
-            ghcr.io/wkarts/argws-connect-docs:latest \
-            ghcr.io/wkarts/argws-connect-docs:develop \
-            "$canonical_image" \
-            "$canonical_docs_image" \
-            "$canonical_manager_image" \
-            "$canonical_manager_api_image" \
-            ghcr.io/wkarts/argws-connect-postgres:15 \
-            ghcr.io/wkarts/argws-connect-redis:latest \
-            ghcr.io/wkarts/argws-connect-rabbitmq:management \
-            ghcr.io/wkarts/argws-connect-minio:latest \
-            ghcr.io/wkarts/argws-connect-nats:2.10-alpine \
-            ghcr.io/wkarts/argws-connect-kafka:7.5.0 \
-            ghcr.io/wkarts/argws-connect-zookeeper:7.5.0; do
+
+          # Deployment Integrity validates source/deployment contracts. Stable application
+          # tags are produced by the release workflow and may not exist yet while develop
+          # is introducing a new component. On develop we validate the active develop
+          # channel; release workflows validate stable/SemVer manifests after publishing.
+          application_images=()
+          if [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
+            application_images=(
+              ghcr.io/wkarts/argws-connect-api:develop
+              ghcr.io/wkarts/argws-connect-manager:develop
+              ghcr.io/wkarts/argws-connect-manager-api:develop
+              ghcr.io/wkarts/argws-connect-docs:develop
+            )
+          fi
+
+          infrastructure_images=(
+            ghcr.io/wkarts/argws-connect-postgres:15
+            ghcr.io/wkarts/argws-connect-redis:latest
+            ghcr.io/wkarts/argws-connect-rabbitmq:management
+            ghcr.io/wkarts/argws-connect-minio:latest
+            ghcr.io/wkarts/argws-connect-nats:2.10-alpine
+            ghcr.io/wkarts/argws-connect-kafka:7.5.0
+            ghcr.io/wkarts/argws-connect-zookeeper:7.5.0
+          )
+
+          for image in "${application_images[@]}" "${infrastructure_images[@]}"; do
             echo "Checking $image"
             docker manifest inspect "$image" >/dev/null
           done

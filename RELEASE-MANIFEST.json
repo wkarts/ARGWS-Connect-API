@@ -3,7 +3,7 @@
   "package": "argws-connect-api",
   "version": "1.0.21",
   "revision_date": "2026-09-07",
-  "source_files_excluding_node_modules": 712,
+  "source_files_excluding_node_modules": 715,
   "typescript_files_in_src": 204,
   "distribution": {
     "registry": "ghcr.io",
@@ -84,7 +84,13 @@
     "manager_legacy_modules_excluded_from_web_dist": true,
     "ghcr_artifact_prefix_collision_fixed": true,
     "deployment_contract_manager_aware": true,
-    "develop_manifest_publish_verification_added": true
+    "develop_manifest_publish_verification_added": true,
+    "manager_data_bind_mount_bootstrap_fixed": true,
+    "manager_subpath_assets_fixed": true,
+    "manager_reverse_proxy_routes_fixed": true,
+    "manager_first_access_setup_fixed": true,
+    "deployment_integrity_channel_check_fixed": true,
+    "manager_deploy_failure_logs_added": true
   },
   "release_automation": {
     "enabled": true,

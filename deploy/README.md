@@ -13,7 +13,7 @@ Cada stack publica duas portas de aplicação: API e Connect|API DOCs. A infraes
 - Develop: API `127.0.0.1:38082` | DOCs `127.0.0.1:38182`
 - Canonical: API `127.0.0.1:38083` | DOCs `127.0.0.1:38183`
 
-`/manager`, `/health`, `/metrics`, WebSocket, webhooks e demais rotas da aplicação continuam no endpoint da API. O Scalar roda no service `docs`.
+`/health`, `/metrics`, WebSocket, webhooks e demais rotas do Engine continuam no endpoint da API. `/manager/` e `/manager-api/` são encaminhados ao service da Connect|API Manager. O Scalar roda no service `docs`.
 
 ## Core padrão
 
@@ -48,7 +48,7 @@ Eles não substituem Redis. NATS/Kafka sobrepõem parte do papel de mensageria d
 
 ## Manager
 
-O Manager atual é servido em `/manager` pela própria API e não possui service/container separado.
+O Connect|API Manager é um service separado. O frontend é publicado localmente na porta configurada por `ARGWS_CONNECT_MANAGER_HOST_PORT`; `/manager/` e `/manager-api/` devem ser encaminhados para esse service pelo proxy reverso. A Manager API permanece interna na rede Docker.
 
 ## Deploy sem preencher segredos manualmente
 

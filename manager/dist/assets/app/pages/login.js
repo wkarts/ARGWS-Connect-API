@@ -6,7 +6,7 @@ import { setAuth } from '../core/session.js';
 export function renderLogin() {
   const page = el('div', { class: 'login-page' });
   const wrap = el('div', { class: 'login-wrap' });
-  const logo = el('img', { class: 'login-logo', src: '/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' });
+  const logo = el('img', { class: 'login-logo', src: '/manager/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' });
   const feedback = el('div');
   const content = el('div');
 
@@ -15,8 +15,51 @@ export function renderLogin() {
     navigate(auth?.security?.enrollmentRequired ? '/manager/security' : '/manager/');
   }
 
-  function renderPasswordStep() {
+  function renderSetupStep() {
+    const name = input('Administrador', { required: true, autocomplete: 'name' });
     const email = input('', { type: 'email', required: true, autocomplete: 'username', placeholder: 'administrador@empresa.com.br' });
+    const password = input('', { type: 'password', required: true, autocomplete: 'new-password', placeholder: 'Mínimo de 12 caracteres' });
+    const confirmPassword = input('', { type: 'password', required: true, autocomplete: 'new-password', placeholder: 'Repita a senha' });
+    const setupToken = input('', { type: 'password', required: true, autocomplete: 'off', placeholder: 'Token de configuração' });
+    const submit = button('Criar administrador', { class: 'primary full', type: 'submit' });
+    const form = el('form', { class: 'form-stack' },
+      feedback,
+      el('div', { class: 'security-intro' },
+        el('strong', { text: 'Primeiro acesso' }),
+        el('span', { text: ' Crie o administrador local desta instalação. O token de configuração está no arquivo .env gerado pelo instalador.' }),
+      ),
+      field('Nome', name),
+      field('E-mail', email),
+      field('Senha', password, 'Use pelo menos 12 caracteres.'),
+      field('Confirmar senha', confirmPassword),
+      field('Token de configuração', setupToken, 'Variável MANAGER_SETUP_TOKEN da instalação.'),
+      submit,
+    );
+    content.replaceChildren(form);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      feedback.replaceChildren();
+      if (password.value !== confirmPassword.value) {
+        feedback.replaceChildren(alertBox('As senhas não conferem.'));
+        return;
+      }
+      submit.disabled = true;
+      submit.replaceChildren(spinner(), ' Configurando');
+      try {
+        await api.setup({ name: name.value.trim(), email: email.value.trim(), password: password.value }, setupToken.value.trim());
+        feedback.replaceChildren(alertBox('Administrador criado. Entre com as credenciais configuradas.', 'success'));
+        renderPasswordStep(email.value.trim());
+      } catch (error) {
+        feedback.replaceChildren(alertBox(error.message || String(error)));
+      } finally {
+        submit.disabled = false;
+        submit.textContent = 'Criar administrador';
+      }
+    };
+  }
+
+  function renderPasswordStep(initialEmail = '') {
+    const email = input(initialEmail, { type: 'email', required: true, autocomplete: 'username', placeholder: 'administrador@empresa.com.br' });
     const password = input('', { type: 'password', required: true, autocomplete: 'current-password', placeholder: 'Sua senha' });
     const submit = button('Entrar', { class: 'primary full', type: 'submit' });
     const form = el('form', { class: 'form-stack' }, feedback, field('E-mail', email), field('Senha', password), submit);
@@ -99,13 +142,7 @@ export function renderLogin() {
   renderPasswordStep();
 
   void api.status().then((status) => {
-    if (!status.setupRequired) return;
-    feedback.replaceChildren(
-      el('div', { class: 'alert warning' },
-        el('strong', { text: 'Primeiro acesso' }),
-        el('span', { text: ' A administração ainda não possui usuário. Configure MANAGER_BOOTSTRAP_EMAIL e MANAGER_BOOTSTRAP_PASSWORD ou utilize o instalador do Connect|API.' }),
-      ),
-    );
+    if (status.setupRequired) renderSetupStep();
   }).catch(() => null);
 
   return page;
