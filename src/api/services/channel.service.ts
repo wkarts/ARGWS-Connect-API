@@ -188,7 +188,6 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
-
   }
 
   public async findSettings() {

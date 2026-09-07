@@ -742,7 +742,6 @@ export class BaileysStartupService extends ChannelStartupService {
     const client = makeWASocket(socketConfig);
     this.client = client;
 
-
     this.eventHandler(client, generation);
 
     client.ws.on('CB:call', (packet) => {
@@ -800,17 +799,6 @@ export class BaileysStartupService extends ChannelStartupService {
     this.phoneNumber = mode === 'pairing-code' ? normalizedPhoneNumber : undefined;
 
     return await this.connectToWhatsapp(this.phoneNumber, mode);
-  }
-
-  public isRegistered(): boolean {
-    return Boolean(this.client?.authState?.creds?.registered);
-  }
-
-  public async requestPairingCode(number: string): Promise<string> {
-    if (!this.client) {
-      await this.preparePairingConnection(number);
-    }
-    return this.client.requestPairingCode(number);
   }
 
   public async preparePairingConnection(number: string): Promise<WASocket> {
@@ -4554,10 +4542,11 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async fetchAllGroups(getParticipants: GetParticipant) {
-    const participatingGroups = await this.client.groupFetchAllParticipating();
-    const fetch = Object.values(participatingGroups ?? {}) as GroupMetadata[];
+    const fetch = Object.values(
+      (await this.client.groupFetchAllParticipating()) as Record<string, GroupMetadata>,
+    );
 
-    const groups: Array<Partial<GroupMetadata> & { pictureUrl?: string; size: number }> = [];
+    let groups: Array<Partial<GroupMetadata> & { pictureUrl?: string; size: number }> = [];
     for (const group of fetch) {
       const picture = await this.profilePicture(group.id);
 
@@ -4577,10 +4566,13 @@ export class BaileysStartupService extends ChannelStartupService {
         isCommunity: group.isCommunity,
         isCommunityAnnounce: group.isCommunityAnnounce,
         linkedParent: group.linkedParent,
-        ...(getParticipants.getParticipants == 'true' ? { participants: group.participants } : {}),
       };
 
-      groups.push(result);
+      if (getParticipants.getParticipants == 'true') {
+        result.participants = group.participants;
+      }
+
+      groups = [...groups, result];
     }
 
     return groups;
