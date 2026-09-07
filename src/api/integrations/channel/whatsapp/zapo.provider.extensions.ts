@@ -252,8 +252,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     const chatJid = this.tryNormalizeJid(event.chatJid);
     if (!labelId || !chatJid) return;
 
-    const type: 'add' | 'remove' =
-      event.operation === 'remove' || event.labeled === false ? 'remove' : 'add';
+    const type: 'add' | 'remove' = event.operation === 'remove' || event.labeled === false ? 'remove' : 'add';
 
     await this.updateLocalChatLabel(labelId, chatJid, type);
 
@@ -265,11 +264,7 @@ export class ZapoExtendedStartupService extends ZapoStartupService {
     });
   }
 
-  private async updateLocalChatLabel(
-    labelId: string,
-    chatJid: string,
-    action: 'add' | 'remove',
-  ): Promise<void> {
+  private async updateLocalChatLabel(labelId: string, chatJid: string, action: 'add' | 'remove'): Promise<void> {
     if (!this.configService.get<Database>('DATABASE').SAVE_DATA.CHATS) return;
 
     const existing = await this.prismaRepository.chat.findUnique({
