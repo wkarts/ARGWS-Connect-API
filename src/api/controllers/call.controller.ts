@@ -16,9 +16,7 @@ export class CallController {
     const instance = this.instance(instanceName);
     const method = instance?.[methodName];
     if (typeof method !== 'function') {
-      throw new BadRequestException(
-        `The selected provider does not support the call operation "${methodName}"`,
-      );
+      throw new BadRequestException(`The selected provider does not support the call operation "${methodName}"`);
     }
     return method.bind(instance);
   }

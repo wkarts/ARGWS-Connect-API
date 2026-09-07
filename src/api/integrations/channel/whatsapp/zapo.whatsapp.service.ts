@@ -1,5 +1,4 @@
 import { OfferCallDto } from '@api/dto/call.dto';
-import { InstanceDto } from '@api/dto/instance.dto';
 import {
   SendAudioDto,
   SendContactDto,
@@ -19,12 +18,14 @@ import { Events, Integration, wa } from '@api/types/wa.types';
 import { Chatwoot, ConfigService, Database } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
+import { createPostgresStore } from '@innovatorssoft/store-postgres';
 import { createJid } from '@utils/createJid';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
 import ffmpeg from 'fluent-ffmpeg';
 import mimeTypes from 'mime-types';
+import { Pool } from 'pg';
 import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import sharp from 'sharp';
 import { PassThrough } from 'stream';
@@ -36,12 +37,6 @@ function getSharedZapoPostgresBackend(connectionString: string) {
   if (sharedZapoPostgresBackend && sharedZapoPostgresUri === connectionString) {
     return sharedZapoPostgresBackend;
   }
-
-  // Runtime imports keep provider-specific dependencies isolated from the Connect|API core.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { Pool } = require('pg');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createPostgresStore } = require('@innovatorssoft/store-postgres');
 
   const pool = new Pool({ connectionString });
   sharedZapoPostgresBackend = createPostgresStore({
@@ -383,7 +378,9 @@ export class ZapoStartupService extends ChannelStartupService {
     if (data.encoding !== false) {
       audio = await this.convertVoiceNote(data.audio, file);
     } else {
-      audio = (await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus')).buffer;
+      audio = (
+        await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus')
+      ).buffer;
     }
 
     const contextInfo = this.buildContextInfo(data, jid);
@@ -403,7 +400,9 @@ export class ZapoStartupService extends ChannelStartupService {
     await this.applyDelay(data.delay);
 
     const source = await this.resolveMediaInput(data.sticker, file, file?.mimetype, 'image/webp');
-    const sticker = data.notConvertSticker ? source.buffer : await sharp(source.buffer, { animated: true }).webp().toBuffer();
+    const sticker = data.notConvertSticker
+      ? source.buffer
+      : await sharp(source.buffer, { animated: true }).webp().toBuffer();
     const contextInfo = this.buildContextInfo(data, jid);
     const result = await this.client.message.send(jid, {
       type: 'sticker',
@@ -547,7 +546,6 @@ export class ZapoStartupService extends ChannelStartupService {
     return this.client.voip.feedLiveAudio(callId, pcm);
   }
 
-
   private async loadRuntimeConfiguration() {
     await Promise.all([this.loadChatwoot(), this.loadSettings(), this.loadWebhook(), this.loadProxy()]);
   }
@@ -565,12 +563,11 @@ export class ZapoStartupService extends ChannelStartupService {
       throw new BadRequestException('The Zapo provider requires DATABASE_CONNECTION_URI');
     }
 
-    // Runtime imports keep the core decoupled from provider-specific TypeScript types.
-    // Dependencies remain pinned in package.json/package-lock.json.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { ConsoleLogger, createStore, WaClient } = require('@innovatorssoft/zapo-js');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { voipPlugin } = require('@innovatorssoft/voip');
+    // Provider modules are loaded lazily so Baileys/Meta startup remains independent from Zapo/VoIP.
+    const [{ ConsoleLogger, createStore, WaClient }, { voipPlugin }] = await Promise.all([
+      import('@innovatorssoft/zapo-js'),
+      import('@innovatorssoft/voip'),
+    ]);
 
     this.storeBackend = getSharedZapoPostgresBackend(database.CONNECTION.URI);
 
@@ -598,8 +595,12 @@ export class ZapoStartupService extends ChannelStartupService {
     });
     this.cleanupPoller = this.storeBackend.startCleanup(this.instanceId);
 
-    const maxConcurrentCalls = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
-    const plugins = process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })];
+    const maxConcurrentCalls = Math.max(
+      1,
+      Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'),
+    );
+    const plugins =
+      process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })];
 
     this.client = new WaClient(
       {
@@ -828,7 +829,9 @@ export class ZapoStartupService extends ChannelStartupService {
 
     const db = this.configService.get<Database>('DATABASE');
     if (db.SAVE_DATA.NEW_MESSAGE) {
-      await this.prismaRepository.message.create({ data: messageRaw }).catch((error: Error) => this.logger.error(error));
+      await this.prismaRepository.message
+        .create({ data: messageRaw })
+        .catch((error: Error) => this.logger.error(error));
     }
 
     if (db.SAVE_DATA.CONTACTS) {
@@ -936,7 +939,6 @@ export class ZapoStartupService extends ChannelStartupService {
     ]);
   }
 
-
   private async applyDelay(delay?: number) {
     if (delay && delay > 0) {
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -953,7 +955,9 @@ export class ZapoStartupService extends ChannelStartupService {
     if (quoted?.key?.id) {
       contextInfo.quotedMessageId = quoted.key.id;
       if (quoted.key.participant) contextInfo.quotedParticipant = quoted.key.participant;
-      if (quoted.key.remoteJid && quoted.key.remoteJid !== targetJid) contextInfo.quotedRemoteJid = quoted.key.remoteJid;
+      if (quoted.key.remoteJid && quoted.key.remoteJid !== targetJid) {
+        contextInfo.quotedRemoteJid = quoted.key.remoteJid;
+      }
       if (quoted.message) contextInfo.quotedMessage = quoted.message;
     }
     if (mentions.length > 0) contextInfo.mentionedJids = mentions;
@@ -1086,8 +1090,16 @@ export class ZapoStartupService extends ChannelStartupService {
   }
 
   // Explicit stubs avoid opaque "method is not a function" errors while the adapter grows.
-  public buttonMessage() { return this.unsupported('buttonMessage'); }
-  public listMessage() { return this.unsupported('listMessage'); }
-  public statusMessage() { return this.unsupported('statusMessage'); }
-  public templateMessage() { return this.unsupported('templateMessage'); }
+  public buttonMessage() {
+    return this.unsupported('buttonMessage');
+  }
+  public listMessage() {
+    return this.unsupported('listMessage');
+  }
+  public statusMessage() {
+    return this.unsupported('statusMessage');
+  }
+  public templateMessage() {
+    return this.unsupported('templateMessage');
+  }
 }
