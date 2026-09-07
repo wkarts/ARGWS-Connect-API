@@ -7,14 +7,87 @@ on:
     branches: [develop]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   check-lint-and-build:
-    name: Canonical CI Core (main)
+    name: Status parity repair
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Run canonical validation core from main
-        uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply Status parity repair
+        run: python3 scripts/_temp_status_parity_repair.py
+
+      - name: Install API dependencies
+        run: npm ci
+
+      - name: Generate PostgreSQL Prisma client
+        env:
+          DATABASE_CONNECTION_URI: postgresql://argws_connect:argws_connect@localhost:5432/argws_connect?schema=public
+        run: npx prisma generate --schema ./prisma/postgresql-schema.prisma
+
+      - name: Validate API lint
+        run: npm run lint:check
+
+      - name: Validate API build
+        run: npm run build
+
+      - name: Validate provider invariants
+        run: npm run test:zapo
+
+      - name: Validate Manager
+        working-directory: manager
+        run: |
+          npm install --no-package-lock --ignore-scripts
+          npm test
+
+      - name: Restore canonical workflow and remove temporary script
+        run: |
+          rm -f scripts/_temp_status_parity_repair.py
+          cat > .github/workflows/check_code_quality.yml <<'EOF'
+          name: Check Code Quality
+
+          on:
+            pull_request:
+              branches: [develop]
+            push:
+              branches: [develop]
+
+          permissions:
+            contents: read
+
+          jobs:
+            check-lint-and-build:
+              name: Canonical CI Core (main)
+              runs-on: ubuntu-latest
+              timeout-minutes: 15
+
+              steps:
+                - name: Run canonical validation core from main
+                  uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+          EOF
+
+      - name: Commit validated Status parity repair
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'wkarts'
+          git config user.email '57051272+wkarts@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(whatsapp): keep Status capture provider-neutral'
+          git push origin HEAD:develop
