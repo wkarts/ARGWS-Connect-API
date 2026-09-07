@@ -18,3 +18,56 @@ jobs:
     steps:
       - name: Run canonical validation core from main
         uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+
+  provider-parity-repair:
+    if: github.event_name == 'push' && github.event.head_commit.message == 'chore: run provider parity repair'
+    name: Provider parity repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply provider parity repair
+        run: python3 scripts/_temp_provider_parity_repair.py
+
+      - name: Install API dependencies
+        run: npm ci
+
+      - name: Validate API lint
+        run: npm run lint:check
+
+      - name: Validate API build
+        run: npm run build
+
+      - name: Validate Zapo/provider invariants
+        run: npm run test:zapo
+
+      - name: Validate Manager
+        working-directory: manager
+        run: |
+          npm ci
+          npm test
+
+      - name: Commit validated repair
+        run: |
+          if git diff --quiet; then
+            echo 'No repair changes to commit.'
+            exit 0
+          fi
+          git config user.name 'wkarts'
+          git config user.email '57051272+wkarts@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(whatsapp): stabilize provider auth parity and manager voice/chat'
+          git push origin HEAD:develop
