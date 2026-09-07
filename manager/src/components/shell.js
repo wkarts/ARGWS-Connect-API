@@ -66,6 +66,9 @@ function navigationGroups(instance) {
     ['Visão geral', 'dashboard', '◫'],
     ['Chat', 'chat', '◉'],
   ];
+  if (instance.integration === 'WHATSAPP-BAILEYS' || instance.integration === 'WHATSAPP-ZAPO') {
+    principal.push(['Status', 'status', '◌']);
+  }
   if (instance.integration === 'WHATSAPP-ZAPO') {
     principal.push(['Chamadas WhatsApp', 'calls', '☎'], ['VoIP', 'voip', '◍']);
   }

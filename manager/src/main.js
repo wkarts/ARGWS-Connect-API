@@ -16,6 +16,7 @@ import { renderConfig } from './pages/config.js';
 import { renderIntegration } from './pages/integration.js';
 import { renderCalls } from './pages/calls.js';
 import { renderVoip } from './pages/voip.js';
+import { renderStatus } from './pages/status.js';
 
 const root = document.getElementById('root');
 setTheme(getTheme());
@@ -109,6 +110,11 @@ async function render() {
       root.append(renderDashboard(instance, reload));
     } else if (section === 'chat') {
       root.append(renderChat(instance, tail ? decodeURIComponent(tail) : ''));
+    } else if (
+      section === 'status' &&
+      (instance.integration === 'WHATSAPP-BAILEYS' || instance.integration === 'WHATSAPP-ZAPO')
+    ) {
+      root.append(renderStatus(instance));
     } else if (section === 'calls' && instance.integration === 'WHATSAPP-ZAPO') {
       root.append(renderCalls(instance));
     } else if (section === 'voip' && instance.integration === 'WHATSAPP-ZAPO') {

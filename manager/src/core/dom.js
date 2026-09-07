@@ -27,7 +27,24 @@ export const select = (value, options, attrs = {}) => {
   options.forEach((option) => node.append(el('option', { value: option.value ?? option, text: option.label ?? option, selected: String(option.value ?? option) === String(value) })));
   return node;
 };
-export const badge = (status) => el('span', { class: `status status-${String(status || 'unknown').toLowerCase()}`, text: status || 'desconhecido' });
+export const badge = (status) => {
+  const key = String(status || 'unknown').toLowerCase();
+  const connection = {
+    open: ['Conectado', 'open'],
+    connected: ['Conectado', 'open'],
+    close: ['Desconectado', 'close'],
+    closed: ['Desconectado', 'close'],
+    disconnected: ['Desconectado', 'close'],
+    connecting: ['Conectando', 'connecting'],
+  }[key];
+  if (!connection) return el('span', { class: `status status-${key}`, text: status || 'desconhecido' });
+  return el(
+    'span',
+    { class: `status connection-status status-${connection[1]}` },
+    el('span', { class: 'status-led' }),
+    connection[0],
+  );
+};
 export const spinner = () => el('span', { class: 'spinner' });
 export const alertBox = (message, kind = 'error') => el('div', { class: `alert ${kind}`, text: message });
 export function modal(title, content) {

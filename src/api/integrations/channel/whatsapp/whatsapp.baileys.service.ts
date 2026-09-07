@@ -2143,10 +2143,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
     try {
       const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image');
-
       return { wuid: jid, profilePictureUrl };
     } catch {
-      return { wuid: jid, profilePictureUrl: null };
+      try {
+        const profilePictureUrl = await this.client.profilePictureUrl(jid, 'preview');
+        return { wuid: jid, profilePictureUrl };
+      } catch {
+        return { wuid: jid, profilePictureUrl: null };
+      }
     }
   }
 

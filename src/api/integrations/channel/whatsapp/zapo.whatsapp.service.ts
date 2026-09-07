@@ -15,7 +15,7 @@ import { chatbotController } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
 import { Events, Integration, wa } from '@api/types/wa.types';
-import { Chatwoot, ConfigService, Database } from '@config/env.config';
+import { Chatwoot, ConfigService, ConfigSessionPhone, Database, QrCode } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createPostgresStore } from '@innovatorssoft/store-postgres';
@@ -110,6 +110,9 @@ export class ZapoStartupService extends ChannelStartupService {
   private connectPromise: Promise<void> | null = null;
   private pairingReadyPromise: Promise<void> | null = null;
   private resolvePairingReady: (() => void) | null = null;
+  private pairingReady = false;
+  private lidReconciliationDone = false;
+  private readonly outgoingCallPeers = new Map<string, string>();
   private readonly audioEmitter = new EventEmitter2();
   private reconnectTimer?: NodeJS.Timeout;
   private intentionalDisconnect = false;
@@ -247,7 +250,7 @@ export class ZapoStartupService extends ChannelStartupService {
     this.instance.qrcode = { count: 0 };
     await this.loadRuntimeConfiguration();
     await this.ensureClient();
-    this.resetPairingReady();
+    if (!this.pairingReady && !this.pairingReadyPromise) this.resetPairingReady();
     this.startConnect();
     await this.waitPairingReady();
     return this.client;
@@ -299,7 +302,7 @@ export class ZapoStartupService extends ChannelStartupService {
       ...(contextInfo ? { contextInfo } : {}),
     });
 
-    return { key: { id: result?.id, remoteJid: jid, fromMe: true }, message: { conversation: data.text } };
+    return await this.persistOutgoingMessage(result?.id, jid, 'conversation', { conversation: data.text });
   }
 
   public async locationMessage(data: SendLocationDto) {
@@ -365,7 +368,14 @@ export class ZapoStartupService extends ChannelStartupService {
     };
 
     const result = await this.client.message.send(jid, content);
-    return this.outgoingMessageResult(result?.id, jid, `${data.mediatype}Message`);
+    const messageType = `${data.mediatype}Message`;
+    return await this.persistOutgoingMessage(result?.id, jid, messageType, {
+      [messageType]: {
+        caption: data.caption,
+        mimetype,
+        fileName: data.fileName,
+      },
+    });
   }
 
   public async ptvMessage(data: SendPtvDto, file?: any) {
@@ -499,6 +509,7 @@ export class ZapoStartupService extends ChannelStartupService {
 
     const jid = createJid(number);
     const callId = await this.client.voip.startCall({ peerJid: jid, isVideo: Boolean(isVideo) });
+    this.outgoingCallPeers.set(callId, jid);
 
     if (callDuration && callDuration > 0) {
       const timer = setTimeout(() => {
@@ -535,7 +546,7 @@ export class ZapoStartupService extends ChannelStartupService {
     await this.ensureConnected();
     this.ensureVoip();
     this.client.voip.setMute(callId, muted);
-    return { callId, muted };
+    return this.normalizeCall(this.client.voip.getCall(callId)) ?? { callId, muted };
   }
 
   public async listCalls() {
@@ -612,6 +623,15 @@ export class ZapoStartupService extends ChannelStartupService {
     const maxConcurrentCalls = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
     const plugins =
       process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })];
+    const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
+    const deviceBrowser =
+      process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || process.env.ZAPO_DEVICE_BROWSER || session.NAME || 'Chrome';
+    const deviceDisplayName =
+      process.env.WHATSAPP_PROTOCOL_BROWSER_CLIENT || session.CLIENT || process.env.ZAPO_DEVICE_OS || 'Connect|API';
+
+    this.pairingReady = false;
+    this.pairingReadyPromise = null;
+    this.resolvePairingReady = null;
 
     this.client = new WaClient(
       {
@@ -626,8 +646,8 @@ export class ZapoStartupService extends ChannelStartupService {
           enabled: this.localSettings.syncFullHistory === true,
           requireFullSync: this.localSettings.syncFullHistory === true,
         },
-        deviceBrowser: process.env.ZAPO_DEVICE_BROWSER || 'Chrome',
-        deviceOsDisplayName: process.env.ZAPO_DEVICE_OS || 'Linux',
+        deviceBrowser,
+        deviceOsDisplayName: deviceDisplayName,
         plugins,
       },
       new ConsoleLogger(resolveZapoLogLevel(process.env.ZAPO_LOG_LEVEL)),
@@ -725,8 +745,7 @@ export class ZapoStartupService extends ChannelStartupService {
       this.instance.ownerJid = credentials.meJid;
       this.instance.profileName = credentials.meDisplayName ?? this.instance.profileName;
       if (state === 'open') {
-        const picture = await this.client.profile.getProfilePicture(credentials.meJid, 'image').catch(() => null);
-        this.instance.profilePictureUrl = picture?.url ?? this.instance.profilePictureUrl;
+        await this.refreshOwnProfilePicture(credentials);
       }
     }
 
@@ -745,6 +764,7 @@ export class ZapoStartupService extends ChannelStartupService {
 
     if (state === 'open') {
       this.instance.qrcode = { count: 0 };
+      void this.reconcileStoredLidAliases().catch((error: Error) => this.logger.error(error));
       return;
     }
 
@@ -788,7 +808,7 @@ export class ZapoStartupService extends ChannelStartupService {
       margin: 3,
       scale: 4,
       errorCorrectionLevel: 'H',
-      color: { light: '#ffffff', dark: '#111111' },
+      color: { light: '#ffffff', dark: this.configService.get<QrCode>('QRCODE').COLOR },
     };
     this.instance.qrcode.base64 = await qrcode.toDataURL(qr, opts);
 
@@ -819,6 +839,8 @@ export class ZapoStartupService extends ChannelStartupService {
 
     const message = this.toJson(event.message);
     const messageType = this.detectMessageType(message);
+    const isProtocolMessage = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
+    const isStatusMessage = canonicalRemoteJid === 'status@broadcast' || event.key.isBroadcast === true;
     const messageRaw: any = {
       key: {
         id: event.key.id,
@@ -837,7 +859,20 @@ export class ZapoStartupService extends ChannelStartupService {
       instanceId: this.instanceId,
     };
 
+    const db = this.configService.get<Database>('DATABASE');
+    if (db.SAVE_DATA.NEW_MESSAGE) {
+      await this.prismaRepository.message
+        .create({ data: messageRaw })
+        .catch((error: Error) => this.logger.error(error));
+    }
+
+    // Protocol messages are useful for protocol state/debugging but are not user conversations.
+    if (isProtocolMessage) return;
+
     this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
+
+    // Status is retained in Message for the dedicated Status view, never as a regular chat/contact.
+    if (isStatusMessage) return;
 
     await chatbotController.emit({
       instance: { instanceName: this.instance.name, instanceId: this.instanceId },
@@ -852,13 +887,6 @@ export class ZapoStartupService extends ChannelStartupService {
         { instanceName: this.instance.name, instanceId: this.instanceId },
         messageRaw,
       );
-    }
-
-    const db = this.configService.get<Database>('DATABASE');
-    if (db.SAVE_DATA.NEW_MESSAGE) {
-      await this.prismaRepository.message
-        .create({ data: messageRaw })
-        .catch((error: Error) => this.logger.error(error));
     }
 
     if (db.SAVE_DATA.CONTACTS) {
@@ -895,6 +923,117 @@ export class ZapoStartupService extends ChannelStartupService {
     this.sendDataWebhook(Events.CHATS_UPSERT, { remoteJid, name, instanceId: this.instanceId });
   }
 
+  private async persistOutgoingMessage(id: string | undefined, jid: string, messageType: string, message: any) {
+    const messageRaw: any = {
+      key: { id: id || `local-${Date.now()}`, remoteJid: jid, fromMe: true },
+      pushName: this.instance.profileName,
+      messageType,
+      message,
+      messageTimestamp: Math.round(Date.now() / 1000),
+      source: 'web',
+      instanceId: this.instanceId,
+    };
+
+    this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
+    const db = this.configService.get<Database>('DATABASE');
+    if (db.SAVE_DATA.NEW_MESSAGE) {
+      await this.prismaRepository.message
+        .create({ data: messageRaw })
+        .catch((error: Error) => this.logger.error(error));
+    }
+    if (db.SAVE_DATA.CHATS) await this.upsertChat(jid);
+    return messageRaw;
+  }
+
+  private async refreshOwnProfilePicture(credentials: any) {
+    const candidates = [credentials?.meJid, credentials?.meLid, this.instance.ownerJid].filter(Boolean);
+    for (const jid of [...new Set(candidates.map(String))]) {
+      for (const type of ['image', 'preview'] as const) {
+        const picture = await this.client.profile.getProfilePicture(jid, type).catch(() => null);
+        if (picture?.url) {
+          this.instance.profilePictureUrl = picture.url;
+          return;
+        }
+      }
+    }
+  }
+
+  private async reconcileStoredLidAliases() {
+    if (this.lidReconciliationDone) return;
+    this.lidReconciliationDone = true;
+
+    const rows = await this.prismaRepository.message.findMany({
+      where: { instanceId: this.instanceId },
+      orderBy: { messageTimestamp: 'desc' },
+      take: 5000,
+      select: { id: true, key: true },
+    });
+    const aliases = new Map<string, string>();
+
+    for (const row of rows) {
+      const key = row.key as any;
+      const remoteJid = String(key?.remoteJid || '');
+      const remoteJidAlt = String(key?.remoteJidAlt || '');
+      if (remoteJid.endsWith('@lid') && remoteJidAlt && !remoteJidAlt.endsWith('@lid')) {
+        aliases.set(remoteJid, remoteJidAlt);
+      } else if (remoteJidAlt.endsWith('@lid') && remoteJid && !remoteJid.endsWith('@lid')) {
+        aliases.set(remoteJidAlt, remoteJid);
+      }
+    }
+
+    for (const [lidJid, phoneJid] of aliases) {
+      const [lidContact, phoneContact, lidChat, phoneChat] = await Promise.all([
+        this.prismaRepository.contact.findUnique({
+          where: { remoteJid_instanceId: { remoteJid: lidJid, instanceId: this.instanceId } },
+        }),
+        this.prismaRepository.contact.findUnique({
+          where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
+        }),
+        this.prismaRepository.chat.findUnique({
+          where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: lidJid } },
+        }),
+        this.prismaRepository.chat.findUnique({
+          where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: phoneJid } },
+        }),
+      ]);
+
+      if (lidContact && !phoneContact) {
+        await this.prismaRepository.contact.create({
+          data: {
+            remoteJid: phoneJid,
+            pushName: lidContact.pushName,
+            profilePicUrl: lidContact.profilePicUrl,
+            instanceId: this.instanceId,
+          },
+        });
+      }
+      if (lidChat && !phoneChat) {
+        await this.prismaRepository.chat.create({
+          data: {
+            remoteJid: phoneJid,
+            name: lidChat.name,
+            unreadMessages: lidChat.unreadMessages,
+            instanceId: this.instanceId,
+          },
+        });
+      }
+
+      await Promise.all([
+        this.prismaRepository.contact.deleteMany({ where: { instanceId: this.instanceId, remoteJid: lidJid } }),
+        this.prismaRepository.chat.deleteMany({ where: { instanceId: this.instanceId, remoteJid: lidJid } }),
+      ]);
+
+      for (const row of rows) {
+        const key = row.key as any;
+        if (String(key?.remoteJid || '') !== lidJid) continue;
+        await this.prismaRepository.message.update({
+          where: { id: row.id },
+          data: { key: { ...key, remoteJid: phoneJid, remoteJidAlt: lidJid } },
+        });
+      }
+    }
+  }
+
   private async handleIncomingCall(call: any) {
     this.emitCall('incoming', call);
 
@@ -922,13 +1061,21 @@ export class ZapoStartupService extends ChannelStartupService {
 
   private normalizeCall(call: any) {
     if (!call) return null;
+    const rawPeerJid = call.peerJid;
+    const displayPeerJid =
+      (call.callerPn ? createJid(String(call.callerPn)) : undefined) ||
+      this.outgoingCallPeers.get(call.callId) ||
+      rawPeerJid;
     return this.toJson({
       callId: call.callId,
-      peerJid: call.peerJid,
+      peerJid: displayPeerJid,
+      peerJidRaw: rawPeerJid,
+      callerPn: call.callerPn,
       isVideo: call.isVideo,
       direction: call.direction,
       state: call.stateData?.state ?? call.state,
       stateData: call.stateData,
+      muted: Boolean(call.stateData?.audioMuted),
       canAccept: call.canAccept,
       canReject: call.canReject,
       createdAt: call.createdAt,
@@ -955,21 +1102,27 @@ export class ZapoStartupService extends ChannelStartupService {
   }
 
   private resetPairingReady() {
+    this.pairingReady = false;
     this.pairingReadyPromise = new Promise<void>((resolve) => {
       this.resolvePairingReady = resolve;
     });
   }
 
   private markPairingReady() {
+    this.pairingReady = true;
     this.resolvePairingReady?.();
     this.resolvePairingReady = null;
   }
 
   private async waitPairingReady() {
+    if (this.pairingReady) return;
     if (!this.pairingReadyPromise) this.resetPairingReady();
+    const timeoutMs = Math.max(15000, Number.parseInt(process.env.WHATSAPP_AUTH_REQUEST_TIMEOUT_MS || '60000'));
     await Promise.race([
       this.pairingReadyPromise,
-      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Zapo pairing readiness timeout')), 15_000)),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Zapo pairing readiness timeout')), timeoutMs),
+      ),
     ]);
   }
 

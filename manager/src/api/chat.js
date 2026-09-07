@@ -17,6 +17,8 @@ export async function findMessages(session, instance, remoteJid) {
   );
   return data?.messages?.records || (Array.isArray(data) ? data : []);
 }
+export const findStatusMessages = (session, instance) => findMessages(session, instance, 'status@broadcast');
+
 export async function fetchProfilePicture(session, instance, remoteJid) {
   const number = String(remoteJid || '').replace(/@.+$/, '');
   if (!number) return null;

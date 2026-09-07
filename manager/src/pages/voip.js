@@ -6,21 +6,30 @@ import { instanceShell, pageHeader } from '../components/shell.js';
 
 export function renderVoip(instance) {
   const session = loadSession();
-  const page = el('div', { class: 'page' });
+  const page = el('div', { class: 'page softphone-page' });
   const status = el('div', { class: 'voip-status' }, spinner());
+  const micState = el('span', { class: 'muted', text: 'Microfone não verificado' });
+
+  async function testMicrophone() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      micState.textContent = 'Microfone disponível';
+      micState.className = 'success-text';
+    } catch (error) {
+      micState.textContent = 'Microfone indisponível ou sem permissão';
+    }
+  }
 
   async function reload() {
     try {
       const calls = await listCalls(session, instance);
       const active = Array.isArray(calls) ? calls.length : calls?.calls?.length || 0;
       status.replaceChildren(
-        card(el('span', { class: 'muted', text: 'Provider' }), el('strong', { text: 'Zapo' })),
-        card(
-          el('span', { class: 'muted', text: 'Voz WhatsApp' }),
-          badge(instance.connectionStatus === 'open' ? 'open' : 'close'),
-        ),
+        card(el('span', { class: 'muted', text: 'Canal de voz' }), el('strong', { text: 'WhatsApp / Zapo' })),
+        card(el('span', { class: 'muted', text: 'Conexão' }), badge(instance.connectionStatus)),
         card(el('span', { class: 'muted', text: 'Chamadas ativas' }), el('strong', { text: String(active) })),
-        card(el('span', { class: 'muted', text: 'Vídeo' }), el('strong', { text: 'Ainda não habilitado' })),
+        card(el('span', { class: 'muted', text: 'Vídeo' }), el('strong', { text: 'Não habilitado' })),
       );
     } catch (error) {
       status.replaceChildren(alertBox(error.message || String(error)));
@@ -28,28 +37,29 @@ export function renderVoip(instance) {
   }
 
   page.append(
-    pageHeader(
-      'VoIP',
-      'Camada de voz WhatsApp da instância. O áudio permanece no plano de mídia e não é enviado pelo EventManager.',
-      [button('Atualizar', { onclick: reload })],
-    ),
+    pageHeader('VoIP', 'Softphone PWA e acesso às chamadas da instância.', [button('Atualizar', { onclick: reload })]),
     el(
       'div',
-      { class: 'voip-hero' },
+      { class: 'voip-hero softphone-hero' },
       el(
         'div',
         {},
-        el('h2', { text: 'Zapo VoIP' }),
+        el('h2', { text: 'Connect|API Softphone' }),
         el('p', {
           class: 'muted',
-          text: 'Chamadas de voz nativas do WhatsApp, prontas para integração com o Voice Core/PBX.',
+          text: 'A sinalização de chamadas já está ativa. O áudio no navegador será ligado pelo canal de mídia dedicado do Softphone PWA.',
+        }),
+        micState,
+      ),
+      el(
+        'div',
+        { class: 'actions' },
+        button('Testar microfone', { onclick: testMicrophone }),
+        button('Abrir chamadas', {
+          class: 'primary',
+          onclick: () => navigate(`/manager/instance/${encodeURIComponent(instance.id || instance.instanceId)}/calls`),
         }),
       ),
-      button('Abrir chamadas', {
-        class: 'primary',
-        onclick: () =>
-          navigate(`/manager/instance/${encodeURIComponent(instance.id || instance.instanceId)}/calls`),
-      }),
     ),
     status,
   );

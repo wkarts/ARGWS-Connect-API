@@ -1,10 +1,23 @@
 import { alertBox, badge, button, card, el, field, input, spinner } from '../core/dom.js';
 import { acceptCall, endCall, listCalls, muteCall, offerCall, rejectCall } from '../api/calls.js';
+import { navigate } from '../core/router.js';
 import { loadSession } from '../core/session.js';
 import { instanceShell, pageHeader } from '../components/shell.js';
 
 function peer(call) {
-  return String(call?.peerJid || call?.peer || '').replace(/@.+$/, '') || 'Desconhecido';
+  const value = call?.displayPeerJid || call?.peerJidAlt || call?.callerPn || call?.peerJid || call?.peer || '';
+  return String(value).replace(/@.+$/, '') || 'Desconhecido';
+}
+function stateLabel(state) {
+  return {
+    initiating: 'Iniciando',
+    ringing: 'Chamando',
+    incoming_ringing: 'Recebendo chamada',
+    connecting: 'Conectando mídia',
+    active: 'Em chamada',
+    on_hold: 'Em espera',
+    ended: 'Encerrada',
+  }[String(state || '').toLowerCase()] || state || 'Desconhecido';
 }
 
 export function renderCalls(instance) {
@@ -36,7 +49,7 @@ export function renderCalls(instance) {
           'div',
           { class: 'empty small' },
           el('strong', { text: 'Nenhuma chamada ativa' }),
-          el('span', { text: 'As chamadas WhatsApp via Zapo aparecerão aqui.' }),
+          el('span', { text: 'As chamadas WhatsApp da instância aparecerão aqui.' }),
         ),
       );
       return;
@@ -44,10 +57,11 @@ export function renderCalls(instance) {
     calls.forEach((call) => {
       const callId = call.callId || call.id;
       const state = call.state || call.stateData?.state || 'unknown';
+      const muted = Boolean(call.muted ?? call.stateData?.audioMuted);
       const actions = [];
       if (call.canAccept) actions.push(button('Atender', { class: 'primary', onclick: () => act('accept', callId) }));
       if (call.canReject) actions.push(button('Recusar', { class: 'danger', onclick: () => act('reject', callId) }));
-      actions.push(button('Silenciar', { onclick: () => act('mute', callId, true) }));
+      actions.push(button(muted ? 'Ativar áudio' : 'Silenciar', { onclick: () => act('mute', callId, !muted) }));
       actions.push(button('Encerrar', { class: 'danger', onclick: () => act('end', callId) }));
       list.append(
         card(
@@ -65,7 +79,7 @@ export function renderCalls(instance) {
                 el('small', { text: call.direction === 'incoming' ? 'Recebida' : 'Efetuada' }),
               ),
             ),
-            badge(state),
+            badge(stateLabel(state)),
             el('div', { class: 'actions' }, ...actions),
           ),
         ),
@@ -108,7 +122,10 @@ export function renderCalls(instance) {
   };
 
   page.append(
-    pageHeader('Chamadas WhatsApp', 'Controle de chamadas de voz nativas do provider Zapo.', [
+    pageHeader('Chamadas WhatsApp', 'Chamadas de voz da instância.', [
+      button('Softphone', {
+        onclick: () => navigate(`/manager/instance/${encodeURIComponent(instance.id || instance.instanceId)}/voip`),
+      }),
       button('Atualizar', { onclick: reload }),
     ]),
     feedback,
