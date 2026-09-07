@@ -1,5 +1,6 @@
 name: Temporary Runtime Manager Repair
 
+# Revision 2: run from the current develop HEAD, including restored Zapo invariants.
 on:
   push:
     branches: [develop]
