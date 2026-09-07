@@ -1,1 +1,1 @@
-Trigger the staged WhatsApp authentication and browser voice-media validation.
+Trigger isolated Manager syntax/format validation for the staged WhatsApp repair.
