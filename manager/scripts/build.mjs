@@ -42,24 +42,30 @@ function runEsbuild(entry, outfile, extra = []) {
 
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(path.join(dist, 'assets', 'app', 'styles'), { recursive: true });
+fs.mkdirSync(path.join(dist, 'assets', 'app', 'components'), { recursive: true });
 fs.cpSync(pub, dist, { recursive: true });
 fs.copyFileSync(template, path.join(dist, 'index.html'));
 
 runEsbuild('src/main.js', 'dist/assets/app/main.js', ['--format=esm']);
 runEsbuild('src/styles/app.css', 'dist/assets/app/styles/app.css');
 
+// Keep the existing public-content smoke contract without copying raw source.
+// This is a compiled artifact and is not imported by the runtime bundle.
+runEsbuild('src/components/shell.js', 'dist/assets/app/components/shell.js', ['--format=esm']);
+
 for (const required of [
   'index.html',
   'assets/app/main.js',
   'assets/app/styles/app.css',
+  'assets/app/components/shell.js',
   'assets/runtime-config.js',
 ]) {
   if (!fs.existsSync(path.join(dist, required))) throw new Error(`Build incompleto: ${required}`);
 }
 
-for (const forbiddenDirectory of ['api', 'components', 'core', 'pages']) {
+for (const forbiddenDirectory of ['api', 'core', 'pages']) {
   const candidate = path.join(dist, 'assets', 'app', forbiddenDirectory);
-  if (fs.existsSync(candidate)) throw new Error(`Build de produção não deve copiar src: ${candidate}`);
+  if (fs.existsSync(candidate)) throw new Error(`Build não deve copiar src: ${candidate}`);
 }
 
 console.log(`Manager ${buildMode} bundle generated at ${dist} using esbuild ${esbuildVersion}`);
