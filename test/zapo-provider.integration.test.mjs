@@ -7,6 +7,7 @@ const assert = (condition, message) => {
 
 const zapo = read('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts');
 const zapoExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.extensions.ts');
+const zapoAccountExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.account.extensions.ts');
 const channelController = read('src/api/integrations/channel/channel.controller.ts');
 const baileys = read('src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts');
 const instanceController = read('src/api/controllers/instance.controller.ts');
@@ -41,7 +42,7 @@ assert(packageJson.dependencies?.['@innovatorssoft/zapo-js'] === '1.6.3', 'Zapo 
 assert(packageJson.dependencies?.['@innovatorssoft/voip'] === '1.0.0', 'Zapo VoIP version must stay pinned at 1.0.0');
 assert(packageJson.dependencies?.['zapo-js'] === 'npm:@innovatorssoft/zapo-js@1.6.3', 'Legacy zapo-js runtime alias is missing');
 
-assert(channelController.includes('ZapoExtendedStartupService'), 'Extended Zapo compatibility layer is not wired');
+assert(channelController.includes('ZapoAccountStartupService'), 'Zapo account compatibility layer is not wired');
 assert(zapoExtensions.includes("client.on('presence'"), 'Zapo presence listener is missing');
 assert(zapoExtensions.includes("client.on('chatstate'"), 'Zapo chatstate listener is missing');
 assert(zapoExtensions.includes("client.on('app_state_mutation'"), 'Zapo app-state mutation listener is missing');
@@ -53,5 +54,22 @@ assert(zapoExtensions.includes('public async handleLabel'), 'Zapo label mutation
 assert(zapoExtensions.includes('public async whatsappNumber'), 'Zapo registration lookup compatibility is missing');
 assert(zapoExtensions.includes('getLidsByPhoneNumbers'), 'Zapo registration lookup must use native LID usync');
 assert(zapoExtensions.includes('public async profilePicture'), 'Zapo profile-picture hardening is missing');
+
+assert(zapoAccountExtensions.includes('public async markMessageAsRead'), 'Zapo read-receipt compatibility is missing');
+assert(zapoAccountExtensions.includes("sendReceipt(jid, ids, { type: 'read' })"), 'Zapo read receipts must use native receipt API');
+assert(zapoAccountExtensions.includes('public async fetchPrivacySettings'), 'Zapo privacy read compatibility is missing');
+assert(zapoAccountExtensions.includes('public async updatePrivacySettings'), 'Zapo privacy write compatibility is missing');
+assert(zapoAccountExtensions.includes("setPrivacySetting('profilePicture'"), 'Zapo profile privacy mapping is missing');
+assert(zapoAccountExtensions.includes('public async updateProfileName'), 'Zapo profile-name update is missing');
+assert(zapoAccountExtensions.includes('profile.setPushName'), 'Zapo profile name must use the public coordinator');
+assert(zapoAccountExtensions.includes('public async updateProfileStatus'), 'Zapo profile-status update is missing');
+assert(zapoAccountExtensions.includes('profile.setStatus'), 'Zapo profile status must use the public coordinator');
+assert(zapoAccountExtensions.includes('public async updateProfilePicture'), 'Zapo profile-picture update is missing');
+assert(zapoAccountExtensions.includes('profile.setProfilePicture'), 'Zapo profile picture must use the public coordinator');
+assert(zapoAccountExtensions.includes('public async removeProfilePicture'), 'Zapo profile-picture removal is missing');
+assert(zapoAccountExtensions.includes('profile.deleteProfilePicture'), 'Zapo profile removal must use the public coordinator');
+assert(zapoAccountExtensions.includes('public async blockUser'), 'Zapo block/unblock compatibility is missing');
+assert(zapoAccountExtensions.includes('privacy.blockUser'), 'Zapo block must use the LID-aware privacy coordinator');
+assert(zapoAccountExtensions.includes('privacy.unblockUser'), 'Zapo unblock must use the LID-aware privacy coordinator');
 
 console.log('Zapo provider invariants: OK');
