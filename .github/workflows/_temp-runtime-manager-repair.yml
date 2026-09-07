@@ -1,6 +1,5 @@
 name: Temporary Runtime Manager Repair
 
-# Revision 2: run from the current develop HEAD, including restored Zapo invariants.
 on:
   push:
     branches: [develop]
@@ -24,8 +23,35 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Apply focused Manager/runtime repairs
-        run: python3 .github/scripts/repair-manager-runtime.py
+      - name: Harden destructive instance cleanup
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('src/api/services/monitor.service.ts')
+          text = path.read_text()
+          old = """        if (typeof current?.purgeProviderState === 'function') {
+          await current.purgeProviderState();
+        }
+
+        await this.cleaningUp(instanceName);
+        await this.cleaningStoreData(instanceName);
+"""
+          new = """        if (typeof current?.purgeProviderState === 'function') {
+          try {
+            await current.purgeProviderState();
+          } catch (error) {
+            this.logger.error({ localError: 'purgeProviderState', instanceName, error });
+          }
+        }
+
+        await this.cleaningUp(instanceName);
+        await this.cleaningStoreData(instanceName);
+"""
+          if old not in text:
+              raise SystemExit('expected removal block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Install API dependencies
         run: npm ci
@@ -45,10 +71,10 @@ jobs:
           MANAGER_BUILD_MODE: development
         run: npm test
 
-      - name: Commit validated repairs
+      - name: Commit validated lifecycle hardening
         run: |
           git config user.name "wkarts"
           git config user.email "57051272+wkarts@users.noreply.github.com"
-          git add src manager
-          git commit -m "fix(manager): restore WhatsApp UX, Zapo voice and lifecycle integrity"
+          git add src/api/services/monitor.service.ts
+          git commit -m "fix(instance): guarantee persistent cleanup after provider purge errors"
           git push origin HEAD:develop
