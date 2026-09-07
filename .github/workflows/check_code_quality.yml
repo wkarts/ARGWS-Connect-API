@@ -28,7 +28,18 @@ jobs:
           cache: npm
 
       - name: Apply focused repair
-        run: python3 scripts/_temp_auth_voice_stability_repair.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/_temp_auth_voice_stability_repair.py')
+          text = path.read_text(encoding='utf-8')
+          old = "updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S | re.M)"
+          new = "updated, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S | re.M)"
+          if old not in text:
+              raise SystemExit('regex helper line not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          python3 scripts/_temp_auth_voice_stability_repair.py
 
       - name: Install API dependencies
         run: npm ci
