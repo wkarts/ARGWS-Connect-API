@@ -8,5 +8,4 @@ module.exports = {
   useTabs: false,
   bracketSameLine: false,
   bracketSpacing: true,
-  parser: 'typescript'
-}
+};
