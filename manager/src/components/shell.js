@@ -37,7 +37,7 @@ export function appShell(content, options = {}) {
   const path = location.pathname;
   const app = el('div', { class: 'app-shell' });
   const sidebar = el('aside', { class: 'sidebar', id: 'app-sidebar' });
-  const brand = el('a', { class: 'brand', href: '/manager/', dataset: { nav: '1' } }, el('img', { src: getTheme() === 'dark' ? '/assets/images/argws-connect-logo-dark.svg' : '/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' }));
+  const brand = el('a', { class: 'brand', href: '/manager/', dataset: { nav: '1' } }, el('img', { src: getTheme() === 'dark' ? '/manager/assets/images/argws-connect-logo-dark.svg' : '/manager/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' }));
   sidebar.append(brand, el('nav', { class: 'nav' }));
   const nav = sidebar.querySelector('.nav');
   groups.forEach(([title, items]) => {

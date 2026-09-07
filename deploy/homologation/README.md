@@ -15,7 +15,7 @@ ARGWS Connect API
 └── MinIO
 ```
 
-A API publica `127.0.0.1:38081` e o Connect|API DOCs publica `127.0.0.1:38181`. `/manager`, `/health`, `/metrics`, WebSocket e webhooks da aplicação continuam no endpoint da API.
+A API publica `127.0.0.1:38081`, a Manager publica `127.0.0.1:38284` e o Connect|API DOCs publica `127.0.0.1:38181`. `/manager/` e `/manager-api/` vão para a Manager; `/health`, `/metrics`, WebSocket e webhooks continuam no Engine.
 
 ## Mensageria opcional
 

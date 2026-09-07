@@ -205,7 +205,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.component }}-${{ matrix.arch }}
+          name: digest-${{ matrix.component }}__${{ matrix.arch }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -260,6 +260,7 @@ jobs:
     needs: [plan-version, version-source, build-native]
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - component: api
@@ -274,7 +275,7 @@ jobs:
       - name: Download native digests
         uses: actions/download-artifact@v5
         with:
-          pattern: digest-${{ matrix.component }}-*
+          pattern: digest-${{ matrix.component }}__*
           path: /tmp/digests
           merge-multiple: true
       - name: Set up Buildx
