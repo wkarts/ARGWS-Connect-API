@@ -33,6 +33,21 @@ import { PassThrough } from 'stream';
 let sharedZapoPostgresBackend: any = null;
 let sharedZapoPostgresUri: string | null = null;
 
+type ZapoLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
+
+function resolveZapoLogLevel(value?: string): ZapoLogLevel {
+  switch (value) {
+    case 'trace':
+    case 'debug':
+    case 'info':
+    case 'warn':
+    case 'error':
+      return value;
+    default:
+      return 'warn';
+  }
+}
+
 function getSharedZapoPostgresBackend(connectionString: string) {
   if (sharedZapoPostgresBackend && sharedZapoPostgresUri === connectionString) {
     return sharedZapoPostgresBackend;
@@ -378,9 +393,7 @@ export class ZapoStartupService extends ChannelStartupService {
     if (data.encoding !== false) {
       audio = await this.convertVoiceNote(data.audio, file);
     } else {
-      audio = (
-        await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus')
-      ).buffer;
+      audio = (await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus')).buffer;
     }
 
     const contextInfo = this.buildContextInfo(data, jid);
@@ -595,10 +608,7 @@ export class ZapoStartupService extends ChannelStartupService {
     });
     this.cleanupPoller = this.storeBackend.startCleanup(this.instanceId);
 
-    const maxConcurrentCalls = Math.max(
-      1,
-      Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'),
-    );
+    const maxConcurrentCalls = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
     const plugins =
       process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })];
 
@@ -619,7 +629,7 @@ export class ZapoStartupService extends ChannelStartupService {
         deviceOsDisplayName: process.env.ZAPO_DEVICE_OS || 'Linux',
         plugins,
       },
-      new ConsoleLogger(process.env.ZAPO_LOG_LEVEL || 'warn'),
+      new ConsoleLogger(resolveZapoLogLevel(process.env.ZAPO_LOG_LEVEL)),
     );
 
     this.bindClientEvents();

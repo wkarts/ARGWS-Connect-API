@@ -4542,9 +4542,7 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async fetchAllGroups(getParticipants: GetParticipant) {
-    const fetch = Object.values(
-      (await this.client.groupFetchAllParticipating()) as Record<string, GroupMetadata>,
-    );
+    const fetch = Object.values((await this.client.groupFetchAllParticipating()) as Record<string, GroupMetadata>);
 
     let groups: Array<Partial<GroupMetadata> & { pictureUrl?: string; size: number }> = [];
     for (const group of fetch) {
