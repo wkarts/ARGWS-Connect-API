@@ -34,6 +34,11 @@ jobs:
       - name: Install API dependencies
         run: npm ci
 
+      - name: Generate PostgreSQL Prisma client
+        env:
+          DATABASE_CONNECTION_URI: postgresql://argws_connect:argws_connect@localhost:5432/argws_connect?schema=public
+        run: npx prisma generate --schema ./prisma/postgresql-schema.prisma
+
       - name: Validate API lint
         run: npm run lint:check
 
