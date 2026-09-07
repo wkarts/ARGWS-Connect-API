@@ -25,11 +25,23 @@ function tokenControl(value) {
   return el('div', { class: 'token-control' }, code, el('div', { class: 'actions' }, toggle, copy));
 }
 
+function assertAuthenticationResult(data, mode) {
+  if (data?.error) throw new Error(data.message || `Não foi possível gerar ${mode}.`);
+  if (mode === 'QR Code') {
+    const code = data?.base64 || data?.qrcode?.base64 || data?.code || data?.qrcode?.code;
+    if (!code) throw new Error('A API não retornou um QR Code. Tente novamente.');
+    return;
+  }
+  const pairingCode = data?.pairingCode || data?.qrcode?.pairingCode || data?.code;
+  if (!pairingCode) throw new Error('A API não retornou o código de pareamento. Tente novamente.');
+}
+
 export function renderDashboard(instance, reloadInstance) {
   const session = loadSession();
   const page = el('div', { class: 'page' });
   const error = el('div');
   const instanceId = instance.id || instance.instanceId;
+  let authenticationBusy = false;
 
   async function watchConnection(dialog) {
     for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -49,6 +61,10 @@ export function renderDashboard(instance, reloadInstance) {
   }
 
   async function run(kind) {
+    const isAuthentication = kind === 'qr' || kind === 'pair';
+    if (isAuthentication && authenticationBusy) return;
+    if (isAuthentication) authenticationBusy = true;
+
     error.replaceChildren();
     try {
       if (kind === 'restart') {
@@ -63,17 +79,21 @@ export function renderDashboard(instance, reloadInstance) {
       }
       if (kind === 'qr') {
         const data = await connectInstance(session, instance, false);
+        assertAuthenticationResult(data, 'QR Code');
         const dialog = showQr(data);
         void watchConnection(dialog);
         return;
       }
       if (kind === 'pair') {
         const data = await connectInstance(session, instance, true);
+        assertAuthenticationResult(data, 'código de pareamento');
         const dialog = showPair(data);
         void watchConnection(dialog);
       }
     } catch (e) {
       error.replaceChildren(alertBox(e.message || String(e)));
+    } finally {
+      if (isAuthentication) authenticationBusy = false;
     }
   }
 
