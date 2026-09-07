@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 20.x
+          node-version: 22.x
           cache: npm
 
       - name: Install runtime compatibility alias
@@ -30,7 +30,25 @@ jobs:
         run: |
           set -euo pipefail
           npm install --save-exact 'zapo-js@npm:@innovatorssoft/zapo-js@1.6.3' --ignore-scripts
-          npm pkg set 'scripts.runtime:deps:check=node -e "require.resolve(\x27zapo-js/util\x27); require(\x27@innovatorssoft/store-postgres\x27); console.log(\x27Zapo runtime dependencies OK\x27)"'
+          mkdir -p scripts
+          cat > scripts/check-zapo-runtime.cjs <<'NODE'
+          'use strict';
+
+          const aliasUtil = require.resolve('zapo-js/util');
+          const aliasPackage = require('zapo-js/package.json');
+          const scopedPackage = require('@innovatorssoft/zapo-js/package.json');
+
+          if (aliasPackage.version !== scopedPackage.version) {
+            throw new Error(
+              `Zapo alias mismatch: alias=${aliasPackage.version} scoped=${scopedPackage.version}`,
+            );
+          }
+
+          require('@innovatorssoft/store-postgres');
+
+          console.log(`Zapo runtime dependencies OK (${scopedPackage.version}) -> ${aliasUtil}`);
+          NODE
+          npm pkg set 'scripts.runtime:deps:check=node ./scripts/check-zapo-runtime.cjs'
           npm pkg set 'scripts.build=tsc --noEmit && tsup && npm run runtime:deps:check'
 
       - name: Verify exact runtime dependency path
@@ -38,14 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run runtime:deps:check
-          node - <<'NODE'
-          const aliasPkg = require('zapo-js/package.json')
-          const scopedPkg = require('@innovatorssoft/zapo-js/package.json')
-          if (aliasPkg.version !== scopedPkg.version || scopedPkg.version !== '1.6.3') {
-            throw new Error(`Unexpected Zapo alias versions: alias=${aliasPkg.version} scoped=${scopedPkg.version}`)
-          }
-          console.log('Zapo alias version parity OK:', scopedPkg.version)
-          NODE
+          node -e "require('@innovatorssoft/store-postgres'); console.log('store-postgres load OK')"
 
       - name: Refresh tracked manifest entries
         shell: bash
@@ -58,8 +69,10 @@ jobs:
           manifest = Path('MANIFEST.sha256')
           if not manifest.exists():
               raise SystemExit(0)
+
           text = manifest.read_text(encoding='utf-8')
-          for target in ('package.json', 'package-lock.json'):
+          targets = ('package.json', 'package-lock.json', 'scripts/check-zapo-runtime.cjs')
+          for target in targets:
               path = Path(target)
               digest = hashlib.sha256(path.read_bytes()).hexdigest()
               pattern = rf'^[0-9a-f]{{64}}  {re.escape(target)}$'
@@ -67,6 +80,10 @@ jobs:
               updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
               if count == 1:
                   text = updated
+              else:
+                  if text and not text.endswith('\n'):
+                      text += '\n'
+                  text += replacement + '\n'
           manifest.write_text(text, encoding='utf-8', newline='\n')
           PY
 
@@ -80,6 +97,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package.json package-lock.json MANIFEST.sha256
+          git add package.json package-lock.json scripts/check-zapo-runtime.cjs MANIFEST.sha256
           git commit -m 'fix(runtime): resolve Zapo package alias required by stores and VOIP'
           git push origin HEAD:develop
