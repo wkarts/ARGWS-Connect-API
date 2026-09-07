@@ -393,7 +393,9 @@ export class ZapoStartupService extends ChannelStartupService {
     if (data.encoding !== false) {
       audio = await this.convertVoiceNote(data.audio, file);
     } else {
-      audio = (await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus')).buffer;
+      audio = (
+        await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus')
+      ).buffer;
     }
 
     const contextInfo = this.buildContextInfo(data, jid);
