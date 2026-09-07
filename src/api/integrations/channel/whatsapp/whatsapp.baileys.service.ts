@@ -705,7 +705,9 @@ export class BaileysStartupService extends ChannelStartupService {
         }
 
         const isGroupJid = this.localSettings.groupsIgnore && isJidGroup(jid);
-        const isBroadcast = !this.localSettings.readStatus && isJidBroadcast(jid);
+        // Status capture is independent from read receipts. Keep status@broadcast
+        // available for the dedicated Status view even when readStatus=false.
+        const isBroadcast = isJidBroadcast(jid) && jid !== 'status@broadcast';
         const isNewsletter = isJidNewsletter(jid);
 
         return isGroupJid || isBroadcast || isNewsletter;
@@ -1407,11 +1409,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
           const isVideo = received?.message?.videoMessage;
 
-          if (this.localSettings.readMessages && received.key.id !== 'status@broadcast') {
+          const isStatusMessage = received.key.remoteJid === 'status@broadcast';
+          if (this.localSettings.readMessages && !isStatusMessage) {
             await this.client.readMessages([received.key]);
           }
 
-          if (this.localSettings.readStatus && received.key.id === 'status@broadcast') {
+          if (this.localSettings.readStatus && isStatusMessage) {
             await this.client.readMessages([received.key]);
           }
 
