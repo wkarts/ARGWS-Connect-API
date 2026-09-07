@@ -7,25 +7,30 @@ const runtimeUid = Number(process.env.MANAGER_RUNTIME_UID || 1000);
 const runtimeGid = Number(process.env.MANAGER_RUNTIME_GID || 1000);
 
 function prepareWritableDataPath() {
+  process.umask(0o077);
   fs.mkdirSync(dataDir, { recursive: true });
 
   if (typeof process.getuid === 'function' && process.getuid() === 0) {
     try {
       fs.chownSync(dataDir, runtimeUid, runtimeGid);
       fs.chmodSync(dataDir, 0o700);
+
+      if (fs.existsSync(dataFile)) {
+        fs.chownSync(dataFile, runtimeUid, runtimeGid);
+        fs.chmodSync(dataFile, 0o600);
+      }
+
+      // Limpa apenas temporários deixados por uma inicialização interrompida.
+      // O Store usa exatamente o padrão <arquivo>.<pid>.<timestamp>.tmp.
+      const base = path.basename(dataFile);
+      for (const entry of fs.readdirSync(dataDir)) {
+        if (entry.startsWith(`${base}.`) && entry.endsWith('.tmp')) {
+          try { fs.unlinkSync(path.join(dataDir, entry)); } catch { /* próxima escrita é atômica */ }
+        }
+      }
     } catch (error) {
       console.error(`Falha ao preparar diretório persistente ${dataDir}: ${error.message}`);
       process.exit(1);
-    }
-
-    if (fs.existsSync(dataFile)) {
-      try {
-        fs.chownSync(dataFile, runtimeUid, runtimeGid);
-        fs.chmodSync(dataFile, 0o600);
-      } catch (error) {
-        console.error(`Falha ao preparar arquivo persistente ${dataFile}: ${error.message}`);
-        process.exit(1);
-      }
     }
 
     try {
@@ -35,6 +40,16 @@ function prepareWritableDataPath() {
       console.error(`Falha ao reduzir privilégios da Manager API: ${error.message}`);
       process.exit(1);
     }
+  }
+
+  try {
+    fs.accessSync(dataDir, fs.constants.W_OK | fs.constants.X_OK);
+  } catch (error) {
+    console.error(
+      `Diretório persistente da Manager API não está gravável (${dataDir}). ` +
+      `Verifique ARGWS_CONNECT_MANAGER_DATA_PATH e as permissões do bind mount: ${error.message}`,
+    );
+    process.exit(1);
   }
 }
 
