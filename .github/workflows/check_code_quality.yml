@@ -40,6 +40,23 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
           python3 scripts/_temp_auth_voice_stability_repair.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('manager/src/pages/voip.js')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          found = False
+          for index, line in enumerate(lines):
+              if 'const target = number.value.replace(' in line:
+                  indent = line[: len(line) - len(line.lstrip())]
+                  lines[index] = (
+                      indent
+                      + "const target = [...number.value].filter((char) => char >= '0' && char <= '9').join('');"
+                  )
+                  found = True
+          if not found:
+              raise SystemExit('generated softphone target normalization line not found')
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
           cat > test/zapo-provider.integration.test.mjs <<'EOF'
           import fs from 'node:fs';
 
