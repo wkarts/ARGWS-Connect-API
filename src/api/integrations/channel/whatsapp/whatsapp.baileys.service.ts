@@ -4554,13 +4554,14 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async fetchAllGroups(getParticipants: GetParticipant) {
-    const fetch = Object.values(await this?.client?.groupFetchAllParticipating());
+    const participatingGroups = await this.client.groupFetchAllParticipating();
+    const fetch = Object.values(participatingGroups ?? {}) as GroupMetadata[];
 
-    let groups = [];
+    const groups: Array<Partial<GroupMetadata> & { pictureUrl?: string; size: number }> = [];
     for (const group of fetch) {
       const picture = await this.profilePicture(group.id);
 
-      const result = {
+      const result: Partial<GroupMetadata> & { pictureUrl?: string; size: number } = {
         id: group.id,
         subject: group.subject,
         subjectOwner: group.subjectOwner,
@@ -4576,13 +4577,10 @@ export class BaileysStartupService extends ChannelStartupService {
         isCommunity: group.isCommunity,
         isCommunityAnnounce: group.isCommunityAnnounce,
         linkedParent: group.linkedParent,
+        ...(getParticipants.getParticipants == 'true' ? { participants: group.participants } : {}),
       };
 
-      if (getParticipants.getParticipants == 'true') {
-        result['participants'] = group.participants;
-      }
-
-      groups = [...groups, result];
+      groups.push(result);
     }
 
     return groups;
