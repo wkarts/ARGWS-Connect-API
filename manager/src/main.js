@@ -14,6 +14,8 @@ import { renderDashboard } from './pages/dashboard.js';
 import { renderChat } from './pages/chat.js';
 import { renderConfig } from './pages/config.js';
 import { renderIntegration } from './pages/integration.js';
+import { renderCalls } from './pages/calls.js';
+import { renderVoip } from './pages/voip.js';
 
 const root = document.getElementById('root');
 setTheme(getTheme());
@@ -107,6 +109,10 @@ async function render() {
       root.append(renderDashboard(instance, reload));
     } else if (section === 'chat') {
       root.append(renderChat(instance, tail ? decodeURIComponent(tail) : ''));
+    } else if (section === 'calls' && instance.integration === 'WHATSAPP-ZAPO') {
+      root.append(renderCalls(instance));
+    } else if (section === 'voip' && instance.integration === 'WHATSAPP-ZAPO') {
+      root.append(renderVoip(instance));
     } else if (configKinds.has(section)) {
       root.append(renderConfig(instance, section));
     } else if (integrationKinds.has(section)) {

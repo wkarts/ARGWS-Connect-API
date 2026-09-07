@@ -724,6 +724,10 @@ export class ZapoStartupService extends ChannelStartupService {
       this.instance.wuid = credentials.meJid;
       this.instance.ownerJid = credentials.meJid;
       this.instance.profileName = credentials.meDisplayName ?? this.instance.profileName;
+      if (state === 'open') {
+        const picture = await this.client.profile.getProfilePicture(credentials.meJid, 'image').catch(() => null);
+        this.instance.profilePictureUrl = picture?.url ?? this.instance.profilePictureUrl;
+      }
     }
 
     await this.persistConnectionState(state);
@@ -767,6 +771,7 @@ export class ZapoStartupService extends ChannelStartupService {
           connectionStatus: state,
           ownerJid: this.instance.ownerJid,
           profileName: this.instance.profileName,
+          profilePicUrl: this.instance.profilePictureUrl,
         },
       });
     } catch (error) {
@@ -801,19 +806,30 @@ export class ZapoStartupService extends ChannelStartupService {
   private async handleIncomingMessage(event: any) {
     if (!event?.message || !event?.key?.remoteJid) return;
 
+    const rawRemoteJid = String(event.key.remoteJid);
+    const remoteJidAlt = event.key.remoteJidAlt ? String(event.key.remoteJidAlt) : undefined;
+    const canonicalRemoteJid =
+      rawRemoteJid.endsWith('@lid') && remoteJidAlt && !remoteJidAlt.endsWith('@lid') ? remoteJidAlt : rawRemoteJid;
+    const rawParticipant = event.key.participant ? String(event.key.participant) : undefined;
+    const participantAlt = event.key.participantAlt ? String(event.key.participantAlt) : undefined;
+    const canonicalParticipant =
+      rawParticipant?.endsWith('@lid') && participantAlt && !participantAlt.endsWith('@lid')
+        ? participantAlt
+        : rawParticipant;
+
     const message = this.toJson(event.message);
     const messageType = this.detectMessageType(message);
     const messageRaw: any = {
       key: {
         id: event.key.id,
-        remoteJid: event.key.remoteJid,
-        remoteJidAlt: event.key.remoteJidAlt,
+        remoteJid: canonicalRemoteJid,
+        remoteJidAlt,
         fromMe: Boolean(event.key.fromMe),
-        participant: event.key.participant,
-        participantAlt: event.key.participantAlt,
+        participant: canonicalParticipant,
+        participantAlt,
       },
       pushName: event.pushName,
-      participant: event.key.participant,
+      participant: canonicalParticipant,
       messageType,
       message,
       messageTimestamp: Math.round(event.timestampSeconds || Date.now() / 1000),
@@ -851,6 +867,13 @@ export class ZapoStartupService extends ChannelStartupService {
 
     if (db.SAVE_DATA.CHATS) {
       await this.upsertChat(messageRaw.key.remoteJid, messageRaw.pushName);
+    }
+
+    if (rawRemoteJid !== canonicalRemoteJid) {
+      await Promise.all([
+        this.prismaRepository.chat.deleteMany({ where: { instanceId: this.instanceId, remoteJid: rawRemoteJid } }),
+        this.prismaRepository.contact.deleteMany({ where: { instanceId: this.instanceId, remoteJid: rawRemoteJid } }),
+      ]);
     }
   }
 

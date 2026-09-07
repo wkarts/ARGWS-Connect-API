@@ -39,6 +39,7 @@ export class WAMonitoringService {
   private readonly logger = new Logger('WAMonitoringService');
   public readonly waInstances: Record<string, any> = {};
   private readonly delInstanceTimeouts: Record<string, NodeJS.Timeout> = {};
+  private readonly removeInstancePromises: Record<string, Promise<void>> = {};
 
   private readonly providerSession: ProviderSession;
 
@@ -268,12 +269,40 @@ export class WAMonitoringService {
     }
   }
 
-  public deleteInstance(instanceName: string) {
+  public async removeInstanceNow(instanceName: string) {
+    const runningRemoval = this.removeInstancePromises[instanceName];
+    if (runningRemoval) return runningRemoval;
+
+    const removal = (async () => {
+      const current = this.waInstances[instanceName];
+      try {
+        await current?.sendDataWebhook(Events.REMOVE_INSTANCE, null);
+        this.clearDelInstanceTime(instanceName);
+
+        if (typeof current?.purgeProviderState === 'function') {
+          await current.purgeProviderState();
+        }
+
+        await this.cleaningUp(instanceName);
+        await this.cleaningStoreData(instanceName);
+      } finally {
+        delete this.waInstances[instanceName];
+        this.logger.warn(`Instance "${instanceName}" - REMOVED`);
+      }
+    })();
+
+    this.removeInstancePromises[instanceName] = removal;
     try {
-      this.eventEmitter.emit('remove.instance', instanceName, 'inner');
-    } catch (error) {
-      this.logger.error(error);
+      await removal;
+    } finally {
+      delete this.removeInstancePromises[instanceName];
     }
+  }
+
+  public deleteInstance(instanceName: string) {
+    void this.removeInstanceNow(instanceName).catch((error) => {
+      this.logger.error({ localError: 'removeInstanceNow', instanceName, error });
+    });
   }
 
   private async setInstance(instanceData: InstanceDto) {
@@ -396,32 +425,10 @@ export class WAMonitoringService {
   }
 
   private removeInstance() {
-    this.eventEmitter.on('remove.instance', async (instanceName: string) => {
-      try {
-        await this.waInstances[instanceName]?.sendDataWebhook(Events.REMOVE_INSTANCE, null);
-
-        this.clearDelInstanceTime(instanceName);
-
-        const current = this.waInstances[instanceName];
-        if (typeof current?.purgeProviderState === 'function') {
-          try {
-            await current.purgeProviderState();
-          } catch (error) {
-            this.logger.error({ localError: 'purgeProviderState', instanceName, error });
-          }
-        }
-
-        await this.cleaningUp(instanceName);
-        await this.cleaningStoreData(instanceName);
-      } finally {
-        this.logger.warn(`Instance "${instanceName}" - REMOVED`);
-      }
-
-      try {
-        delete this.waInstances[instanceName];
-      } catch (error) {
-        this.logger.error(error);
-      }
+    this.eventEmitter.on('remove.instance', (instanceName: string) => {
+      void this.removeInstanceNow(instanceName).catch((error) => {
+        this.logger.error({ localError: 'remove.instance', instanceName, error });
+      });
     });
     this.eventEmitter.on('logout.instance', async (instanceName: string) => {
       try {

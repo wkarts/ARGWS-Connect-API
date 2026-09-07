@@ -571,7 +571,7 @@ export class InstanceController {
         this.logger.error(error);
       }
 
-      this.eventEmitter.emit('remove.instance', instanceName, 'inner');
+      await this.waMonitor.removeInstanceNow(instanceName);
       return { status: 'SUCCESS', error: false, response: { message: 'Instance deleted' } };
     } catch (error) {
       throw new BadRequestException(error.toString());

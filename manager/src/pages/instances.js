@@ -16,36 +16,45 @@ import { loadSession } from '../core/session.js';
 import { managerShell, pageHeader } from '../components/shell.js';
 
 function generateToken() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID().replaceAll('-', '').toUpperCase();
-  }
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID().toUpperCase();
   const bytes = new Uint8Array(16);
   globalThis.crypto?.getRandomValues?.(bytes);
-  return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase();
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase();
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function statistic(value, label) {
-  return el(
-    'span',
-    {},
-    el('strong', { text: Number(value || 0).toLocaleString('pt-BR') }),
-    label,
-  );
+  return el('span', {}, el('strong', { text: Number(value || 0).toLocaleString('pt-BR') }), label);
 }
 
 function instanceIdOf(instance) {
   return instance.id || instance.instanceId || '';
 }
 
+function secretInput(value) {
+  const control = input(value, { required: true, autocomplete: 'off', type: 'password' });
+  const toggle = button('Mostrar', {
+    class: 'secret-toggle',
+    onclick: () => {
+      const reveal = control.type === 'password';
+      control.type = reveal ? 'text' : 'password';
+      toggle.textContent = reveal ? 'Ocultar' : 'Mostrar';
+    },
+  });
+  return { control, node: el('div', { class: 'secret-field' }, control, toggle) };
+}
+
 export function renderInstances() {
   const session = loadSession();
   const page = el('div', { class: 'page' });
   const grid = el('div', { class: 'instance-grid' });
+  const emptyState = el('div', { class: 'instance-empty-state' });
   const feedback = el('div');
   const search = input('', { placeholder: 'Buscar instância' });
   let items = [];
 
   async function reload() {
+    emptyState.replaceChildren();
     grid.replaceChildren(el('div', { class: 'center' }, spinner()));
     feedback.replaceChildren();
     try {
@@ -53,8 +62,20 @@ export function renderInstances() {
       draw();
     } catch (error) {
       grid.replaceChildren();
+      emptyState.replaceChildren();
       feedback.replaceChildren(alertBox(error.message || String(error)));
     }
+  }
+
+  function drawEmpty(title, description, action = null) {
+    grid.hidden = true;
+    emptyState.hidden = false;
+    emptyState.replaceChildren(
+      el('div', { class: 'empty-state-icon', text: '+' }),
+      el('strong', { text: title }),
+      el('span', { text: description }),
+      action,
+    );
   }
 
   function draw() {
@@ -64,21 +85,31 @@ export function renderInstances() {
     );
 
     grid.replaceChildren();
-    if (!visible.length) {
-      grid.append(
-        el(
-          'div',
-          { class: 'empty' },
-          el('strong', { text: 'Nenhuma instância encontrada' }),
-          el('span', { text: 'Crie uma instância para iniciar.' }),
-        ),
+    emptyState.replaceChildren();
+
+    if (!items.length) {
+      drawEmpty(
+        'Nenhuma conexão configurada',
+        'Crie sua primeira instância para começar.',
+        button('Nova instância', { class: 'primary', onclick: openCreate }),
       );
       return;
     }
 
+    if (!visible.length) {
+      drawEmpty('Nenhum resultado', 'Nenhuma instância corresponde à busca atual.');
+      return;
+    }
+
+    grid.hidden = false;
+    emptyState.hidden = true;
+
     visible.forEach((item) => {
       const id = instanceIdOf(item);
       const name = item.name || item.instanceName || id;
+      const identity = item.profilePicUrl
+        ? el('img', { class: 'instance-avatar', src: item.profilePicUrl, alt: '' })
+        : el('div', { class: 'instance-avatar fallback', text: name[0]?.toUpperCase() || '?' });
       const manage = button('Gerenciar', {
         class: 'primary',
         disabled: !id,
@@ -88,12 +119,15 @@ export function renderInstances() {
         class: 'danger',
         onclick: async () => {
           if (!window.confirm(`Excluir definitivamente ${name}?`)) return;
+          remove.disabled = true;
           try {
             await deleteInstance(session, { ...item, name });
-            feedback.replaceChildren(alertBox('Instância excluída.', 'success'));
-            await reload();
+            items = items.filter((candidate) => instanceIdOf(candidate) !== id && candidate.name !== name);
+            draw();
+            feedback.replaceChildren(alertBox('Instância e dados associados removidos.', 'success'));
           } catch (error) {
             feedback.replaceChildren(alertBox(error.message || String(error)));
+            remove.disabled = false;
           }
         },
       });
@@ -105,12 +139,17 @@ export function renderInstances() {
             { class: 'instance-card-head' },
             el(
               'div',
-              {},
-              el('h3', { text: name }),
-              el('span', {
-                class: 'muted',
-                text: item.profileName || item.number || item.integration || 'Sem perfil conectado',
-              }),
+              { class: 'instance-identity' },
+              identity,
+              el(
+                'div',
+                {},
+                el('h3', { text: name }),
+                el('span', {
+                  class: 'muted',
+                  text: item.profileName || item.number || item.integration || 'Sem perfil conectado',
+                }),
+              ),
             ),
             badge(item.connectionStatus),
           ),
@@ -131,10 +170,11 @@ export function renderInstances() {
     const name = input('', { required: true, autocomplete: 'off' });
     const integration = select('WHATSAPP-BAILEYS', [
       { value: 'WHATSAPP-BAILEYS', label: 'WhatsApp (Baileys)' },
-      { value: 'WHATSAPP-BUSINESS', label: 'WhatsApp Business / Cloud' },
       { value: 'WHATSAPP-ZAPO', label: 'WhatsApp (Zapo)' },
+      { value: 'WHATSAPP-BUSINESS', label: 'WhatsApp Business / Cloud' },
     ]);
-    const token = input(generateToken(), { required: true, autocomplete: 'off' });
+    const generated = secretInput(generateToken());
+    const token = generated.control;
     const number = input('', {
       type: 'tel',
       placeholder: '5575999999999',
@@ -142,13 +182,15 @@ export function renderInstances() {
       autocomplete: 'off',
     });
     const businessId = input('', { autocomplete: 'off' });
-    const businessField = field('Business ID', businessId, 'Obrigatório para WhatsApp Business / Cloud.');
-    businessField.hidden = true;
+    const businessField = field('Business ID', businessId, 'Usado somente pelo WhatsApp Business / Cloud.');
 
-    integration.addEventListener('change', () => {
-      businessField.hidden = integration.value !== 'WHATSAPP-BUSINESS';
-      businessId.required = !businessField.hidden;
-    });
+    const syncProviderFields = () => {
+      const isBusiness = integration.value === 'WHATSAPP-BUSINESS';
+      businessField.hidden = !isBusiness;
+      businessId.required = isBusiness;
+    };
+    integration.addEventListener('change', syncProviderFields);
+    syncProviderFields();
 
     const formFeedback = el('div');
     const form = el(
@@ -157,8 +199,8 @@ export function renderInstances() {
       formFeedback,
       field('Nome', name),
       field('Canal', integration),
-      field('Token da instância', token, 'Pode ser personalizado; um valor seguro já foi gerado.'),
-      field('Número', number, 'Opcional para Baileys/Zapo; use DDI + DDD + número, somente dígitos.'),
+      field('Token da instância', generated.node, 'UUID seguro gerado automaticamente; pode ser personalizado.'),
+      field('Número', number, 'Opcional para Baileys/Zapo; DDI + DDD + número.'),
       businessField,
       button('Criar instância', { class: 'primary', type: 'submit' }),
     );
@@ -174,10 +216,14 @@ export function renderInstances() {
         const payload = {
           instanceName,
           integration: integration.value,
-          token: token.value.trim() || null,
-          number: number.value.replace(/\D/g, '') || null,
-          businessId: businessId.value.trim() || null,
+          token: token.value.trim(),
         };
+        const normalizedNumber = number.value.replace(/\D/g, '');
+        if (normalizedNumber) payload.number = normalizedNumber;
+        if (integration.value === 'WHATSAPP-BUSINESS') {
+          const value = businessId.value.trim();
+          if (value) payload.businessId = value;
+        }
         await createInstance(session, payload);
         dialog.close();
         feedback.replaceChildren(alertBox('Instância criada.', 'success'));
@@ -195,6 +241,7 @@ export function renderInstances() {
     ]),
     el('div', { class: 'toolbar' }, el('div', { class: 'search-box' }, '⌕', search)),
     feedback,
+    emptyState,
     grid,
   );
 
