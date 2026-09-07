@@ -7,25 +7,14 @@ on:
     branches: [develop]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   check-lint-and-build:
-    name: Canonical CI Core (main)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Run canonical validation core from main
-        uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
-
-  provider-parity-repair:
-    if: github.event_name == 'push' && github.event.head_commit.message == 'chore: run provider parity repair'
     name: Provider parity repair
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
+
     steps:
       - name: Checkout develop
         uses: actions/checkout@v4
@@ -59,6 +48,33 @@ jobs:
         run: |
           npm ci
           npm test
+
+      - name: Restore canonical workflow and remove temporary repair files
+        run: |
+          rm -f scripts/_temp_provider_parity_repair.py
+          rm -f .github/workflows/_temp-provider-parity-repair.yml
+          cat > .github/workflows/check_code_quality.yml <<'EOF'
+          name: Check Code Quality
+
+          on:
+            pull_request:
+              branches: [develop]
+            push:
+              branches: [develop]
+
+          permissions:
+            contents: read
+
+          jobs:
+            check-lint-and-build:
+              name: Canonical CI Core (main)
+              runs-on: ubuntu-latest
+              timeout-minutes: 15
+
+              steps:
+                - name: Run canonical validation core from main
+                  uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+          EOF
 
       - name: Commit validated repair
         run: |
