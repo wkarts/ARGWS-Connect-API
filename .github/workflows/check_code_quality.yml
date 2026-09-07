@@ -18,3 +18,6 @@ jobs:
     steps:
       - name: Run canonical validation core from main
         uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+
+      - name: Check Zapo provider invariants
+        run: npm run test:zapo
