@@ -58,3 +58,5 @@ jobs:
           git add -A
           git commit -m 'fix(whatsapp): stabilize provider auth parity and manager voice/chat'
           git push origin HEAD:develop
+
+# trigger: provider-parity-v2
