@@ -110,8 +110,20 @@ jobs:
       - name: Validate docs
         run: npm run docs:check
 
-      - name: Format Manager changes
-        run: npx prettier --write manager/src/pages/voip.js manager/src/pages/chat.js manager/src/styles/app.css
+      - name: Syntax check Manager VoIP
+        run: node --check manager/src/pages/voip.js
+
+      - name: Syntax check Manager Chat
+        run: node --check manager/src/pages/chat.js
+
+      - name: Format Manager VoIP
+        run: npx prettier --write manager/src/pages/voip.js
+
+      - name: Format Manager Chat
+        run: npx prettier --write manager/src/pages/chat.js
+
+      - name: Format Manager CSS
+        run: npx prettier --write manager/src/styles/app.css
 
       - name: Validate Manager
         working-directory: manager
@@ -121,7 +133,7 @@ jobs:
 
       - name: Restore canonical workflow and remove repair staging
         run: |
-          rm -f scripts/_temp_auth_voice_stability_repair.py scripts/_temp_voip.js
+          rm -f scripts/_temp_auth_voice_stability_repair.py scripts/_temp_voip.js scripts/_temp_repair_trigger.txt
           cat > .github/workflows/check_code_quality.yml <<'EOF'
           name: Check Code Quality
 
