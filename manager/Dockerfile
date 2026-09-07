@@ -1,8 +1,10 @@
 ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
 ARG NGINX_IMAGE=ghcr.io/wkarts/argws-connect-nginx:1.27-alpine
 ARG APP_VERSION=1.0.0
+ARG MANAGER_BUILD_MODE=production
 
 FROM ${NODE_IMAGE} AS builder
+ARG MANAGER_BUILD_MODE
 WORKDIR /app
 
 COPY package.json ./package.json
@@ -11,10 +13,11 @@ COPY jsconfig.json ./jsconfig.json
 COPY public ./public
 COPY src ./src
 COPY scripts ./scripts
+COPY docker-entrypoint.d ./docker-entrypoint.d
 
-# The Manager is dependency-free: build the committed source into /app/dist.
-# dist stays excluded from the Docker context so images never depend on stale generated assets.
-RUN npm run check && npm run build && npm run smoke
+# Development images are bundled with source maps. Release images use the
+# production default and are bundled/minified without exposing the source tree.
+RUN MANAGER_BUILD_MODE="${MANAGER_BUILD_MODE}" npm run test
 
 FROM ${NGINX_IMAGE}
 ARG APP_VERSION
