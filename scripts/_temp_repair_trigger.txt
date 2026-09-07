@@ -1,0 +1,1 @@
+Trigger the staged WhatsApp authentication and browser voice-media validation.
