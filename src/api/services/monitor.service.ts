@@ -280,7 +280,11 @@ export class WAMonitoringService {
         this.clearDelInstanceTime(instanceName);
 
         if (typeof current?.purgeProviderState === 'function') {
-          await current.purgeProviderState();
+          try {
+            await current.purgeProviderState();
+          } catch (error) {
+            this.logger.error({ localError: 'purgeProviderState', instanceName, error });
+          }
         }
 
         await this.cleaningUp(instanceName);
