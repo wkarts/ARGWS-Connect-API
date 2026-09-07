@@ -59,9 +59,10 @@ jobs:
 
           # develop: API/Manager e DOCs são canais móveis independentes.
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
-          grep -q 'component: \[api, manager\]' .github/workflows/ghcr-publish-application.yml
+          grep -q 'component: \[api, manager, manager-api\]' .github/workflows/ghcr-publish-application.yml
           grep -q 'image: argws-connect-api' .github/workflows/ghcr-publish-application.yml
           grep -q 'image: argws-connect-manager' .github/workflows/ghcr-publish-application.yml
+          grep -q 'image: argws-connect-manager-api' .github/workflows/ghcr-publish-application.yml
           grep -q 'docker buildx imagetools create -t "${repo}:develop"' .github/workflows/ghcr-publish-application.yml
           grep -q 'refs/heads/develop' .github/workflows/ghcr-publish-application.yml
 
@@ -87,9 +88,10 @@ jobs:
 
           # main owns stable SemVer/latest for API, Manager and DOCs.
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
-          grep -q 'component: \[api, manager, docs\]' .github/workflows/auto-version-release.yml
+          grep -q 'component: \[api, manager, manager-api, docs\]' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-api' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-manager' .github/workflows/auto-version-release.yml
+          grep -q 'image: argws-connect-manager-api' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-docs' .github/workflows/auto-version-release.yml
           grep -q '"${repo}:latest"' .github/workflows/auto-version-release.yml
           grep -q 'gh release create' .github/workflows/auto-version-release.yml

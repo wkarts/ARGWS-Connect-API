@@ -1,133 +1,65 @@
-import { alertBox, clear, el, spinner } from './core/dom.js';
+import { api } from './api/manager.js';
+import { clear, el, spinner } from './core/dom.js';
 import { installRouter, navigate, setRenderer } from './core/router.js';
-import {
-  getTheme,
-  loadSelectedInstance,
-  loadSession,
-  saveSelectedInstance,
-  setTheme,
-} from './core/session.js';
-import { fetchInstances } from './api/instances.js';
+import { getAuth, getTheme, setAuth, setTheme } from './core/session.js';
 import { renderLogin } from './pages/login.js';
-import { renderInstances } from './pages/instances.js';
 import { renderDashboard } from './pages/dashboard.js';
-import { renderChat } from './pages/chat.js';
-import { renderConfig } from './pages/config.js';
-import { renderIntegration } from './pages/integration.js';
-import { renderCalls } from './pages/calls.js';
-import { renderVoip } from './pages/voip.js';
-import { renderStatus } from './pages/status.js';
+import { renderInstances } from './pages/instances.js';
+import { renderInstance } from './pages/instance.js';
+import { renderChannels } from './pages/channels.js';
+import { renderConversations } from './pages/conversations.js';
+import { renderVoice } from './pages/voice.js';
+import { renderStudio } from './pages/studio.js';
+import { renderIntegrations } from './pages/integrations.js';
+import { renderUsers } from './pages/users.js';
+import { renderSecurity } from './pages/security.js';
+import { renderAudit } from './pages/audit.js';
+import { renderSystem } from './pages/system.js';
+import { renderLicense } from './pages/license.js';
+import { renderUpdates } from './pages/updates.js';
 
 const root = document.getElementById('root');
 setTheme(getTheme());
+let authChecked = false;
 
-const configKinds = new Set([
-  'settings',
-  'proxy',
-  'webhook',
-  'websocket',
-  'rabbitmq',
-  'sqs',
-  'chatwoot',
-]);
-
-const integrationKinds = new Set([
-  'typebot',
-  'openai',
-  'dify',
-  'n8n',
-  'connectAI',
-  'connectBot',
-  'flowise',
-]);
+async function ensureAuth() {
+  if (getAuth()) return true;
+  if (authChecked) return false;
+  authChecked = true;
+  try { setAuth(await api.me()); return true; } catch { return false; }
+}
 
 async function render() {
+  document.body.classList.remove('sidebar-open');
   clear(root);
-  const path = location.pathname;
-
-  if (path === '/' || path === '') {
-    navigate('/manager/login', true);
-    return;
-  }
-
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  if (path === '/' || path === '/manager') { navigate('/manager/', true); return; }
   if (path === '/manager/login') {
-    root.append(renderLogin());
-    return;
+    if (await ensureAuth()) { navigate('/manager/', true); return; }
+    root.append(renderLogin()); return;
   }
+  root.append(el('div', { class: 'boot' }, spinner()));
+  if (!await ensureAuth()) { navigate('/manager/login', true); return; }
+  clear(root);
+  if (getAuth()?.security?.enrollmentRequired && path !== '/manager/security') { navigate('/manager/security', true); return; }
 
-  const session = loadSession();
-  if (!session) {
-    navigate('/manager/login', true);
-    return;
-  }
-
-  if (path === '/manager' || path === '/manager/') {
-    root.append(renderInstances());
-    return;
-  }
-
-  if (path.startsWith('/manager/embed-chat')) {
-    const selected = loadSelectedInstance();
-    if (!selected) {
-      navigate('/manager/', true);
-      return;
-    }
-
-    const encodedJid = path.split('/').slice(3).join('/');
-    root.append(
-      renderChat(selected, encodedJid ? decodeURIComponent(encodedJid) : '', {
-        embedded: true,
-      }),
-    );
-    return;
-  }
-
-  const match = path.match(/^\/manager\/instance\/([^/]+)(?:\/([^/]+))?(?:\/(.+))?$/);
-  if (!match) {
-    navigate('/manager/', true);
-    return;
-  }
-
-  const [, instanceId, section = 'dashboard', tail = ''] = match;
-  root.append(el('div', { class: 'center' }, spinner()));
-
-  try {
-    const instance = (await fetchInstances(session, instanceId))[0];
-    if (!instance) throw new Error('Instância não encontrada');
-
-    saveSelectedInstance(instance);
-
-    const reload = async () => {
-      const fresh = (await fetchInstances(session, instanceId))[0];
-      if (!fresh) return;
-      saveSelectedInstance(fresh);
-      void render();
-    };
-
-    clear(root);
-
-    if (section === 'dashboard') {
-      root.append(renderDashboard(instance, reload));
-    } else if (section === 'chat') {
-      root.append(renderChat(instance, tail ? decodeURIComponent(tail) : ''));
-    } else if (
-      section === 'status' &&
-      (instance.integration === 'WHATSAPP-BAILEYS' || instance.integration === 'WHATSAPP-ZAPO')
-    ) {
-      root.append(renderStatus(instance));
-    } else if (section === 'calls' && instance.integration === 'WHATSAPP-ZAPO') {
-      root.append(renderCalls(instance));
-    } else if (section === 'voip' && instance.integration === 'WHATSAPP-ZAPO') {
-      root.append(renderVoip(instance));
-    } else if (configKinds.has(section)) {
-      root.append(renderConfig(instance, section));
-    } else if (integrationKinds.has(section)) {
-      root.append(renderIntegration(instance, section));
-    } else {
-      root.append(renderDashboard(instance, reload));
-    }
-  } catch (error) {
-    clear(root).append(alertBox(error.message || String(error)));
+  if (path === '/manager/' || path === '/manager') root.append(renderDashboard());
+  else if (path === '/manager/instances') root.append(renderInstances());
+  else {
+    const match = path.match(/^\/manager\/instances\/([^/]+)$/);
+    if (match) root.append(renderInstance(decodeURIComponent(match[1])));
+    else if (path === '/manager/channels') root.append(renderChannels());
+    else if (path === '/manager/conversations') root.append(renderConversations());
+    else if (path === '/manager/voice') root.append(renderVoice());
+    else if (path === '/manager/studio') root.append(renderStudio());
+    else if (path === '/manager/integrations') root.append(renderIntegrations());
+    else if (path === '/manager/users') root.append(renderUsers());
+    else if (path === '/manager/security') root.append(renderSecurity());
+    else if (path === '/manager/audit') root.append(renderAudit());
+    else if (path === '/manager/system') root.append(renderSystem());
+    else if (path === '/manager/license') root.append(renderLicense());
+    else if (path === '/manager/updates') root.append(renderUpdates());
+    else navigate('/manager/', true);
   }
 }
 

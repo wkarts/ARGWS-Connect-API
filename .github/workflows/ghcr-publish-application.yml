@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager]
+        component: [api, manager, manager-api]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -70,6 +70,10 @@ jobs:
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
+          - component: manager-api
+            context: ./manager/api
+            dockerfile: ./manager/api/Dockerfile
+            image: argws-connect-manager-api
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout develop
@@ -149,6 +153,8 @@ jobs:
             image: argws-connect-api
           - component: manager
             image: argws-connect-manager
+          - component: manager-api
+            image: argws-connect-manager-api
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5

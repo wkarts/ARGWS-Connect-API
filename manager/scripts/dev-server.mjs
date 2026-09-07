@@ -6,38 +6,31 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const port = Number(process.env.PORT || 4173);
+const managerApi = String(process.env.MANAGER_API_DEV_URL || '').replace(/\/+$/, '');
 
-if (!fs.existsSync(path.join(dist, 'index.html'))) {
-  await import('./build.mjs');
-}
-
-const types = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.webmanifest': 'application/manifest+json; charset=utf-8',
-};
-
+if (!fs.existsSync(path.join(dist, 'index.html'))) await import('./build.mjs');
+const types = { '.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.webmanifest':'application/manifest+json; charset=utf-8' };
 const safeFile = (pathname) => {
   let relative = pathname.replace(/^\/manager\/?/, '/').replace(/^\/+/, '');
-  if (pathname.startsWith('/assets/')) relative = pathname.slice(1);
+  if (pathname.startsWith('/assets/') || pathname.startsWith('/icons/')) relative = pathname.slice(1);
   const candidate = path.resolve(dist, relative);
   return candidate.startsWith(dist + path.sep) || candidate === dist ? candidate : null;
 };
 
-http.createServer((req, res) => {
+http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  if (managerApi && url.pathname.startsWith('/manager-api/')) {
+    try {
+      const upstream = await fetch(`${managerApi}${url.pathname}${url.search}`, { method: req.method, headers: req.headers, body: ['GET','HEAD'].includes(req.method || 'GET') ? undefined : req, duplex: 'half', redirect: 'manual' });
+      res.statusCode = upstream.status;
+      upstream.headers.forEach((value, key) => { if (!['content-encoding','transfer-encoding','content-length'].includes(key.toLowerCase())) res.setHeader(key, value); });
+      res.end(Buffer.from(await upstream.arrayBuffer()));
+    } catch (error) { res.statusCode = 502; res.end(error.message); }
+    return;
+  }
   let file = safeFile(url.pathname);
   if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(dist, 'index.html');
-  const ext = path.extname(file);
-  res.statusCode = 200;
-  res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
+  const ext = path.extname(file); res.statusCode = 200; res.setHeader('Content-Type', types[ext] || 'application/octet-stream');
   if (file.endsWith('runtime-config.js')) res.setHeader('Cache-Control', 'no-store');
   fs.createReadStream(file).pipe(res);
-}).listen(port, '0.0.0.0', () => {
-  console.log(`Connect|API Manager dev server: http://127.0.0.1:${port}/manager/login`);
-});
+}).listen(port, '0.0.0.0', () => console.log(`Connect|API Manager dev server: http://127.0.0.1:${port}/manager/login`));

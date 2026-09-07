@@ -1,0 +1,12 @@
+{
+  "name": "connect-api-manager-api",
+  "private": true,
+  "version": "1.0.21-professional.1",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "check": "node --check src/server.mjs && node --check src/store.mjs && node --check src/security.mjs && node --check src/engine.mjs",
+    "test": "npm run check && node scripts/token-compat.mjs && node scripts/smoke.mjs"
+  },
+  "engines": { "node": ">=22" }
+}

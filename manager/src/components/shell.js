@@ -1,134 +1,70 @@
-import { badge, button, el } from '../core/dom.js';
-import { link, navigate } from '../core/router.js';
-import { runtimeConfig } from '../core/runtime-config.js';
-import { clearSession, getLocale, getTheme, loadSession, setLocale, setTheme } from '../core/session.js';
+import { api } from '../api/manager.js';
+import { button, el } from '../core/dom.js';
+import { navigate } from '../core/router.js';
+import { clearAuth, getAuth, getTheme, hasPermission, setTheme } from '../core/session.js';
 
-export function header(instance) {
-  const session = loadSession();
-  const theme = getTheme();
-  const container = el('header', { class: 'topbar' });
-  const brand = el(
-    'a',
-    { class: 'brand', href: '/manager/', dataset: { nav: '1' } },
-    el('img', {
-      src:
-        theme === 'dark'
-          ? '/assets/images/argws-connect-logo-dark.svg'
-          : '/assets/images/argws-connect-logo-horizontal.svg',
-      alt: 'Connect|API',
-    }),
-  );
-  container.append(
-    brand,
-    el(
-      'div',
-      { class: 'topbar-meta' },
-      instance ? el('span', { class: 'instance-pill', text: instance.name }) : null,
-      el('span', { class: 'version-pill', text: `v${session?.version || '—'}` }),
-    ),
-    el('div', { class: 'topbar-spacer' }),
-  );
-  const actions = el('div', { class: 'topbar-actions' });
-  if (runtimeConfig.locale.extraLocalesEnabled && runtimeConfig.locale.enabledLocales.length > 1) {
-    const current = getLocale() || runtimeConfig.locale.defaultLocale;
-    const selector = el('select', { class: 'input compact' });
-    runtimeConfig.locale.enabledLocales.forEach((locale) =>
-      selector.append(el('option', { value: locale, text: locale, selected: locale === current })),
-    );
-    selector.onchange = () => {
-      setLocale(selector.value);
-      location.reload();
-    };
-    actions.append(selector);
-  }
-  actions.append(
-    button(theme === 'dark' ? '☀' : '☾', {
-      class: 'icon-btn',
-      onclick: () => {
-        setTheme(theme === 'dark' ? 'light' : 'dark');
-        location.reload();
-      },
-    }),
-    button('↪', {
-      class: 'icon-btn danger',
-      onclick: () => {
-        clearSession();
-        navigate('/manager/login');
-      },
-    }),
-  );
-  container.append(actions);
-  return container;
+const groups = [
+  ['Principal', [['Visão Geral', '/manager/', '⌂', 'dashboard.read']]],
+  ['Comunicação', [
+    ['Instâncias', '/manager/instances', '◉', 'instances.read'],
+    ['Canais', '/manager/channels', '⌁', 'instances.read'],
+    ['Conversas', '/manager/conversations', '◌', 'messages.read'],
+  ]],
+  ['Voz', [['Chamadas & VoIP', '/manager/voice', '☎', 'pbx.read']]],
+  ['Studio', [
+    ['Automações', '/manager/studio', '◇', 'studio.read'],
+    ['Integrações', '/manager/integrations', '⌘', 'integrations.read'],
+  ]],
+  ['Administração', [
+    ['Segurança da conta', '/manager/security', '◆', null],
+    ['Usuários e Acessos', '/manager/users', '♙', 'users.read'],
+    ['Auditoria', '/manager/audit', '☷', 'audit.read'],
+  ]],
+  ['Sistema', [
+    ['Saúde', '/manager/system', '◎', 'dashboard.read'],
+    ['Licença', '/manager/license', '◇', 'dashboard.read'],
+    ['Atualizações', '/manager/updates', '↻', 'dashboard.read'],
+  ]],
+];
+
+function activeFor(path, href) {
+  if (href === '/manager/') return path === '/manager/' || path === '/manager';
+  return path === href || path.startsWith(`${href}/`);
 }
 
-function navigationGroups(instance) {
-  const principal = [
-    ['Visão geral', 'dashboard', '◫'],
-    ['Chat', 'chat', '◉'],
-  ];
-  if (instance.integration === 'WHATSAPP-BAILEYS' || instance.integration === 'WHATSAPP-ZAPO') {
-    principal.push(['Status', 'status', '◌']);
-  }
-  if (instance.integration === 'WHATSAPP-ZAPO') {
-    principal.push(['Chamadas WhatsApp', 'calls', '☎'], ['VoIP', 'voip', '◍']);
-  }
-  return [
-    ['Principal', principal],
-    ['Configurações', [['Comportamento', 'settings', '⚙'], ['Proxy', 'proxy', '⇄']]],
-    ['Eventos', [['Webhook', 'webhook', '⌁'], ['WebSocket', 'websocket', '◌'], ['RabbitMQ', 'rabbitmq', '▤'], ['SQS', 'sqs', '▦']]],
-    ['Integrações', [['Chatwoot', 'chatwoot', '⌘'], ['Typebot', 'typebot', '◆'], ['OpenAI', 'openai', '◆'], ['Dify', 'dify', '◆'], ['n8n', 'n8n', '◆'], ['ConnectAI', 'connectAI', '◆'], ['ConnectBot', 'connectBot', '◆'], ['Flowise', 'flowise', '◆']]],
-  ];
-}
-
-export function sidebar(instance, active) {
-  const session = loadSession();
-  const aside = el('aside', { class: 'sidebar' });
-  navigationGroups(instance).forEach(([title, items]) => {
-    const section = el('section', {}, el('h4', { text: title }));
-    items.forEach(([label, path, icon]) => {
-      const a = link(
-        '',
-        `/manager/instance/${instance.id || instance.instanceId}/${path}`,
-        `nav-item ${active === path ? 'active' : ''}`,
-      );
-      a.append(el('span', { class: 'nav-icon', text: icon }), el('span', { text: label }));
-      section.append(a);
-    });
-    aside.append(section);
+export function appShell(content, options = {}) {
+  const auth = getAuth();
+  const path = location.pathname;
+  const app = el('div', { class: 'app-shell' });
+  const sidebar = el('aside', { class: 'sidebar', id: 'app-sidebar' });
+  const brand = el('a', { class: 'brand', href: '/manager/', dataset: { nav: '1' } }, el('img', { src: getTheme() === 'dark' ? '/assets/images/argws-connect-logo-dark.svg' : '/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' }));
+  sidebar.append(brand, el('nav', { class: 'nav' }));
+  const nav = sidebar.querySelector('.nav');
+  groups.forEach(([title, items]) => {
+    const visible = items.filter(([, , , permission]) => !permission || hasPermission(permission));
+    if (!visible.length) return;
+    const group = el('section', { class: 'nav-group' }, el('h4', { text: title }));
+    visible.forEach(([label, href, icon]) => group.append(el('a', { class: `nav-item ${activeFor(path, href) ? 'active' : ''}`, href, dataset: { nav: '1' } }, el('span', { class: 'nav-icon', text: icon }), el('span', { text: label }))));
+    nav.append(group);
   });
-  const docs = runtimeConfig.documentationUrl || session?.documentationUrl;
-  if (docs) {
-    aside.append(
-      el(
-        'a',
-        { class: 'nav-item docs-link', href: docs, target: '_blank', rel: 'noreferrer' },
-        el('span', { text: '↗' }),
-        el('span', { text: 'Documentação' }),
-      ),
-    );
-  }
-  return aside;
+
+  const topbar = el('header', { class: 'topbar' });
+  const menuButton = button('☰', { class: 'icon-btn mobile-menu', onclick: () => document.body.classList.toggle('sidebar-open') });
+  const title = el('div', { class: 'topbar-title' }, el('strong', { text: options.title || 'Connect|API' }), options.subtitle ? el('span', { text: options.subtitle }) : null);
+  const themeButton = button(getTheme() === 'dark' ? '☀' : '☾', { class: 'icon-btn ghost', onclick: () => { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); location.reload(); } });
+  const profile = el('div', { class: 'profile-menu' }, el('div', { class: 'avatar', text: (auth?.user?.name || auth?.user?.email || 'U')[0]?.toUpperCase() || 'U' }), el('div', { class: 'profile-copy' }, el('strong', { text: auth?.user?.name || 'Usuário' }), el('span', { text: auth?.user?.email || '' })), button('Sair', { class: 'ghost compact', onclick: async () => { await api.logout().catch(() => null); clearAuth(); navigate('/manager/login'); } }));
+  topbar.append(menuButton, title, el('div', { class: 'topbar-spacer' }), el('span', { class: 'system-pill' }, el('span', { class: 'status-dot' }), 'Administração local'), themeButton, profile);
+
+  const main = el('main', { class: 'main' }, content);
+  const overlay = el('div', { class: 'sidebar-overlay', onclick: () => document.body.classList.remove('sidebar-open') });
+  app.append(sidebar, el('div', { class: 'workspace' }, topbar, main), overlay);
+  return app;
 }
 
 export function pageHeader(title, description, actions = []) {
-  return el(
-    'div',
-    { class: 'page-header' },
-    el('div', {}, el('h1', { text: title }), el('p', { text: description || '' })),
-    el('div', { class: 'actions' }, ...actions),
-  );
+  return el('div', { class: 'page-header' }, el('div', {}, el('h1', { text: title }), description ? el('p', { text: description }) : null), el('div', { class: 'actions' }, ...actions));
 }
-export function managerShell(content) {
-  return el('div', { class: 'app' }, header(), el('main', { class: 'manager-main' }, content));
-}
-export function instanceShell(instance, active, content) {
-  return el(
-    'div',
-    { class: 'app' },
-    header(instance),
-    el('div', { class: 'instance-layout' }, sidebar(instance, active), el('main', { class: 'instance-main' }, content)),
-  );
-}
-export function instanceStatus(instance) {
-  return badge(instance.connectionStatus);
+
+export function sectionHeader(title, description = '') {
+  return el('div', { class: 'section-header' }, el('div', {}, el('h2', { text: title }), description ? el('p', { text: description }) : null));
 }

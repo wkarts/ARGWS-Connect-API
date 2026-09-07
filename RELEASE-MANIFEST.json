@@ -3,7 +3,7 @@
   "package": "argws-connect-api",
   "version": "1.0.21",
   "revision_date": "2026-09-06",
-  "source_files_excluding_node_modules": 667,
+  "source_files_excluding_node_modules": 711,
   "typescript_files_in_src": 204,
   "distribution": {
     "registry": "ghcr.io",
@@ -11,7 +11,8 @@
     "runtime_policy": "GHCR-only for production and homologation",
     "application_images": [
       "ghcr.io/wkarts/argws-connect-api",
-      "ghcr.io/wkarts/argws-connect-manager"
+      "ghcr.io/wkarts/argws-connect-manager",
+      "ghcr.io/wkarts/argws-connect-manager-api"
     ],
     "infrastructure_images": [
       "ghcr.io/wkarts/argws-connect-node:24-alpine",
@@ -78,7 +79,9 @@
     "zapo_provider_invariants_passed": true,
     "typescript_parse_errors": 0,
     "shell_syntax_errors": 0,
-    "legacy_platform_module_present": false
+    "legacy_platform_module_present": false,
+    "manager_legacy_functional_modules_preserved": true,
+    "manager_legacy_modules_excluded_from_web_dist": true
   },
   "release_automation": {
     "enabled": true,

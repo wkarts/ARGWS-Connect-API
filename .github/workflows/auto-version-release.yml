@@ -133,7 +133,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager, docs]
+        component: [api, manager, manager-api, docs]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -150,6 +150,10 @@ jobs:
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
+          - component: manager-api
+            context: ./manager/api
+            dockerfile: ./manager/api/Dockerfile
+            image: argws-connect-manager-api
           - component: docs
             context: .
             dockerfile: ./docs/Dockerfile
@@ -239,7 +243,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION package.json package-lock.json RELEASE-MANIFEST.json \
+          git add VERSION package.json package-lock.json manager/package.json manager/api/package.json RELEASE-MANIFEST.json \
             deploy/canonical/env.example deploy/canonical/compose.yaml \
             docs/openapi/connect-api.openapi.json \
             docs/openapi/meta-compatible.openapi.json \
@@ -262,6 +266,8 @@ jobs:
             image: argws-connect-api
           - component: manager
             image: argws-connect-manager
+          - component: manager-api
+            image: argws-connect-manager-api
           - component: docs
             image: argws-connect-docs
     steps:
@@ -350,6 +356,7 @@ jobs:
             echo
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-docs:${version}"
             echo
             for f in release-digests/*.txt; do

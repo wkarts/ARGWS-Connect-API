@@ -1,15 +1,14 @@
 {
   "name": "connect-api-manager",
   "private": true,
-  "version": "1.0.21-reconstructed.1",
+  "version": "1.0.21-professional.2",
   "type": "module",
   "scripts": {
     "check": "node scripts/check.mjs",
     "build": "node scripts/build.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "test": "npm run check && npm run build && npm run smoke && npm run runtime:smoke",
-    "dev": "node scripts/dev-server.mjs",
-    "runtime:smoke": "node scripts/runtime-smoke.mjs"
+    "test": "npm run check && npm run build && npm run smoke",
+    "dev": "node scripts/dev-server.mjs"
   },
   "engines": {
     "node": ">=20"

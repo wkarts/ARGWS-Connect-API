@@ -12,7 +12,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.title="ARGWS Connect API" \
-      org.opencontainers.image.description="Communication & Integration Platform" \
+      org.opencontainers.image.description="Communication & Integration" \
       org.opencontainers.image.source="https://github.com/wkarts/argws-connect-api"
 
 WORKDIR /argws-connect

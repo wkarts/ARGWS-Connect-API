@@ -18,6 +18,7 @@ services:
       SERVER_TYPE: http
       SERVER_PORT: "8080"
       DOCKER_ENV: "true"
+      SERVER_DISABLE_MANAGER: ${SERVER_DISABLE_MANAGER:-true}
       DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
@@ -42,6 +43,73 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+    logging: *default-logging
+
+  manager-api:
+    build:
+      context: ./manager/api
+      dockerfile: Dockerfile
+    image: ${ARGWS_CONNECT_MANAGER_API_IMAGE:-ghcr.io/wkarts/argws-connect-manager-api:latest}
+    pull_policy: ${ARGWS_CONNECT_MANAGER_PULL_POLICY:-always}
+    container_name: argws_connect_manager_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MANAGER_ENGINE_URL: http://api:8080
+      MANAGER_ENGINE_API_KEY: ${AUTHENTICATION_API_KEY:?AUTHENTICATION_API_KEY obrigatória}
+      MANAGER_SESSION_SECRET: ${MANAGER_SESSION_SECRET:?MANAGER_SESSION_SECRET obrigatória}
+      MANAGER_MFA_ENCRYPTION_KEY: ${MANAGER_MFA_ENCRYPTION_KEY:-}
+      MANAGER_2FA_REQUIRED_FOR_ADMIN: ${MANAGER_2FA_REQUIRED_FOR_ADMIN:-true}
+      MANAGER_MFA_CHALLENGE_TTL_SECONDS: ${MANAGER_MFA_CHALLENGE_TTL_SECONDS:-300}
+      MANAGER_COOKIE_SECURE: ${MANAGER_COOKIE_SECURE:-true}
+      MANAGER_BOOTSTRAP_EMAIL: ${MANAGER_BOOTSTRAP_EMAIL:-}
+      MANAGER_BOOTSTRAP_PASSWORD: ${MANAGER_BOOTSTRAP_PASSWORD:-}
+      MANAGER_BOOTSTRAP_NAME: ${MANAGER_BOOTSTRAP_NAME:-Administrador}
+      MANAGER_SETUP_TOKEN: ${MANAGER_SETUP_TOKEN:-}
+      MANAGER_INSTALLATION_ID: ${MANAGER_INSTALLATION_ID:-local}
+      MANAGER_LICENSE_URL: ${MANAGER_LICENSE_URL:-}
+      MANAGER_TELEMETRY_URL: ${MANAGER_TELEMETRY_URL:-}
+      MANAGER_RELEASE_URL: ${MANAGER_RELEASE_URL:-}
+      MANAGER_RELEASE_CHANNEL: ${MANAGER_RELEASE_CHANNEL:-stable}
+    depends_on:
+      api:
+        condition: service_healthy
+    expose:
+      - "3100"
+    volumes:
+      - ${ARGWS_CONNECT_MANAGER_DATA_PATH:-./volumes/manager}:/data
+    networks:
+      - argws-connect-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    logging: *default-logging
+
+  manager:
+    build:
+      context: ./manager
+      dockerfile: Dockerfile
+    image: ${ARGWS_CONNECT_MANAGER_IMAGE:-ghcr.io/wkarts/argws-connect-manager:latest}
+    pull_policy: ${ARGWS_CONNECT_MANAGER_PULL_POLICY:-always}
+    container_name: argws_connect_manager
+    restart: unless-stopped
+    depends_on:
+      manager-api:
+        condition: service_healthy
+    ports:
+      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_MANAGER_HOST_PORT:-38081}:80"
+    networks:
+      - argws-connect-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     logging: *default-logging
 
   docs:
