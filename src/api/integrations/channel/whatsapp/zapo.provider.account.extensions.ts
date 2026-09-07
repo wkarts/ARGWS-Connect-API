@@ -1,8 +1,4 @@
-import {
-  BlockUserDto,
-  PrivacySettingDto,
-  ReadMessageDto,
-} from '@api/dto/chat.dto';
+import { BlockUserDto, PrivacySettingDto, ReadMessageDto } from '@api/dto/chat.dto';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import { createJid } from '@utils/createJid';
 import axios from 'axios';
