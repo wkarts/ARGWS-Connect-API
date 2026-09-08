@@ -33,6 +33,7 @@ type ContactIdentity = {
 export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private readonly lidToPhone = new Map<string, string>();
   private readonly contactsByIdentity = new Map<string, ContactIdentity>();
+  private readonly profilePicturesVerified = new Set<string>();
   private identityRefreshPromise: Promise<void> | null = null;
   private identityRefreshAt = 0;
   private readonly identityRefreshTtlMs = 30_000;
@@ -207,10 +208,17 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       const lidChat = chatsByJid.get(lidJid);
       const phoneChat = chatsByJid.get(phoneJid);
       const preferredName = preferredNames.get(phoneJid);
+      const identityKey = this.identityKey(phoneJid);
+
+      let profilePicUrl = phoneContact?.profilePicUrl || lidContact?.profilePicUrl || undefined;
+      if (!this.profilePicturesVerified.has(identityKey) && this.connectionStatus?.state === 'open') {
+        this.profilePicturesVerified.add(identityKey);
+        const freshPicture = await this.profilePicture(phoneJid).catch(() => null);
+        if (freshPicture?.profilePictureUrl) profilePicUrl = freshPicture.profilePictureUrl;
+      }
 
       if (lidContact || phoneContact || preferredName) {
         const pushName = preferredName || phoneContact?.pushName || lidContact?.pushName || undefined;
-        const profilePicUrl = phoneContact?.profilePicUrl || lidContact?.profilePicUrl || undefined;
         await this.prismaRepository.contact.upsert({
           where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
           update: {
