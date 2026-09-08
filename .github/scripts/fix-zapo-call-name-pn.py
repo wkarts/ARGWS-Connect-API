@@ -1,0 +1,175 @@
+from pathlib import Path
+
+
+def one(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'{label}: expected 1 match, found {count}')
+    return text.replace(old, new, 1)
+
+
+identity_path = Path('src/api/integrations/channel/whatsapp/zapo.identity.extensions.ts')
+s = identity_path.read_text()
+
+anchor = """  private pruneCallHints(now = Date.now()): void {
+    for (const [callId, hint] of this.nativeCallHints) {
+      if (now - hint.observedAt > this.callHintTtlMs) this.nativeCallHints.delete(callId);
+    }
+  }
+
+"""
+helpers = anchor + """  private firstPhoneJid(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      const phoneJid = zapoPhoneJid(value);
+      if (phoneJid) return phoneJid;
+    }
+    return undefined;
+  }
+
+  private firstLidJid(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      const lidJid = zapoLidJid(value);
+      if (lidJid) return lidJid;
+    }
+    return undefined;
+  }
+
+"""
+s = one(s, anchor, helpers, 'insert candidate helpers')
+
+old_candidates = """    const phoneJid =
+      zapoPhoneJid(
+        event?.callerPnJid || event?.callerPn || event?.displayPeerJid || event?.peerJidAlt || event?.remoteJid,
+      ) || previous?.phoneJid;
+    const lidJid =
+      zapoKnownLidJid(event?.senderLidJid) ||
+      zapoLidJid(event?.peerJid) ||
+      zapoLidJid(event?.callCreatorJid) ||
+      zapoLidJid(event?.chatJid) ||
+      previous?.lidJid;
+"""
+new_candidates = """    const phoneJid =
+      this.firstPhoneJid(
+        event?.callerPnJid,
+        event?.callerPn,
+        event?.callCreatorJid,
+        event?.callCreator,
+        event?.displayPeerJid,
+        event?.peerJidAlt,
+        event?.remoteJid,
+        event?.chatJid,
+      ) || previous?.phoneJid;
+    const lidJid =
+      zapoKnownLidJid(event?.senderLidJid) ||
+      this.firstLidJid(event?.peerJid, event?.callCreatorJid, event?.callCreator, event?.chatJid) ||
+      previous?.lidJid;
+"""
+s = one(s, old_candidates, new_candidates, 'fix call identity candidates')
+
+old_inbound = """    const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
+    const eventDirection = String(event?.direction || '').toLowerCase();
+    const isInboundIdentity =
+      !isOwnPeer &&
+      Boolean(phoneJid) &&
+      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) ||
+        eventDirection === 'incoming' ||
+        Boolean(event?.callerPushName));
+
+    // The native ZAPO call event is the strongest source for inbound PN/LID
+    // identity. Accept the documented caller fields even when a release names
+    // the transition `notify`/`incoming` instead of only `offer`.
+    const pushName = isInboundIdentity
+      ? this.sanitizeRemoteName(event?.callerPushName) || previous?.pushName
+      : previous?.pushName;
+"""
+new_inbound = """    const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
+    const eventDirection = String(event?.direction || '').toLowerCase();
+    const isInboundCall =
+      !isOwnPeer &&
+      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) ||
+        eventDirection === 'incoming' ||
+        Boolean(event?.callerPushName));
+
+    // Push name is valid caller metadata even when WhatsApp withholds PN and
+    // addresses the offer only by LID. Do not discard it just because the
+    // phone mapping has not arrived yet.
+    const pushName = isInboundCall
+      ? this.sanitizeRemoteName(event?.callerPushName) || previous?.pushName
+      : previous?.pushName;
+"""
+s = one(s, old_inbound, new_inbound, 'preserve inbound caller name without PN')
+s = one(
+    s,
+    '    if (phoneJid && isInboundIdentity) {\n      await this.persistNativeContactHint(phoneJid, pushName);\n    }\n',
+    '    if (phoneJid && isInboundCall) {\n      await this.persistNativeContactHint(phoneJid, pushName);\n    }\n',
+    'rename inbound guard',
+)
+
+old_outgoing = """        ? [
+            call?.displayPeerJid,
+            call?.peerJid,
+            call?.peerJidAlt,
+            call?.peerJidRaw,
+            call?.remoteJid,
+            call?.to,
+            call?.callerPn,
+            call?.callerPnJid,
+          ]
+"""
+new_outgoing = """        ? [
+            call?.displayPeerJid,
+            call?.peerJid,
+            call?.peerJidAlt,
+            call?.peerJidRaw,
+            call?.remoteJid,
+            call?.to,
+            call?.callerPn,
+            call?.callerPnJid,
+            call?.callCreatorJid,
+            call?.callCreator,
+          ]
+"""
+s = one(s, old_outgoing, new_outgoing, 'add outgoing creator candidates')
+
+old_incoming = """        : [
+            call?.callerPn,
+            call?.callerPnJid,
+            call?.displayPeerJid,
+            call?.peerJidAlt,
+            call?.peerJid,
+            call?.peerJidRaw,
+            call?.remoteJid,
+            call?.from,
+          ];
+"""
+new_incoming = """        : [
+            call?.callerPn,
+            call?.callerPnJid,
+            call?.callCreatorJid,
+            call?.callCreator,
+            call?.displayPeerJid,
+            call?.peerJidAlt,
+            call?.peerJid,
+            call?.peerJidRaw,
+            call?.remoteJid,
+            call?.from,
+          ];
+"""
+s = one(s, old_incoming, new_incoming, 'add incoming creator candidates')
+identity_path.write_text(s)
+
+base_path = Path('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts')
+b = base_path.read_text()
+old_normalized = """      peerJidRaw: rawPeerJid,
+      callerPn: call.callerPn,
+      isVideo: call.isVideo,
+"""
+new_normalized = """      peerJidRaw: rawPeerJid,
+      callerPn: call.callerPn,
+      callerPnJid: call.callerPn,
+      callCreator: call.callCreator,
+      callCreatorJid: call.callCreator,
+      isVideo: call.isVideo,
+"""
+b = one(b, old_normalized, new_normalized, 'preserve VOIP call creator identity')
+base_path.write_text(b)
