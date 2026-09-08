@@ -1,0 +1,29 @@
+# Connect|API - domínio dedicado da interface principal (develop)
+# Exemplo: https://d.manager.connect.argws.com.br
+# A interface continua sendo servida pela própria imagem da API em /manager.
+
+# Assets e navegação quando o próprio frontend usa o prefixo /manager/.
+location ^~ /manager/ {
+    proxy_pass http://127.0.0.1:38082;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_connect_timeout 60s;
+}
+
+# No domínio dedicado, qualquer rota visual é resolvida pela SPA em /manager/.
+location / {
+    proxy_pass http://127.0.0.1:38082/manager/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_connect_timeout 60s;
+}

@@ -34,8 +34,10 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# /manager is served by the API image in the official develop stack. Always
-# regenerate it from source so a stale committed dist can never reach runtime.
+# A interface principal é entregue pela própria imagem da API em /manager.
+# Instale somente as dependências do frontend antes de gerar o bundle; nenhuma
+# alteração é feita no código funcional do backend.
+RUN npm --prefix manager install --no-audit --no-fund
 RUN MANAGER_BUILD_MODE="${MANAGER_BUILD_MODE}" npm --prefix manager run test
 
 RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
