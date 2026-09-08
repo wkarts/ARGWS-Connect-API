@@ -102,6 +102,8 @@ export class ZapoStartupService extends ChannelStartupService {
   private lidReconciliationDone = false;
   private readonly outgoingCallPeers = new Map<string, string>();
   private readonly callMuteStates = new Map<string, boolean>();
+  private readonly contactProfileRefreshAt = new Map<string, number>();
+  private readonly contactProfileRefreshTtlMs = 6 * 60 * 60 * 1000;
   private readonly audioEmitter = new EventEmitter2();
   private reconnectTimer?: NodeJS.Timeout;
   private historyImportTimer?: NodeJS.Timeout;
@@ -536,6 +538,20 @@ export class ZapoStartupService extends ChannelStartupService {
     return this.sendPresence(data);
   }
 
+  private effectiveMaxConcurrentCalls(): number {
+    const globalLimit = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
+    const configured = Number(this.localSettings.voipMaxConcurrentCalls || globalLimit);
+    return Math.max(1, Math.min(globalLimit, Number.isFinite(configured) ? configured : globalLimit));
+  }
+
+  private activeCallCount(): number {
+    if (!this.client?.voip?.getCalls) return 0;
+    const ended = new Set(['ended', 'end', 'terminated', 'rejected', 'closed']);
+    return this.client.voip
+      .getCalls()
+      .filter((call: any) => !ended.has(String(call?.stateData?.state ?? call?.state ?? '').toLowerCase())).length;
+  }
+
   /** Place a WhatsApp call directly through Zapo VOIP. */
   public async offerCall({ number, isVideo, callDuration }: OfferCallDto) {
     await this.ensureConnected();
@@ -543,6 +559,13 @@ export class ZapoStartupService extends ChannelStartupService {
 
     if (isVideo) {
       throw new BadRequestException('The native Zapo provider currently supports audio calls only');
+    }
+
+    const maxConcurrentCalls = this.effectiveMaxConcurrentCalls();
+    if (this.activeCallCount() >= maxConcurrentCalls) {
+      throw new BadRequestException(
+        `Esta instância atingiu o limite de ${maxConcurrentCalls} chamada${maxConcurrentCalls === 1 ? '' : 's'} simultânea${maxConcurrentCalls === 1 ? '' : 's'}.`,
+      );
     }
 
     const jid = createJid(number);
@@ -1022,6 +1045,7 @@ export class ZapoStartupService extends ChannelStartupService {
         Events.CONTACTS_SET,
         entries.map(([remoteJid, pushName]) => ({ remoteJid, pushName, instanceId: this.instanceId })),
       );
+      void this.refreshContactProfilePictures(entries.map(([remoteJid]) => remoteJid));
     }
 
     const threadRows = hasThreads
@@ -1262,6 +1286,44 @@ export class ZapoStartupService extends ChannelStartupService {
     }
   }
 
+  private async refreshContactProfilePicture(remoteJid: string): Promise<void> {
+    if (this.stateConnection.state !== 'open') return;
+    if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) return;
+
+    const now = Date.now();
+    const lastRefresh = this.contactProfileRefreshAt.get(remoteJid) || 0;
+    if (now - lastRefresh < this.contactProfileRefreshTtlMs) return;
+    this.contactProfileRefreshAt.set(remoteJid, now);
+
+    try {
+      const picture = await this.profilePicture(remoteJid);
+      const profilePicUrl = picture?.profilePictureUrl || null;
+      if (!profilePicUrl) return;
+
+      const updated = await this.prismaRepository.contact.updateMany({
+        where: { remoteJid, instanceId: this.instanceId },
+        data: { profilePicUrl },
+      });
+
+      if (updated.count > 0) {
+        this.sendDataWebhook(Events.CONTACTS_UPDATE, {
+          remoteJid,
+          profilePicUrl,
+          instanceId: this.instanceId,
+        });
+      }
+    } catch (error) {
+      this.logger.debug?.(`Unable to refresh profile picture for ${remoteJid}: ${(error as Error)?.message || error}`);
+    }
+  }
+
+  private async refreshContactProfilePictures(remoteJids: string[]): Promise<void> {
+    const unique = [...new Set(remoteJids)].slice(0, 250);
+    for (let offset = 0; offset < unique.length; offset += 4) {
+      await Promise.allSettled(unique.slice(offset, offset + 4).map((jid) => this.refreshContactProfilePicture(jid)));
+    }
+  }
+
   private async upsertContact(remoteJid: string, pushName?: string) {
     await this.prismaRepository.contact.upsert({
       where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
@@ -1269,6 +1331,7 @@ export class ZapoStartupService extends ChannelStartupService {
       create: { remoteJid, pushName, instanceId: this.instanceId },
     });
     this.sendDataWebhook(Events.CONTACTS_UPSERT, { remoteJid, pushName, instanceId: this.instanceId });
+    void this.refreshContactProfilePicture(remoteJid);
   }
 
   private async upsertChat(remoteJid: string, name?: string) {
@@ -1407,6 +1470,19 @@ export class ZapoStartupService extends ChannelStartupService {
     this.emitCall('incoming', call);
 
     try {
+      const maxConcurrentCalls = this.effectiveMaxConcurrentCalls();
+      if (
+        call?.callId &&
+        call?.canReject !== false &&
+        this.activeCallCount() > maxConcurrentCalls
+      ) {
+        await this.client.voip.rejectCall(call.callId);
+        this.logger.warn(
+          `Incoming WhatsApp call rejected because instance limit ${maxConcurrentCalls} was reached`,
+        );
+        return;
+      }
+
       if (this.localSettings.rejectCall && call?.callId && call?.canReject !== false) {
         await this.client.voip.rejectCall(call.callId);
       }

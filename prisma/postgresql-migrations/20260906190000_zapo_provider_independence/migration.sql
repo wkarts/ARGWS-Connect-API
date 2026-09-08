@@ -1,9 +1,7 @@
--- Connect|API provider independence: retire the legacy CONNECT bridge.
--- Existing CONNECT instances are moved to the native Zapo provider and forced
--- closed so the operator explicitly pairs the WhatsApp account with Zapo.
-UPDATE "Instance"
-SET "integration" = 'WHATSAPP-ZAPO', "connectionStatus" = 'close'
-WHERE "integration" = 'CONNECT';
+-- Connect|API provider independence.
+-- Compatibility rule for upgrades from 1.0.21:
+-- do NOT rewrite legacy CONNECT instances and do NOT remove legacy settings.
+-- Existing rows are intentionally preserved so an upgrade never forces a new
+-- WhatsApp pairing or destroys data. New instances use the current providers.
 
--- WavoIP is no longer part of Connect|API voice architecture.
-ALTER TABLE "Setting" DROP COLUMN IF EXISTS "wavoipToken";
+SELECT 1;

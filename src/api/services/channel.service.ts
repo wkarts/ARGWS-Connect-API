@@ -11,7 +11,7 @@ import { eventManager, waMonitor } from '@api/server.module';
 import { Events, wa } from '@api/types/wa.types';
 import { Auth, Chatwoot, ConfigService, HttpServer, Proxy } from '@config/env.config';
 import { Logger } from '@config/logger.config';
-import { NotFoundException } from '@exceptions';
+import { BadRequestException, NotFoundException } from '@exceptions';
 import { Contact, Message, Prisma } from '@prisma/client';
 import { createJid } from '@utils/createJid';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
@@ -153,9 +153,23 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
+    this.localSettings.voipMaxConcurrentCalls = data?.voipMaxConcurrentCalls ?? undefined;
   }
 
   public async setSettings(data: SettingsDto) {
+    const globalVoipLimit = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
+    if (
+      data.voipMaxConcurrentCalls !== undefined &&
+      data.voipMaxConcurrentCalls !== null &&
+      (!Number.isInteger(data.voipMaxConcurrentCalls) ||
+        data.voipMaxConcurrentCalls < 1 ||
+        data.voipMaxConcurrentCalls > globalVoipLimit)
+    ) {
+      throw new BadRequestException(
+        `O limite de chamadas simultâneas desta instância deve ficar entre 1 e ${globalVoipLimit}.`,
+      );
+    }
+
     await this.prismaRepository.setting.upsert({
       where: {
         instanceId: this.instanceId,
@@ -168,6 +182,7 @@ export class ChannelStartupService {
         readMessages: data.readMessages,
         readStatus: data.readStatus,
         syncFullHistory: data.syncFullHistory,
+        voipMaxConcurrentCalls: data.voipMaxConcurrentCalls ?? null,
       },
       create: {
         rejectCall: data.rejectCall,
@@ -177,6 +192,7 @@ export class ChannelStartupService {
         readMessages: data.readMessages,
         readStatus: data.readStatus,
         syncFullHistory: data.syncFullHistory,
+        voipMaxConcurrentCalls: data.voipMaxConcurrentCalls ?? null,
         instanceId: this.instanceId,
       },
     });
@@ -188,6 +204,7 @@ export class ChannelStartupService {
     this.localSettings.readMessages = data?.readMessages;
     this.localSettings.readStatus = data?.readStatus;
     this.localSettings.syncFullHistory = data?.syncFullHistory;
+    this.localSettings.voipMaxConcurrentCalls = data?.voipMaxConcurrentCalls ?? undefined;
   }
 
   public async findSettings() {
@@ -197,8 +214,13 @@ export class ChannelStartupService {
       },
     });
 
+    const voipMaxConcurrentCallsLimit = Math.max(
+      1,
+      Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'),
+    );
+
     if (!data) {
-      return null;
+      return { voipMaxConcurrentCallsLimit };
     }
 
     return {
@@ -209,6 +231,8 @@ export class ChannelStartupService {
       readMessages: data.readMessages,
       readStatus: data.readStatus,
       syncFullHistory: data.syncFullHistory,
+      voipMaxConcurrentCalls: data.voipMaxConcurrentCalls ?? undefined,
+      voipMaxConcurrentCallsLimit,
     };
   }
 

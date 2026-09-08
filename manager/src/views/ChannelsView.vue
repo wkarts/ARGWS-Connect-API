@@ -4,6 +4,7 @@ import AppShell from '@/layouts/AppShell.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PanelCard from '@/components/PanelCard.vue'
 import StatusPill from '@/components/StatusPill.vue'
+import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
 import type { ConnectionItem } from '@/types/domain'
 
@@ -45,7 +46,7 @@ const groups = computed<ChannelSummary[]>(() => {
     <div class="channel-grid">
       <PanelCard v-for="item in groups" :key="item.name">
         <div class="channel-card">
-          <span class="channel-icon">{{ item.name.slice(0, 1) }}</span>
+          <span class="channel-icon"><AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : 'channels'" :size="23"/></span>
           <div>
             <h3>{{ item.name }}</h3>
             <p>{{ item.connected }} de {{ item.total }} conexões ativas</p>

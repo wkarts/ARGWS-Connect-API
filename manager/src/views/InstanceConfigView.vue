@@ -36,7 +36,7 @@ const missingRequirement = computed(() => {
 })
 
 function defaults(key: InstanceConfigKey) {
-  if (key === 'settings') return { rejectCall:false, groupsIgnore:false, alwaysOnline:false, readMessages:false, readStatus:false, syncFullHistory:false, msgCall:'' }
+  if (key === 'settings') return { rejectCall:false, groupsIgnore:false, alwaysOnline:false, readMessages:false, readStatus:false, syncFullHistory:false, msgCall:'', voipMaxConcurrentCalls:undefined, voipMaxConcurrentCallsLimit:4 }
   if (key === 'proxy') return { enabled:false, host:'', port:'', protocol:'http', username:'', password:'' }
   if (key === 'webhook') return { enabled:false, url:'', headers:{}, byEvents:false, base64:false, events:[] }
   if (['websocket','rabbitmq','nats','sqs','kafka'].includes(key)) return { enabled:false, events:[] }
@@ -92,7 +92,20 @@ async function save() {
       catch { throw new Error('Os cabeçalhos precisam estar em formato JSON válido.') }
     }
     if (selected.value === 'chatwoot') value.value.ignoreJids = ignoreText.value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean)
-    await connect.saveInstanceConfig(instanceId, selected.value, value.value)
+    const payload = { ...value.value }
+    delete payload.voipMaxConcurrentCallsLimit
+    if (selected.value === 'settings') {
+      if (
+        payload.voipMaxConcurrentCalls === '' ||
+        payload.voipMaxConcurrentCalls === null ||
+        payload.voipMaxConcurrentCalls === undefined
+      ) {
+        delete payload.voipMaxConcurrentCalls
+      } else {
+        payload.voipMaxConcurrentCalls = Number(payload.voipMaxConcurrentCalls)
+      }
+    }
+    await connect.saveInstanceConfig(instanceId, selected.value, payload)
     feedback.value = 'Configuração salva com sucesso.'
     await load()
   } catch (e) { error.value = friendlyError(e) }
@@ -128,6 +141,17 @@ onMounted(load)
             <template v-if="selected==='settings'">
               <label class="toggle-field"><input v-model="value.rejectCall" type="checkbox"/><span><strong>Rejeitar chamadas recebidas</strong><small>Quando ativado, chamadas recebidas são recusadas automaticamente.</small></span></label>
               <label class="field"><span>Mensagem ao rejeitar</span><input v-model="value.msgCall" placeholder="Mensagem opcional"/></label>
+              <label class="field">
+                <span>Chamadas simultâneas nesta instância</span>
+                <input
+                  v-model.number="value.voipMaxConcurrentCalls"
+                  type="number"
+                  min="1"
+                  :max="value.voipMaxConcurrentCallsLimit || 4"
+                  :placeholder="`Máximo ${value.voipMaxConcurrentCallsLimit || 4}`"
+                />
+                <small>Limite da instância. O máximo permitido pela instalação é {{ value.voipMaxConcurrentCallsLimit || 4 }}.</small>
+              </label>
               <label class="toggle-field"><input v-model="value.groupsIgnore" type="checkbox"/><span><strong>Ignorar grupos</strong></span></label>
               <label class="toggle-field"><input v-model="value.alwaysOnline" type="checkbox"/><span><strong>Manter presença online</strong></span></label>
               <label class="toggle-field"><input v-model="value.readMessages" type="checkbox"/><span><strong>Marcar mensagens como lidas</strong></span></label>

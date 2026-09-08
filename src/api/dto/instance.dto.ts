@@ -23,6 +23,7 @@ export class InstanceDto extends IntegrationDto {
   readMessages?: boolean;
   readStatus?: boolean;
   syncFullHistory?: boolean;
+  voipMaxConcurrentCalls?: number;
   // proxy
   proxyHost?: string;
   proxyPort?: string;

@@ -6,6 +6,7 @@ export class getCatalogDto {
   number?: string;
   limit?: number;
   cursor?: string;
+  maxPages?: number;
 }
 
 export class getCollectionsDto {

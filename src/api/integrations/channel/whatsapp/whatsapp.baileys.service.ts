@@ -1,4 +1,4 @@
-import { getCollectionsDto } from '@api/dto/business.dto';
+import { getCatalogDto, getCollectionsDto } from '@api/dto/business.dto';
 import { OfferCallDto } from '@api/dto/call.dto';
 import {
   ArchiveChatDto,
@@ -5027,15 +5027,17 @@ export class BaileysStartupService extends ChannelStartupService {
     return response;
   }
 
-  //Business Controller
-  public async fetchCatalog(instanceName: string, data: getCollectionsDto) {
+  // Business catalog controller.
+  // Keep the provider-native cursor public instead of decoding internal cursor payloads.
+  public async fetchCatalog(instanceName: string, data: getCatalogDto) {
     const jid = data.number ? createJid(data.number) : this.client?.user?.id;
-    const limit = data.limit || 10;
-    const cursor = null;
+    const limit = Math.max(1, Math.min(100, Number(data.limit || 10)));
+    const maxPages = Math.max(1, Math.min(20, Number(data.maxPages || (data.cursor ? 1 : 5))));
+    let cursor = data.cursor || undefined;
 
     const onWhatsapp = (await this.whatsappNumber({ numbers: [jid] }))?.shift();
 
-    if (!onWhatsapp.exists) {
+    if (!onWhatsapp?.exists) {
       throw new BadRequestException(onWhatsapp);
     }
 
@@ -5043,26 +5045,19 @@ export class BaileysStartupService extends ChannelStartupService {
       const info = (await this.whatsappNumber({ numbers: [jid] }))?.shift();
       const business = await this.fetchBusinessProfile(info?.jid);
 
-      let catalog = await this.getCatalog({ jid: info?.jid, limit, cursor });
-      let nextPageCursor = catalog.nextPageCursor;
-      let nextPageCursorJson = nextPageCursor ? JSON.parse(atob(nextPageCursor)) : null;
-      let pagination = nextPageCursorJson?.pagination_cursor
-        ? JSON.parse(atob(nextPageCursorJson.pagination_cursor))
-        : null;
-      let fetcherHasMore = pagination?.fetcher_has_more === true ? true : false;
+      const productsCatalog: Product[] = [];
+      let nextPageCursor: string | undefined = cursor;
 
-      let productsCatalog = catalog.products || [];
-      let countLoops = 0;
-      while (fetcherHasMore && countLoops < 4) {
-        catalog = await this.getCatalog({ jid: info?.jid, limit, cursor: nextPageCursor });
+      for (let page = 0; page < maxPages; page += 1) {
+        const catalog = await this.getCatalog({
+          jid: info?.jid,
+          limit,
+          cursor: nextPageCursor,
+        });
+
+        productsCatalog.push(...(catalog.products || []));
         nextPageCursor = catalog.nextPageCursor;
-        nextPageCursorJson = nextPageCursor ? JSON.parse(atob(nextPageCursor)) : null;
-        pagination = nextPageCursorJson?.pagination_cursor
-          ? JSON.parse(atob(nextPageCursorJson.pagination_cursor))
-          : null;
-        fetcherHasMore = pagination?.fetcher_has_more === true ? true : false;
-        productsCatalog = [...productsCatalog, ...catalog.products];
-        countLoops++;
+        if (!nextPageCursor) break;
       }
 
       return {
@@ -5071,10 +5066,13 @@ export class BaileysStartupService extends ChannelStartupService {
         isBusiness: business.isBusiness,
         catalogLength: productsCatalog.length,
         catalog: productsCatalog,
+        nextPageCursor,
+        hasMore: Boolean(nextPageCursor),
+        pageSize: limit,
       };
     } catch (error) {
-      console.log(error);
-      return { wuid: jid, name: null, isBusiness: false };
+      this.logger.error(error);
+      throw new InternalServerErrorException('Error fetching business catalog', (error as Error)?.toString());
     }
   }
 

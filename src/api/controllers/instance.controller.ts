@@ -350,6 +350,10 @@ export class InstanceController {
         readMessages: instanceData.readMessages === true,
         readStatus: instanceData.readStatus === true,
         syncFullHistory: instanceData.syncFullHistory === true,
+        voipMaxConcurrentCalls:
+          instanceData.voipMaxConcurrentCalls !== undefined
+            ? Number(instanceData.voipMaxConcurrentCalls)
+            : undefined,
       };
 
       await this.settingsService.create(instanceDto, settings);

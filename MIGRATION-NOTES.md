@@ -54,3 +54,12 @@ Esta revisão adiciona `@innovatorssoft/zapo-js`, `@innovatorssoft/voip`, `@inno
 O provider `WHATSAPP-ZAPO` persiste o estado criptográfico/protocolo no PostgreSQL da própria Connect|API. Nesta primeira entrega, instâncias Zapo exigem `DATABASE_PROVIDER=postgresql`. O restante da Connect|API continua preservando os providers de banco já existentes.
 
 A imagem da API passa a usar Node 22 sobre Debian Bookworm Slim para suportar o binário Linux glibc do WebRTC utilizado em chamadas reais. Manager e demais imagens podem continuar utilizando suas bases atuais.
+
+## Compatibilidade de atualização a partir da 1.0.21
+
+A atualização preserva as instâncias existentes e suas credenciais persistidas. A migration de independência de provider não converte automaticamente registros legados `CONNECT` para ZAPO e não remove configurações legadas durante esta transição.
+
+As stacks principais executam `backup.sh` e `verify-backup.sh` antes de `docker compose up` durante `update.sh`. O backup `.connectbak` é autenticado e criptografado pela `AUTHENTICATION_API_KEY` da instalação.
+
+Novas alterações de banco nesta entrega são aditivas, incluindo `Setting.voipMaxConcurrentCalls`.
+

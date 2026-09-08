@@ -23,7 +23,7 @@ const busy = ref(false)
 const error = ref('')
 const feedback = ref('')
 const number = ref('')
-const duration = ref(20)
+const duration = ref(0)
 const mediaState = ref<VoiceMediaState>('idle')
 const mediaError = ref('')
 const mediaCallId = ref('')
@@ -123,7 +123,12 @@ async function makeTestCall() {
   feedback.value = ''
   mediaError.value = ''
   try {
-    const result = await connect.offerCall(selected.value, normalized, Math.max(5, Math.min(120, Number(duration.value || 20))))
+    const requestedDuration = Number(duration.value || 0)
+    const result = await connect.offerCall(
+      selected.value,
+      normalized,
+      requestedDuration > 0 ? requestedDuration : undefined,
+    )
     const callId = String(result?.callId || result?.id || '')
     feedback.value = 'Chamada de teste iniciada. A lista será atualizada automaticamente.'
     if (callId && supportsVoice.value) await attachMedia(callId)
@@ -234,7 +239,7 @@ onBeforeUnmount(() => {
         <PanelCard title="Nova chamada de teste" description="Inicie uma chamada com encerramento automático para facilitar a validação.">
           <form class="form-stack" @submit.prevent="makeTestCall">
             <label class="field"><span>Número do WhatsApp</span><input v-model="number" inputmode="numeric" placeholder="5575999999999" required/><small>Informe DDI, DDD e número.</small></label>
-            <label class="field"><span>Duração máxima do teste</span><select v-model.number="duration" class="select"><option :value="10">10 segundos</option><option :value="20">20 segundos</option><option :value="30">30 segundos</option><option :value="60">1 minuto</option></select></label>
+            <label class="field"><span>Encerramento automático</span><select v-model.number="duration" class="select"><option :value="0">Sem encerramento automático</option><option :value="60">1 minuto</option><option :value="120">2 minutos</option><option :value="300">5 minutos</option><option :value="600">10 minutos</option><option :value="1800">30 minutos</option></select><small>A chamada também pode ser encerrada manualmente a qualquer momento.</small></label>
             <div class="test-call-note"><AppIcon name="phone" :size="18"/><span>Ao iniciar ou atender, o navegador solicitará o microfone e conectará o áudio em tempo real. Use somente para validação.</span></div>
             <button class="btn primary" :disabled="busy || !number.replace(/\D/g,'')"><AppIcon name="phone" :size="16"/>{{ busy ? 'Iniciando...' : 'Efetuar chamada de teste' }}</button>
           </form>
