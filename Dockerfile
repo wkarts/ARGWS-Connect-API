@@ -34,7 +34,13 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# /manager is served by the API image in the official develop stack. Always
+# The Manager has one pinned browser-only build dependency (local QR renderer).
+# Install it in manager/node_modules before running the deterministic build. The
+# dependency is only used to generate static assets and is not copied as a
+# runtime Node dependency into the API process.
+RUN npm --prefix manager install --omit=dev --no-audit --no-fund
+
+# /manager is served by the API image in compatible deployments. Always
 # regenerate it from source so a stale committed dist can never reach runtime.
 RUN MANAGER_BUILD_MODE="${MANAGER_BUILD_MODE}" npm --prefix manager run test
 
