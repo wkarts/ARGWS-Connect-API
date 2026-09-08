@@ -5,6 +5,7 @@ import router from './router'
 import './styles/tokens.css'
 import './styles/base.css'
 import './styles/components.css'
+import './styles/integrations.css'
 import './styles/responsive.css'
 
 if (location.protocol === 'http:' && !['localhost', '127.0.0.1', '::1'].includes(location.hostname)) {
