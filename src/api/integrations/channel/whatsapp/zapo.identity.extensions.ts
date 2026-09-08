@@ -4,13 +4,7 @@ import { Database } from '@config/env.config';
 import { Contact } from '@prisma/client';
 import { Pool } from 'pg';
 
-import {
-  zapoJidUser,
-  zapoKnownLidJid,
-  zapoLidJid,
-  zapoPhoneJid,
-  zapoTryNormalizeJid,
-} from './zapo.jid.helpers';
+import { zapoJidUser, zapoKnownLidJid, zapoLidJid, zapoPhoneJid, zapoTryNormalizeJid } from './zapo.jid.helpers';
 import { ZapoInteractiveStartupService } from './zapo.provider.interactive.extensions';
 
 type ZapoContactIdentityRow = {
@@ -41,9 +35,9 @@ type NativeCallIdentityHint = {
  * PN and LID are different identifiers for the same WhatsApp account. A LID
  * is opaque and is NEVER converted to a phone number by parsing its digits.
  * The adapter accepts LID -> PN only when ZAPO/WhatsApp supplied the mapping:
- * native call identity fields, message alternate identities or the ZAPO
- * contact store. This mirrors ZAPO's own identity model and prevents a LID
- * from being displayed or persisted as somebody else's phone number.
+ * native call identity fields, message alternate identities, PnForLidChat or
+ * the ZAPO contact store. This mirrors ZAPO's own identity model and prevents
+ * a LID from being displayed or persisted as somebody else's phone number.
  */
 export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private readonly lidToPhone = new Map<string, string>();
@@ -117,23 +111,32 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     if (this.nativeIdentityBoundClients.has(client)) return;
     this.nativeIdentityBoundClients.add(client);
 
-    // Core ZAPO call events carry the identity metadata that the VoIP media
-    // plugin does not need to retain: callerPnJid, senderLidJid and push name.
+    // The core ZAPO call event carries the identity metadata that the VoIP
+    // media plugin does not need to retain: callerPnJid, senderLidJid and name.
     client.on('call', (event: any) => {
       void this.handleNativeCallIdentity(event).catch((error: Error) => this.logger.error(error));
     });
 
-    // Remember PN/LID pairs immediately from live traffic. The normal ZAPO
-    // message event exposes primary + *Alt identity forms when WhatsApp sends
-    // both, so calls arriving afterwards can resolve without a DB round-trip.
+    // Incoming message keys expose the primary and alternate identity forms.
     client.on('message', (event: any) => {
       this.rememberAlias(event?.key?.remoteJid, event?.key?.remoteJidAlt);
       this.rememberAlias(event?.key?.participant, event?.key?.participantAlt);
       this.rememberAlias(event?.key?.recipientJid, event?.key?.recipientAlt);
     });
 
-    // ZAPO already updates its Signal bookkeeping on LID changes. Move our
-    // learned PN mapping to the new LID so Manager/API caches stay coherent.
+    // PnForLidChat is ZAPO/WhatsApp's own app-state mapping for a chat whose
+    // primary identity is a LID. Consume it rather than deriving PN from LID.
+    const rememberPnForLid = (event: any) => {
+      if (event?.schema !== 'PnForLidChat' || event?.operation === 'remove') return;
+      const lidJid = zapoKnownLidJid(event?.lid);
+      const phoneJid = zapoPhoneJid(event?.pnJid);
+      if (lidJid && phoneJid) this.rememberAlias(lidJid, phoneJid);
+    };
+    client.on('mutation', rememberPnForLid);
+    client.on('mutation_send', rememberPnForLid);
+
+    // ZAPO already updates Signal bookkeeping on LID changes. Move our learned
+    // PN mapping to the new LID so Manager/API caches remain coherent.
     client.on('mex_notification', (event: any) => {
       if (event?.kind !== 'lid_change') return;
       this.handleLidChange(event?.oldLidJid, event?.newLidJid);
@@ -212,13 +215,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       },
     });
 
-    const identity: ContactIdentity = {
+    this.cacheContactIdentity({
       remoteJid: phoneJid,
       name,
       avatar: profilePicUrl,
       aliases: [phoneJid],
-    };
-    this.cacheContactIdentity(identity);
+    });
   }
 
   private handleLidChange(oldValue: unknown, newValue: unknown): void {
@@ -346,16 +348,17 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
     this.collectMessageAliases(storedMessages, aliases);
 
-    const contactsByJid = new Map(
-      storedContacts
-        .map((contact) => [zapoTryNormalizeJid(contact.remoteJid), contact] as const)
-        .filter((entry): entry is readonly [string, (typeof storedContacts)[number]] => Boolean(entry[0])),
-    );
-    const chatsByJid = new Map(
-      storedChats
-        .map((chat) => [zapoTryNormalizeJid(chat.remoteJid), chat] as const)
-        .filter((entry): entry is readonly [string, (typeof storedChats)[number]] => Boolean(entry[0])),
-    );
+    const contactsByJid = new Map<string, (typeof storedContacts)[number]>();
+    for (const contact of storedContacts) {
+      const remoteJid = zapoTryNormalizeJid(contact.remoteJid);
+      if (remoteJid) contactsByJid.set(remoteJid, contact);
+    }
+
+    const chatsByJid = new Map<string, (typeof storedChats)[number]>();
+    for (const chat of storedChats) {
+      const remoteJid = zapoTryNormalizeJid(chat.remoteJid);
+      if (remoteJid) chatsByJid.set(remoteJid, chat);
+    }
 
     for (const [lidJid, phoneJid] of aliases) {
       const lidContact = contactsByJid.get(lidJid);
@@ -592,7 +595,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     const contactName = contact?.name || hintedName || this.safeRemoteCallName(call);
 
     let profilePicUrl = contact?.avatar;
-    if (phoneJid && !profilePicUrl && this.connectionStatus?.state === 'open' && this.shouldRefreshProfilePicture(phoneJid)) {
+    if (
+      phoneJid &&
+      !profilePicUrl &&
+      this.connectionStatus?.state === 'open' &&
+      this.shouldRefreshProfilePicture(phoneJid)
+    ) {
       const picture = await this.profilePicture(phoneJid).catch(() => null);
       profilePicUrl = picture?.profilePictureUrl || undefined;
       if (profilePicUrl) {
