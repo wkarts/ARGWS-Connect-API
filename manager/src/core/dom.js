@@ -36,12 +36,17 @@ export const badge = (status) => {
 };
 export function modal(title, content, options = {}) {
   const backdrop = el('div', { class: 'modal-backdrop' });
+  const dismissible = options.dismissible !== false;
   const close = () => backdrop.remove();
-  const dialog = el('div', { class: `modal ${options.wide ? 'modal-wide' : ''}` }, el('header', {}, el('div', {}, el('h3', { text: title }), options.subtitle ? el('p', { text: options.subtitle }) : null), button('×', { class: 'icon-btn ghost', onclick: close })), content);
-  backdrop.addEventListener('mousedown', (event) => { if (event.target === backdrop) close(); });
+  const header = el('header', {},
+    el('div', {}, el('h3', { text: title }), options.subtitle ? el('p', { text: options.subtitle }) : null),
+    dismissible ? button('×', { class: 'icon-btn ghost', onclick: close }) : null,
+  );
+  const dialog = el('div', { class: `modal ${options.wide ? 'modal-wide' : ''} ${options.class || ''}`.trim(), role: 'dialog', 'aria-modal': 'true' }, header, content);
+  if (dismissible) backdrop.addEventListener('mousedown', (event) => { if (event.target === backdrop) close(); });
   backdrop.append(dialog);
   document.body.append(backdrop);
-  return { close, element: backdrop };
+  return { close, element: backdrop, dialog };
 }
 export function confirmDialog(title, message, confirmLabel = 'Confirmar') {
   return new Promise((resolve) => {
