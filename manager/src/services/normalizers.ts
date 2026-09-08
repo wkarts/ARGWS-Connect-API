@@ -48,10 +48,6 @@ function identityKey(value: any): string {
   return str(value).trim().toLowerCase()
 }
 
-function nameKey(value: any): string {
-  return str(value).trim().toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ')
-}
-
 function looksLikeIdentifier(value: string): boolean {
   const text = value.trim()
   return !text || /^\+?\d+$/.test(text) || text.includes('@lid') || text.includes('@s.whatsapp.net')
@@ -69,6 +65,14 @@ function mergeAliases(...values: Array<string[] | string | undefined>): string[]
     .map((value) => identityKey(value))
     .filter(Boolean)
   return [...new Set(aliases)]
+}
+
+function identityOverlap(
+  left: { rawRef?: string; number?: string; aliases?: string[] },
+  right: { rawRef?: string; number?: string; aliases?: string[] },
+): boolean {
+  const leftAliases = new Set(mergeAliases(left.aliases, left.rawRef, left.number))
+  return mergeAliases(right.aliases, right.rawRef, right.number).some((alias) => leftAliases.has(alias))
 }
 
 function messagePreview(value: any): string {
@@ -130,10 +134,22 @@ export function overview(raw: any): Overview {
   const instances = raw?.instances ?? raw?.connections ?? {}
   const totals = raw?.totals ?? raw?.summary ?? {}
   const services: Overview['services'] = [
-    { key: 'operation', label: 'Operação', status: core?.status === 'ok' || core?.online === true ? 'ok' : 'attention' },
-    { key: 'connections', label: 'Conexões', status: num(instances?.connected) > 0 || num(instances?.total) === 0 ? 'ok' : 'attention' },
+    {
+      key: 'operation',
+      label: 'Operação',
+      status: core?.status === 'ok' || core?.online === true ? 'ok' : 'attention',
+    },
+    {
+      key: 'connections',
+      label: 'Conexões',
+      status: num(instances?.connected) > 0 || num(instances?.total) === 0 ? 'ok' : 'attention',
+    },
     { key: 'security', label: 'Segurança', status: 'ok' },
-    { key: 'updates', label: 'Atualizações', status: raw?.services?.updates?.status === 'unavailable' ? 'attention' : 'ok' },
+    {
+      key: 'updates',
+      label: 'Atualizações',
+      status: raw?.services?.updates?.status === 'unavailable' ? 'attention' : 'ok',
+    },
     { key: 'availability', label: 'Disponibilidade', status: 'ok' },
     { key: 'performance', label: 'Desempenho', status: 'ok' },
   ]
@@ -288,9 +304,7 @@ export function contacts(raw: any): ContactItem[] {
     .map((item, index): ContactItem => {
       const rawRef = str(item.remoteJid || item.jid || item.number || '')
       const number = item.number || jidLocal(rawRef) || undefined
-      const name = str(
-        item.pushName || item.name || item.verifiedName || item.notify || number || rawRef || 'Contato',
-      )
+      const name = str(item.pushName || item.name || item.verifiedName || item.notify || number || rawRef || 'Contato')
       return {
         id: str(item.id || rawRef || index),
         name,
@@ -305,12 +319,7 @@ export function contacts(raw: any): ContactItem[] {
 
   const result: ContactItem[] = []
   for (const item of normalized) {
-    let index = result.findIndex((current) => current.id === item.id || current.rawRef === item.rawRef)
-    if (index < 0 && nameKey(item.name)) {
-      index = result.findIndex(
-        (current) => nameKey(current.name) === nameKey(item.name) && (current.isLid === true || item.isLid === true),
-      )
-    }
+    const index = result.findIndex((current) => current.id === item.id || identityOverlap(current, item))
     if (index < 0) result.push(item)
     else result[index] = mergeContact(result[index], item)
   }
@@ -360,12 +369,7 @@ export function conversations(raw: any): Conversation[] {
 
   const result: Conversation[] = []
   for (const item of normalized) {
-    let index = result.findIndex((current) => current.id === item.id || current.rawRef === item.rawRef)
-    if (index < 0 && nameKey(item.title)) {
-      index = result.findIndex(
-        (current) => nameKey(current.title) === nameKey(item.title) && (current.isLid === true || item.isLid === true),
-      )
-    }
+    const index = result.findIndex((current) => current.id === item.id || identityOverlap(current, item))
     if (index < 0) result.push(item)
     else result[index] = mergeConversation(result[index], item)
   }
