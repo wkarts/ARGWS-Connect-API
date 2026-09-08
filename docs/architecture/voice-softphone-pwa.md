@@ -4,7 +4,7 @@
 
 O Softphone é uma interface do Connect|API. O provider de WhatsApp (Zapo hoje) fornece sinalização e mídia; o usuário não precisa conhecer a implementação interna.
 
-> Estado atual: a sinalização de chamadas está integrada. O áudio do navegador ainda depende do Voice Media Gateway descrito abaixo e não deve ser apresentado como concluído antes dessa camada.
+> Estado atual: sinalização e Voice Media Gateway estão integrados para o provider ZAPO. O navegador solicita uma autorização temporária, curta e de uso único antes de abrir o canal de mídia; tokens persistentes não são enviados no handshake WebSocket.
 
 ## Camadas
 
@@ -24,6 +24,37 @@ O Softphone é uma interface do Connect|API. O provider de WhatsApp (Zapo hoje) 
 - `setExternalAudioMode` é habilitado somente enquanto o Softphone possui a sessão de mídia.
 - Áudio/PCM nunca passa por RabbitMQ, Webhook, NATS, SQS ou EventManager.
 - Eventos de estado da chamada continuam usando o plano normal de eventos.
+
+## Segurança do Voice Media Ticket
+
+`POST /call/mediaTicket/{instanceName}` usa a autenticação normal da API e recebe o `callId` da chamada ativa.
+
+O ticket:
+
+- é gerado com 32 bytes aleatórios criptograficamente seguros;
+- expira em 30 segundos;
+- é associado à instância e à chamada ativa;
+- é consumido no primeiro handshake do WebSocket e não pode ser reutilizado;
+- não é colocado em query string;
+- é retornado com `Cache-Control: no-store`;
+- só é emitido quando o provider suporta mídia de voz e a chamada ainda está ativa;
+- é novamente validado contra a chamada ativa no momento do handshake.
+
+O WebSocket `/voice/media` aceita preferencialmente:
+
+```json
+{
+  "ticket": "AUTORIZACAO_TEMPORARIA"
+}
+```
+
+Para reduzir superfície de abuso, o gateway limita o tamanho do payload inicial de autenticação, limita quadros PCM enviados pelo cliente e mantém quantidade máxima de tickets pendentes em memória.
+
+A autenticação legada por token no WebSocket permanece aceita temporariamente para compatibilidade retroativa com clientes anteriores, mas o Softphone atual não envia mais token persistente no handshake de mídia.
+
+### Escala horizontal
+
+Nesta etapa, os tickets são mantidos em memória no processo da API. Em implantação com múltiplas réplicas, mantenha afinidade entre a emissão do ticket e o upgrade WebSocket. A evolução natural é mover somente o armazenamento efêmero dos tickets para Redis antes de retirar essa afinidade; isso não exige mudar o contrato público.
 
 ## PBX
 

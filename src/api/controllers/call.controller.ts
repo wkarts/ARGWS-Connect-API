@@ -1,10 +1,14 @@
 import { CallIdDto, MuteCallDto, OfferCallDto } from '@api/dto/call.dto';
 import { InstanceDto } from '@api/dto/instance.dto';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { VoiceMediaService } from '@api/services/voice-media.service';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
 export class CallController {
-  constructor(private readonly waMonitor: WAMonitoringService) {}
+  constructor(
+    private readonly waMonitor: WAMonitoringService,
+    private readonly voiceMediaService: VoiceMediaService,
+  ) {}
 
   private instance(instanceName: string): any {
     const instance = this.waMonitor.waInstances[instanceName];
@@ -39,6 +43,10 @@ export class CallController {
 
   public async muteCall({ instanceName }: InstanceDto, data: MuteCallDto) {
     return this.method(instanceName, 'muteCall')(data.callId, data.muted);
+  }
+
+  public async mediaTicket({ instanceName }: InstanceDto, data: CallIdDto) {
+    return this.voiceMediaService.createMediaTicket(instanceName, data.callId);
   }
 
   public async listCalls({ instanceName }: InstanceDto) {

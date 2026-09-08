@@ -61,6 +61,18 @@ export class CallRouter extends RouterBroker {
       return res.status(HttpStatus.OK).json(response);
     });
 
+    this.router.post(this.routerPath('mediaTicket'), ...guards, async (req, res) => {
+      const response = await this.dataValidate<CallIdDto>({
+        request: req,
+        schema: callIdSchema,
+        ClassRef: CallIdDto,
+        execute: (instance, data) => callController.mediaTicket(instance, data),
+      });
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      return res.status(HttpStatus.CREATED).json(response);
+    });
+
     this.router.get(this.routerPath('list'), ...guards, async (req, res) => {
       const instance = req.params as unknown as InstanceDto;
       const response = await callController.listCalls(instance);

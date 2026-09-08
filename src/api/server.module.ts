@@ -116,7 +116,7 @@ export const instanceController = new InstanceController(
   providerFiles,
 );
 export const sendMessageController = new SendMessageController(waMonitor);
-export const callController = new CallController(waMonitor);
+export const callController = new CallController(waMonitor, voiceMediaService);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
