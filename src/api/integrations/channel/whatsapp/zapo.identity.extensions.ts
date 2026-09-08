@@ -25,10 +25,11 @@ type ContactIdentity = {
 /**
  * Canonical identity layer for the ZAPO provider.
  *
- * WhatsApp may address the same person by PN JID and LID. The ZAPO store keeps
- * both values in mailbox_contacts; this facade reconciles them into the
- * canonical Connect|API Contact/Chat rows and enriches call payloads without
- * changing ZAPO's protocol/session implementation.
+ * WhatsApp may address the same person by PN JID and LID. The ZAPO store and
+ * the persisted message keys can contain both forms. This facade reconciles
+ * every verified alias into the canonical Connect|API Contact/Chat rows and
+ * prevents protocol identifiers or the local account profile from leaking as
+ * the remote identity shown by calls.
  */
 export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private readonly lidToPhone = new Map<string, string>();
@@ -69,7 +70,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   public async listCalls() {
     await this.reconcileIdentities();
     const calls = await super.listCalls();
-    return calls.map((call: any) => this.enrichCall(call));
+    return Promise.all(calls.map((call: any) => this.enrichCall(call)));
   }
 
   public async sendDataWebhook<T extends object = any>(
@@ -82,9 +83,9 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     if (event === Events.CALL && data && typeof data === 'object') {
       const payload = data as any;
       if (payload.call && typeof payload.call === 'object') {
-        data = { ...payload, call: this.enrichCall(payload.call) } as T;
+        data = { ...payload, call: await this.enrichCall(payload.call) } as T;
       } else if (payload.callId || payload.peerJid || payload.displayPeerJid) {
-        data = this.enrichCall(payload) as T;
+        data = (await this.enrichCall(payload)) as T;
       }
     }
     return super.sendDataWebhook(event, data, local, integration, extra);
@@ -99,7 +100,10 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private normalizePhoneJid(value: unknown): string {
     const raw = this.normalizeIdentityJid(value);
     if (!raw || raw.endsWith('@lid') || raw.endsWith('@g.us') || raw.endsWith('@broadcast')) return '';
-    return raw.includes('@') ? raw : createJid(raw);
+    if (raw.endsWith('@s.whatsapp.net')) return raw;
+    if (raw.includes('@')) return '';
+    const digits = raw.replace(/\D/g, '');
+    return digits ? createJid(digits) : '';
   }
 
   private normalizeLidJid(value: unknown): string {
@@ -113,6 +117,33 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
   private identityKey(value: unknown): string {
     return this.normalizeIdentityJid(value).toLowerCase();
+  }
+
+  private isPhoneJid(value: unknown): boolean {
+    return this.normalizeIdentityJid(value).endsWith('@s.whatsapp.net');
+  }
+
+  private registerAlias(aliases: Map<string, string>, first: unknown, second: unknown): void {
+    const left = this.normalizeIdentityJid(first);
+    const right = this.normalizeIdentityJid(second);
+    if (!left || !right || left === right) return;
+
+    const lidJid = left.endsWith('@lid') ? left : right.endsWith('@lid') ? right : '';
+    const other = lidJid === left ? right : left;
+    const phoneJid = this.normalizePhoneJid(other);
+    if (!lidJid || !phoneJid) return;
+
+    aliases.set(lidJid, phoneJid);
+    this.lidToPhone.set(this.identityKey(lidJid), phoneJid);
+  }
+
+  private collectMessageAliases(messages: Array<{ key: unknown }>, aliases: Map<string, string>): void {
+    for (const message of messages) {
+      const key = message.key as any;
+      this.registerAlias(aliases, key?.remoteJid, key?.remoteJidAlt);
+      this.registerAlias(aliases, key?.participant, key?.participantAlt);
+      this.registerAlias(aliases, key?.recipient, key?.recipientAlt);
+    }
   }
 
   private async loadZapoContactRows(): Promise<ZapoContactIdentityRow[]> {
@@ -162,11 +193,6 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
   private async reconcileIdentityRows(): Promise<void> {
     const rows = await this.loadZapoContactRows();
-    if (!rows.length) {
-      await this.refreshContactCache();
-      return;
-    }
-
     const aliases = new Map<string, string>();
     const preferredNames = new Map<string, string>();
 
@@ -174,15 +200,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       const jid = this.normalizeIdentityJid(row.jid);
       const explicitLid = this.normalizeLidJid(row.lid);
       const phoneNumber = this.normalizePhoneJid(row.phone_number);
-      const jidPhone = jid.endsWith('@s.whatsapp.net') ? jid : '';
+      const jidPhone = this.isPhoneJid(jid) ? jid : '';
       const phoneJid = phoneNumber || jidPhone;
       const lidJid = explicitLid || (jid.endsWith('@lid') ? jid : '');
       const displayName = String(row.display_name || row.push_name || '').trim();
 
-      if (lidJid && phoneJid) {
-        aliases.set(lidJid, phoneJid);
-        this.lidToPhone.set(this.identityKey(lidJid), phoneJid);
-      }
+      if (lidJid && phoneJid) this.registerAlias(aliases, lidJid, phoneJid);
       if (displayName && phoneJid) preferredNames.set(phoneJid, displayName);
     }
 
@@ -196,6 +219,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
         select: { id: true, key: true },
       }),
     ]);
+
+    // Historical and live messages retain the verified PN/LID pair in
+    // remoteJid/remoteJidAlt (and participant alternatives). This provides a
+    // second authoritative source when an incoming call arrives before the
+    // mailbox contact sync has completed.
+    this.collectMessageAliases(storedMessages, aliases);
 
     const contactsByJid = new Map(
       storedContacts.map((contact) => [this.normalizeIdentityJid(contact.remoteJid), contact]),
@@ -253,12 +282,22 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     for (const message of storedMessages) {
       const key = message.key as any;
       const remoteJid = this.normalizeIdentityJid(key?.remoteJid);
+      const participant = this.normalizeIdentityJid(key?.participant);
       const phoneJid = aliases.get(remoteJid);
-      if (!phoneJid) continue;
+      const participantPhoneJid = aliases.get(participant);
+      if (!phoneJid && !participantPhoneJid) continue;
 
       await this.prismaRepository.message.update({
         where: { id: message.id },
-        data: { key: { ...key, remoteJid: phoneJid, remoteJidAlt: remoteJid } },
+        data: {
+          key: {
+            ...key,
+            ...(phoneJid ? { remoteJid: phoneJid, remoteJidAlt: remoteJid } : {}),
+            ...(participantPhoneJid
+              ? { participant: participantPhoneJid, participantAlt: participant }
+              : {}),
+          },
+        },
       });
     }
 
@@ -294,17 +333,29 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   }
 
   private resolveCallPeer(call: any): string {
-    const candidates = [
-      call?.callerPn,
-      call?.callerPnJid,
-      call?.displayPeerJid,
-      call?.peerJidAlt,
-      call?.peerJid,
-      call?.peerJidRaw,
-      call?.remoteJid,
-      call?.from,
-      call?.to,
-    ];
+    const direction = String(call?.direction || '').toLowerCase();
+    const candidates =
+      direction === 'outgoing'
+        ? [
+            call?.displayPeerJid,
+            call?.peerJid,
+            call?.peerJidAlt,
+            call?.peerJidRaw,
+            call?.remoteJid,
+            call?.to,
+            call?.callerPn,
+            call?.callerPnJid,
+          ]
+        : [
+            call?.callerPn,
+            call?.callerPnJid,
+            call?.displayPeerJid,
+            call?.peerJidAlt,
+            call?.peerJid,
+            call?.peerJidRaw,
+            call?.remoteJid,
+            call?.from,
+          ];
 
     for (const candidate of candidates) {
       const normalized = this.normalizeIdentityJid(candidate);
@@ -314,32 +365,106 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
         if (phoneJid) return phoneJid;
         continue;
       }
-      if (normalized.endsWith('@s.whatsapp.net')) return normalized;
-      if (/^\+?\d+$/.test(normalized)) return createJid(normalized);
+      const phoneJid = this.normalizePhoneJid(normalized);
+      if (phoneJid) return phoneJid;
     }
 
-    return this.normalizeIdentityJid(call?.peerJid || call?.displayPeerJid || '');
+    return this.normalizeIdentityJid(call?.peerJidRaw || call?.peerJid || call?.displayPeerJid || '');
   }
 
-  private enrichCall(call: any) {
-    if (!call || typeof call !== 'object') return call;
-    const peerJid = this.resolveCallPeer(call);
-    const rawPeerJid = this.normalizeIdentityJid(call.peerJidRaw || call.peerJid || call.displayPeerJid);
-    const contact =
-      this.contactsByIdentity.get(this.identityKey(peerJid)) ||
-      this.contactsByIdentity.get(this.identityKey(peerJid.split('@')[0])) ||
-      this.contactsByIdentity.get(this.identityKey(rawPeerJid));
+  private localProfileNames(): Set<string> {
+    const credentials = this.client?.getCredentials?.();
+    return new Set(
+      [this.instance.profileName, credentials?.meDisplayName]
+        .map((value) => String(value || '').trim().toLocaleLowerCase('pt-BR'))
+        .filter(Boolean),
+    );
+  }
 
+  private safeRemoteCallName(call: any): string | undefined {
+    // Outbound call objects may carry the local WhatsApp profile name. Never
+    // use an unverified raw name for outgoing calls: the remote contact name
+    // must come from the canonical Contact/Chat identity instead.
+    if (String(call?.direction || '').toLowerCase() === 'outgoing') return undefined;
+
+    const localNames = this.localProfileNames();
+    for (const value of [call?.contactName, call?.pushName, call?.name]) {
+      const name = String(value || '').trim();
+      if (!name || /^\+?\d+$/.test(name) || name.includes('@lid') || name.includes('@s.whatsapp.net')) continue;
+      if (localNames.has(name.toLocaleLowerCase('pt-BR'))) continue;
+      return name;
+    }
+    return undefined;
+  }
+
+  private async storedCallIdentity(phoneJid: string): Promise<ContactIdentity | undefined> {
+    if (!phoneJid || !this.instanceId) return undefined;
+    const cached =
+      this.contactsByIdentity.get(this.identityKey(phoneJid)) ||
+      this.contactsByIdentity.get(this.identityKey(phoneJid.split('@')[0]));
+    if (cached) return cached;
+
+    const [contact, chat] = await Promise.all([
+      this.prismaRepository.contact.findUnique({
+        where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
+      }),
+      this.prismaRepository.chat.findUnique({
+        where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: phoneJid } },
+      }),
+    ]);
+    if (!contact && !chat) return undefined;
+
+    const identity: ContactIdentity = {
+      remoteJid: phoneJid,
+      name: contact?.pushName || chat?.name || undefined,
+      avatar: contact?.profilePicUrl || undefined,
+      aliases: [phoneJid],
+    };
+    this.contactsByIdentity.set(this.identityKey(phoneJid), identity);
+    this.contactsByIdentity.set(this.identityKey(phoneJid.split('@')[0]), identity);
+    return identity;
+  }
+
+  private async enrichCall(call: any) {
+    if (!call || typeof call !== 'object') return call;
+
+    const resolvedPeer = this.resolveCallPeer(call);
+    const phoneJid = this.normalizePhoneJid(resolvedPeer);
+    const rawPeerJid = this.normalizeIdentityJid(call.peerJidRaw || call.peerJid || call.displayPeerJid);
+    const rawLidJid = rawPeerJid.endsWith('@lid') ? rawPeerJid : undefined;
+    const contact = phoneJid ? await this.storedCallIdentity(phoneJid) : undefined;
+    const contactName = contact?.name || this.safeRemoteCallName(call);
+
+    let profilePicUrl = contact?.avatar;
+    if (phoneJid && !profilePicUrl && this.connectionStatus?.state === 'open') {
+      const identityKey = this.identityKey(phoneJid);
+      if (!this.profilePicturesVerified.has(identityKey)) {
+        this.profilePicturesVerified.add(identityKey);
+        const picture = await this.profilePicture(phoneJid).catch(() => null);
+        profilePicUrl = picture?.profilePictureUrl || undefined;
+        if (profilePicUrl) {
+          await this.prismaRepository.contact.updateMany({
+            where: { instanceId: this.instanceId, remoteJid: phoneJid },
+            data: { profilePicUrl },
+          });
+        }
+      }
+    }
+
+    const phoneNumber = phoneJid ? phoneJid.split('@')[0] : undefined;
     return {
       ...call,
-      peerJid: peerJid || call.peerJid,
-      displayPeerJid: peerJid || call.displayPeerJid || call.peerJid,
+      peerJid: phoneJid || rawPeerJid || call.peerJid,
+      displayPeerJid: phoneJid || undefined,
       peerJidRaw: rawPeerJid || call.peerJidRaw,
-      number: peerJid ? peerJid.split('@')[0] : call.number,
-      name: contact?.name || call.name,
-      pushName: contact?.name || call.pushName,
-      contactName: contact?.name || call.contactName,
-      profilePicUrl: contact?.avatar || call.profilePicUrl,
+      peerJidAlt: rawLidJid || call.peerJidAlt,
+      number: phoneNumber,
+      name: contactName,
+      pushName: contactName,
+      contactName,
+      profilePicUrl,
+      identityResolved: Boolean(phoneJid),
+      contactResolved: Boolean(contact),
     };
   }
 }
