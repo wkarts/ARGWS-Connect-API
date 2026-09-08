@@ -211,7 +211,14 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
     return { recipients, statusSetting: 'allowlist' };
   }
 
-  public async buttonMessage(data: SendButtonsDto) {
+  public buttonMessage(): never;
+  public buttonMessage(data: SendButtonsDto): Promise<any>;
+  public buttonMessage(data?: SendButtonsDto): never | Promise<any> {
+    if (!data) throw new BadRequestException('Buttons payload is required');
+    return this.sendButtonMessage(data);
+  }
+
+  private async sendButtonMessage(data: SendButtonsDto) {
     try {
       if (!Array.isArray(data?.buttons) || data.buttons.length === 0) {
         throw new BadRequestException('At least one button is required');
@@ -251,7 +258,14 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
     }
   }
 
-  public async listMessage(data: SendListDto) {
+  public listMessage(): never;
+  public listMessage(data: SendListDto): Promise<any>;
+  public listMessage(data?: SendListDto): never | Promise<any> {
+    if (!data) throw new BadRequestException('List payload is required');
+    return this.sendListMessage(data);
+  }
+
+  private async sendListMessage(data: SendListDto) {
     try {
       const jid = await this.resolveUserRecipient(data.number);
       await this.applyInteractiveDelay(data.delay);
@@ -272,7 +286,14 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
     }
   }
 
-  public async statusMessage(data: SendStatusDto, file?: any) {
+  public statusMessage(): never;
+  public statusMessage(data: SendStatusDto, file?: any): Promise<any>;
+  public statusMessage(data?: SendStatusDto, file?: any): never | Promise<any> {
+    if (!data) throw new BadRequestException('Status payload is required');
+    return this.sendStatusMessage(data, file);
+  }
+
+  private async sendStatusMessage(data: SendStatusDto, file?: any) {
     try {
       const type = String(data?.type ?? '').toLowerCase();
       if (!type) throw new BadRequestException('Type is required');
