@@ -3,8 +3,10 @@ import AppShell from '@/layouts/AppShell.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import AppIcon from '@/components/AppIcon.vue'
 
+const documentationUrl = '/manager/docs/'
+
 function openDocumentation() {
-  window.open('/manager/docs/', '_blank', 'noopener,noreferrer')
+  window.open(documentationUrl, '_blank', 'noopener,noreferrer')
 }
 </script>
 
@@ -18,7 +20,7 @@ function openDocumentation() {
 
     <div class="docs-embed">
       <iframe
-        src="/manager/docs/"
+        :src="documentationUrl"
         title="Documentação da API Connect|API"
         loading="eager"
         referrerpolicy="same-origin"
