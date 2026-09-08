@@ -7,7 +7,12 @@ declare module 'wa-store-migrate' {
     [key: string]: unknown;
   };
 
-  export function migrate(input: { from: 'baileys' | 'zapo'; to: 'baileys' | 'zapo'; data: unknown; validate?: boolean }): {
+  export function migrate(input: {
+    from: 'baileys' | 'zapo';
+    to: 'baileys' | 'zapo';
+    data: unknown;
+    validate?: boolean;
+  }): {
     data: unknown;
     snapshot: unknown;
     losses: MigrationLoss[];
