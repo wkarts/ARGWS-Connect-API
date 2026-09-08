@@ -133,13 +133,13 @@ assert(zapoGroupExtensions.includes('public async leaveGroup'), 'Zapo leave-grou
 assert(zapoGroupExtensions.includes('group.leaveGroup([groupJid])'), 'Zapo leave-group must use the public coordinator');
 
 assert(zapoInteractiveExtensions.includes('class ZapoInteractiveStartupService'), 'Zapo interactive compatibility service is missing');
-assert(zapoInteractiveExtensions.includes('public async buttonMessage'), 'Zapo interactive button messages are missing');
+assert(zapoInteractiveExtensions.includes('private async sendButtonMessage'), 'Zapo interactive button messages are missing');
 assert(zapoInteractiveExtensions.includes('nativeFlowMessage'), 'Zapo buttons must use WhatsApp native-flow payloads');
 assert(zapoInteractiveExtensions.includes("['reply', 'quick_reply']"), 'Zapo quick-reply button mapping is missing');
 assert(zapoInteractiveExtensions.includes("['pix', 'payment_info']"), 'Zapo Pix button mapping is missing');
-assert(zapoInteractiveExtensions.includes('public async listMessage'), 'Zapo list messages are missing');
+assert(zapoInteractiveExtensions.includes('private async sendListMessage'), 'Zapo list messages are missing');
 assert(zapoInteractiveExtensions.includes('listMessage:'), 'Zapo list messages must use the raw list-message payload');
-assert(zapoInteractiveExtensions.includes('public async statusMessage'), 'Zapo status publishing is missing');
+assert(zapoInteractiveExtensions.includes('private async sendStatusMessage'), 'Zapo status publishing is missing');
 assert(zapoInteractiveExtensions.includes('.status.send({'), 'Zapo status publishing must use the public status coordinator');
 assert(zapoInteractiveExtensions.includes("statusSetting: 'contacts'"), 'Zapo all-contact status distribution is missing');
 assert(zapoInteractiveExtensions.includes("statusSetting: 'allowlist'"), 'Zapo explicit status allowlist distribution is missing');
