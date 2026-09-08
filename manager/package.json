@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vue-tsc -b && vite build",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check:language": "node scripts/check-visible-language.mjs",
-    "test": "npm run check:language && npm run build"
+    "test": "npm run check:language && npm run check:sfc && npm run build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "check:sfc": "node scripts/check-sfc-structure.mjs"
   },
   "dependencies": {
     "pinia": "3.0.3",
