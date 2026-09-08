@@ -92,8 +92,8 @@ export class ChannelController {
     }
 
     // Upgrade compatibility only: existing 1.0.21 CONNECT rows continue to
-    // run, but the current instance creation contract does not offer CONNECT.
-    if (instanceData.integration === Integration.CONNECT) {
+    // run, while CONNECT remains absent from the current creation schema.
+    if (instanceData.integration === 'CONNECT') {
       return new ConnectStartupService(
         data.configService,
         data.eventEmitter,
