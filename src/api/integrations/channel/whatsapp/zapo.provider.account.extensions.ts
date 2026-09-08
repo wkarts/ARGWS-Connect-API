@@ -3,6 +3,7 @@ import {
   BlockUserDto,
   DeleteMessage,
   MarkChatUnreadDto,
+  NumberBusiness,
   PrivacySettingDto,
   ReadMessageDto,
   UpdateMessageDto,
@@ -44,6 +45,11 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
     }
 
     return jid;
+  }
+
+  private resolveSelfJid(): string {
+    const jid = this.instance.wuid ?? this.client?.getCredentials?.()?.meJid;
+    return this.normalizeAccountJid(jid);
   }
 
   private resolveChatTarget(data: ArchiveChatDto | MarkChatUnreadDto): string {
@@ -261,6 +267,119 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       throw new InternalServerErrorException('Error updating message', (error as Error)?.toString());
+    }
+  }
+
+  /** Fetch a peer's legacy About/status text. */
+  public async getStatus(number: string) {
+    const jid = this.normalizeAccountJid(number);
+
+    try {
+      const status = await this.connectedClient().profile.getStatus(jid);
+      return { wuid: jid, status: status?.status ?? null };
+    } catch {
+      return { wuid: jid, status: null };
+    }
+  }
+
+  /**
+   * Map Zapo's public business-profile model into the Connect|API compatibility
+   * DTO used by the existing chat/profile routes.
+   */
+  public async fetchBusinessProfile(number?: string): Promise<NumberBusiness> {
+    try {
+      const jid = number ? this.normalizeAccountJid(number) : this.resolveSelfJid();
+      const client = this.connectedClient();
+      const profiles = await client.business.getBusinessProfile([jid]);
+      const profile = profiles?.find((entry: any) => entry?.jid === jid) ?? profiles?.[0];
+
+      if (!profile) {
+        const info = number ? (await this.whatsappNumber({ numbers: [jid] }))?.[0] : null;
+        return {
+          isBusiness: false,
+          message: 'Not is business profile',
+          jid: info?.jid ?? jid,
+          wid: info?.jid ?? jid,
+          exists: number ? info?.exists === true : true,
+          name: info?.name,
+        };
+      }
+
+      const verifiedName = await client.business.getVerifiedName(jid).catch(() => null);
+      const websites = Array.isArray(profile.websites)
+        ? profile.websites
+            .map((website: any) => (typeof website === 'string' ? website : website?.url))
+            .filter((website: unknown): website is string => typeof website === 'string' && website.length > 0)
+        : [];
+      const category = Array.isArray(profile.categories) ? profile.categories[0] : undefined;
+      const profileOptions =
+        profile.profileOptions && typeof profile.profileOptions === 'object' ? profile.profileOptions : {};
+      const profilehandle =
+        profileOptions.profile_handle ?? profileOptions.profilehandle ?? profileOptions.username ?? profile.tag;
+
+      return {
+        isBusiness: true,
+        wid: profile.jid ?? jid,
+        jid: profile.jid ?? jid,
+        exists: true,
+        name: verifiedName?.name,
+        description: profile.description,
+        about: profile.description,
+        address: profile.address,
+        email: profile.email,
+        websites,
+        website: [...websites],
+        vertical: category?.name,
+        profilehandle,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new InternalServerErrorException('Error fetching business profile', (error as Error)?.toString());
+    }
+  }
+
+  /** Full profile compatibility for both peer lookups and the current account. */
+  public async fetchProfile(instanceName: string, number?: string) {
+    const jid = number ? this.normalizeAccountJid(number) : this.resolveSelfJid();
+
+    try {
+      if (number) {
+        const info = (await this.whatsappNumber({ numbers: [jid] }))?.[0];
+        if (!info?.exists) throw new BadRequestException(info ?? { jid, exists: false, number });
+
+        const picture = await this.profilePicture(info.jid);
+        const status = await this.getStatus(info.jid);
+        const business = await this.fetchBusinessProfile(info.jid);
+
+        return {
+          wuid: info.jid || jid,
+          name: info.name,
+          numberExists: info.exists,
+          picture: picture?.profilePictureUrl,
+          status: status?.status,
+          isBusiness: business.isBusiness,
+          email: business?.email,
+          description: business?.description,
+          website: business?.website?.[0],
+        };
+      }
+
+      const business = await this.fetchBusinessProfile(jid);
+      return {
+        wuid: jid,
+        name: await this.getProfileName(),
+        numberExists: true,
+        picture: this.profilePictureUrl ?? (await this.profilePicture(jid))?.profilePictureUrl,
+        status: this.connectionStatus?.state,
+        isBusiness: business.isBusiness,
+        email: business?.email,
+        description: business?.description,
+        website: business?.website?.[0],
+        instanceName,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      return { wuid: jid, name: null, picture: null, status: null, os: null, isBusiness: false };
     }
   }
 
