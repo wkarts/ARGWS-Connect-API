@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import AppShell from '@/layouts/AppShell.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import type { ConnectionItem, Conversation, Message } from '@/types/domain'
@@ -42,9 +43,14 @@ async function scrollToBottom(behavior: ScrollBehavior = 'auto') {
   if (el) el.scrollTo({ top: el.scrollHeight, behavior })
 }
 
-async function loadChats() {
+function closeChat() {
   selectedChat.value = null
   messages.value = []
+  draft.value = ''
+}
+
+async function loadChats() {
+  closeChat()
   error.value = ''
   if (!selectedInstance.value) return
 
@@ -104,7 +110,7 @@ onMounted(async () => {
 
     <div v-if="error" class="alert error">{{ error }}</div>
 
-    <div class="conversation-shell">
+    <div class="conversation-shell" :class="{ 'chat-open': Boolean(selectedChat) }">
       <aside class="conversation-list">
         <select v-model="selectedInstance" class="select" @change="loadChats">
           <option v-for="item in instances" :key="item.id" :value="item.id">{{ item.name }}</option>
@@ -138,11 +144,14 @@ onMounted(async () => {
       <section class="chat-panel">
         <template v-if="selectedChat">
           <header>
+            <button class="icon-button mobile-chat-back" type="button" aria-label="Voltar para conversas" @click="closeChat">
+              <AppIcon name="chevron" :size="18" />
+            </button>
             <span class="avatar conversation-avatar">
               <img v-if="selectedChat.avatar" :src="selectedChat.avatar" alt="" />
               <template v-else>{{ selectedChat.title.slice(0, 1).toUpperCase() }}</template>
             </span>
-            <div>
+            <div class="chat-contact-title">
               <strong>{{ selectedChat.title }}</strong>
               <small>{{ selectedChat.subtitle }}</small>
             </div>
