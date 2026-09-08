@@ -28,7 +28,7 @@ const form = ref({
 })
 
 const filtered = computed(() => items.value.filter((i) =>
-  `${i.name} ${i.profileName || ''} ${i.number || ''}`.toLowerCase().includes(query.value.toLowerCase()),
+  `${i.name} ${i.profileName || ''} ${i.number || ''} ${i.provider || ''}`.toLowerCase().includes(query.value.toLowerCase()),
 ))
 
 async function load() {
@@ -84,7 +84,7 @@ onMounted(load)
     </PageHeader>
 
     <div class="toolbar">
-      <div class="search-box"><AppIcon name="search" :size="17"/><input v-model="query" placeholder="Buscar por nome ou número..."/></div>
+      <div class="search-box"><AppIcon name="search" :size="17"/><input v-model="query" placeholder="Buscar por nome, número ou provider..."/></div>
       <button class="btn ghost" @click="load"><AppIcon name="refresh" :size="17"/>Atualizar</button>
     </div>
 
@@ -97,7 +97,7 @@ onMounted(load)
       <article v-for="item in filtered" :key="item.id" class="instance-card" @click="router.push(`/instancias/${encodeURIComponent(item.id)}`)">
         <div class="instance-card-head">
           <div class="instance-avatar"><img v-if="item.avatar" :src="item.avatar" alt=""/><AppIcon v-else name="radio"/></div>
-          <div><strong>{{ item.name }}</strong><span>{{ item.profileName || item.channel }}</span></div>
+          <div><strong>{{ item.name }}</strong><span>{{ item.profileName || item.channel }}<template v-if="item.provider"> • {{ item.provider }}</template></span></div>
           <StatusPill :status="item.status"/>
         </div>
         <div class="instance-number">{{ item.number || 'Número não informado' }}</div>
@@ -114,14 +114,15 @@ onMounted(load)
       <form class="form-stack" @submit.prevent="create">
         <div v-if="feedback && !feedback.includes('sucesso')" class="alert error">{{ feedback }}</div>
         <label class="field"><span>Nome</span><input v-model="form.name" required autofocus placeholder="Ex.: Atendimento Comercial"/></label>
-        <label class="field"><span>Tipo de conexão</span>
+        <label class="field"><span>Provider</span>
           <select v-model="form.mode" class="select">
-            <option value="WHATSAPP-BAILEYS">WhatsApp — padrão</option>
-            <option value="WHATSAPP-ZAPO">WhatsApp — alternativo</option>
-            <option value="WHATSAPP-BUSINESS">WhatsApp Business</option>
+            <option value="WHATSAPP-BAILEYS">WhatsApp — Baileys</option>
+            <option value="WHATSAPP-ZAPO">WhatsApp — ZAPO</option>
+            <option value="WHATSAPP-BUSINESS">WhatsApp Business / Cloud API</option>
           </select>
+          <small>Escolha a tecnologia de conexão usada por esta instância.</small>
         </label>
-        <label class="field"><span>Número</span><input v-model="form.number" inputmode="numeric" placeholder="5575999999999"/><small>Opcional. Informe DDI, DDD e número.</small></label>
+        <label class="field"><span>Número</span><input v-model="form.number" inputmode="numeric" placeholder="5575999999999"/><small>Opcional para Baileys e ZAPO. Informe DDI, DDD e número.</small></label>
         <label v-if="form.mode==='WHATSAPP-BUSINESS'" class="field"><span>Identificador da conta empresarial</span><input v-model="form.businessId"/></label>
       </form>
       <template #footer>
