@@ -79,21 +79,26 @@ export function overview(raw: any): Overview {
 }
 
 export function connections(raw: any): ConnectionItem[] {
-  return array(raw).map((item) => ({
-    id: str(item.id || item.instanceId || item.instanceName || item.name),
-    name: str(item.name || item.instanceName || item.profileName || 'Conexão'),
-    status: normalizeStatus(item.connectionStatus || item.status || item.state),
-    channel: normalizeChannel(item.integration || item.channel || item.provider),
-    number: item.number || item.ownerJid?.split('@')?.[0] || undefined,
-    profileName: item.profileName || item.clientName || undefined,
-    avatar: item.profilePicUrl || item.avatar || undefined,
-    counts: {
-      contacts: num(item._count?.Contact ?? item.counts?.contacts),
-      conversations: num(item._count?.Chat ?? item.counts?.conversations),
-      messages: num(item._count?.Message ?? item.counts?.messages),
-    },
-    updatedAt: item.updatedAt || null,
-  }))
+  return array(raw).map((item) => {
+    const integration = str(item.integration || item.provider || item.channel)
+    return {
+      id: str(item.id || item.instanceId || item.instanceName || item.name),
+      name: str(item.name || item.instanceName || item.profileName || 'Conexão'),
+      status: normalizeStatus(item.connectionStatus || item.status || item.state),
+      channel: normalizeChannel(integration),
+      provider: normalizeProvider(integration),
+      integration,
+      number: item.number || item.ownerJid?.split('@')?.[0] || undefined,
+      profileName: item.profileName || item.clientName || undefined,
+      avatar: item.profilePicUrl || item.avatar || undefined,
+      counts: {
+        contacts: num(item._count?.Contact ?? item.counts?.contacts),
+        conversations: num(item._count?.Chat ?? item.counts?.conversations),
+        messages: num(item._count?.Message ?? item.counts?.messages),
+      },
+      updatedAt: item.updatedAt || null,
+    }
+  })
 }
 
 function normalizeStatus(value: any): ConnectionItem['status'] {
@@ -109,6 +114,14 @@ function normalizeChannel(value: any) {
   if (s.includes('instagram')) return 'Instagram'
   if (s.includes('telegram')) return 'Telegram'
   return value ? str(value) : 'Canal'
+}
+function normalizeProvider(value: any) {
+  const s = str(value).toUpperCase()
+  if (s.includes('BAILEYS')) return 'Baileys'
+  if (s.includes('ZAPO')) return 'ZAPO'
+  if (s.includes('BUSINESS') || s.includes('CLOUD')) return 'WhatsApp Business / Cloud API'
+  if (s.includes('WHATSAPP')) return 'WhatsApp'
+  return value ? str(value) : 'Não identificado'
 }
 
 export function contacts(raw: any): ContactItem[] {
