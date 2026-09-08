@@ -20,13 +20,13 @@ const groups = [
   ]},
   { title: 'VOZ', items: [
     { label:'Chamadas', to:'/chamadas', icon:'phone', permission:'pbx.read', feature:'voice' },
-    { label:'Ramais', to:'/ramais', icon:'hash', permission:'pbx.read', feature:'voice' },
-    { label:'Filas', to:'/filas', icon:'list', permission:'pbx.read', feature:'voice' },
+    { label:'Ramais', to:'/ramais', icon:'hash', permission:'pbx.read', feature:'voiceExtensions' },
+    { label:'Filas', to:'/filas', icon:'list', permission:'pbx.read', feature:'voiceQueues' },
   ]},
   { title: 'AUTOMAÇÃO', items: [
     { label:'Integrações', to:'/integracoes', icon:'workflow', permission:'instances.read' },
-    { label:'Fluxos', to:'/fluxos', icon:'workflow', permission:'studio.read', feature:'studio' },
-    { label:'Automações', to:'/automacoes', icon:'automation', permission:'studio.read', feature:'studio' },
+    { label:'Fluxos', to:'/fluxos', icon:'workflow', permission:'studio.read', feature:'flows' },
+    { label:'Automações', to:'/automacoes', icon:'automation', permission:'studio.read', feature:'automations' },
   ]},
   { title: 'ADMINISTRAÇÃO', items: [
     { label:'Usuários', to:'/usuarios', icon:'users', permission:'users.read', feature:'users' },
@@ -35,6 +35,7 @@ const groups = [
     { label:'Segurança da conta', to:'/seguranca', icon:'shield', feature:'security' },
   ]},
   { title: 'SISTEMA', items: [
+    { label:'Documentação', to:'/documentacao', icon:'list', feature:'docs' },
     { label:'Saúde', to:'/saude', icon:'heart' },
     { label:'Atualizações', to:'/atualizacoes', icon:'refresh', feature:'updates' },
     { label:'Configurações', to:'/configuracoes', icon:'settings', feature:'settings' },
