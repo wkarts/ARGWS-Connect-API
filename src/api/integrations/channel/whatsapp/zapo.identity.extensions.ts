@@ -1,8 +1,8 @@
 import { Query } from '@api/repository/repository.service';
 import { Events } from '@api/types/wa.types';
 import { Database } from '@config/env.config';
-import { createJid } from '@utils/createJid';
 import { Contact } from '@prisma/client';
+import { createJid } from '@utils/createJid';
 import { Pool } from 'pg';
 
 import { ZapoInteractiveStartupService } from './zapo.provider.interactive.extensions';
@@ -89,18 +89,20 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     return super.sendDataWebhook(event, data, local, integration, extra);
   }
 
-  private normalizeDeviceJid(value: unknown): string {
-    return String(value ?? '').trim().replace(/:\d+(?=@)/, '');
+  private normalizeIdentityJid(value: unknown): string {
+    return String(value ?? '')
+      .trim()
+      .replace(/:\d+(?=@)/, '');
   }
 
   private normalizePhoneJid(value: unknown): string {
-    const raw = this.normalizeDeviceJid(value);
+    const raw = this.normalizeIdentityJid(value);
     if (!raw || raw.endsWith('@lid') || raw.endsWith('@g.us') || raw.endsWith('@broadcast')) return '';
     return raw.includes('@') ? raw : createJid(raw);
   }
 
   private normalizeLidJid(value: unknown): string {
-    const raw = this.normalizeDeviceJid(value);
+    const raw = this.normalizeIdentityJid(value);
     if (!raw) return '';
     if (raw.endsWith('@lid')) return raw;
     if (raw.includes('@')) return '';
@@ -109,7 +111,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   }
 
   private identityKey(value: unknown): string {
-    return this.normalizeDeviceJid(value).toLowerCase();
+    return this.normalizeIdentityJid(value).toLowerCase();
   }
 
   private async loadZapoContactRows(): Promise<ZapoContactIdentityRow[]> {
@@ -168,7 +170,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     const preferredNames = new Map<string, string>();
 
     for (const row of rows) {
-      const jid = this.normalizeDeviceJid(row.jid);
+      const jid = this.normalizeIdentityJid(row.jid);
       const explicitLid = this.normalizeLidJid(row.lid);
       const phoneNumber = this.normalizePhoneJid(row.phone_number);
       const jidPhone = jid.endsWith('@s.whatsapp.net') ? jid : '';
@@ -194,8 +196,10 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       }),
     ]);
 
-    const contactsByJid = new Map(storedContacts.map((contact) => [this.normalizeDeviceJid(contact.remoteJid), contact]));
-    const chatsByJid = new Map(storedChats.map((chat) => [this.normalizeDeviceJid(chat.remoteJid), chat]));
+    const contactsByJid = new Map(
+      storedContacts.map((contact) => [this.normalizeIdentityJid(contact.remoteJid), contact]),
+    );
+    const chatsByJid = new Map(storedChats.map((chat) => [this.normalizeIdentityJid(chat.remoteJid), chat]));
 
     for (const [lidJid, phoneJid] of aliases) {
       const lidContact = contactsByJid.get(lidJid);
@@ -240,7 +244,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
     for (const message of storedMessages) {
       const key = message.key as any;
-      const remoteJid = this.normalizeDeviceJid(key?.remoteJid);
+      const remoteJid = this.normalizeIdentityJid(key?.remoteJid);
       const phoneJid = aliases.get(remoteJid);
       if (!phoneJid) continue;
 
@@ -258,7 +262,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     this.contactsByIdentity.clear();
 
     for (const contact of contacts) {
-      const remoteJid = this.normalizeDeviceJid(contact.remoteJid);
+      const remoteJid = this.normalizeIdentityJid(contact.remoteJid);
       const identity: ContactIdentity = {
         remoteJid,
         name: contact.pushName || undefined,
@@ -295,7 +299,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     ];
 
     for (const candidate of candidates) {
-      const normalized = this.normalizeDeviceJid(candidate);
+      const normalized = this.normalizeIdentityJid(candidate);
       if (!normalized) continue;
       if (normalized.endsWith('@lid')) {
         const phoneJid = this.lidToPhone.get(this.identityKey(normalized));
@@ -306,13 +310,13 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       if (/^\+?\d+$/.test(normalized)) return createJid(normalized);
     }
 
-    return this.normalizeDeviceJid(call?.peerJid || call?.displayPeerJid || '');
+    return this.normalizeIdentityJid(call?.peerJid || call?.displayPeerJid || '');
   }
 
   private enrichCall(call: any) {
     if (!call || typeof call !== 'object') return call;
     const peerJid = this.resolveCallPeer(call);
-    const rawPeerJid = this.normalizeDeviceJid(call.peerJidRaw || call.peerJid || call.displayPeerJid);
+    const rawPeerJid = this.normalizeIdentityJid(call.peerJidRaw || call.peerJid || call.displayPeerJid);
     const contact =
       this.contactsByIdentity.get(this.identityKey(peerJid)) ||
       this.contactsByIdentity.get(this.identityKey(peerJid.split('@')[0])) ||
