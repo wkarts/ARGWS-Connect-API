@@ -93,6 +93,9 @@ export type ContactItem = {
   name: string
   number?: string
   avatar?: string
+  rawRef?: string
+  aliases?: string[]
+  isLid?: boolean
   updatedAt?: string | null
 }
 
@@ -105,6 +108,8 @@ export type Conversation = {
   lastMessage?: string
   updatedAt?: string
   rawRef?: string
+  aliases?: string[]
+  isLid?: boolean
 }
 
 export type Message = {
@@ -119,6 +124,8 @@ export type WhatsAppCall = {
   id: string
   callId: string
   number: string
+  name?: string
+  avatar?: string
   remoteJid?: string
   direction: 'incoming' | 'outgoing' | 'unknown'
   state: string
