@@ -1,10 +1,15 @@
 import { runtime } from '@/config/runtime'
 import * as normalize from './normalizers'
 import type { AuditItem, ConnectionItem, ContactItem, Conversation, Message, Overview, Session, UserItem } from '@/types/domain'
+import type { IntegrationKey } from '@/config/integrations'
+import type { InstanceSettingKey } from '@/config/instance-settings'
 
 const ACCESS_STORAGE_KEY = 'connect_access_code'
 let accessCode = sessionStorage.getItem(ACCESS_STORAGE_KEY) || ''
 let instanceCache = new Map<string, any>()
+
+const integrationKeys = new Set<IntegrationKey>(['n8n', 'typebot', 'dify', 'flowise', 'openai', 'connectAI', 'connectBot'])
+const settingKeys = new Set<InstanceSettingKey>(['settings', 'proxy', 'webhook', 'websocket', 'rabbitmq', 'sqs', 'chatwoot'])
 
 class CurrentApiError extends Error {
   status: number
@@ -142,6 +147,30 @@ async function withInstance<T>(ref: string, fn: (item: any, name: string, token:
   return fn(item, name, token)
 }
 
+function requireIntegrationKey(key: string): IntegrationKey {
+  if (!integrationKeys.has(key as IntegrationKey)) throw new CurrentApiError('Integração não suportada.', 400)
+  return key as IntegrationKey
+}
+
+function requireSettingKey(key: string): InstanceSettingKey {
+  if (!settingKeys.has(key as InstanceSettingKey)) throw new CurrentApiError('Configuração não suportada.', 400)
+  return key as InstanceSettingKey
+}
+
+function normalizeList(data: any) {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.records)) return data.records
+  return data ? [data] : []
+}
+
+function wrapSettingPayload(kind: InstanceSettingKey, payload: any) {
+  if (kind === 'webhook') return { webhook: payload }
+  if (kind === 'websocket') return { websocket: payload }
+  if (kind === 'rabbitmq') return { rabbitmq: payload }
+  if (kind === 'sqs') return { sqs: payload }
+  return payload
+}
+
 export const current = {
   async status() {
     const info = await root().catch(() => null)
@@ -270,6 +299,79 @@ export const current = {
   async callAction(id: string, action: string, data: any = {}) {
     return withInstance(id, async (_item, name, token) => api(`/call/${encodeURIComponent(action)}/${encodeURIComponent(name)}`, {
       method: 'POST', token, data,
+    }))
+  },
+
+  async integrationList(id: string, key: string) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => normalizeList(await api(`/${integration}/find/${encodeURIComponent(name)}`, { token })))
+  },
+
+  async integrationCreate(id: string, key: string, data: any) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/create/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
+  },
+
+  async integrationUpdate(id: string, key: string, recordId: string, data: any) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/update/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, { method: 'PUT', token, data }))
+  },
+
+  async integrationDelete(id: string, key: string, recordId: string) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/delete/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, { method: 'DELETE', token }))
+  },
+
+  async integrationSettings(id: string, key: string) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/fetchSettings/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async saveIntegrationSettings(id: string, key: string, data: any) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/settings/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
+  },
+
+  async integrationSessions(id: string, key: string, recordId: string) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => normalizeList(await api(`/${integration}/fetchSessions/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, { token })))
+  },
+
+  async integrationSessionStatus(id: string, key: string, remoteJid: string, status: string) {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/changeStatus/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { remoteJid, status },
+    }))
+  },
+
+  async integrationIgnoreContact(id: string, key: string, remoteJid: string, action = 'add') {
+    const integration = requireIntegrationKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${integration}/ignoreJid/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { remoteJid, action },
+    }))
+  },
+
+  async openAiCredentials(id: string) {
+    return withInstance(id, async (_item, name, token) => normalizeList(await api(`/openai/creds/${encodeURIComponent(name)}`, { token })))
+  },
+
+  async createOpenAiCredential(id: string, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/openai/creds/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
+  },
+
+  async deleteOpenAiCredential(id: string, credentialId: string) {
+    return withInstance(id, async (_item, name, token) => api(`/openai/creds/${encodeURIComponent(credentialId)}/${encodeURIComponent(name)}`, { method: 'DELETE', token }))
+  },
+
+  async instanceSetting(id: string, key: string) {
+    const kind = requireSettingKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${kind}/find/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async saveInstanceSetting(id: string, key: string, data: any) {
+    const kind = requireSettingKey(key)
+    return withInstance(id, async (_item, name, token) => api(`/${kind}/set/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: wrapSettingPayload(kind, data),
     }))
   },
 
