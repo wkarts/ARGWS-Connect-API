@@ -33,7 +33,7 @@ async function render() {
   document.body.classList.remove('sidebar-open');
   clear(root);
   const path = location.pathname.replace(/\/+$/, '') || '/';
-  if (path === '/' || path === '/manager') { navigate('/manager/', true); return; }
+  if (path === '/') { navigate('/manager/', true); return; }
   if (path === '/manager/login') {
     if (await ensureAuth()) { navigate('/manager/', true); return; }
     root.append(renderLogin()); return;
