@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-06T22:28:04.085Z",
+  "generatedAt": "2026-09-08T06:14:41.729Z",
   "version": "1.0.21",
-  "sourceDigest": "ba3ca10bf798aed4a4b801052a608b5e17042858df4500e4b03a60c5c9e4f5c9",
+  "sourceDigest": "e37952300add7f0034badbd8cf1b794fda2f2fd0032e263b3bc0d3e8945c8a09",
   "operations": [
     {
       "method": "GET",
@@ -546,6 +546,11 @@
     {
       "method": "DELETE",
       "path": "/instance/logout/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/instance/migrateProvider/{instanceName}",
       "source": "src/api/routes/instance.router.ts"
     },
     {

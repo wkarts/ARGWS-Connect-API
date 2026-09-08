@@ -133,6 +133,7 @@
     "tsup": "^8.3.5",
     "undici": "^7.16.0",
     "uuid": "^13.0.0",
+    "wa-store-migrate": "0.1.1",
     "ws": "^8.20.1",
     "zapo-js": "npm:@innovatorssoft/zapo-js@1.6.3"
   },

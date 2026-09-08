@@ -1,8 +1,36 @@
-import type { Account, AuditItem, ConnectionItem, ContactItem, Conversation, Message, Overview, SecurityState, Session, UserItem } from '@/types/domain'
+import type {
+  Account,
+  AuditItem,
+  ConnectionItem,
+  ContactItem,
+  Conversation,
+  Message,
+  Overview,
+  ProviderCapabilitySet,
+  SecurityState,
+  Session,
+  UserItem,
+  WhatsAppCall,
+  WhatsAppProvider,
+} from '@/types/domain'
 
 const num = (v: any) => Number(v ?? 0) || 0
 const str = (v: any, fallback = '') => String(v ?? fallback)
-const array = (v: any): any[] => Array.isArray(v) ? v : Array.isArray(v?.data) ? v.data : Array.isArray(v?.items) ? v.items : Array.isArray(v?.records) ? v.records : Array.isArray(v?.messages?.records) ? v.messages.records : Array.isArray(v?.chats?.records) ? v.chats.records : Array.isArray(v?.contacts?.records) ? v.contacts.records : []
+export const asArray = (v: any): any[] => Array.isArray(v)
+  ? v
+  : Array.isArray(v?.data)
+    ? v.data
+    : Array.isArray(v?.items)
+      ? v.items
+      : Array.isArray(v?.records)
+        ? v.records
+        : Array.isArray(v?.messages?.records)
+          ? v.messages.records
+          : Array.isArray(v?.chats?.records)
+            ? v.chats.records
+            : Array.isArray(v?.contacts?.records)
+              ? v.contacts.records
+              : []
 
 function roleLabel(roles: string[] = []) {
   if (roles.includes('administrator')) return 'Administrador'
@@ -41,11 +69,11 @@ export function session(raw: any): Session {
 }
 
 export function overview(raw: any): Overview {
-  const engine = raw?.engine ?? raw?.operation ?? raw?.core ?? {}
+  const core = raw?.operation ?? raw?.core ?? raw?.engine ?? {}
   const instances = raw?.instances ?? raw?.connections ?? {}
   const totals = raw?.totals ?? raw?.summary ?? {}
   const services: Overview['services'] = [
-    { key: 'operation', label: 'Operação', status: engine?.status === 'ok' || engine?.online === true ? 'ok' : 'attention' },
+    { key: 'operation', label: 'Operação', status: core?.status === 'ok' || core?.online === true ? 'ok' : 'attention' },
     { key: 'connections', label: 'Conexões', status: num(instances?.connected) > 0 || num(instances?.total) === 0 ? 'ok' : 'attention' },
     { key: 'security', label: 'Segurança', status: 'ok' },
     { key: 'updates', label: 'Atualizações', status: raw?.services?.updates?.status === 'unavailable' ? 'attention' : 'ok' },
@@ -53,8 +81,8 @@ export function overview(raw: any): Overview {
     { key: 'performance', label: 'Desempenho', status: 'ok' },
   ]
   return {
-    online: engine?.status === 'ok' || engine?.online === true,
-    version: engine?.version ?? raw?.version,
+    online: core?.status === 'ok' || core?.online === true,
+    version: core?.version ?? raw?.version,
     connections: {
       connected: num(instances?.connected),
       total: num(instances?.total),
@@ -65,9 +93,9 @@ export function overview(raw: any): Overview {
       conversations: num(totals?.chats ?? totals?.conversations),
       contacts: num(totals?.contacts),
     },
-    uptimeSeconds: num(engine?.uptime ?? raw?.uptime),
+    uptimeSeconds: num(core?.uptime ?? raw?.uptime),
     services,
-    recent: array(raw?.recent ?? raw?.activity).map((item, index) => ({
+    recent: asArray(raw?.recent ?? raw?.activity).map((item, index) => ({
       id: str(item.id || index),
       title: str(item.title || item.action || 'Atividade registrada'),
       detail: str(item.detail || item.description || ''),
@@ -78,18 +106,83 @@ export function overview(raw: any): Overview {
   }
 }
 
+export function normalizeProvider(value: any): WhatsAppProvider {
+  const raw = str(value || 'WHATSAPP-BAILEYS').toUpperCase()
+  if (raw.includes('ZAPO')) return 'WHATSAPP-ZAPO'
+  if (raw.includes('BUSINESS') || raw.includes('META')) return 'WHATSAPP-BUSINESS'
+  if (raw.includes('BAILEYS') || raw.includes('WHATSAPP')) return 'WHATSAPP-BAILEYS'
+  return raw
+}
+
+export function providerLabel(value: any) {
+  const provider = normalizeProvider(value)
+  if (provider === 'WHATSAPP-ZAPO') return 'ZAPO'
+  if (provider === 'WHATSAPP-BUSINESS') return 'WhatsApp Business / Cloud API'
+  if (provider === 'WHATSAPP-BAILEYS') return 'Baileys'
+  return String(provider)
+}
+
+const baseCapabilities: ProviderCapabilitySet = {
+  auth: true,
+  messaging: true,
+  contacts: true,
+  chats: true,
+  groups: true,
+  statusRead: true,
+  statusPublish: true,
+  presence: true,
+  chatState: true,
+  pnLid: true,
+  interactiveMessages: true,
+  media: true,
+  profile: true,
+  privacy: true,
+  labels: true,
+  receipts: true,
+  businessProfile: true,
+  businessCatalog: false,
+  calls: false,
+  voice: false,
+  qrCode: true,
+  pairingCode: true,
+}
+
+export function providerCapabilities(value: any): ProviderCapabilitySet {
+  const provider = normalizeProvider(value)
+  if (provider === 'WHATSAPP-ZAPO') {
+    return { ...baseCapabilities, calls: true, voice: true, businessCatalog: false }
+  }
+  if (provider === 'WHATSAPP-BAILEYS') {
+    return { ...baseCapabilities, calls: false, voice: false, businessCatalog: true }
+  }
+  if (provider === 'WHATSAPP-BUSINESS') {
+    return {
+      ...baseCapabilities,
+      qrCode: false,
+      pairingCode: false,
+      labels: false,
+      pnLid: false,
+      calls: false,
+      voice: false,
+      businessCatalog: true,
+    }
+  }
+  return { ...baseCapabilities }
+}
+
 export function connections(raw: any): ConnectionItem[] {
-  return array(raw).map((item) => {
-    const integration = str(item.integration || item.provider || item.channel)
+  return asArray(raw).map((item) => {
+    const provider = normalizeProvider(item.integration || item.provider || item.channel)
     return {
       id: str(item.id || item.instanceId || item.instanceName || item.name),
       name: str(item.name || item.instanceName || item.profileName || 'Conexão'),
       status: normalizeStatus(item.connectionStatus || item.status || item.state),
-      channel: normalizeChannel(integration),
-      provider: normalizeProvider(integration),
-      integration,
+      channel: normalizeChannel(provider),
+      provider,
+      providerLabel: providerLabel(provider),
+      capabilities: providerCapabilities(provider),
       number: item.number || item.ownerJid?.split('@')?.[0] || undefined,
-      profileName: item.profileName || item.clientName || undefined,
+      profileName: item.profileName || undefined,
       avatar: item.profilePicUrl || item.avatar || undefined,
       counts: {
         contacts: num(item._count?.Contact ?? item.counts?.contacts),
@@ -108,24 +201,17 @@ function normalizeStatus(value: any): ConnectionItem['status'] {
   if (['close', 'closed', 'disconnected', 'offline'].includes(s)) return 'disconnected'
   return 'unknown'
 }
+
 function normalizeChannel(value: any) {
   const s = str(value).toLowerCase()
-  if (s.includes('whatsapp') || s.includes('baileys') || s.includes('zapo') || s.includes('evolution')) return 'WhatsApp'
+  if (s.includes('whatsapp') || s.includes('baileys') || s.includes('zapo') || s.includes('business')) return 'WhatsApp'
   if (s.includes('instagram')) return 'Instagram'
   if (s.includes('telegram')) return 'Telegram'
   return value ? str(value) : 'Canal'
 }
-function normalizeProvider(value: any) {
-  const s = str(value).toUpperCase()
-  if (s.includes('BAILEYS')) return 'Baileys'
-  if (s.includes('ZAPO')) return 'ZAPO'
-  if (s.includes('BUSINESS') || s.includes('CLOUD')) return 'WhatsApp Business / Cloud API'
-  if (s.includes('WHATSAPP')) return 'WhatsApp'
-  return value ? str(value) : 'Não identificado'
-}
 
 export function contacts(raw: any): ContactItem[] {
-  return array(raw).map((item, index) => ({
+  return asArray(raw).map((item, index) => ({
     id: str(item.id || item.remoteJid || item.jid || item.number || index),
     name: str(item.pushName || item.name || item.verifiedName || item.notify || item.remoteJid || item.number || 'Contato'),
     number: item.number || item.remoteJid?.split('@')?.[0] || item.jid?.split('@')?.[0] || undefined,
@@ -135,7 +221,7 @@ export function contacts(raw: any): ContactItem[] {
 }
 
 export function conversations(raw: any): Conversation[] {
-  return array(raw).map((item, index) => ({
+  return asArray(raw).map((item, index) => ({
     id: str(item.id || item.remoteJid || item.jid || index),
     title: str(item.pushName || item.name || item.contactName || item.remoteJid || 'Conversa'),
     subtitle: item.number || item.remoteJid || item.subtitle,
@@ -148,7 +234,7 @@ export function conversations(raw: any): Conversation[] {
 }
 
 export function messages(raw: any): Message[] {
-  return array(raw).map((item, index) => {
+  return asArray(raw).map((item, index) => {
     const text = item.message?.conversation || item.message?.extendedTextMessage?.text || item.text || item.body || item.content || ''
     const fromMe = Boolean(item.key?.fromMe ?? item.fromMe)
     return {
@@ -161,8 +247,34 @@ export function messages(raw: any): Message[] {
   })
 }
 
+export function calls(raw: any): WhatsAppCall[] {
+  return asArray(raw).map((item, index) => {
+    const callId = str(item.callId || item.id || item.call?.id || index)
+    const remote = str(item.remoteJid || item.peerJid || item.from || item.to || item.number || '')
+    const number = str(item.number || remote.split('@')[0] || '')
+    const rawDirection = str(item.direction || item.type || '').toLowerCase()
+    const direction: WhatsAppCall['direction'] = rawDirection.includes('in') || item.isIncoming === true
+      ? 'incoming'
+      : rawDirection.includes('out') || item.isIncoming === false
+        ? 'outgoing'
+        : 'unknown'
+    return {
+      id: callId,
+      callId,
+      number,
+      remoteJid: remote || undefined,
+      direction,
+      state: str(item.state || item.status || item.callState || 'Em andamento'),
+      isVideo: Boolean(item.isVideo || item.video),
+      muted: item.muted === undefined ? undefined : Boolean(item.muted),
+      startedAt: item.startedAt || item.timestamp || item.createdAt,
+      raw: item,
+    }
+  })
+}
+
 export function users(raw: any): UserItem[] {
-  return array(raw).map((item) => ({
+  return asArray(raw).map((item) => ({
     id: str(item.id || item.email),
     name: str(item.name || item.email || 'Usuário'),
     email: str(item.email),
@@ -173,7 +285,7 @@ export function users(raw: any): UserItem[] {
 }
 
 export function audit(raw: any): AuditItem[] {
-  return array(raw).map((item, index) => ({
+  return asArray(raw).map((item, index) => ({
     id: str(item.id || index),
     action: str(item.action || 'activity'),
     description: str(item.description || item.action || 'Atividade registrada'),

@@ -1,10 +1,12 @@
 import { InstanceDto, SetPresenceDto } from '@api/dto/instance.dto';
+import { ProviderMigrationDto } from '@api/dto/provider-migration.dto';
 import { ChatwootService } from '@api/integrations/chatbot/chatwoot/services/chatwoot.service';
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { channelController, eventManager } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { ProviderSessionMigrationService, WhatsAppSessionProvider } from '@api/services/provider-session-migration.service';
 import { SettingsService } from '@api/services/settings.service';
 import { Events, Integration, wa } from '@api/types/wa.types';
 import { Auth, Chatwoot, ConfigService, HttpServer, QrCode, WaBusiness } from '@config/env.config';
@@ -31,13 +33,95 @@ export class InstanceController {
     private readonly chatwootCache: CacheService,
     private readonly baileysCache: CacheService,
     private readonly providerFiles: ProviderFiles,
-  ) {}
+  ) {
+    this.providerMigrationService = new ProviderSessionMigrationService(
+      this.configService,
+      this.prismaRepository,
+      this.cache,
+    );
+  }
 
   private readonly logger = new Logger('InstanceController');
+  private readonly providerMigrationService: ProviderSessionMigrationService;
   private readonly authenticationQueues = new Map<string, Promise<void>>();
 
   private authenticationKey(instance: any): string {
     return String(instance.instanceId || instance.instanceName || instance.instance?.id || instance.instance?.name);
+  }
+
+  private providerRuntimeFromRecord(record: any, integration: WhatsAppSessionProvider) {
+    const instanceData: InstanceDto = {
+      instanceId: record.id,
+      instanceName: record.name,
+      integration,
+      token: record.token,
+      number: record.number,
+      businessId: record.businessId,
+      ownerJid: record.ownerJid,
+      profileName: record.profileName,
+      profilePicUrl: record.profilePicUrl,
+      connectionStatus: 'close',
+    };
+
+    const runtime = channelController.init(instanceData, {
+      configService: this.configService,
+      eventEmitter: this.eventEmitter,
+      prismaRepository: this.prismaRepository,
+      cache: this.cache,
+      chatwootCache: this.chatwootCache,
+      baileysCache: this.baileysCache,
+      providerFiles: this.providerFiles,
+    });
+
+    if (!runtime) throw new BadRequestException(`Unable to initialize provider ${integration}`);
+
+    runtime.setInstance({
+      instanceId: record.id,
+      instanceName: record.name,
+      integration,
+      token: record.token,
+      number: record.number,
+      businessId: record.businessId,
+      ownerJid: record.ownerJid,
+      profileName: record.profileName,
+      profilePicUrl: record.profilePicUrl,
+    });
+
+    return runtime;
+  }
+
+  private async waitForProviderMigrationConnection(instance: any, timeoutMs = 60_000): Promise<void> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      if (instance?.connectionStatus?.state === 'open') return;
+
+      const qrCode = instance?.qrCode;
+      if (qrCode?.code || qrCode?.base64 || qrCode?.pairingCode) {
+        throw new BadRequestException(
+          'Converted snapshot was not accepted as an existing WhatsApp device. The original provider will be restored.',
+        );
+      }
+
+      await delay(250);
+    }
+
+    throw new BadRequestException('Timed out while validating the converted WhatsApp session.');
+  }
+
+  private async stopProviderRuntime(instance: any): Promise<void> {
+    if (!instance) return;
+    if (typeof instance.closeClient === 'function') {
+      await instance.closeClient();
+      return;
+    }
+
+    try {
+      instance.client?.ws?.close?.();
+      instance.client?.end?.(new Error('Provider migration handoff'));
+    } catch (error) {
+      this.logger.warn(`Error stopping provider runtime: ${error?.message || error}`);
+    }
   }
 
   /** Serialize QR/pairing operations per instance while keeping different instances fully concurrent. */
@@ -543,6 +627,156 @@ export class InstanceController {
       this.logger.error(error);
       return { error: true, message: error.toString() };
     }
+  }
+
+  public async migrateProvider({ instanceName }: InstanceDto, data: ProviderMigrationDto) {
+    const current = this.waMonitor.waInstances[instanceName];
+    if (!current) throw new BadRequestException(`The "${instanceName}" instance does not exist`);
+
+    return await this.withAuthenticationLock(current, async () => {
+      this.providerMigrationService.assertMigrationStorageSupported();
+
+      const record = await this.prismaRepository.instance.findUnique({ where: { name: instanceName } });
+      if (!record) throw new BadRequestException(`The "${instanceName}" instance does not exist`);
+
+      const sourceProvider = record.integration as WhatsAppSessionProvider;
+      const targetProvider = data.targetProvider as WhatsAppSessionProvider;
+      if (!this.providerMigrationService.isProvider(sourceProvider)) {
+        throw new BadRequestException('Only Baileys and Zapo WhatsApp instances can be converted');
+      }
+      if (!this.providerMigrationService.isProvider(targetProvider)) {
+        throw new BadRequestException('Invalid target WhatsApp provider');
+      }
+      if (sourceProvider === targetProvider) {
+        return {
+          status: 'SUCCESS',
+          migrated: false,
+          sourceProvider,
+          targetProvider,
+          message: 'Instance already uses the requested provider',
+        };
+      }
+
+      // Preflight while the source is still online. This proves the snapshot is
+      // readable/convertible before we interrupt the active provider. The real
+      // cutover snapshot is captured again after the source socket is closed so
+      // Signal/app-state cannot continue changing underneath the migration.
+      const preflightSnapshot = await this.providerMigrationService.exportSnapshot(record.id, sourceProvider);
+      if (!preflightSnapshot) {
+        throw new BadRequestException('No valid paired session snapshot was found for the current provider');
+      }
+
+      const preflightConversion = await this.providerMigrationService.convert(
+        sourceProvider,
+        targetProvider,
+        preflightSnapshot,
+      );
+      if (data.dryRun === true) {
+        return {
+          status: 'SUCCESS',
+          migrated: false,
+          dryRun: true,
+          sourceProvider,
+          targetProvider,
+          losses: preflightConversion.losses,
+          pairingRequired: false,
+        };
+      }
+
+      const sourceState = current.connectionStatus?.state || record.connectionStatus || 'close';
+      const keepConnected = sourceState === 'open' || sourceState === 'connecting';
+      const targetBackup = await this.providerMigrationService.exportSnapshot(record.id, targetProvider);
+
+      await this.prismaRepository.instance.update({
+        where: { id: record.id },
+        data: { connectionStatus: 'connecting' },
+      });
+
+      let targetRuntime: any = null;
+      try {
+        await this.stopProviderRuntime(current);
+
+        const cutoverSnapshot = await this.providerMigrationService.exportSnapshot(record.id, sourceProvider);
+        if (!cutoverSnapshot) {
+          throw new BadRequestException('The source session snapshot became unavailable during provider handoff');
+        }
+        const conversion = await this.providerMigrationService.convert(sourceProvider, targetProvider, cutoverSnapshot);
+
+        await this.providerMigrationService.writeSnapshot(record.id, targetProvider, conversion.data);
+
+        targetRuntime = this.providerRuntimeFromRecord(record, targetProvider);
+        this.waMonitor.waInstances[instanceName] = targetRuntime;
+        this.waMonitor.clearDelInstanceTime(instanceName);
+
+        await targetRuntime.connectToWhatsapp();
+        await this.waitForProviderMigrationConnection(targetRuntime);
+
+        await this.prismaRepository.instance.update({
+          where: { id: record.id },
+          data: {
+            integration: targetProvider,
+            connectionStatus: keepConnected ? 'open' : 'close',
+            disconnectionAt: null,
+            disconnectionReasonCode: null,
+            disconnectionObject: null,
+          },
+        });
+
+        if (!keepConnected) {
+          await this.stopProviderRuntime(targetRuntime);
+        }
+
+        return {
+          status: 'SUCCESS',
+          migrated: true,
+          sourceProvider,
+          targetProvider,
+          instanceName,
+          instanceId: record.id,
+          pairingRequired: false,
+          connectionState: keepConnected ? 'open' : 'close',
+          losses: conversion.losses,
+        };
+      } catch (migrationError) {
+        this.logger.error({
+          localError: 'providerMigration',
+          instanceName,
+          sourceProvider,
+          targetProvider,
+          error: migrationError,
+        });
+
+        await this.stopProviderRuntime(targetRuntime).catch(() => undefined);
+
+        try {
+          if (targetBackup) {
+            await this.providerMigrationService.writeSnapshot(record.id, targetProvider, targetBackup);
+          } else {
+            await this.providerMigrationService.clearSnapshot(record.id, targetProvider);
+          }
+        } catch (restoreTargetError) {
+          this.logger.error({ localError: 'providerMigrationTargetRollback', instanceName, restoreTargetError });
+        }
+
+        await this.prismaRepository.instance.update({
+          where: { id: record.id },
+          data: { integration: sourceProvider, connectionStatus: keepConnected ? 'connecting' : 'close' },
+        });
+
+        const sourceRuntime = this.providerRuntimeFromRecord(record, sourceProvider);
+        this.waMonitor.waInstances[instanceName] = sourceRuntime;
+        if (keepConnected) {
+          try {
+            await sourceRuntime.connectToWhatsapp();
+            await this.waitForProviderMigrationConnection(sourceRuntime);
+          } catch (rollbackConnectionError) {
+            this.logger.error({ localError: 'providerMigrationSourceReconnect', instanceName, rollbackConnectionError });
+          }
+        }
+
+        throw migrationError;
+      }
+    });
   }
 
   public async connectionState({ instanceName }: InstanceDto) {

@@ -3,6 +3,8 @@ export interface ICache {
 
   hGet(key: string, field: string): Promise<any>;
 
+  hKeys(key: string): Promise<string[]>;
+
   set(key: string, value: any, ttl?: number): void;
 
   hSet(key: string, field: string, value: any): Promise<void>;

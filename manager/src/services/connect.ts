@@ -6,20 +6,25 @@ import type {
   ConnectionItem,
   ContactItem,
   Conversation,
+  IntegrationKey,
+  IntegrationSummary,
+  InstanceConfigKey,
   Message,
   Overview,
+  ProviderMigrationResult,
   SecurityState,
   Session,
   UserItem,
+  WhatsAppCall,
+  WhatsAppProvider,
 } from '@/types/domain'
+import type { VoiceMediaCallbacks, VoiceMediaSession } from './voice-media'
 
 const adapter: Record<string, any> = (runtime.compatibility === 'service' ? service : current) as Record<string, any>
 
 function invoke<T = any>(name: string, ...args: any[]): Promise<T> {
   const fn = adapter[name]
-  if (typeof fn !== 'function') {
-    return Promise.reject(new Error('Este recurso ainda não está disponível nesta instalação.'))
-  }
+  if (typeof fn !== 'function') return Promise.reject(new Error('Este recurso ainda não está disponível nesta instalação.'))
   return Promise.resolve(fn(...args)) as Promise<T>
 }
 
@@ -46,28 +51,32 @@ export const connect = {
   restartConnection: (id: string): Promise<any> => invoke('restartConnection', id),
   disconnectConnection: (id: string): Promise<any> => invoke('disconnectConnection', id),
   removeConnection: (id: string): Promise<any> => invoke('removeConnection', id),
+  migrateProvider: (id: string, target: WhatsAppProvider, dryRun = false): Promise<ProviderMigrationResult> => invoke('migrateProvider', id, target, dryRun),
   conversations: (id: string): Promise<Conversation[]> => invoke('conversations', id),
   messages: (id: string, ref = ''): Promise<Message[]> => invoke('messages', id, ref),
   sendText: (id: string, number: string, text: string): Promise<any> => invoke('sendText', id, number, text),
   contacts: (id: string): Promise<ContactItem[]> => typeof adapter.contacts === 'function' ? invoke('contacts', id) : Promise.resolve([]),
-  calls: (id: string): Promise<any> => invoke('calls', id),
-  callAction: (id: string, action: string, data: any = {}): Promise<any> => invoke('callAction', id, action, data),
-
-  integrationList: (id: string, key: string): Promise<any[]> => invoke('integrationList', id, key),
-  integrationCreate: (id: string, key: string, data: any): Promise<any> => invoke('integrationCreate', id, key, data),
-  integrationUpdate: (id: string, key: string, recordId: string, data: any): Promise<any> => invoke('integrationUpdate', id, key, recordId, data),
-  integrationDelete: (id: string, key: string, recordId: string): Promise<any> => invoke('integrationDelete', id, key, recordId),
-  integrationSettings: (id: string, key: string): Promise<any> => invoke('integrationSettings', id, key),
-  saveIntegrationSettings: (id: string, key: string, data: any): Promise<any> => invoke('saveIntegrationSettings', id, key, data),
-  integrationSessions: (id: string, key: string, recordId: string): Promise<any[]> => invoke('integrationSessions', id, key, recordId),
-  integrationSessionStatus: (id: string, key: string, remoteJid: string, status: string): Promise<any> => invoke('integrationSessionStatus', id, key, remoteJid, status),
-  integrationIgnoreContact: (id: string, key: string, remoteJid: string, action = 'add'): Promise<any> => invoke('integrationIgnoreContact', id, key, remoteJid, action),
+  calls: (id: string): Promise<WhatsAppCall[]> => invoke('calls', id),
+  offerCall: (id: string, number: string, duration?: number): Promise<any> => invoke('offerCall', id, number, duration),
+  callAction: (id: string, action: 'accept' | 'reject' | 'end' | 'mute', data: any = {}): Promise<any> => invoke('callAction', id, action, data),
+  voiceMedia: (id: string, callId: string, callbacks: VoiceMediaCallbacks = {}): Promise<VoiceMediaSession> => invoke('voiceMedia', id, callId, callbacks),
+  integrationSummaries: (id: string): Promise<IntegrationSummary[]> => invoke('integrationSummaries', id),
+  findIntegrations: (id: string, key: IntegrationKey): Promise<any[]> => invoke('findIntegrations', id, key),
+  createIntegration: (id: string, key: IntegrationKey, data: any): Promise<any> => invoke('createIntegration', id, key, data),
+  updateIntegration: (id: string, key: IntegrationKey, ref: string, data: any): Promise<any> => invoke('updateIntegration', id, key, ref, data),
+  deleteIntegration: (id: string, key: IntegrationKey, ref: string): Promise<any> => invoke('deleteIntegration', id, key, ref),
+  integrationSettings: (id: string, key: IntegrationKey): Promise<any> => invoke('integrationSettings', id, key),
+  saveIntegrationSettings: (id: string, key: IntegrationKey, data: any): Promise<any> => invoke('saveIntegrationSettings', id, key, data),
+  integrationSessions: (id: string, key: IntegrationKey, ref: string): Promise<any[]> => invoke('integrationSessions', id, key, ref),
+  integrationSessionStatus: (id: string, key: IntegrationKey, remoteJid: string, status: string): Promise<any> => invoke('integrationSessionStatus', id, key, remoteJid, status),
+  integrationIgnoreJid: (id: string, key: IntegrationKey, remoteJid: string, action: 'add' | 'remove'): Promise<any> => invoke('integrationIgnoreJid', id, key, remoteJid, action),
   openAiCredentials: (id: string): Promise<any[]> => invoke('openAiCredentials', id),
-  createOpenAiCredential: (id: string, data: any): Promise<any> => invoke('createOpenAiCredential', id, data),
+  createOpenAiCredential: (id: string, data: { name: string; apiKey: string }): Promise<any> => invoke('createOpenAiCredential', id, data),
   deleteOpenAiCredential: (id: string, credentialId: string): Promise<any> => invoke('deleteOpenAiCredential', id, credentialId),
-  instanceSetting: (id: string, key: string): Promise<any> => invoke('instanceSetting', id, key),
-  saveInstanceSetting: (id: string, key: string, data: any): Promise<any> => invoke('saveInstanceSetting', id, key, data),
-
+  openAiModels: (id: string, credentialId: string): Promise<any[]> => invoke('openAiModels', id, credentialId),
+  integrationId: (item: any, key: IntegrationKey): string => typeof adapter.integrationId === 'function' ? adapter.integrationId(item, key) : String(item?.id || ''),
+  loadInstanceConfig: (id: string, key: InstanceConfigKey): Promise<any> => invoke('loadInstanceConfig', id, key),
+  saveInstanceConfig: (id: string, key: InstanceConfigKey, data: any): Promise<any> => invoke('saveInstanceConfig', id, key, data),
   users: (): Promise<UserItem[]> => invoke('users'),
   roles: (): Promise<any[]> => invoke('roles'),
   createUser: (data: any): Promise<any> => invoke('createUser', data),

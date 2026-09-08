@@ -6,6 +6,7 @@ export * from './instance.schema';
 export * from './label.schema';
 export * from './message.schema';
 export * from './proxy.schema';
+export * from './provider-migration.schema';
 export * from './settings.schema';
 export * from './template.schema';
 export * from './templateDelete.schema';

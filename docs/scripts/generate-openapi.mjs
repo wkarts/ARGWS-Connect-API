@@ -210,6 +210,23 @@ const requestOverrides = {
     parameters: [{ name: 'number', in: 'query', required: false, schema: { type: 'string' }, description: 'Telefone internacional somente com dígitos para gerar código de pareamento.' }],
   },
   'DELETE /instance/delete/{instanceName}': { summary: 'Excluir instância definitivamente', description: 'Remove a instância e os dados persistidos associados segundo o ciclo de limpeza atual.' },
+  'POST /instance/migrateProvider/{instanceName}': {
+    summary: 'Converter provider da sessão',
+    description: 'Converte uma sessão pareada entre WHATSAPP-BAILEYS e WHATSAPP-ZAPO por snapshot. A operação fecha o provider de origem sem logout, converte o estado, valida o destino e restaura a origem automaticamente se a nova sessão não abrir. Use `dryRun: true` para validar perdas sem interromper a conexão.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProviderMigrationRequest' },
+          examples: {
+            toZapo: { summary: 'Baileys → Zapo', value: { targetProvider: 'WHATSAPP-ZAPO' } },
+            toBaileys: { summary: 'Zapo → Baileys', value: { targetProvider: 'WHATSAPP-BAILEYS' } },
+            dryRun: { summary: 'Somente validar conversão', value: { targetProvider: 'WHATSAPP-ZAPO', dryRun: true } },
+          },
+        },
+      },
+    },
+  },
   'POST /message/sendText/{instanceName}': {
     summary: 'Enviar mensagem de texto',
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SendTextRequest' }, example: { number: '5575999999999', text: 'Olá pelo Connect|API' } } } },
@@ -344,6 +361,7 @@ function nativeSpec(routes, version) {
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
+        ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
       },

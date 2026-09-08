@@ -34,9 +34,8 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# A interface principal é entregue pela própria imagem da API em /manager.
-# Instale somente as dependências do frontend antes de gerar o bundle; nenhuma
-# alteração é feita no código funcional do backend.
+# The principal web interface is delivered by the same image under /manager/.
+# Install its pinned build dependencies before the deterministic validation/build.
 RUN npm --prefix manager install --no-audit --no-fund
 RUN MANAGER_BUILD_MODE="${MANAGER_BUILD_MODE}" npm --prefix manager run test
 

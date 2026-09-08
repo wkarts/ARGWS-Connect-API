@@ -1,4 +1,5 @@
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { Auth, configService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { timingSafeEqual } from 'crypto';
 import { IncomingMessage, Server as HttpServer } from 'http';
@@ -81,7 +82,12 @@ export class VoiceMediaService {
           const token = String(auth?.token || '');
           provider = this.waMonitor.waInstances[instanceName];
 
-          if (!provider || !safeTokenEquals(provider.token, token)) {
+          const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+          const authorized = Boolean(
+            provider &&
+              (safeTokenEquals(provider.token, token) || safeTokenEquals(globalToken, token)),
+          );
+          if (!authorized) {
             ws.close(4401, 'Unauthorized');
             return;
           }

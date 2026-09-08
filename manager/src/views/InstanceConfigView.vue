@@ -6,60 +6,48 @@ import PageHeader from '@/components/PageHeader.vue'
 import PanelCard from '@/components/PanelCard.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
-import { eventOptions, settingDescriptions, settingTitles, type InstanceSettingKey } from '@/config/instance-settings'
+import { eventOptions, instanceConfigDefinitions } from '@/services/integration-definitions'
 import { friendlyError } from '@/services/errors'
+import type { InstanceConfigKey } from '@/types/domain'
 
 const route = useRoute()
 const router = useRouter()
-const id = String(route.params.id)
-const kind = computed(() => String(route.params.kind || 'settings') as InstanceSettingKey)
-const connection = ref<any>(null)
-const model = ref<Record<string, any>>({})
-const loading = ref(true)
-const busy = ref(false)
+const instanceId = String(route.params.id)
+const instance = ref<any>(null)
+const selected = ref<InstanceConfigKey>('settings')
+const value = ref<Record<string, any>>({})
+const loading = ref(false)
+const saving = ref(false)
 const error = ref('')
 const feedback = ref('')
-const headerLines = ref('')
-const ignoredContacts = ref('')
+const headersText = ref('{}')
+const ignoreText = ref('')
 
-function normalize(raw: any) {
-  if (!raw) return {}
-  if (['settings', 'proxy', 'chatwoot'].includes(kind.value)) return raw
-  return raw?.[kind.value] || raw || {}
-}
+const keys = Object.keys(instanceConfigDefinitions) as InstanceConfigKey[]
+const selectedDefinition = computed(() => instanceConfigDefinitions[selected.value])
+const isEvent = computed(() => ['webhook','websocket','rabbitmq','nats','sqs','kafka','pusher'].includes(selected.value))
+const missingRequirement = computed(() => {
+  const v = value.value || {}
+  if (selected.value === 'webhook' && !String(v.url || '').trim()) return 'Informe a URL antes de salvar o Webhook.'
+  if (selected.value === 'proxy' && (!String(v.host || '').trim() || !String(v.port || '').trim() || !String(v.protocol || '').trim())) return 'Informe servidor, porta e protocolo antes de salvar o Proxy.'
+  if (selected.value === 'pusher' && (!String(v.appId || '').trim() || !String(v.key || '').trim() || !String(v.secret || '').trim() || !String(v.cluster || '').trim())) return 'Informe App ID, chave, segredo e cluster antes de salvar o Pusher.'
+  if (selected.value === 'chatwoot' && (!String(v.url || '').trim() || !String(v.accountId || '').trim() || !String(v.token || '').trim())) return 'Informe URL, Account ID e token antes de salvar o Chatwoot.'
+  return ''
+})
 
-function defaults(key: InstanceSettingKey) {
-  if (key === 'settings') return {
-    rejectCall: false, msgCall: '', groupsIgnore: false, alwaysOnline: false,
-    readMessages: false, readStatus: false, syncFullHistory: false,
-  }
-  if (key === 'proxy') return { enabled: false, host: '', port: '', protocol: 'http', username: '', password: '' }
-  if (key === 'webhook') return { enabled: false, url: '', headers: {}, byEvents: false, base64: false, events: [] }
-  if (['websocket', 'rabbitmq', 'sqs'].includes(key)) return { enabled: false, events: [] }
-  if (key === 'chatwoot') return {
-    enabled: false, url: '', accountId: '', token: '', nameInbox: '', signDelimiter: '',
-    signMsg: false, reopenConversation: false, conversationPending: false, autoCreate: false,
-    importContacts: false, mergeBrazilContacts: false, importMessages: false, daysLimitImportMessages: 0, ignoreJids: [],
-  }
+function defaults(key: InstanceConfigKey) {
+  if (key === 'settings') return { rejectCall:false, groupsIgnore:false, alwaysOnline:false, readMessages:false, readStatus:false, syncFullHistory:false, msgCall:'' }
+  if (key === 'proxy') return { enabled:false, host:'', port:'', protocol:'http', username:'', password:'' }
+  if (key === 'webhook') return { enabled:false, url:'', headers:{}, byEvents:false, base64:false, events:[] }
+  if (['websocket','rabbitmq','nats','sqs','kafka'].includes(key)) return { enabled:false, events:[] }
+  if (key === 'pusher') return { enabled:false, appId:'', key:'', secret:'', cluster:'', useTLS:true, events:[] }
+  if (key === 'chatwoot') return { enabled:false, url:'', accountId:'', token:'', nameInbox:'', signMsg:false, signDelimiter:'', reopenConversation:false, conversationPending:false, autoCreate:false, importContacts:false, mergeBrazilContacts:false, importMessages:false, daysLimitImportMessages:0, ignoreJids:[] }
   return {}
 }
 
-function headersToLines(headers: Record<string, unknown> = {}) {
-  return Object.entries(headers).map(([key, value]) => `${key}: ${String(value)}`).join('\n')
-}
-
-function linesToHeaders(value: string) {
-  const result: Record<string, string> = {}
-  for (const line of value.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const index = trimmed.indexOf(':')
-    if (index <= 0) continue
-    const key = trimmed.slice(0, index).trim()
-    const entry = trimmed.slice(index + 1).trim()
-    if (key) result[key] = entry
-  }
-  return result
+function normalizeLoaded(key: InstanceConfigKey, raw: any) {
+  const data = raw?.[key] ?? raw ?? {}
+  return { ...defaults(key), ...(data || {}) }
 }
 
 async function load() {
@@ -67,63 +55,48 @@ async function load() {
   error.value = ''
   feedback.value = ''
   try {
-    const [instance, raw] = await Promise.all([
-      connect.connection(id),
-      connect.instanceSetting(id, kind.value),
-    ])
-    connection.value = instance
-    model.value = { ...defaults(kind.value), ...normalize(raw) }
-    if (kind.value === 'webhook') headerLines.value = headersToLines(model.value.headers || {})
-    if (kind.value === 'chatwoot') ignoredContacts.value = Array.isArray(model.value.ignoreJids) ? model.value.ignoreJids.join('\n') : ''
-  } catch (e) {
-    error.value = friendlyError(e)
-  } finally {
-    loading.value = false
-  }
+    if (!instance.value) instance.value = await connect.connection(instanceId)
+    value.value = normalizeLoaded(selected.value, await connect.loadInstanceConfig(instanceId, selected.value))
+    if (selected.value === 'webhook') headersText.value = JSON.stringify(value.value.headers || {}, null, 2)
+    if (selected.value === 'chatwoot') ignoreText.value = Array.isArray(value.value.ignoreJids) ? value.value.ignoreJids.join('\n') : ''
+  } catch (e) { error.value = friendlyError(e) }
+  finally { loading.value = false }
 }
 
-function toggleEvent(code: string, checked: boolean) {
-  const set = new Set<string>(Array.isArray(model.value.events) ? model.value.events : [])
-  if (checked) set.add(code)
-  else set.delete(code)
-  model.value.events = [...set]
+async function choose(key: InstanceConfigKey) {
+  selected.value = key
+  await load()
 }
 
-function eventSelected(code: string) {
-  return Array.isArray(model.value.events) && model.value.events.includes(code)
+function toggleEvent(eventName: string) {
+  const current = new Set(Array.isArray(value.value.events) ? value.value.events : [])
+  if (current.has(eventName)) current.delete(eventName)
+  else current.add(eventName)
+  value.value.events = [...current]
 }
 
-function selectAllEvents() {
-  model.value.events = eventOptions.map(([code]) => code)
-}
-
-function clearEvents() {
-  model.value.events = []
-}
+function selectAllEvents() { value.value.events = eventOptions.map(([key]) => key) }
+function clearEvents() { value.value.events = [] }
 
 async function save() {
-  busy.value = true
   error.value = ''
   feedback.value = ''
+  if (missingRequirement.value) {
+    error.value = missingRequirement.value
+    return
+  }
+  saving.value = true
   try {
-    const payload = { ...model.value }
-    if (kind.value === 'webhook') payload.headers = linesToHeaders(headerLines.value)
-    if (kind.value === 'chatwoot') payload.ignoreJids = ignoredContacts.value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean)
-    if (payload.port !== '' && payload.port !== undefined && payload.port !== null) {
-      const port = Number(payload.port)
-      if (Number.isFinite(port)) payload.port = port
+    if (selected.value === 'webhook') {
+      try { value.value.headers = JSON.parse(headersText.value || '{}') }
+      catch { throw new Error('Os cabeçalhos precisam estar em formato JSON válido.') }
     }
-    if (payload.daysLimitImportMessages !== '' && payload.daysLimitImportMessages !== undefined) {
-      payload.daysLimitImportMessages = Number(payload.daysLimitImportMessages || 0)
-    }
-    await connect.saveInstanceSetting(id, kind.value, payload)
+    if (selected.value === 'chatwoot') value.value.ignoreJids = ignoreText.value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean)
+    await connect.saveInstanceConfig(instanceId, selected.value, value.value)
     feedback.value = 'Configuração salva com sucesso.'
     await load()
-  } catch (e) {
-    error.value = friendlyError(e)
-  } finally {
-    busy.value = false
-  }
+  } catch (e) { error.value = friendlyError(e) }
+  finally { saving.value = false }
 }
 
 onMounted(load)
@@ -131,74 +104,89 @@ onMounted(load)
 
 <template>
   <AppShell>
-    <PageHeader :title="settingTitles[kind] || 'Configuração'" :description="`${settingDescriptions[kind] || ''} ${connection?.name ? `• ${connection.name}` : ''}`">
-      <button class="btn ghost" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)">Voltar</button>
-      <button class="btn primary" :disabled="busy || loading" @click="save">{{ busy ? 'Salvando...' : 'Salvar' }}</button>
+    <PageHeader title="Configurações da instância" :description="instance ? `${instance.name || instance.instanceName} · ${instance.providerLabel}` : 'Conexões, eventos e comportamento.'">
+      <button class="btn ghost" @click="router.push(`/instancias/${encodeURIComponent(instanceId)}`)">Voltar</button>
+      <button class="btn primary" :disabled="saving || loading || Boolean(missingRequirement)" @click="save"><AppIcon name="check" :size="16"/>{{ saving ? 'Salvando...' : 'Salvar' }}</button>
     </PageHeader>
 
-    <div v-if="error" class="alert error">{{ error }}</div>
-    <div v-if="feedback" class="alert success">{{ feedback }}</div>
-    <div v-if="loading" class="skeleton-page"></div>
+    <div class="config-layout">
+      <aside class="config-nav">
+        <button v-for="key in keys" :key="key" :class="['config-nav-item', {active:selected===key}]" @click="choose(key)">
+          <span><AppIcon :name="key==='webhook' ? 'workflow' : key==='chatwoot' ? 'chat' : key==='proxy' ? 'channels' : 'settings'" :size="17"/></span>
+          <div><strong>{{ instanceConfigDefinitions[key].label }}</strong><small>{{ instanceConfigDefinitions[key].description }}</small></div>
+        </button>
+      </aside>
 
-    <PanelCard v-else>
-      <div v-if="kind === 'settings'" class="settings-form-stack">
-        <label class="toggle-field"><input v-model="model.rejectCall" type="checkbox"/><span><strong>Rejeitar chamadas</strong><small>Recuse chamadas recebidas automaticamente.</small></span></label>
-        <label class="field"><span>Mensagem ao rejeitar</span><input v-model="model.msgCall" placeholder="Mensagem opcional"/></label>
-        <label class="toggle-field"><input v-model="model.groupsIgnore" type="checkbox"/><span><strong>Ignorar grupos</strong><small>Não processe mensagens de grupos nesta instância.</small></span></label>
-        <label class="toggle-field"><input v-model="model.alwaysOnline" type="checkbox"/><span><strong>Manter presença online</strong><small>Mantenha a conta disponível enquanto a conexão estiver ativa.</small></span></label>
-        <label class="toggle-field"><input v-model="model.readMessages" type="checkbox"/><span><strong>Marcar mensagens como lidas</strong></span></label>
-        <label class="toggle-field"><input v-model="model.readStatus" type="checkbox"/><span><strong>Ler atualizações de status</strong></span></label>
-        <label class="toggle-field"><input v-model="model.syncFullHistory" type="checkbox"/><span><strong>Sincronizar histórico completo</strong><small>Recupere um histórico mais amplo quando a conexão permitir.</small></span></label>
-      </div>
+      <section class="config-workspace">
+        <div v-if="feedback" class="alert success">{{ feedback }}</div>
+        <div v-if="error" class="alert error">{{ error }}</div>
+        <div v-if="loading" class="cards-skeleton"></div>
 
-      <div v-else-if="kind === 'proxy'" class="settings-form-grid">
-        <label class="toggle-field settings-span-2"><input v-model="model.enabled" type="checkbox"/><span><strong>Usar proxy nesta instância</strong></span></label>
-        <label class="field"><span>Servidor</span><input v-model="model.host" placeholder="proxy.exemplo.com"/></label>
-        <label class="field"><span>Porta</span><input v-model="model.port" type="number" placeholder="8080"/></label>
-        <label class="field"><span>Protocolo</span><select v-model="model.protocol" class="select"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select></label>
-        <label class="field"><span>Usuário</span><input v-model="model.username" autocomplete="off"/></label>
-        <label class="field"><span>Senha</span><input v-model="model.password" type="password" autocomplete="new-password"/></label>
-      </div>
+        <PanelCard v-else :title="selectedDefinition.label" :description="selectedDefinition.description">
+          <div class="form-stack">
+            <div v-if="missingRequirement" class="config-ready-note"><AppIcon name="warning" :size="17"/><span>{{ missingRequirement }} O recurso permanece disponível para configuração.</span></div>
+            <template v-if="selected==='settings'">
+              <label class="toggle-field"><input v-model="value.rejectCall" type="checkbox"/><span><strong>Rejeitar chamadas recebidas</strong><small>Quando ativado, chamadas recebidas são recusadas automaticamente.</small></span></label>
+              <label class="field"><span>Mensagem ao rejeitar</span><input v-model="value.msgCall" placeholder="Mensagem opcional"/></label>
+              <label class="toggle-field"><input v-model="value.groupsIgnore" type="checkbox"/><span><strong>Ignorar grupos</strong></span></label>
+              <label class="toggle-field"><input v-model="value.alwaysOnline" type="checkbox"/><span><strong>Manter presença online</strong></span></label>
+              <label class="toggle-field"><input v-model="value.readMessages" type="checkbox"/><span><strong>Marcar mensagens como lidas</strong></span></label>
+              <label class="toggle-field"><input v-model="value.readStatus" type="checkbox"/><span><strong>Ler atualizações de Status</strong></span></label>
+              <label class="toggle-field"><input v-model="value.syncFullHistory" type="checkbox"/><span><strong>Sincronizar histórico completo</strong></span></label>
+            </template>
 
-      <div v-else-if="kind === 'webhook'" class="settings-form-grid">
-        <label class="toggle-field settings-span-2"><input v-model="model.enabled" type="checkbox"/><span><strong>Webhooks ativos</strong><small>Envie eventos desta instância para um endereço externo.</small></span></label>
-        <label class="field settings-span-2"><span>Endereço de destino</span><input v-model="model.url" type="url" placeholder="https://..."/></label>
-        <label class="toggle-field"><input v-model="model.byEvents" type="checkbox"/><span><strong>Separar por evento</strong></span></label>
-        <label class="toggle-field"><input v-model="model.base64" type="checkbox"/><span><strong>Incluir mídia codificada</strong><small>Use quando o destino precisar receber o conteúdo da mídia junto ao evento.</small></span></label>
-        <label class="field settings-span-2"><span>Cabeçalhos adicionais</span><textarea v-model="headerLines" rows="5" placeholder="Authorization: Bearer ...&#10;X-Chave: valor"></textarea><small>Informe um cabeçalho por linha no formato Nome: valor.</small></label>
-      </div>
+            <template v-else-if="selected==='proxy'">
+              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Usar proxy nesta instância</strong></span></label>
+              <div class="field-grid two"><label class="field"><span>Servidor</span><input v-model="value.host"/></label><label class="field"><span>Porta</span><input v-model="value.port" inputmode="numeric"/></label></div>
+              <div class="field-grid two"><label class="field"><span>Protocolo</span><select v-model="value.protocol" class="select"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select></label><label class="field"><span>Usuário</span><input v-model="value.username"/></label></div>
+              <label class="field"><span>Senha</span><input v-model="value.password" type="password" autocomplete="new-password"/></label>
+            </template>
 
-      <div v-else-if="kind === 'websocket' || kind === 'rabbitmq' || kind === 'sqs'" class="settings-form-stack">
-        <label class="toggle-field"><input v-model="model.enabled" type="checkbox"/><span><strong>Integração ativa</strong><small>Distribua os eventos selecionados por este canal.</small></span></label>
-      </div>
+            <template v-else-if="selected==='webhook'">
+              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Ativar Webhook</strong><small>Você pode configurar a URL mesmo antes de ativar o envio.</small></span></label>
+              <label class="field"><span>URL</span><input v-model="value.url" type="url" placeholder="https://..."/></label>
+              <div class="field-grid two"><label class="toggle-field"><input v-model="value.byEvents" type="checkbox"/><span><strong>Separar por eventos</strong></span></label><label class="toggle-field"><input v-model="value.base64" type="checkbox"/><span><strong>Enviar mídia codificada</strong></span></label></div>
+              <label class="field"><span>Cabeçalhos adicionais</span><textarea v-model="headersText" rows="6" spellcheck="false"></textarea><small>Objeto JSON com os cabeçalhos enviados nas requisições.</small></label>
+            </template>
 
-      <div v-else-if="kind === 'chatwoot'" class="settings-form-grid">
-        <label class="toggle-field settings-span-2"><input v-model="model.enabled" type="checkbox"/><span><strong>Chatwoot ativo</strong><small>Sincronize esta instância com sua área de atendimento no Chatwoot.</small></span></label>
-        <label class="field settings-span-2"><span>Endereço do Chatwoot</span><input v-model="model.url" type="url" placeholder="https://..."/></label>
-        <label class="field"><span>Conta</span><input v-model="model.accountId"/></label>
-        <label class="field"><span>Token de acesso</span><input v-model="model.token" type="password" autocomplete="new-password"/></label>
-        <label class="field"><span>Nome da caixa</span><input v-model="model.nameInbox"/></label>
-        <label class="field"><span>Separador da assinatura</span><input v-model="model.signDelimiter"/></label>
-        <label class="toggle-field"><input v-model="model.signMsg" type="checkbox"/><span><strong>Assinar mensagens</strong></span></label>
-        <label class="toggle-field"><input v-model="model.reopenConversation" type="checkbox"/><span><strong>Reabrir conversas</strong></span></label>
-        <label class="toggle-field"><input v-model="model.conversationPending" type="checkbox"/><span><strong>Criar conversa como pendente</strong></span></label>
-        <label class="toggle-field"><input v-model="model.autoCreate" type="checkbox"/><span><strong>Criar automaticamente</strong></span></label>
-        <label class="toggle-field"><input v-model="model.importContacts" type="checkbox"/><span><strong>Importar contatos</strong></span></label>
-        <label class="toggle-field"><input v-model="model.mergeBrazilContacts" type="checkbox"/><span><strong>Mesclar contatos brasileiros</strong></span></label>
-        <label class="toggle-field"><input v-model="model.importMessages" type="checkbox"/><span><strong>Importar mensagens</strong></span></label>
-        <label class="field"><span>Limite de dias</span><input v-model="model.daysLimitImportMessages" type="number" min="0"/></label>
-        <label class="field settings-span-2"><span>Contatos ignorados</span><textarea v-model="ignoredContacts" rows="5" placeholder="Um contato por linha"></textarea></label>
-      </div>
+            <template v-else-if="selected==='pusher'">
+              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Ativar Pusher</strong></span></label>
+              <div class="field-grid two"><label class="field"><span>App ID</span><input v-model="value.appId"/></label><label class="field"><span>Chave</span><input v-model="value.key"/></label></div>
+              <div class="field-grid two"><label class="field"><span>Segredo</span><input v-model="value.secret" type="password"/></label><label class="field"><span>Cluster</span><input v-model="value.cluster"/></label></div>
+              <label class="toggle-field"><input v-model="value.useTLS" type="checkbox"/><span><strong>Conexão segura</strong></span></label>
+            </template>
 
-      <div v-if="kind === 'webhook' || kind === 'websocket' || kind === 'rabbitmq' || kind === 'sqs'" class="events-section">
-        <div class="section-title compact-section"><div><h3>Eventos</h3><p>Escolha quais acontecimentos desta instância devem ser enviados.</p></div><div class="page-actions"><button class="btn ghost compact" @click="selectAllEvents">Selecionar todos</button><button class="btn ghost compact" @click="clearEvents">Limpar</button></div></div>
-        <div class="event-option-grid">
-          <label v-for="([code, label]) in eventOptions" :key="code" class="event-choice">
-            <input type="checkbox" :checked="eventSelected(code)" @change="toggleEvent(code, ($event.target as HTMLInputElement).checked)"/>
-            <span>{{ label }}</span>
-          </label>
-        </div>
-      </div>
-    </PanelCard>
+            <template v-else-if="isEvent">
+              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Ativar {{ selectedDefinition.label }}</strong><small>Os eventos selecionados serão encaminhados quando a integração estiver ativa.</small></span></label>
+            </template>
+
+            <template v-else-if="selected==='chatwoot'">
+              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Ativar Chatwoot</strong><small>Cadastre os dados abaixo e ative quando estiver pronto.</small></span></label>
+              <label class="field"><span>URL</span><input v-model="value.url" type="url" placeholder="https://..."/></label>
+              <div class="field-grid two"><label class="field"><span>Account ID</span><input v-model="value.accountId"/></label><label class="field"><span>Token</span><input v-model="value.token" type="password"/></label></div>
+              <label class="field"><span>Nome da caixa</span><input v-model="value.nameInbox"/></label>
+              <div class="toggle-grid">
+                <label class="toggle-field"><input v-model="value.signMsg" type="checkbox"/><span><strong>Assinar mensagens</strong></span></label>
+                <label class="toggle-field"><input v-model="value.reopenConversation" type="checkbox"/><span><strong>Reabrir conversa</strong></span></label>
+                <label class="toggle-field"><input v-model="value.conversationPending" type="checkbox"/><span><strong>Criar como pendente</strong></span></label>
+                <label class="toggle-field"><input v-model="value.autoCreate" type="checkbox"/><span><strong>Criar automaticamente</strong></span></label>
+                <label class="toggle-field"><input v-model="value.importContacts" type="checkbox"/><span><strong>Importar contatos</strong></span></label>
+                <label class="toggle-field"><input v-model="value.mergeBrazilContacts" type="checkbox"/><span><strong>Mesclar contatos do Brasil</strong></span></label>
+                <label class="toggle-field"><input v-model="value.importMessages" type="checkbox"/><span><strong>Importar mensagens</strong></span></label>
+              </div>
+              <div class="field-grid two"><label class="field"><span>Delimitador da assinatura</span><input v-model="value.signDelimiter"/></label><label class="field"><span>Dias para importar mensagens</span><input v-model.number="value.daysLimitImportMessages" type="number" min="0"/></label></div>
+              <label class="field"><span>Contatos ignorados</span><textarea v-model="ignoreText" rows="5" placeholder="Um identificador por linha"></textarea></label>
+            </template>
+
+            <div v-if="isEvent" class="event-selector">
+              <div class="event-selector-head"><div><strong>Eventos</strong><small>Selecione o que deve ser encaminhado.</small></div><div class="page-actions"><button class="btn ghost compact" @click="selectAllEvents">Selecionar todos</button><button class="btn ghost compact" @click="clearEvents">Limpar</button></div></div>
+              <div class="event-grid">
+                <label v-for="([eventName,label]) in eventOptions" :key="eventName" :class="['event-option', {active:(value.events || []).includes(eventName)}]"><input type="checkbox" :checked="(value.events || []).includes(eventName)" @change="toggleEvent(eventName)"/><span>{{ label }}</span></label>
+              </div>
+            </div>
+          </div>
+        </PanelCard>
+      </section>
+    </div>
   </AppShell>
 </template>

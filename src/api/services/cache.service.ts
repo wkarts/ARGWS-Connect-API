@@ -38,6 +38,18 @@ export class CacheService {
     }
   }
 
+  public async hKeys(key: string): Promise<string[]> {
+    if (!this.cache) {
+      return [];
+    }
+    try {
+      return (await this.cache.hKeys(key)) ?? [];
+    } catch (error) {
+      this.logger.error(error);
+      return [];
+    }
+  }
+
   async set(key: string, value: any, ttl?: number) {
     if (!this.cache) {
       return;

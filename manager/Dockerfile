@@ -10,7 +10,7 @@ WORKDIR /app
 COPY package.json ./package.json
 RUN npm install --no-audit --no-fund
 COPY . .
-RUN npm run check:language && npm run build
+RUN npm run test
 
 FROM ${NGINX_IMAGE}
 ARG APP_VERSION

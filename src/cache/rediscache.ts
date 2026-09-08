@@ -40,6 +40,15 @@ export class RedisCache implements ICache {
     }
   }
 
+  async hKeys(key: string): Promise<string[]> {
+    try {
+      return await this.client.hKeys(this.buildKey(key));
+    } catch (error) {
+      this.logger.error(error);
+      return [];
+    }
+  }
+
   async set(key: string, value: any, ttl?: number) {
     try {
       await this.client.setEx(this.buildKey(key), ttl || this.conf?.TTL, JSON.stringify(value));

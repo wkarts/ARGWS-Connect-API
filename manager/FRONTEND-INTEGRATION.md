@@ -1,54 +1,67 @@
-# Integração da interface principal
+# Integração técnica da interface principal
 
-Este documento é técnico e não faz parte da interface apresentada ao usuário.
+Este arquivo é documentação interna do projeto e não faz parte da interface apresentada ao usuário.
 
-## Objetivo desta entrega
-
-A nova interface foi integrada ao projeto atual sem alterar o código funcional do backend.
-
-- `src/` do backend permanece idêntico ao ZIP `ARGWS-Connect-API-develop (9).zip`;
-- schemas e migrations permanecem idênticos;
-- `package.json` e `package-lock.json` da raiz permanecem idênticos;
-- o único ajuste fora de `manager/` é no `Dockerfile`, para instalar as dependências do frontend antes de gerar o bundle;
-- a interface continua sendo servida pela própria API em `/manager/`;
-- o código anterior da interface foi preservado integralmente em `manager-legacy/`.
-
-## Compatibilidade atual
-
-A interface possui uma camada de adaptação em:
+## Arquitetura de compatibilidade
 
 ```text
-src/services/current.ts
-src/services/normalizers.ts
-src/types/domain.ts
+Telas Vue
+  -> contrato estável do frontend
+  -> src/services/connect.ts
+  -> src/services/current.ts
+  -> API Connect|API
 ```
 
-As telas não dependem diretamente das respostas brutas do backend. Quando a nova evolução do backend entrar, a troca deve ser feita principalmente nessa camada, preservando as telas e o design system.
+As telas não consomem diretamente estruturas brutas do backend. Mudanças futuras devem ser absorvidas prioritariamente na camada de serviços/normalização.
 
-## Acessos
+## Compatibilidade com a evolução ZAPO
 
-No mesmo domínio da API:
+A camada atual conhece:
+
+- `WHATSAPP-BAILEYS`;
+- `WHATSAPP-ZAPO`;
+- `WHATSAPP-BUSINESS`;
+- capabilities por provider;
+- migração Baileys <-> ZAPO por `migrateProvider`;
+- chamadas ZAPO e gateway de áudio `/voice/media`;
+- integrações chatbot e eventos do backend atual.
+
+## Módulos opcionais
+
+Os módulos opcionais são habilitados globalmente nos `env.example` para que suas rotas e controladores possam ser usados pela interface. A ativação operacional continua por configuração de instância.
+
+```env
+TYPEBOT_ENABLED=true
+CHATWOOT_ENABLED=true
+OPENAI_ENABLED=true
+DIFY_ENABLED=true
+N8N_ENABLED=true
+CONNECT_AI_ENABLED=true
+FLOWISE_ENABLED=true
+```
+
+Em instalações já existentes, revise o `.env` real: atualizar somente o arquivo de exemplo não altera variáveis já persistidas.
+
+## Chamadas de teste
+
+A sinalização usa os endpoints `/call/*`. O áudio usa WebSocket binário em:
 
 ```text
-https://d.api.connect.argws.com.br/manager/
+/voice/media
 ```
 
-No domínio dedicado:
+O reverse proxy do domínio da API precisa permitir Upgrade/WebSocket nesse caminho.
 
-```text
-https://d.manager.connect.argws.com.br/
+A autenticação do gateway aceita o token da instância ou a chave administrativa global, usando comparação segura. Isso permite manter:
+
+```env
+AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false
 ```
 
-Para o domínio dedicado existe o exemplo:
+sem impedir os testes de áudio no frontend.
 
-```text
-deploy/develop/nginx-frontend-domain.conf.example
-```
+## Build
 
-Quando a interface está no domínio dedicado, ela identifica automaticamente o domínio irmão da API (`d.manager...` -> `d.api...`). Também é possível sobrescrever internamente o endereço antes do carregamento definindo `window.__CONNECT_API_BASE_URL__`.
+O Dockerfile raiz continua compilando o frontend antes do build da API porque o backend serve `manager/dist` em `/manager/`.
 
-## Acesso atual
-
-Como o backend atual ainda utiliza o código administrativo global, a tela chama esse valor apenas de **Código de acesso**. Ele fica somente em `sessionStorage` durante a sessão do navegador.
-
-Quando a nova camada de autenticação estiver disponível, a interface já possui o modo de compatibilidade `service`, permitindo substituir a integração sem reconstruir as telas.
+O Dockerfile standalone da interface executa o mesmo `npm run test` do build embutido.

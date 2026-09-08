@@ -1,16 +1,16 @@
 {
   "name": "connect-api-web",
   "private": true,
-  "version": "1.0.21-ui.1",
+  "version": "1.0.21-ui.3-zapo-parity",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check:language": "node scripts/check-visible-language.mjs",
-    "test": "npm run check:language && npm run check:sfc && npm run build",
+    "check:sfc": "node scripts/check-sfc-structure.mjs",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "check:sfc": "node scripts/check-sfc-structure.mjs"
+    "test": "npm run check:language && npm run check:sfc && npm run build"
   },
   "dependencies": {
     "pinia": "3.0.3",

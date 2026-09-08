@@ -7486,6 +7486,96 @@
         }
       }
     },
+    "/instance/migrateProvider/{instanceName}": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Converter provider da sessão",
+        "operationId": "post_instance_migrateprovider_instancename",
+        "description": "Converte uma sessão pareada entre WHATSAPP-BAILEYS e WHATSAPP-ZAPO por snapshot. A operação fecha o provider de origem sem logout, converte o estado, valida o destino e restaura a origem automaticamente se a nova sessão não abrir. Use `dryRun: true` para validar perdas sem interromper a conexão.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/instance.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderMigrationRequest"
+              },
+              "examples": {
+                "toZapo": {
+                  "summary": "Baileys → Zapo",
+                  "value": {
+                    "targetProvider": "WHATSAPP-ZAPO"
+                  }
+                },
+                "toBaileys": {
+                  "summary": "Zapo → Baileys",
+                  "value": {
+                    "targetProvider": "WHATSAPP-BAILEYS"
+                  }
+                },
+                "dryRun": {
+                  "summary": "Somente validar conversão",
+                  "value": {
+                    "targetProvider": "WHATSAPP-ZAPO",
+                    "dryRun": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/instance/restart/{instanceName}": {
       "post": {
         "tags": [
@@ -13041,6 +13131,26 @@
           "instanceName"
         ],
         "additionalProperties": true
+      },
+      "ProviderMigrationRequest": {
+        "type": "object",
+        "properties": {
+          "targetProvider": {
+            "type": "string",
+            "enum": [
+              "WHATSAPP-BAILEYS",
+              "WHATSAPP-ZAPO"
+            ]
+          },
+          "dryRun": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "targetProvider"
+        ],
+        "additionalProperties": false
       },
       "SendTextRequest": {
         "type": "object",

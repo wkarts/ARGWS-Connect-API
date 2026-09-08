@@ -30,6 +30,8 @@ import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import sharp from 'sharp';
 import { PassThrough } from 'stream';
 
+import { ZAPO_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
+
 let sharedZapoPostgresBackend: any = null;
 let sharedZapoPostgresUri: string | null = null;
 
@@ -87,22 +89,7 @@ export class ZapoStartupService extends ChannelStartupService {
   public stateConnection: wa.StateConnection = { state: 'close' };
   public phoneNumber?: string;
 
-  public readonly capabilities = Object.freeze({
-    messaging: true,
-    text: true,
-    location: true,
-    contacts: true,
-    media: true,
-    audio: true,
-    ptv: true,
-    sticker: true,
-    reactions: true,
-    polls: true,
-    qrCode: true,
-    pairingCode: true,
-    voice: true,
-    video: false,
-  });
+  public readonly capabilities = ZAPO_WHATSAPP_CAPABILITIES;
 
   private storeBackend: any = null;
   private cleanupPoller: any = null;
@@ -117,6 +104,8 @@ export class ZapoStartupService extends ChannelStartupService {
   private readonly callMuteStates = new Map<string, boolean>();
   private readonly audioEmitter = new EventEmitter2();
   private reconnectTimer?: NodeJS.Timeout;
+  private historyImportTimer?: NodeJS.Timeout;
+  private historyImportPromise: Promise<void> = Promise.resolve();
   private intentionalDisconnect = false;
 
   public get connectionStatus() {
@@ -148,6 +137,8 @@ export class ZapoStartupService extends ChannelStartupService {
     this.intentionalDisconnect = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    if (this.historyImportTimer) clearTimeout(this.historyImportTimer);
+    this.historyImportTimer = undefined;
 
     try {
       await this.client?.disconnect?.();
@@ -161,6 +152,8 @@ export class ZapoStartupService extends ChannelStartupService {
   public async logoutInstance() {
     this.intentionalDisconnect = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.historyImportTimer) clearTimeout(this.historyImportTimer);
+    this.historyImportTimer = undefined;
 
     try {
       if (this.isRegistered()) {
@@ -179,6 +172,8 @@ export class ZapoStartupService extends ChannelStartupService {
     this.intentionalDisconnect = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    if (this.historyImportTimer) clearTimeout(this.historyImportTimer);
+    this.historyImportTimer = undefined;
 
     await this.ensureClient();
     await this.client?.disconnect?.().catch(() => undefined);
@@ -238,6 +233,8 @@ export class ZapoStartupService extends ChannelStartupService {
   private async resetLinkingClient() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    if (this.historyImportTimer) clearTimeout(this.historyImportTimer);
+    this.historyImportTimer = undefined;
 
     const current = this.client;
     this.client = null;
@@ -744,6 +741,10 @@ export class ZapoStartupService extends ChannelStartupService {
       void this.handleIncomingMessage(event);
     });
 
+    this.client.on('history_sync_chunk', (event: any) => {
+      this.scheduleHistoryStoreImport(event);
+    });
+
     this.client.on('voip_call_incoming', (call: any) => {
       void this.handleIncomingCall(call);
     });
@@ -915,6 +916,268 @@ export class ZapoStartupService extends ChannelStartupService {
       if (normalized.includes('@') && !normalized.endsWith('@lid')) return normalized;
     }
     return undefined;
+  }
+
+  /**
+   * Zapo persists history-sync chunks in its own mailbox store before emitting
+   * `history_sync_chunk`. Reconcile that store into the canonical Connect|API
+   * Chat/Contact/Message tables so provider selection does not change the
+   * history exposed by `/chat/find*` or by the Manager.
+   */
+  private scheduleHistoryStoreImport(event: any) {
+    const db = this.configService.get<Database>('DATABASE');
+    if (!db.SAVE_DATA.HISTORIC && !db.SAVE_DATA.CHATS && !db.SAVE_DATA.CONTACTS) return;
+
+    if (this.historyImportTimer) clearTimeout(this.historyImportTimer);
+    this.historyImportTimer = setTimeout(() => {
+      this.historyImportTimer = undefined;
+      this.historyImportPromise = this.historyImportPromise
+        .then(() => this.importStoredHistory(event))
+        .catch((error: Error) => this.logger.error(`Zapo history reconciliation failed: ${error?.message || error}`));
+    }, 750);
+  }
+
+  private canonicalStoredJid(jid: string, lidToPhone: Map<string, string>): string {
+    const normalized = this.normalizeDeviceJid(jid);
+    if (normalized.endsWith('@lid')) {
+      return lidToPhone.get(normalized) || normalized;
+    }
+    return normalized;
+  }
+
+  private async importStoredHistory(event: any): Promise<void> {
+    const db = this.configService.get<Database>('DATABASE');
+    const pool = this.storeBackend?.pool;
+    if (!pool || !this.instanceId) return;
+
+    const prefix = process.env.ZAPO_STORE_TABLE_PREFIX || 'zapo_';
+    if (!/^[A-Za-z0-9_]*$/.test(prefix)) {
+      this.logger.error('ZAPO_STORE_TABLE_PREFIX contains unsafe characters; history reconciliation skipped');
+      return;
+    }
+
+    const tableExists = async (name: string) => {
+      const result = await pool.query('SELECT to_regclass($1) AS table_name', [`${prefix}${name}`]);
+      return Boolean(result.rows?.[0]?.table_name);
+    };
+    const table = (name: string) => `"${prefix}${name}"`;
+
+    const hasContacts = await tableExists('mailbox_contacts');
+    const hasThreads = await tableExists('mailbox_threads');
+    const hasMessages = await tableExists('mailbox_messages');
+
+    const contactRows = hasContacts
+      ? (
+          await pool.query(
+            `SELECT jid, display_name, push_name, lid, phone_number
+             FROM ${table('mailbox_contacts')} WHERE session_id = $1`,
+            [this.instanceId],
+          )
+        ).rows
+      : [];
+
+    const lidToPhone = new Map<string, string>();
+    const displayByJid = new Map<string, string>();
+    for (const row of contactRows) {
+      const jid = this.normalizeDeviceJid(String(row.jid || ''));
+      const phoneNumber = row.phone_number ? this.normalizeDeviceJid(String(row.phone_number)) : '';
+      if (jid.endsWith('@lid') && phoneNumber && !phoneNumber.endsWith('@lid')) {
+        lidToPhone.set(jid, phoneNumber);
+      }
+      const display = String(row.display_name || row.push_name || '').trim();
+      if (display && jid) displayByJid.set(jid, display);
+      if (display && phoneNumber) displayByJid.set(phoneNumber, display);
+    }
+
+    const canonicalContacts = new Map<string, string | undefined>();
+    for (const row of contactRows) {
+      const rawJid = this.normalizeDeviceJid(String(row.jid || ''));
+      if (!rawJid) continue;
+      const remoteJid = this.canonicalStoredJid(rawJid, lidToPhone);
+      if (!remoteJid || remoteJid === 'status@broadcast') continue;
+      const pushName = String(row.display_name || row.push_name || '').trim() || undefined;
+      if (!canonicalContacts.has(remoteJid) || pushName) canonicalContacts.set(remoteJid, pushName);
+    }
+
+    if (db.SAVE_DATA.CONTACTS && canonicalContacts.size > 0) {
+      const entries = [...canonicalContacts.entries()];
+      for (let offset = 0; offset < entries.length; offset += 100) {
+        await Promise.all(
+          entries.slice(offset, offset + 100).map(([remoteJid, pushName]) =>
+            this.prismaRepository.contact.upsert({
+              where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
+              update: { ...(pushName ? { pushName } : {}) },
+              create: { remoteJid, pushName, instanceId: this.instanceId },
+            }),
+          ),
+        );
+      }
+      const obsoleteLids = [...lidToPhone.keys()];
+      if (obsoleteLids.length) {
+        await this.prismaRepository.contact.deleteMany({
+          where: { instanceId: this.instanceId, remoteJid: { in: obsoleteLids } },
+        });
+      }
+      this.sendDataWebhook(
+        Events.CONTACTS_SET,
+        entries.map(([remoteJid, pushName]) => ({ remoteJid, pushName, instanceId: this.instanceId })),
+      );
+    }
+
+    const threadRows = hasThreads
+      ? (
+          await pool.query(
+            `SELECT jid, name, unread_count FROM ${table('mailbox_threads')}
+             WHERE session_id = $1`,
+            [this.instanceId],
+          )
+        ).rows
+      : [];
+
+    const canonicalChats = new Map<string, { name?: string; unreadMessages?: number }>();
+    for (const row of threadRows) {
+      const rawJid = this.normalizeDeviceJid(String(row.jid || ''));
+      if (!rawJid || rawJid === 'status@broadcast' || rawJid.endsWith('@broadcast')) continue;
+      const remoteJid = this.canonicalStoredJid(rawJid, lidToPhone);
+      const name = String(row.name || displayByJid.get(rawJid) || displayByJid.get(remoteJid) || '').trim() || undefined;
+      canonicalChats.set(remoteJid, {
+        name,
+        unreadMessages: row.unread_count === null || row.unread_count === undefined ? undefined : Number(row.unread_count),
+      });
+    }
+
+    if (db.SAVE_DATA.CHATS && canonicalChats.size > 0) {
+      const entries = [...canonicalChats.entries()];
+      for (let offset = 0; offset < entries.length; offset += 100) {
+        await Promise.all(
+          entries.slice(offset, offset + 100).map(([remoteJid, info]) =>
+            this.prismaRepository.chat.upsert({
+              where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid } },
+              update: {
+                ...(info.name ? { name: info.name } : {}),
+                ...(Number.isFinite(info.unreadMessages) ? { unreadMessages: info.unreadMessages } : {}),
+              },
+              create: {
+                remoteJid,
+                name: info.name,
+                unreadMessages: Number.isFinite(info.unreadMessages) ? info.unreadMessages : 0,
+                instanceId: this.instanceId,
+              },
+            }),
+          ),
+        );
+      }
+      const obsoleteLids = [...lidToPhone.keys()];
+      if (obsoleteLids.length) {
+        await this.prismaRepository.chat.deleteMany({
+          where: { instanceId: this.instanceId, remoteJid: { in: obsoleteLids } },
+        });
+      }
+      this.sendDataWebhook(
+        Events.CHATS_SET,
+        entries.map(([remoteJid, info]) => ({ remoteJid, name: info.name, instanceId: this.instanceId })),
+      );
+    }
+
+    if (!db.SAVE_DATA.HISTORIC || !hasMessages) return;
+
+    const existingMessageIds = new Set(
+      (
+        await this.prismaRepository.message.findMany({
+          where: { instanceId: this.instanceId },
+          select: { key: true },
+        })
+      )
+        .map((row) => (row.key && typeof row.key === 'object' ? String((row.key as any).id || '') : ''))
+        .filter(Boolean),
+    );
+
+    const { proto } = await import('@innovatorssoft/zapo-js');
+    const pageSize = 1000;
+    let offset = 0;
+    while (true) {
+      const rows = (
+        await pool.query(
+          `SELECT message_id, thread_jid, sender_jid, participant_jid, from_me, timestamp_ms, message_bytes
+           FROM ${table('mailbox_messages')}
+           WHERE session_id = $1
+           ORDER BY timestamp_ms ASC NULLS LAST, message_id ASC
+           LIMIT $2 OFFSET $3`,
+          [this.instanceId, pageSize, offset],
+        )
+      ).rows;
+      if (!rows.length) break;
+      offset += rows.length;
+
+      const messagesRaw: any[] = [];
+      for (const row of rows) {
+        const id = String(row.message_id || '');
+        const threadJid = this.normalizeDeviceJid(String(row.thread_jid || ''));
+        if (!id || !threadJid || !row.message_bytes || existingMessageIds.has(id)) continue;
+
+        let message: any;
+        try {
+          message = this.toJson(proto.Message.decode(row.message_bytes));
+        } catch (error) {
+          this.logger.warn(`Unable to decode stored Zapo message ${id}: ${(error as Error)?.message || error}`);
+          continue;
+        }
+        if (!message || Object.keys(message).length === 0) continue;
+
+        const remoteJid = this.canonicalStoredJid(threadJid, lidToPhone);
+        const rawParticipant = row.participant_jid || row.sender_jid;
+        const participant = rawParticipant
+          ? this.canonicalStoredJid(this.normalizeDeviceJid(String(rawParticipant)), lidToPhone)
+          : undefined;
+        const pushName =
+          (rawParticipant && displayByJid.get(this.normalizeDeviceJid(String(rawParticipant)))) ||
+          displayByJid.get(remoteJid);
+
+        messagesRaw.push({
+          key: {
+            id,
+            remoteJid,
+            ...(remoteJid !== threadJid ? { remoteJidAlt: threadJid } : {}),
+            fromMe: row.from_me === true,
+            ...(participant ? { participant } : {}),
+          },
+          pushName,
+          participant,
+          messageType: this.detectMessageType(message),
+          message,
+          messageTimestamp: row.timestamp_ms ? Math.round(Number(row.timestamp_ms) / 1000) : Math.round(Date.now() / 1000),
+          source: 'web',
+          instanceId: this.instanceId,
+        });
+        existingMessageIds.add(id);
+      }
+
+      if (messagesRaw.length > 0) {
+        await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
+        this.sendDataWebhook(Events.MESSAGES_SET, messagesRaw, true, undefined, {
+          isLatest: Number(event?.progress) >= 100,
+          progress: event?.progress,
+          provider: Integration.WHATSAPP_ZAPO,
+        });
+
+        if (
+          this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
+          this.localChatwoot?.enabled &&
+          this.localChatwoot.importMessages
+        ) {
+          this.chatwootService.addHistoryMessages(
+            { instanceName: this.instance.name, instanceId: this.instanceId },
+            messagesRaw,
+          );
+        }
+      }
+
+      if (rows.length < pageSize) break;
+    }
+
+    this.logger.info(
+      `Zapo history reconciled into Connect|API (progress=${event?.progress ?? 'n/a'}, chats=${canonicalChats.size}, contacts=${canonicalContacts.size})`,
+    );
   }
 
   private async handleIncomingMessage(event: any) {

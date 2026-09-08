@@ -20,6 +20,7 @@ GET    /instance/connect/{instanceName}
 GET    /instance/connectionState/{instanceName}
 GET    /instance/fetchInstances
 POST   /instance/restart/{instanceName}
+POST   /instance/migrateProvider/{instanceName}
 DELETE /instance/logout/{instanceName}
 DELETE /instance/delete/{instanceName}
 ```
@@ -49,3 +50,9 @@ unknown
 ```
 
 Não trate `close` como inexistência: uma instância pode estar desconectada e continuar persistida.
+
+## Conversão de provider
+
+Instâncias `WHATSAPP-BAILEYS` e `WHATSAPP-ZAPO` podem ser convertidas preservando a mesma identidade lógica da instância. A operação usa snapshot de sessão, fecha a origem sem logout, valida o destino e executa rollback automático se o novo provider não alcançar `open` sem novo pareamento.
+
+Consulte [Conversão de sessão WhatsApp entre providers](provider-session-migration.md).

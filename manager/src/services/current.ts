@@ -1,15 +1,27 @@
 import { runtime } from '@/config/runtime'
 import * as normalize from './normalizers'
-import type { AuditItem, ConnectionItem, ContactItem, Conversation, Message, Overview, Session, UserItem } from '@/types/domain'
-import type { IntegrationKey } from '@/config/integrations'
-import type { InstanceSettingKey } from '@/config/instance-settings'
+import { integrationDefinitions } from './integration-definitions'
+import { VoiceMediaSession, type VoiceMediaCallbacks } from './voice-media'
+import type {
+  AuditItem,
+  ConnectionItem,
+  ContactItem,
+  Conversation,
+  IntegrationKey,
+  IntegrationSummary,
+  InstanceConfigKey,
+  Message,
+  Overview,
+  ProviderMigrationResult,
+  Session,
+  UserItem,
+  WhatsAppCall,
+  WhatsAppProvider,
+} from '@/types/domain'
 
 const ACCESS_STORAGE_KEY = 'connect_access_code'
 let accessCode = sessionStorage.getItem(ACCESS_STORAGE_KEY) || ''
 let instanceCache = new Map<string, any>()
-
-const integrationKeys = new Set<IntegrationKey>(['n8n', 'typebot', 'dify', 'flowise', 'openai', 'connectAI', 'connectBot'])
-const settingKeys = new Set<InstanceSettingKey>(['settings', 'proxy', 'webhook', 'websocket', 'rabbitmq', 'sqs', 'chatwoot'])
 
 class CurrentApiError extends Error {
   status: number
@@ -81,22 +93,10 @@ async function api<T>(path: string, options: {
 
 function syntheticSession(): Session {
   return {
-    account: {
-      id: 'local-admin',
-      name: 'Administrador',
-      email: '',
-      roleLabel: 'Administração',
-      active: true,
-    },
+    account: { id: 'local-admin', name: 'Administrador', email: '', roleLabel: 'Administração', active: true },
     permissions: ['*'],
     csrf: '',
-    security: {
-      enabled: false,
-      required: false,
-      enrollmentRequired: false,
-      recoveryRemaining: 0,
-      lastVerifiedAt: null,
-    },
+    security: { enabled: false, required: false, enrollmentRequired: false, recoveryRemaining: 0, lastVerifiedAt: null },
   }
 }
 
@@ -126,9 +126,11 @@ async function rawInstances() {
   return rememberInstances(items)
 }
 
-async function rawInstance(ref: string) {
-  const cached = instanceCache.get(ref)
-  if (cached) return cached
+async function rawInstance(ref: string, refresh = false) {
+  if (!refresh) {
+    const cached = instanceCache.get(ref)
+    if (cached) return cached
+  }
   const items = await rawInstances()
   return items.find((item) => instanceId(item) === ref || item?.name === ref || item?.instanceName === ref) || null
 }
@@ -136,40 +138,57 @@ async function rawInstance(ref: string) {
 function publicInstance(item: any) {
   if (!item) return null
   const { token: _token, ...safe } = item
-  return safe
+  const provider = normalize.normalizeProvider(item.integration || item.provider)
+  return {
+    ...safe,
+    provider,
+    providerLabel: normalize.providerLabel(provider),
+    capabilities: normalize.providerCapabilities(provider),
+  }
 }
 
-async function withInstance<T>(ref: string, fn: (item: any, name: string, token: string) => Promise<T>) {
-  const item = await rawInstance(ref)
+async function withInstance<T>(ref: string, fn: (item: any, name: string, token: string) => Promise<T>, refresh = false) {
+  const item = await rawInstance(ref, refresh)
   if (!item) throw new CurrentApiError('Instância não encontrada.', 404)
   const name = String(item.name || item.instanceName || ref)
   const token = String(item.token || '')
   return fn(item, name, token)
 }
 
-function requireIntegrationKey(key: string): IntegrationKey {
-  if (!integrationKeys.has(key as IntegrationKey)) throw new CurrentApiError('Integração não suportada.', 400)
-  return key as IntegrationKey
+function integrationId(item: any, key: IntegrationKey) {
+  return String(
+    item?.id ||
+    item?.[`${key}Id`] ||
+    item?.openaiBotId ||
+    item?.typebotId ||
+    item?.difyId ||
+    item?.n8nId ||
+    item?.connectAIId ||
+    item?.connectBotId ||
+    item?.flowiseId ||
+    '',
+  )
 }
 
-function requireSettingKey(key: string): InstanceSettingKey {
-  if (!settingKeys.has(key as InstanceSettingKey)) throw new CurrentApiError('Configuração não suportada.', 400)
-  return key as InstanceSettingKey
+function listFrom(value: any): any[] {
+  if (Array.isArray(value)) return value
+  if (Array.isArray(value?.records)) return value.records
+  if (Array.isArray(value?.data)) return value.data
+  return value ? [value] : []
 }
 
-function normalizeList(data: any) {
-  if (Array.isArray(data)) return data
-  if (Array.isArray(data?.records)) return data.records
-  return data ? [data] : []
-}
-
-function wrapSettingPayload(kind: InstanceSettingKey, payload: any) {
-  if (kind === 'webhook') return { webhook: payload }
-  if (kind === 'websocket') return { websocket: payload }
-  if (kind === 'rabbitmq') return { rabbitmq: payload }
-  if (kind === 'sqs') return { sqs: payload }
+function integrationPayload(key: IntegrationKey, data: any) {
+  const payload = { ...(data || {}) }
+  // The uploaded backend currently persists `basicAuthPass` while its JSON
+  // schema also advertises `basicAuthPassword`. Send both aliases so the
+  // frontend remains compatible with either side of that transitional contract.
+  if (key === 'n8n' && payload.basicAuthPass !== undefined) {
+    payload.basicAuthPassword = payload.basicAuthPass
+  }
   return payload
 }
+
+const eventConfigKeys = new Set<InstanceConfigKey>(['webhook', 'websocket', 'rabbitmq', 'nats', 'sqs', 'kafka', 'pusher'])
 
 export const current = {
   async status() {
@@ -228,7 +247,7 @@ export const current = {
   },
 
   async connection(id: string) {
-    return publicInstance(await rawInstance(id))
+    return publicInstance(await rawInstance(id, true))
   },
 
   async createConnection(data: any) {
@@ -265,6 +284,17 @@ export const current = {
     return result
   },
 
+  async migrateProvider(id: string, targetProvider: WhatsAppProvider, dryRun = false): Promise<ProviderMigrationResult> {
+    const result = await withInstance(id, async (_item, name, token) => api<ProviderMigrationResult>(`/instance/migrateProvider/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      token,
+      timeout: dryRun ? 60000 : 150000,
+      data: { targetProvider, dryRun },
+    }), true)
+    if (!dryRun) await rawInstances()
+    return result
+  },
+
   async conversations(id: string): Promise<Conversation[]> {
     return withInstance(id, async (_item, name, token) => normalize.conversations(await api(`/chat/findChats/${encodeURIComponent(name)}`, {
       method: 'POST', token, data: { where: {}, sort: 'desc', page: 1, offset: 200 },
@@ -292,70 +322,114 @@ export const current = {
     })))
   },
 
-  async calls(id: string) {
-    return withInstance(id, async (_item, name, token) => api<any>(`/call/list/${encodeURIComponent(name)}`, { token }))
+  async calls(id: string): Promise<WhatsAppCall[]> {
+    return withInstance(id, async (item, name, token) => {
+      const provider = normalize.normalizeProvider(item.integration)
+      if (!normalize.providerCapabilities(provider).calls) return []
+      return normalize.calls(await api<any>(`/call/list/${encodeURIComponent(name)}`, { token }))
+    }, true)
   },
 
-  async callAction(id: string, action: string, data: any = {}) {
-    return withInstance(id, async (_item, name, token) => api(`/call/${encodeURIComponent(action)}/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data,
-    }))
+  async offerCall(id: string, number: string, callDuration?: number) {
+    return withInstance(id, async (item, name, token) => {
+      const provider = normalize.normalizeProvider(item.integration)
+      if (!normalize.providerCapabilities(provider).calls) throw new CurrentApiError('Este provider não oferece chamadas nesta versão.', 409)
+      const duration = Number(callDuration || 0)
+      return api(`/call/offer/${encodeURIComponent(name)}`, {
+        method: 'POST', token, data: { number: String(number).replace(/\D/g, ''), ...(duration > 0 ? { callDuration: duration } : {}) },
+      })
+    }, true)
   },
 
-  async integrationList(id: string, key: string) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => normalizeList(await api(`/${integration}/find/${encodeURIComponent(name)}`, { token })))
+  async callAction(id: string, action: 'accept' | 'reject' | 'end' | 'mute', data: any = {}) {
+    return withInstance(id, async (item, name, token) => {
+      const provider = normalize.normalizeProvider(item.integration)
+      if (!normalize.providerCapabilities(provider).calls) throw new CurrentApiError('Este provider não oferece chamadas nesta versão.', 409)
+      return api(`/call/${action}/${encodeURIComponent(name)}`, { method: 'POST', token, data })
+    }, true)
   },
 
-  async integrationCreate(id: string, key: string, data: any) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/create/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
+  async voiceMedia(id: string, callId: string, callbacks: VoiceMediaCallbacks = {}) {
+    return withInstance(id, async (item, name, token) => {
+      const provider = normalize.normalizeProvider(item.integration)
+      if (!normalize.providerCapabilities(provider).voice) throw new CurrentApiError('Áudio de chamada não está disponível neste provider.', 409)
+      const mediaToken = token || accessCode
+      if (!mediaToken) throw new CurrentApiError('A sessão atual não possui autorização para o áudio da chamada.', 409)
+      const session = new VoiceMediaSession({ apiBaseUrl: runtime.apiBaseUrl, instanceName: name, callId, token: mediaToken }, callbacks)
+      await session.start()
+      return session
+    }, true)
   },
 
-  async integrationUpdate(id: string, key: string, recordId: string, data: any) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/update/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, { method: 'PUT', token, data }))
+  async integrationSummaries(id: string): Promise<IntegrationSummary[]> {
+    return withInstance(id, async (_item, name, token) => {
+      const keys = Object.keys(integrationDefinitions) as IntegrationKey[]
+      return Promise.all(keys.map(async (key) => {
+        try {
+          const rows = listFrom(await api<any>(`/${key}/find/${encodeURIComponent(name)}`, { token }))
+          return {
+            key,
+            label: integrationDefinitions[key].label,
+            configured: rows.length > 0,
+            count: rows.length,
+            status: rows.length > 0 ? 'configured' : 'not_configured',
+            detail: rows.length > 0 ? `${rows.length} configuração${rows.length === 1 ? '' : 'ões'}` : 'Pronto para configurar',
+          } as IntegrationSummary
+        } catch (error: any) {
+          return {
+            key,
+            label: integrationDefinitions[key].label,
+            configured: false,
+            count: 0,
+            status: 'error',
+            detail: error?.status === 404 ? 'Não configurado' : 'Verifique a disponibilidade',
+          } as IntegrationSummary
+        }
+      }))
+    })
   },
 
-  async integrationDelete(id: string, key: string, recordId: string) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/delete/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, { method: 'DELETE', token }))
+  async findIntegrations(id: string, key: IntegrationKey) {
+    return withInstance(id, async (_item, name, token) => listFrom(await api(`/${key}/find/${encodeURIComponent(name)}`, { token })))
   },
 
-  async integrationSettings(id: string, key: string) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/fetchSettings/${encodeURIComponent(name)}`, { token }))
+  async createIntegration(id: string, key: IntegrationKey, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/create/${encodeURIComponent(name)}`, { method: 'POST', token, data: integrationPayload(key, data) }))
   },
 
-  async saveIntegrationSettings(id: string, key: string, data: any) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/settings/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
+  async updateIntegration(id: string, key: IntegrationKey, integrationRef: string, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/update/${encodeURIComponent(integrationRef)}/${encodeURIComponent(name)}`, { method: 'PUT', token, data: integrationPayload(key, data) }))
   },
 
-  async integrationSessions(id: string, key: string, recordId: string) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => normalizeList(await api(`/${integration}/fetchSessions/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, { token })))
+  async deleteIntegration(id: string, key: IntegrationKey, integrationRef: string) {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/delete/${encodeURIComponent(integrationRef)}/${encodeURIComponent(name)}`, { method: 'DELETE', token }))
   },
 
-  async integrationSessionStatus(id: string, key: string, remoteJid: string, status: string) {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/changeStatus/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data: { remoteJid, status },
-    }))
+  async integrationSettings(id: string, key: IntegrationKey) {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/fetchSettings/${encodeURIComponent(name)}`, { token }))
   },
 
-  async integrationIgnoreContact(id: string, key: string, remoteJid: string, action = 'add') {
-    const integration = requireIntegrationKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${integration}/ignoreJid/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data: { remoteJid, action },
-    }))
+  async saveIntegrationSettings(id: string, key: IntegrationKey, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/settings/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
+  },
+
+  async integrationSessions(id: string, key: IntegrationKey, integrationRef: string) {
+    return withInstance(id, async (_item, name, token) => listFrom(await api(`/${key}/fetchSessions/${encodeURIComponent(integrationRef)}/${encodeURIComponent(name)}`, { token })))
+  },
+
+  async integrationSessionStatus(id: string, key: IntegrationKey, remoteJid: string, status: string) {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/changeStatus/${encodeURIComponent(name)}`, { method: 'POST', token, data: { remoteJid, status } }))
+  },
+
+  async integrationIgnoreJid(id: string, key: IntegrationKey, remoteJid: string, action: 'add' | 'remove') {
+    return withInstance(id, async (_item, name, token) => api(`/${key}/ignoreJid/${encodeURIComponent(name)}`, { method: 'POST', token, data: { remoteJid, action } }))
   },
 
   async openAiCredentials(id: string) {
-    return withInstance(id, async (_item, name, token) => normalizeList(await api(`/openai/creds/${encodeURIComponent(name)}`, { token })))
+    return withInstance(id, async (_item, name, token) => listFrom(await api(`/openai/creds/${encodeURIComponent(name)}`, { token })))
   },
 
-  async createOpenAiCredential(id: string, data: any) {
+  async createOpenAiCredential(id: string, data: { name: string; apiKey: string }) {
     return withInstance(id, async (_item, name, token) => api(`/openai/creds/${encodeURIComponent(name)}`, { method: 'POST', token, data }))
   },
 
@@ -363,16 +437,26 @@ export const current = {
     return withInstance(id, async (_item, name, token) => api(`/openai/creds/${encodeURIComponent(credentialId)}/${encodeURIComponent(name)}`, { method: 'DELETE', token }))
   },
 
-  async instanceSetting(id: string, key: string) {
-    const kind = requireSettingKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${kind}/find/${encodeURIComponent(name)}`, { token }))
+  async openAiModels(id: string, credentialId: string) {
+    return withInstance(id, async (_item, name, token) => listFrom(await api(`/openai/getModels/${encodeURIComponent(name)}`, {
+      token,
+      params: credentialId ? { openaiCredsId: credentialId } : undefined,
+    })))
   },
 
-  async saveInstanceSetting(id: string, key: string, data: any) {
-    const kind = requireSettingKey(key)
-    return withInstance(id, async (_item, name, token) => api(`/${kind}/set/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data: wrapSettingPayload(kind, data),
-    }))
+  integrationId(item: any, key: IntegrationKey) {
+    return integrationId(item, key)
+  },
+
+  async loadInstanceConfig(id: string, key: InstanceConfigKey) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/${key}/find/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async saveInstanceConfig(id: string, key: InstanceConfigKey, data: any) {
+    return withInstance(id, async (_item, name, token) => {
+      const payload = eventConfigKeys.has(key) ? { [key]: data } : data
+      return api(`/${key}/set/${encodeURIComponent(name)}`, { method: 'POST', token, data: payload })
+    })
   },
 
   async health() {

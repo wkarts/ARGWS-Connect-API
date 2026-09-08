@@ -20,15 +20,10 @@ const creating = ref(false)
 const createOpen = ref(false)
 const router = useRouter()
 
-const form = ref({
-  name: '',
-  mode: 'WHATSAPP-BAILEYS',
-  number: '',
-  businessId: '',
-})
+const form = ref({ name: '', mode: 'WHATSAPP-BAILEYS', number: '', businessId: '' })
 
 const filtered = computed(() => items.value.filter((i) =>
-  `${i.name} ${i.profileName || ''} ${i.number || ''} ${i.provider || ''}`.toLowerCase().includes(query.value.toLowerCase()),
+  `${i.name} ${i.profileName || ''} ${i.number || ''} ${i.providerLabel}`.toLowerCase().includes(query.value.toLowerCase()),
 ))
 
 async function load() {
@@ -79,7 +74,7 @@ onMounted(load)
 
 <template>
   <AppShell>
-    <PageHeader title="Instâncias" description="Acompanhe e administre suas conexões.">
+    <PageHeader title="Instâncias" description="Acompanhe seus canais e escolha a tecnologia de conexão de cada número.">
       <button class="btn primary" @click="openCreate"><AppIcon name="plus" :size="17"/>Nova instância</button>
     </PageHeader>
 
@@ -97,9 +92,10 @@ onMounted(load)
       <article v-for="item in filtered" :key="item.id" class="instance-card" @click="router.push(`/instancias/${encodeURIComponent(item.id)}`)">
         <div class="instance-card-head">
           <div class="instance-avatar"><img v-if="item.avatar" :src="item.avatar" alt=""/><AppIcon v-else name="radio"/></div>
-          <div><strong>{{ item.name }}</strong><span>{{ item.profileName || item.channel }}<template v-if="item.provider"> • {{ item.provider }}</template></span></div>
+          <div><strong>{{ item.name }}</strong><span>{{ item.profileName || item.number || 'Sem perfil conectado' }}</span></div>
           <StatusPill :status="item.status"/>
         </div>
+        <div class="provider-row"><span>Provider</span><strong>{{ item.providerLabel }}</strong></div>
         <div class="instance-number">{{ item.number || 'Número não informado' }}</div>
         <div class="instance-stats">
           <div><b>{{ item.counts.contacts.toLocaleString('pt-BR') }}</b><span>Contatos</span></div>
@@ -110,7 +106,7 @@ onMounted(load)
       </article>
     </div>
 
-    <AppModal :open="createOpen" title="Nova instância" subtitle="Configure uma nova conexão de comunicação." @close="createOpen=false">
+    <AppModal :open="createOpen" title="Nova instância" subtitle="Escolha o provider e configure uma nova conexão." @close="createOpen=false">
       <form class="form-stack" @submit.prevent="create">
         <div v-if="feedback && !feedback.includes('sucesso')" class="alert error">{{ feedback }}</div>
         <label class="field"><span>Nome</span><input v-model="form.name" required autofocus placeholder="Ex.: Atendimento Comercial"/></label>
@@ -120,9 +116,11 @@ onMounted(load)
             <option value="WHATSAPP-ZAPO">WhatsApp — ZAPO</option>
             <option value="WHATSAPP-BUSINESS">WhatsApp Business / Cloud API</option>
           </select>
-          <small>Escolha a tecnologia de conexão usada por esta instância.</small>
+          <small v-if="form.mode==='WHATSAPP-ZAPO'">Provider com suporte a chamadas de voz nesta versão.</small>
+          <small v-else-if="form.mode==='WHATSAPP-BAILEYS'">Provider consolidado para mensagens, grupos, status e automações.</small>
+          <small v-else>Conexão oficial para contas empresariais.</small>
         </label>
-        <label class="field"><span>Número</span><input v-model="form.number" inputmode="numeric" placeholder="5575999999999"/><small>Opcional para Baileys e ZAPO. Informe DDI, DDD e número.</small></label>
+        <label class="field"><span>Número</span><input v-model="form.number" inputmode="numeric" placeholder="5575999999999"/><small>Opcional. Informe DDI, DDD e número.</small></label>
         <label v-if="form.mode==='WHATSAPP-BUSINESS'" class="field"><span>Identificador da conta empresarial</span><input v-model="form.businessId"/></label>
       </form>
       <template #footer>

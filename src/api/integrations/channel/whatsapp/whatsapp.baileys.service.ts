@@ -153,6 +153,7 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
+import { BAILEYS_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
   remoteJidAlt?: string;
@@ -224,6 +225,8 @@ async function getVideoDuration(input: Buffer | string | Readable): Promise<numb
 }
 
 export class BaileysStartupService extends ChannelStartupService {
+  public readonly capabilities = BAILEYS_WHATSAPP_CAPABILITIES;
+
   private messageProcessor = new BaileysMessageProcessor();
 
   constructor(
@@ -267,6 +270,29 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public setPairingCode(pairingCode?: string) {
     this.instance.qrcode.pairingCode = pairingCode ?? null;
+  }
+
+  /** Close the transport without logging out or deleting auth state. */
+  public async closeClient() {
+    const current = this.client;
+
+    this.endSession = true;
+    ++this.connectionGeneration;
+    this.client = null;
+    this.stateConnection = { state: 'close' };
+    this.messageProcessor.onDestroy();
+
+    try {
+      current?.ws?.close?.();
+    } catch (error) {
+      this.logger.warn(`Error closing WhatsApp socket: ${error?.message || error}`);
+    }
+
+    try {
+      current?.end?.(new Error('Provider migration handoff'));
+    } catch (error) {
+      this.logger.warn(`Error ending WhatsApp socket: ${error?.message || error}`);
+    }
   }
 
   public async logoutInstance() {
