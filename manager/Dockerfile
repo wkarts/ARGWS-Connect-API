@@ -13,8 +13,10 @@ COPY src ./src
 COPY scripts ./scripts
 COPY docker-entrypoint.d ./docker-entrypoint.d
 
-# O frontend atual usa ES Modules nativos e um build determinístico sem download
-# de dependências. A imagem final recebe somente o dist gerado, nunca src/.git.
+# O frontend usa ES Modules nativos. Dependências de browser ficam fixadas no
+# package.json e são incorporadas ao dist; nenhuma dependência externa é
+# carregada pelo navegador em produção.
+RUN npm install --omit=dev --no-audit --no-fund
 RUN npm run test
 
 FROM ${NGINX_IMAGE}
