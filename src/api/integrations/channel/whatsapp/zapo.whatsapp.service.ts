@@ -1007,7 +1007,7 @@ export class ZapoStartupService extends ChannelStartupService {
       if (jid.endsWith('@lid') && phoneNumber && !phoneNumber.endsWith('@lid')) {
         lidToPhone.set(jid, phoneNumber);
       }
-      const display = String(row.display_name || row.push_name || '').trim();
+      const display = this.sanitizeRemoteStoredName(row.display_name) || this.sanitizeRemoteStoredName(row.push_name);
       if (display && jid) displayByJid.set(jid, display);
       if (display && phoneNumber) displayByJid.set(phoneNumber, display);
     }
@@ -1018,7 +1018,7 @@ export class ZapoStartupService extends ChannelStartupService {
       if (!rawJid) continue;
       const remoteJid = this.canonicalStoredJid(rawJid, lidToPhone);
       if (!remoteJid || remoteJid === 'status@broadcast') continue;
-      const pushName = String(row.display_name || row.push_name || '').trim() || undefined;
+      const pushName = this.sanitizeRemoteStoredName(row.display_name) || this.sanitizeRemoteStoredName(row.push_name);
       if (!canonicalContacts.has(remoteJid) || pushName) canonicalContacts.set(remoteJid, pushName);
     }
 
@@ -1029,7 +1029,9 @@ export class ZapoStartupService extends ChannelStartupService {
           entries.slice(offset, offset + 100).map(([remoteJid, pushName]) =>
             this.prismaRepository.contact.upsert({
               where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
-              update: { ...(pushName ? { pushName } : {}) },
+              // Existing valid names are stable. History may create a missing
+              // contact name, but it must not replace an already-known peer name.
+              update: {},
               create: { remoteJid, pushName, instanceId: this.instanceId },
             }),
           ),
@@ -1063,8 +1065,7 @@ export class ZapoStartupService extends ChannelStartupService {
       const rawJid = this.normalizeDeviceJid(String(row.jid || ''));
       if (!rawJid || rawJid === 'status@broadcast' || rawJid.endsWith('@broadcast')) continue;
       const remoteJid = this.canonicalStoredJid(rawJid, lidToPhone);
-      const name =
-        String(row.name || displayByJid.get(rawJid) || displayByJid.get(remoteJid) || '').trim() || undefined;
+      const name = this.sanitizeRemoteStoredName(row.name) || displayByJid.get(rawJid) || displayByJid.get(remoteJid);
       canonicalChats.set(remoteJid, {
         name,
         unreadMessages:
@@ -1080,7 +1081,7 @@ export class ZapoStartupService extends ChannelStartupService {
             this.prismaRepository.chat.upsert({
               where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid } },
               update: {
-                ...(info.name ? { name: info.name } : {}),
+                // Do not oscillate a chat name based on later history rows.
                 ...(Number.isFinite(info.unreadMessages) ? { unreadMessages: info.unreadMessages } : {}),
               },
               create: {
@@ -1235,7 +1236,9 @@ export class ZapoStartupService extends ChannelStartupService {
         participant: canonicalParticipant,
         participantAlt,
       },
-      pushName: event.pushName,
+      // For outgoing echoes, ZAPO/WhatsApp can expose this account's own
+      // pushName. Never propagate that as the remote peer identity.
+      pushName: event.key.fromMe ? undefined : this.sanitizeRemoteStoredName(event.pushName),
       participant: canonicalParticipant,
       messageType,
       message,
@@ -1274,17 +1277,12 @@ export class ZapoStartupService extends ChannelStartupService {
       );
     }
 
-    // `pushName` on messages sent by this account identifies this account,
-    // not the remote peer. Persist it only for inbound messages; otherwise a
-    // single local profile name can contaminate many unrelated contacts/chats.
-    const remotePushName = messageRaw.key.fromMe ? undefined : messageRaw.pushName;
-
     if (db.SAVE_DATA.CONTACTS) {
-      await this.upsertContact(messageRaw.key.remoteJid, remotePushName);
+      await this.upsertContact(messageRaw.key.remoteJid, messageRaw.pushName);
     }
 
     if (db.SAVE_DATA.CHATS) {
-      await this.upsertChat(messageRaw.key.remoteJid, remotePushName);
+      await this.upsertChat(messageRaw.key.remoteJid, messageRaw.pushName);
     }
 
     if (rawRemoteJid !== canonicalRemoteJid) {
@@ -1333,23 +1331,77 @@ export class ZapoStartupService extends ChannelStartupService {
     }
   }
 
+  private localStoredNames(): Set<string> {
+    const credentials = this.client?.getCredentials?.();
+    return new Set(
+      [this.instance.profileName, credentials?.meDisplayName]
+        .map((value) =>
+          String(value || '')
+            .trim()
+            .toLocaleLowerCase('pt-BR'),
+        )
+        .filter(Boolean),
+    );
+  }
+
+  private sanitizeRemoteStoredName(value: unknown): string | undefined {
+    const name = String(value || '').trim();
+    if (!name || /^\+?\d+$/.test(name) || name.includes('@lid') || name.includes('@s.whatsapp.net')) return undefined;
+    if (['contato', 'contato whatsapp', 'unknown', 'desconhecido'].includes(name.toLocaleLowerCase('pt-BR')))
+      return undefined;
+    if (this.localStoredNames().has(name.toLocaleLowerCase('pt-BR'))) return undefined;
+    return name;
+  }
+
+  private stableRemoteStoredName(current: unknown, incoming: unknown): string | undefined {
+    return this.sanitizeRemoteStoredName(current) || this.sanitizeRemoteStoredName(incoming);
+  }
+
   private async upsertContact(remoteJid: string, pushName?: string) {
-    await this.prismaRepository.contact.upsert({
+    const existing = await this.prismaRepository.contact.findUnique({
       where: { remoteJid_instanceId: { remoteJid, instanceId: this.instanceId } },
-      update: { pushName },
-      create: { remoteJid, pushName, instanceId: this.instanceId },
     });
-    this.sendDataWebhook(Events.CONTACTS_UPSERT, { remoteJid, pushName, instanceId: this.instanceId });
+    const stableName = this.stableRemoteStoredName(existing?.pushName, pushName);
+
+    if (existing) {
+      if (stableName && stableName !== existing.pushName) {
+        await this.prismaRepository.contact.update({ where: { id: existing.id }, data: { pushName: stableName } });
+      }
+    } else {
+      await this.prismaRepository.contact.create({
+        data: { remoteJid, pushName: stableName, instanceId: this.instanceId },
+      });
+    }
+
+    this.sendDataWebhook(Events.CONTACTS_UPSERT, {
+      remoteJid,
+      pushName: stableName,
+      instanceId: this.instanceId,
+    });
     void this.refreshContactProfilePicture(remoteJid);
   }
 
   private async upsertChat(remoteJid: string, name?: string) {
-    await this.prismaRepository.chat.upsert({
+    const existing = await this.prismaRepository.chat.findUnique({
       where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid } },
-      update: { name },
-      create: { remoteJid, name, instanceId: this.instanceId },
     });
-    this.sendDataWebhook(Events.CHATS_UPSERT, { remoteJid, name, instanceId: this.instanceId });
+    const stableName = this.stableRemoteStoredName(existing?.name, name);
+
+    if (existing) {
+      if (stableName && stableName !== existing.name) {
+        await this.prismaRepository.chat.update({ where: { id: existing.id }, data: { name: stableName } });
+      }
+    } else {
+      await this.prismaRepository.chat.create({
+        data: { remoteJid, name: stableName, instanceId: this.instanceId },
+      });
+    }
+
+    this.sendDataWebhook(Events.CHATS_UPSERT, {
+      remoteJid,
+      name: stableName,
+      instanceId: this.instanceId,
+    });
   }
 
   private async persistOutgoingMessage(id: string | undefined, jid: string, messageType: string, message: any) {
