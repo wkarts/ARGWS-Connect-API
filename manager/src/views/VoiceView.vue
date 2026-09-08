@@ -206,7 +206,7 @@ onBeforeUnmount(() => {
 <template>
   <AppShell>
     <PageHeader title="Chamadas" description="Efetue e receba chamadas WhatsApp em ambiente de teste.">
-      <button class="btn ghost" :disabled="loading" @click="loadCalls"><AppIcon name="refresh" :size="16"/>Atualizar</button>
+      <button class="btn ghost" :disabled="loading" @click="() => loadCalls()"><AppIcon name="refresh" :size="16"/>Atualizar</button>
     </PageHeader>
 
     <div class="voice-instance-bar">
