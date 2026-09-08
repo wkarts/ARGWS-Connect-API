@@ -5033,7 +5033,7 @@ export class BaileysStartupService extends ChannelStartupService {
     const jid = data.number ? createJid(data.number) : this.client?.user?.id;
     const limit = Math.max(1, Math.min(100, Number(data.limit || 10)));
     const maxPages = Math.max(1, Math.min(20, Number(data.maxPages || (data.cursor ? 1 : 5))));
-    let cursor = data.cursor || undefined;
+    const cursor = data.cursor || undefined;
 
     const onWhatsapp = (await this.whatsappNumber({ numbers: [jid] }))?.shift();
 
