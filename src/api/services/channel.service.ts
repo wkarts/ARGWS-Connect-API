@@ -214,10 +214,7 @@ export class ChannelStartupService {
       },
     });
 
-    const voipMaxConcurrentCallsLimit = Math.max(
-      1,
-      Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'),
-    );
+    const voipMaxConcurrentCallsLimit = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
 
     if (!data) {
       return { voipMaxConcurrentCallsLimit };
