@@ -23,28 +23,15 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('src/api/integrations/channel/whatsapp/zapo.identity.extensions.ts')
           s = p.read_text()
-          replacements = [
-            ("  private identityBootstrapPromise: Promise<void> | null = null;\n  private identityBootstrapDone = false;\n", ""),
-            ("    if (this.isRegistered()) this.bootstrapIdentityState();\n", ""),
-            ("""  private bootstrapIdentityState(): void {
-    if (this.identityBootstrapDone || this.identityBootstrapPromise) return;
-    this.identityBootstrapPromise = this.reconcileIdentityRows()
-      .catch((error: Error) => this.logger.warn(`ZAPO identity bootstrap failed: ${error?.message || error}`))
-      .finally(() => {
-        this.identityBootstrapDone = true;
-        this.identityBootstrapPromise = null;
-      });
-  }
-
-""", ""),
-          ]
-          for old, new in replacements:
-            if s.count(old) != 1:
-              raise SystemExit('Expected identity bootstrap block not found exactly once')
-            s = s.replace(old, new, 1)
-          p.write_text(s)
+          s2 = s.replace('  private identityBootstrapPromise: Promise<void> | null = null;\n  private identityBootstrapDone = false;\n', '', 1)
+          s2 = s2.replace('    if (this.isRegistered()) this.bootstrapIdentityState();\n', '', 1)
+          s2, count = re.subn(r'  private bootstrapIdentityState\(\): void \{\n.*?\n  \}\n\n', '', s2, count=1, flags=re.S)
+          if count != 1 or s2 == s:
+              raise SystemExit('Automatic identity bootstrap block not found')
+          p.write_text(s2)
           PY
       - name: Commit
         run: |
