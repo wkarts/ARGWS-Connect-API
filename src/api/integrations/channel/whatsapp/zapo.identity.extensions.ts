@@ -293,9 +293,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
           key: {
             ...key,
             ...(phoneJid ? { remoteJid: phoneJid, remoteJidAlt: remoteJid } : {}),
-            ...(participantPhoneJid
-              ? { participant: participantPhoneJid, participantAlt: participant }
-              : {}),
+            ...(participantPhoneJid ? { participant: participantPhoneJid, participantAlt: participant } : {}),
           },
         },
       });
@@ -376,7 +374,11 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     const credentials = this.client?.getCredentials?.();
     return new Set(
       [this.instance.profileName, credentials?.meDisplayName]
-        .map((value) => String(value || '').trim().toLocaleLowerCase('pt-BR'))
+        .map((value) =>
+          String(value || '')
+            .trim()
+            .toLocaleLowerCase('pt-BR'),
+        )
         .filter(Boolean),
     );
   }
