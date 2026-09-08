@@ -161,6 +161,22 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     }
   }
 
+  private firstPhoneJid(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      const phoneJid = zapoPhoneJid(value);
+      if (phoneJid) return phoneJid;
+    }
+    return undefined;
+  }
+
+  private firstLidJid(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      const lidJid = zapoLidJid(value);
+      if (lidJid) return lidJid;
+    }
+    return undefined;
+  }
+
   private async handleNativeCallIdentity(event: any): Promise<void> {
     const callId = String(event?.callId || '').trim();
     if (!callId) return;
@@ -170,14 +186,19 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     const previous = this.nativeCallHints.get(callId);
 
     const phoneJid =
-      zapoPhoneJid(
-        event?.callerPnJid || event?.callerPn || event?.displayPeerJid || event?.peerJidAlt || event?.remoteJid,
+      this.firstPhoneJid(
+        event?.callerPnJid,
+        event?.callerPn,
+        event?.callCreatorJid,
+        event?.callCreator,
+        event?.displayPeerJid,
+        event?.peerJidAlt,
+        event?.remoteJid,
+        event?.chatJid,
       ) || previous?.phoneJid;
     const lidJid =
       zapoKnownLidJid(event?.senderLidJid) ||
-      zapoLidJid(event?.peerJid) ||
-      zapoLidJid(event?.callCreatorJid) ||
-      zapoLidJid(event?.chatJid) ||
+      this.firstLidJid(event?.peerJid, event?.callCreatorJid, event?.callCreator, event?.chatJid) ||
       previous?.lidJid;
 
     const credentials = this.client?.getCredentials?.();
@@ -191,17 +212,16 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
     const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
     const eventDirection = String(event?.direction || '').toLowerCase();
-    const isInboundIdentity =
+    const isInboundCall =
       !isOwnPeer &&
-      Boolean(phoneJid) &&
       (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) ||
         eventDirection === 'incoming' ||
         Boolean(event?.callerPushName));
 
-    // The native ZAPO call event is the strongest source for inbound PN/LID
-    // identity. Accept the documented caller fields even when a release names
-    // the transition `notify`/`incoming` instead of only `offer`.
-    const pushName = isInboundIdentity
+    // Push name is valid caller metadata even when WhatsApp withholds PN and
+    // addresses the offer only by LID. Do not discard it just because the
+    // phone mapping has not arrived yet.
+    const pushName = isInboundCall
       ? this.sanitizeRemoteName(event?.callerPushName) || previous?.pushName
       : previous?.pushName;
 
@@ -212,7 +232,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       observedAt: now,
     });
 
-    if (phoneJid && isInboundIdentity) {
+    if (phoneJid && isInboundCall) {
       await this.persistNativeContactHint(phoneJid, pushName);
     }
   }
@@ -632,10 +652,14 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
             call?.to,
             call?.callerPn,
             call?.callerPnJid,
+            call?.callCreatorJid,
+            call?.callCreator,
           ]
         : [
             call?.callerPn,
             call?.callerPnJid,
+            call?.callCreatorJid,
+            call?.callCreator,
             call?.displayPeerJid,
             call?.peerJidAlt,
             call?.peerJid,
