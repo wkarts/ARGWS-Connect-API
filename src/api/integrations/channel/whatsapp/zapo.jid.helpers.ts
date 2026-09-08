@@ -42,6 +42,21 @@ export function zapoLidJid(value: unknown): string | null {
   return jid && isLidJid(jid) ? jid : null;
 }
 
+/**
+ * Normalize a value from a field whose schema explicitly says it is a LID
+ * (`lid`, `senderLidJid`, etc.). Bare digits are allowed here because the
+ * field itself supplies the semantic type; they are never inferred from an
+ * arbitrary identifier.
+ */
+export function zapoKnownLidJid(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const candidate = raw.includes('@') ? raw : `${raw.replace(/\D/g, '')}@lid`;
+  if (candidate === '@lid') return null;
+  const jid = zapoTryNormalizeJid(candidate);
+  return jid && isLidJid(jid) ? jid : null;
+}
+
 export function zapoJidUser(value: unknown): string | null {
   const jid = zapoTryNormalizeJid(value);
   if (!jid) return null;
