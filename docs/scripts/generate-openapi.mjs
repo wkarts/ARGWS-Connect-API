@@ -334,7 +334,7 @@ function nativeSpec(routes, version) {
       version,
       summary: 'Referência interativa da API nativa do Connect|API.',
       description: [
-        '![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)', '',
+        '![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)', '',
         'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.', '',
         '### Autenticação', 'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.', '',
         '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `WHATSAPP-ZAPO`', '',
@@ -380,7 +380,7 @@ function graphSpec(version) {
     info: {
       title: 'Connect|API — Meta Compatible /graph', version, summary: 'Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.',
       description: [
-        '![Connect|API Meta](/openapi/branding/docs/connect-api-meta-light.png)', '',
+        '![Connect|API Meta](openapi/branding/docs/connect-api-meta-light.png)', '',
         'Fachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.', '',
         'A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão.',
       ].join('\n'),
@@ -445,7 +445,7 @@ function asyncSpec(version) {
       title: 'Connect|API — Eventos',
       version,
       description: [
-        '![Connect|API Events](/openapi/branding/docs/connect-api-events-light.png)', '',
+        '![Connect|API Events](openapi/branding/docs/connect-api-events-light.png)', '',
         'Eventos do Connect|API publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte.',
       ].join('\n'),
     },

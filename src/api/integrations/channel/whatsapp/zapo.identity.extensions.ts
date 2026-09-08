@@ -34,6 +34,13 @@ type NativeCallIdentityHint = {
   observedAt: number;
 };
 
+type StoredCallIdentityLookup = {
+  phoneJid?: string;
+  lidJid?: string;
+  name?: string;
+  avatar?: string;
+};
+
 /**
  * Canonical identity layer for the ZAPO provider.
  *
@@ -50,6 +57,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private readonly profilePictureVerifiedAt = new Map<string, number>();
   private readonly nativeCallHints = new Map<string, NativeCallIdentityHint>();
   private readonly nativeIdentityBoundClients = new WeakSet<object>();
+  private readonly callIdentityLookupCache = new Map<
+    string,
+    { expiresAt: number; value: StoredCallIdentityLookup | null }
+  >();
+  private readonly callIdentityLookupPromises = new Map<string, Promise<StoredCallIdentityLookup | null>>();
+  private readonly callIdentityLookupTtlMs = 30_000;
   private readonly profilePictureRefreshTtlMs = 6 * 60 * 60 * 1000;
   private readonly callHintTtlMs = 10 * 60 * 1000;
 
@@ -105,6 +118,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       void this.handleNativeCallIdentity(event).catch((error: Error) => this.logger.error(error));
     });
 
+    // Some ZAPO versions expose PN only on the VOIP incoming event. Feed the
+    // same canonical resolver without creating a second call-processing flow.
+    client.on('voip_call_incoming', (event: any) => {
+      void this.handleNativeCallIdentity(event).catch((error: Error) => this.logger.error(error));
+    });
+
     // Incoming message keys expose the primary and alternate identity forms.
     client.on('message', (event: any) => {
       this.rememberEventAlias(event?.key?.remoteJid, event?.key?.remoteJidAlt);
@@ -150,9 +169,13 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     this.pruneCallHints(now);
     const previous = this.nativeCallHints.get(callId);
 
-    const phoneJid = zapoPhoneJid(event?.callerPnJid || event?.callerPn) || previous?.phoneJid;
+    const phoneJid =
+      zapoPhoneJid(
+        event?.callerPnJid || event?.callerPn || event?.displayPeerJid || event?.peerJidAlt || event?.remoteJid,
+      ) || previous?.phoneJid;
     const lidJid =
       zapoKnownLidJid(event?.senderLidJid) ||
+      zapoLidJid(event?.peerJid) ||
       zapoLidJid(event?.callCreatorJid) ||
       zapoLidJid(event?.chatJid) ||
       previous?.lidJid;
@@ -167,10 +190,13 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     }
 
     const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
+    const eventDirection = String(event?.direction || '').toLowerCase();
     const isInboundIdentity =
       !isOwnPeer &&
       Boolean(phoneJid) &&
-      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) || Boolean(event?.callerPushName));
+      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) ||
+        eventDirection === 'incoming' ||
+        Boolean(event?.callerPushName));
 
     // The native ZAPO call event is the strongest source for inbound PN/LID
     // identity. Accept the documented caller fields even when a release names
@@ -191,7 +217,11 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     }
   }
 
-  private async persistNativeContactHint(phoneJid: string, pushName?: string): Promise<void> {
+  private async persistNativeContactHint(
+    phoneJid: string,
+    pushName?: string,
+    knownProfilePicUrl?: string,
+  ): Promise<void> {
     const database = this.configService.get<Database>('DATABASE');
     if (!database.SAVE_DATA.CONTACTS || !this.instanceId) return;
 
@@ -199,7 +229,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
     });
 
-    let profilePicUrl = existing?.profilePicUrl || undefined;
+    let profilePicUrl = knownProfilePicUrl || existing?.profilePicUrl || undefined;
     if (this.shouldRefreshProfilePicture(phoneJid) && this.connectionStatus?.state === 'open') {
       const picture = await this.profilePicture(phoneJid).catch(() => null);
       if (picture?.profilePictureUrl) profilePicUrl = picture.profilePictureUrl;
@@ -663,6 +693,71 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     return undefined;
   }
 
+  private async lookupStoredCallIdentity(identityJid: string): Promise<StoredCallIdentityLookup | null> {
+    const normalized = zapoTryNormalizeJid(identityJid);
+    if (!normalized) return null;
+
+    const key = this.identityKey(normalized);
+    const now = Date.now();
+    const cached = this.callIdentityLookupCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    const inFlight = this.callIdentityLookupPromises.get(key);
+    if (inFlight) return inFlight;
+
+    const pending = (async (): Promise<StoredCallIdentityLookup | null> => {
+      const rows = await this.findStoredZapoContactIdentityRows(normalized).catch((error: Error) => {
+        this.logger.debug?.(`ZAPO targeted identity lookup failed: ${error?.message || error}`);
+        return [];
+      });
+
+      const storedContact = this.instanceId
+        ? await this.prismaRepository.contact
+            .findUnique({
+              where: { remoteJid_instanceId: { remoteJid: normalized, instanceId: this.instanceId } },
+            })
+            .catch(() => null)
+        : null;
+
+      let phoneJid = zapoPhoneJid(normalized) || undefined;
+      let lidJid = zapoLidJid(normalized) || undefined;
+      let name = this.sanitizeRemoteName(storedContact?.pushName);
+      let avatar = storedContact?.profilePicUrl || undefined;
+
+      for (const row of rows as ZapoContactIdentityRow[]) {
+        const rowJid = zapoTryNormalizeJid(row.jid);
+        const rowPhoneJid = zapoPhoneJid(row.phone_number) || zapoPhoneJid(rowJid) || undefined;
+        const rowLidJid = zapoKnownLidJid(row.lid) || zapoLidJid(rowJid) || undefined;
+        phoneJid ||= rowPhoneJid;
+        lidJid ||= rowLidJid;
+        name ||= this.sanitizeRemoteName(row.display_name) || this.sanitizeRemoteName(row.push_name);
+      }
+
+      const pictureJid = phoneJid || lidJid || normalized;
+      if (!avatar && this.connectionStatus?.state === 'open' && pictureJid) {
+        for (const type of ['image', 'preview'] as const) {
+          const picture = await this.client?.profile?.getProfilePicture?.(pictureJid, type).catch(() => null);
+          if (picture?.url) {
+            avatar = picture.url;
+            break;
+          }
+        }
+      }
+
+      if (!phoneJid && !lidJid && !name && !avatar) return null;
+      return { phoneJid, lidJid, name, avatar };
+    })();
+
+    this.callIdentityLookupPromises.set(key, pending);
+    try {
+      const value = await pending;
+      this.callIdentityLookupCache.set(key, { expiresAt: Date.now() + this.callIdentityLookupTtlMs, value });
+      return value;
+    } finally {
+      if (this.callIdentityLookupPromises.get(key) === pending) this.callIdentityLookupPromises.delete(key);
+    }
+  }
+
   private async storedCallIdentity(phoneJid: string): Promise<ContactIdentity | undefined> {
     if (!phoneJid || !this.instanceId) return undefined;
     const phoneUser = zapoJidUser(phoneJid);
@@ -695,17 +790,42 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     if (!call || typeof call !== 'object') return call;
 
     this.pruneCallHints();
-    const hint = call?.callId ? this.nativeCallHints.get(String(call.callId)) : undefined;
+    const callId = call?.callId ? String(call.callId) : '';
+    const hint = callId ? this.nativeCallHints.get(callId) : undefined;
     const resolvedPeer = this.resolveCallPeer(call);
-    const phoneJid = zapoPhoneJid(resolvedPeer);
+    let phoneJid = zapoPhoneJid(resolvedPeer) || undefined;
     const rawPeerJid = zapoTryNormalizeJid(call.peerJidRaw || call.peerJid || call.displayPeerJid);
-    const rawLidJid = hint?.lidJid || zapoLidJid(rawPeerJid) || undefined;
-    const contact = phoneJid ? await this.storedCallIdentity(phoneJid) : undefined;
+    let rawLidJid = hint?.lidJid || zapoLidJid(rawPeerJid) || undefined;
+
+    let targetedIdentity: StoredCallIdentityLookup | null = null;
+    if (!phoneJid && rawLidJid) {
+      targetedIdentity = await this.lookupStoredCallIdentity(rawLidJid);
+      phoneJid = targetedIdentity?.phoneJid || phoneJid;
+      rawLidJid = targetedIdentity?.lidJid || rawLidJid;
+    }
+
+    if (rawLidJid && phoneJid) {
+      const mapping = this.rememberAlias(rawLidJid, phoneJid);
+      if (mapping?.changed) {
+        void this.mergeCanonicalIdentityRecords(rawLidJid, phoneJid).catch((error: Error) =>
+          this.logger.warn(`ZAPO call identity merge failed: ${error?.message || error}`),
+        );
+      }
+    }
+
+    let contact = phoneJid ? await this.storedCallIdentity(phoneJid) : undefined;
+    if (!targetedIdentity && (rawLidJid || (phoneJid && (!contact?.name || !contact?.avatar)))) {
+      targetedIdentity = await this.lookupStoredCallIdentity(rawLidJid || phoneJid!);
+      if (!phoneJid && targetedIdentity?.phoneJid) phoneJid = targetedIdentity.phoneJid;
+      rawLidJid = targetedIdentity?.lidJid || rawLidJid;
+      if (phoneJid && !contact) contact = await this.storedCallIdentity(phoneJid);
+    }
+
     const hintedName =
       String(call?.direction || '').toLowerCase() === 'incoming' ? this.sanitizeRemoteName(hint?.pushName) : undefined;
-    const contactName = contact?.name || hintedName || this.safeRemoteCallName(call);
+    const contactName = contact?.name || targetedIdentity?.name || hintedName || this.safeRemoteCallName(call);
 
-    let profilePicUrl = contact?.avatar;
+    let profilePicUrl = contact?.avatar || targetedIdentity?.avatar;
     if (
       phoneJid &&
       !profilePicUrl &&
@@ -714,15 +834,25 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     ) {
       const picture = await this.profilePicture(phoneJid).catch(() => null);
       profilePicUrl = picture?.profilePictureUrl || undefined;
-      if (profilePicUrl) {
-        await this.prismaRepository.contact.updateMany({
-          where: { instanceId: this.instanceId, remoteJid: phoneJid },
-          data: { profilePicUrl },
-        });
-      }
+    }
+
+    if (callId && (phoneJid || rawLidJid || contactName)) {
+      this.nativeCallHints.set(callId, {
+        phoneJid: phoneJid || hint?.phoneJid,
+        lidJid: rawLidJid || hint?.lidJid,
+        pushName: contactName || hint?.pushName,
+        observedAt: Date.now(),
+      });
+    }
+
+    if (phoneJid && (contactName || profilePicUrl)) {
+      void this.persistNativeContactHint(phoneJid, contactName, profilePicUrl).catch((error: Error) =>
+        this.logger.debug?.(`Unable to persist resolved call identity: ${error?.message || error}`),
+      );
     }
 
     const phoneNumber = phoneJid ? zapoJidUser(phoneJid) || undefined : undefined;
+    const identityResolved = Boolean(phoneJid || contactName || profilePicUrl);
     return {
       ...call,
       peerJid: phoneJid || rawPeerJid || call.peerJid,
@@ -736,15 +866,18 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       pushName: contactName,
       contactName,
       profilePicUrl,
-      identityResolved: Boolean(phoneJid),
-      contactResolved: Boolean(contact),
+      identityResolved,
+      phoneResolved: Boolean(phoneJid),
+      contactResolved: Boolean(contact || targetedIdentity),
       identitySource: phoneJid
         ? hint?.phoneJid
           ? 'zapo-call'
           : rawLidJid
-            ? 'zapo-lid-map'
+            ? 'zapo-store-lid-map'
             : 'zapo-pn'
-        : 'unresolved-lid',
+        : targetedIdentity
+          ? 'zapo-store-lid'
+          : 'unresolved-lid',
     };
   }
 }

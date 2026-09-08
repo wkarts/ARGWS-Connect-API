@@ -113,3 +113,7 @@ Essa variável controla somente a publicação/descoberta da documentação púb
 Quando `ARGWS_CONNECT_DOCS_PUBLIC_URL` possuir uma URL não vazia, ela pode ser publicada em `GET /` para consumidores externos sem alterar o endpoint interno do Manager.
 
 O frontend do Manager deve navegar exclusivamente para a rota relativa `/manager/docs/`. Ele não deve conhecer `ARGWS_CONNECT_DOCS_INTERNAL_URL`, portas Docker ou nomes internos de services.
+
+### Assets e branding no modo interno
+
+Os documentos OpenAPI/AsyncAPI usam caminhos relativos para os assets de branding. Assim, a mesma imagem DOCs resolve logos e demais recursos tanto na raiz de um deployment standalone quanto sob `/manager/docs/` no acesso interno same-origin, sem depender de um hostname externo de documentação.
