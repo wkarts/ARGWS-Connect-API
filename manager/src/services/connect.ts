@@ -28,6 +28,21 @@ function invoke<T = any>(name: string, ...args: any[]): Promise<T> {
   return Promise.resolve(fn(...args)) as Promise<T>
 }
 
+function sanitizeCallIdentity(call: WhatsAppCall): WhatsAppCall {
+  const raw = call.raw || {}
+  if (raw.identityResolved === true) return call
+
+  // A LID é um identificador interno do WhatsApp, não um número telefônico.
+  // Enquanto o backend não tiver comprovado a relação LID -> PN, nunca exponha
+  // esse valor (nem nome/foto não verificados) como identidade do contato.
+  return {
+    ...call,
+    number: '',
+    name: undefined,
+    avatar: undefined,
+  }
+}
+
 export const connect = {
   status: (): Promise<any> => invoke('status'),
   setup: (data: any, setupToken?: string): Promise<any> => invoke('setup', data, setupToken),
@@ -56,7 +71,10 @@ export const connect = {
   messages: (id: string, ref = ''): Promise<Message[]> => invoke('messages', id, ref),
   sendText: (id: string, number: string, text: string): Promise<any> => invoke('sendText', id, number, text),
   contacts: (id: string): Promise<ContactItem[]> => typeof adapter.contacts === 'function' ? invoke('contacts', id) : Promise.resolve([]),
-  calls: (id: string): Promise<WhatsAppCall[]> => invoke('calls', id),
+  calls: async (id: string): Promise<WhatsAppCall[]> => {
+    const result = await invoke<WhatsAppCall[]>('calls', id)
+    return result.map(sanitizeCallIdentity)
+  },
   offerCall: (id: string, number: string, duration?: number): Promise<any> => invoke('offerCall', id, number, duration),
   callAction: (id: string, action: 'accept' | 'reject' | 'end' | 'mute', data: any = {}): Promise<any> => invoke('callAction', id, action, data),
   voiceMedia: (id: string, callId: string, callbacks: VoiceMediaCallbacks = {}): Promise<VoiceMediaSession> => invoke('voiceMedia', id, callId, callbacks),
