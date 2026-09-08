@@ -1,10 +1,15 @@
-import { Query } from '@api/repository/repository.service';
 import { Events } from '@api/types/wa.types';
 import { Database } from '@config/env.config';
-import { Contact } from '@prisma/client';
 import { Pool } from 'pg';
 
-import { zapoJidUser, zapoKnownLidJid, zapoLidJid, zapoPhoneJid, zapoTryNormalizeJid } from './zapo.jid.helpers';
+import {
+  zapoIsOwnAccountJid,
+  zapoJidUser,
+  zapoKnownLidJid,
+  zapoLidJid,
+  zapoPhoneJid,
+  zapoTryNormalizeJid,
+} from './zapo.jid.helpers';
 import { ZapoInteractiveStartupService } from './zapo.provider.interactive.extensions';
 
 type ZapoContactIdentityRow = {
@@ -45,45 +50,28 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private readonly profilePictureVerifiedAt = new Map<string, number>();
   private readonly nativeCallHints = new Map<string, NativeCallIdentityHint>();
   private readonly nativeIdentityBoundClients = new WeakSet<object>();
-  private identityRefreshPromise: Promise<void> | null = null;
-  private identityRefreshAt = 0;
-  private readonly identityRefreshTtlMs = 30_000;
   private readonly profilePictureRefreshTtlMs = 6 * 60 * 60 * 1000;
   private readonly callHintTtlMs = 10 * 60 * 1000;
 
   public async connectToWhatsapp(): Promise<any> {
     const client = await super.connectToWhatsapp();
     this.bindNativeIdentityEvents(client);
-    void this.reconcileIdentities(true).catch((error: Error) => this.logger.error(error));
     return client;
   }
 
   public async prepareQrConnection(): Promise<any> {
     const client = await super.prepareQrConnection();
     this.bindNativeIdentityEvents(client);
-    void this.reconcileIdentities(true).catch((error: Error) => this.logger.error(error));
     return client;
   }
 
   public async preparePairingConnection(number: string): Promise<any> {
     const client = await super.preparePairingConnection(number);
     this.bindNativeIdentityEvents(client);
-    void this.reconcileIdentities(true).catch((error: Error) => this.logger.error(error));
     return client;
   }
 
-  public async fetchContacts(query: Query<Contact>) {
-    await this.reconcileIdentities();
-    return super.fetchContacts(query);
-  }
-
-  public async fetchChats(query: any) {
-    await this.reconcileIdentities();
-    return super.fetchChats(query);
-  }
-
   public async listCalls() {
-    await this.reconcileIdentities();
     const calls = await super.listCalls();
     return Promise.all(calls.map((call: any) => this.enrichCall(call)));
   }
@@ -119,9 +107,9 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
     // Incoming message keys expose the primary and alternate identity forms.
     client.on('message', (event: any) => {
-      this.rememberAlias(event?.key?.remoteJid, event?.key?.remoteJidAlt);
-      this.rememberAlias(event?.key?.participant, event?.key?.participantAlt);
-      this.rememberAlias(event?.key?.recipientJid, event?.key?.recipientAlt);
+      this.rememberEventAlias(event?.key?.remoteJid, event?.key?.remoteJidAlt);
+      this.rememberEventAlias(event?.key?.participant, event?.key?.participantAlt);
+      this.rememberEventAlias(event?.key?.recipientJid, event?.key?.recipientAlt);
     });
 
     // PnForLidChat is ZAPO/WhatsApp's own app-state mapping for a chat whose
@@ -130,7 +118,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       if (event?.schema !== 'PnForLidChat' || event?.operation === 'remove') return;
       const lidJid = zapoKnownLidJid(event?.lid);
       const phoneJid = zapoPhoneJid(event?.pnJid);
-      if (lidJid && phoneJid) this.rememberAlias(lidJid, phoneJid);
+      if (lidJid && phoneJid) {
+        const mapping = this.rememberAlias(lidJid, phoneJid);
+        if (mapping?.changed) {
+          void this.mergeCanonicalIdentityRecords(lidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+        }
+      }
     };
     client.on('mutation', rememberPnForLid);
     client.on('mutation_send', rememberPnForLid);
@@ -157,31 +150,43 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     this.pruneCallHints(now);
     const previous = this.nativeCallHints.get(callId);
 
-    const phoneJid = zapoPhoneJid(event?.callerPnJid) || previous?.phoneJid;
+    const phoneJid = zapoPhoneJid(event?.callerPnJid || event?.callerPn) || previous?.phoneJid;
     const lidJid =
       zapoKnownLidJid(event?.senderLidJid) ||
       zapoLidJid(event?.callCreatorJid) ||
       zapoLidJid(event?.chatJid) ||
       previous?.lidJid;
 
-    if (phoneJid && lidJid) this.rememberAlias(lidJid, phoneJid);
+    const credentials = this.client?.getCredentials?.();
+    const isOwnPeer = Boolean(phoneJid && zapoIsOwnAccountJid(phoneJid, credentials?.meJid, credentials?.meLid));
+    if (phoneJid && lidJid && !isOwnPeer) {
+      const mapping = this.rememberAlias(lidJid, phoneJid);
+      if (mapping?.changed) {
+        void this.mergeCanonicalIdentityRecords(lidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+      }
+    }
 
-    // `notify` / callerPushName is authoritative for an inbound offer. Do not
-    // persist names from later outgoing-call signaling because some call
-    // objects can carry this account's own profile name.
-    const pushName =
-      String(event?.type || '').toLowerCase() === 'offer'
-        ? this.sanitizeRemoteName(event?.callerPushName) || previous?.pushName
-        : previous?.pushName;
+    const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
+    const isInboundIdentity =
+      !isOwnPeer &&
+      Boolean(phoneJid) &&
+      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) || Boolean(event?.callerPushName));
+
+    // The native ZAPO call event is the strongest source for inbound PN/LID
+    // identity. Accept the documented caller fields even when a release names
+    // the transition `notify`/`incoming` instead of only `offer`.
+    const pushName = isInboundIdentity
+      ? this.sanitizeRemoteName(event?.callerPushName) || previous?.pushName
+      : previous?.pushName;
 
     this.nativeCallHints.set(callId, {
-      phoneJid,
-      lidJid,
+      phoneJid: isOwnPeer ? previous?.phoneJid : phoneJid,
+      lidJid: isOwnPeer ? previous?.lidJid : lidJid,
       pushName,
       observedAt: now,
     });
 
-    if (phoneJid && String(event?.type || '').toLowerCase() === 'offer') {
+    if (phoneJid && isInboundIdentity) {
       await this.persistNativeContactHint(phoneJid, pushName);
     }
   }
@@ -200,11 +205,13 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       if (picture?.profilePictureUrl) profilePicUrl = picture.profilePictureUrl;
     }
 
-    const name = pushName || existing?.pushName || undefined;
+    const currentName = this.sanitizeRemoteName(existing?.pushName);
+    const candidateName = this.sanitizeRemoteName(pushName);
+    const name = currentName || candidateName;
     await this.prismaRepository.contact.upsert({
       where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
       update: {
-        ...(name ? { pushName: name } : {}),
+        ...(!currentName && candidateName ? { pushName: candidateName } : {}),
         ...(profilePicUrl ? { profilePicUrl } : {}),
       },
       create: {
@@ -240,27 +247,115 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       }
     }
 
-    this.identityRefreshAt = 0;
-    void this.reconcileIdentities(true).catch((error: Error) => this.logger.error(error));
+    if (phoneJid) {
+      void this.mergeCanonicalIdentityRecords(oldLidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+      const identity = this.contactsByIdentity.get(this.identityKey(phoneJid));
+      if (identity) {
+        identity.aliases = [...new Set([...identity.aliases, newLidJid, phoneJid])];
+        this.cacheContactIdentity(identity);
+      }
+    }
   }
 
   private identityKey(value: unknown): string {
     return (zapoTryNormalizeJid(value) || String(value ?? '').trim()).toLowerCase();
   }
 
-  private rememberAlias(first: unknown, second: unknown, aliases?: Map<string, string>): void {
+  private rememberAlias(
+    first: unknown,
+    second: unknown,
+    aliases?: Map<string, string>,
+  ): { lidJid: string; phoneJid: string; changed: boolean } | null {
     const firstJid = zapoTryNormalizeJid(first);
     const secondJid = zapoTryNormalizeJid(second);
-    if (!firstJid || !secondJid || firstJid === secondJid) return;
+    if (!firstJid || !secondJid || firstJid === secondJid) return null;
 
     const lidJid = zapoLidJid(firstJid) || zapoLidJid(secondJid);
-    if (!lidJid) return;
+    if (!lidJid) return null;
     const other = lidJid === firstJid ? secondJid : firstJid;
     const phoneJid = zapoPhoneJid(other);
-    if (!phoneJid) return;
+    if (!phoneJid) return null;
 
     aliases?.set(lidJid, phoneJid);
-    this.lidToPhone.set(this.identityKey(lidJid), phoneJid);
+    const key = this.identityKey(lidJid);
+    const previous = this.lidToPhone.get(key);
+    if (previous === phoneJid) return { lidJid, phoneJid, changed: false };
+    this.lidToPhone.set(key, phoneJid);
+    return { lidJid, phoneJid, changed: true };
+  }
+
+  private rememberEventAlias(first: unknown, second: unknown): void {
+    const mapping = this.rememberAlias(first, second);
+    if (!mapping?.changed) return;
+    void this.mergeCanonicalIdentityRecords(mapping.lidJid, mapping.phoneJid).catch((error: Error) =>
+      this.logger.warn(`ZAPO alias merge failed: ${error?.message || error}`),
+    );
+  }
+
+  private async mergeCanonicalIdentityRecords(lidJid: string, phoneJid: string): Promise<void> {
+    if (!this.instanceId || !lidJid || !phoneJid || lidJid === phoneJid) return;
+
+    const [lidContact, phoneContact, lidChat, phoneChat] = await Promise.all([
+      this.prismaRepository.contact.findUnique({
+        where: { remoteJid_instanceId: { remoteJid: lidJid, instanceId: this.instanceId } },
+      }),
+      this.prismaRepository.contact.findUnique({
+        where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
+      }),
+      this.prismaRepository.chat.findUnique({
+        where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: lidJid } },
+      }),
+      this.prismaRepository.chat.findUnique({
+        where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: phoneJid } },
+      }),
+    ]);
+
+    const contactName =
+      this.sanitizeRemoteName(phoneContact?.pushName) || this.sanitizeRemoteName(lidContact?.pushName);
+    const avatar = phoneContact?.profilePicUrl || lidContact?.profilePicUrl || undefined;
+    if (phoneContact || lidContact) {
+      await this.prismaRepository.contact.upsert({
+        where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
+        update: {
+          ...(!this.sanitizeRemoteName(phoneContact?.pushName) && contactName ? { pushName: contactName } : {}),
+          ...(!phoneContact?.profilePicUrl && avatar ? { profilePicUrl: avatar } : {}),
+        },
+        create: {
+          remoteJid: phoneJid,
+          pushName: contactName,
+          profilePicUrl: avatar,
+          instanceId: this.instanceId,
+        },
+      });
+    }
+
+    const chatName = this.sanitizeRemoteName(phoneChat?.name) || this.sanitizeRemoteName(lidChat?.name) || contactName;
+    if (phoneChat || lidChat) {
+      await this.prismaRepository.chat.upsert({
+        where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: phoneJid } },
+        update: {
+          ...(!this.sanitizeRemoteName(phoneChat?.name) && chatName ? { name: chatName } : {}),
+          unreadMessages: Math.max(phoneChat?.unreadMessages || 0, lidChat?.unreadMessages || 0),
+        },
+        create: {
+          remoteJid: phoneJid,
+          name: chatName,
+          unreadMessages: Math.max(phoneChat?.unreadMessages || 0, lidChat?.unreadMessages || 0),
+          instanceId: this.instanceId,
+        },
+      });
+    }
+
+    await Promise.all([
+      this.prismaRepository.contact.deleteMany({ where: { instanceId: this.instanceId, remoteJid: lidJid } }),
+      this.prismaRepository.chat.deleteMany({ where: { instanceId: this.instanceId, remoteJid: lidJid } }),
+    ]);
+
+    const identity = this.contactsByIdentity.get(this.identityKey(phoneJid));
+    if (identity) {
+      identity.aliases = [...new Set([...identity.aliases, lidJid, phoneJid])];
+      this.cacheContactIdentity(identity);
+    }
   }
 
   private collectMessageAliases(messages: Array<{ key: unknown }>, aliases: Map<string, string>): void {
@@ -300,23 +395,6 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     }
   }
 
-  private async reconcileIdentities(force = false): Promise<void> {
-    if (!this.instanceId) return;
-    if (!force && Date.now() - this.identityRefreshAt < this.identityRefreshTtlMs) return;
-    if (this.identityRefreshPromise) return this.identityRefreshPromise;
-
-    this.identityRefreshPromise = this.reconcileIdentityRows()
-      .catch((error: Error) => {
-        this.logger.warn(`ZAPO PN/LID reconciliation failed: ${error?.message || error}`);
-      })
-      .finally(() => {
-        this.identityRefreshAt = Date.now();
-        this.identityRefreshPromise = null;
-      });
-
-    return this.identityRefreshPromise;
-  }
-
   private async reconcileIdentityRows(): Promise<void> {
     const rows = await this.loadZapoContactRows();
     const aliases = new Map<string, string>();
@@ -329,7 +407,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       const jidPhone = zapoPhoneJid(jid);
       const phoneJid = phoneNumber || jidPhone;
       const lidJid = explicitLid || zapoLidJid(jid);
-      const displayName = String(row.display_name || row.push_name || '').trim();
+      const displayName = this.sanitizeRemoteName(row.display_name) || this.sanitizeRemoteName(row.push_name);
 
       if (lidJid && phoneJid) this.rememberAlias(lidJid, phoneJid, aliases);
       if (displayName && phoneJid) preferredNames.set(phoneJid, displayName);
@@ -347,6 +425,31 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     ]);
 
     this.collectMessageAliases(storedMessages, aliases);
+
+    // Repair historical contamination created when an outgoing message used
+    // this account's own profile name as the remote peer name. Keep identity
+    // records/messages intact; only clear the demonstrably unsafe label.
+    const localProfileNames = [this.instance.profileName, this.client?.getCredentials?.()?.meDisplayName]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    if (localProfileNames.length) {
+      await Promise.all([
+        this.prismaRepository.contact.updateMany({
+          where: { instanceId: this.instanceId, pushName: { in: localProfileNames } },
+          data: { pushName: null },
+        }),
+        this.prismaRepository.chat.updateMany({
+          where: { instanceId: this.instanceId, name: { in: localProfileNames } },
+          data: { name: null },
+        }),
+      ]);
+      for (const contact of storedContacts) {
+        if (contact.pushName && localProfileNames.includes(contact.pushName)) contact.pushName = null;
+      }
+      for (const chat of storedChats) {
+        if (chat.name && localProfileNames.includes(chat.name)) chat.name = null;
+      }
+    }
 
     const contactsByJid = new Map<string, (typeof storedContacts)[number]>();
     for (const contact of storedContacts) {
@@ -374,7 +477,10 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       }
 
       if (lidContact || phoneContact || preferredName) {
-        const pushName = preferredName || phoneContact?.pushName || lidContact?.pushName || undefined;
+        const pushName =
+          this.sanitizeRemoteName(phoneContact?.pushName) ||
+          this.sanitizeRemoteName(lidContact?.pushName) ||
+          preferredName;
         await this.prismaRepository.contact.upsert({
           where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
           update: {
@@ -391,7 +497,8 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       }
 
       if (lidChat || phoneChat) {
-        const name = preferredName || phoneChat?.name || lidChat?.name || undefined;
+        const name =
+          this.sanitizeRemoteName(phoneChat?.name) || this.sanitizeRemoteName(lidChat?.name) || preferredName;
         const unreadMessages = Math.max(phoneChat?.unreadMessages || 0, lidChat?.unreadMessages || 0);
         await this.prismaRepository.chat.upsert({
           where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: phoneJid } },
@@ -461,7 +568,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       if (!remoteJid) continue;
       this.cacheContactIdentity({
         remoteJid,
-        name: contact.pushName || undefined,
+        name: this.sanitizeRemoteName(contact.pushName),
         avatar: contact.profilePicUrl || undefined,
         aliases: [remoteJid],
       });
@@ -510,6 +617,8 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     for (const candidate of candidates) {
       const normalized = zapoTryNormalizeJid(candidate);
       if (!normalized) continue;
+      const credentials = this.client?.getCredentials?.();
+      if (zapoIsOwnAccountJid(normalized, credentials?.meJid, credentials?.meLid)) continue;
       const lidJid = zapoLidJid(normalized);
       if (lidJid) {
         const phoneJid = this.lidToPhone.get(this.identityKey(lidJid));
@@ -539,6 +648,8 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private sanitizeRemoteName(value: unknown): string | undefined {
     const name = String(value || '').trim();
     if (!name || /^\+?\d+$/.test(name) || name.includes('@lid') || name.includes('@s.whatsapp.net')) return undefined;
+    if (['contato', 'contato whatsapp', 'unknown', 'desconhecido'].includes(name.toLocaleLowerCase('pt-BR')))
+      return undefined;
     if (this.localProfileNames().has(name.toLocaleLowerCase('pt-BR'))) return undefined;
     return name;
   }
@@ -572,7 +683,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
 
     const identity: ContactIdentity = {
       remoteJid: phoneJid,
-      name: contact?.pushName || chat?.name || undefined,
+      name: this.sanitizeRemoteName(contact?.pushName) || this.sanitizeRemoteName(chat?.name),
       avatar: contact?.profilePicUrl || undefined,
       aliases: [phoneJid],
     };

@@ -39,6 +39,8 @@ export class EventController {
   protected waMonitor: WAMonitoringService;
   private integrationStatus: boolean;
   private integrationName: string;
+  private readonly instanceConfigCache = new Map<string, { expiresAt: number; data: wa.LocalEvent | null }>();
+  private readonly instanceConfigCacheTtlMs = 5_000;
 
   constructor(
     prismaRepository: PrismaRepository,
@@ -110,7 +112,7 @@ export class EventController {
         : EventController.events
       : [];
 
-    return this.prisma[this.name].upsert({
+    const result = await this.prisma[this.name].upsert({
       where: {
         instanceId: instance.instanceId,
       },
@@ -124,6 +126,11 @@ export class EventController {
         instanceId: instance.instanceId,
       },
     });
+    this.instanceConfigCache.set(instanceName, {
+      expiresAt: Date.now() + this.instanceConfigCacheTtlMs,
+      data: result,
+    });
+    return result;
   }
 
   public async get(instanceName: string): Promise<wa.LocalEvent> {
@@ -135,17 +142,21 @@ export class EventController {
       return null;
     }
 
+    const cached = this.instanceConfigCache.get(instanceName);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
     const data = await this.prisma[this.name].findUnique({
       where: {
         instanceId: this.monitor.waInstances[instanceName].instanceId,
       },
     });
 
-    if (!data) {
-      return null;
-    }
-
-    return data;
+    const normalized = data || null;
+    this.instanceConfigCache.set(instanceName, {
+      expiresAt: Date.now() + this.instanceConfigCacheTtlMs,
+      data: normalized,
+    });
+    return normalized;
   }
 
   public static readonly events = [

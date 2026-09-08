@@ -44,6 +44,24 @@ function jidLocal(value: any): string {
   return str(value).split('@')[0].replace(/:\d+$/, '')
 }
 
+function phoneFromRef(value: any): string {
+  const ref = str(value).trim()
+  if (!ref) return ''
+  const lower = ref.toLowerCase()
+  if (lower.endsWith('@lid') || lower.endsWith('@g.us') || lower.endsWith('@broadcast') || lower.endsWith('@newsletter')) return ''
+  if (ref.includes('@') && !lower.endsWith('@s.whatsapp.net')) return ''
+  const local = jidLocal(ref)
+  return /^\+?\d+$/.test(local) ? local.replace(/\D/g, '') : ''
+}
+
+function firstPhone(...values: any[]): string {
+  for (const value of values) {
+    const phone = phoneFromRef(value)
+    if (phone) return phone
+  }
+  return ''
+}
+
 function identityKey(value: any): string {
   return str(value).trim().toLowerCase()
 }
@@ -303,8 +321,8 @@ export function contacts(raw: any): ContactItem[] {
     .filter((item) => item?.remoteJid !== 'status@broadcast' && !str(item?.remoteJid).endsWith('@broadcast'))
     .map((item, index): ContactItem => {
       const rawRef = str(item.remoteJid || item.jid || item.number || '')
-      const number = item.number || jidLocal(rawRef) || undefined
-      const name = str(item.pushName || item.name || item.verifiedName || item.notify || number || rawRef || 'Contato')
+      const number = firstPhone(item.phoneNumber, item.phoneJid, item.remoteJidAlt, rawRef.endsWith('@lid') ? undefined : item.number, rawRef) || undefined
+      const name = str(item.pushName || item.name || item.verifiedName || item.notify || number || 'Contato')
       return {
         id: str(item.id || rawRef || index),
         name,
@@ -356,7 +374,7 @@ export function conversations(raw: any): Conversation[] {
       return {
         id: str(item.id || rawRef || index),
         title,
-        subtitle: item.number || rawRef || item.subtitle,
+        subtitle: firstPhone(item.phoneNumber, item.phoneJid, item.remoteJidAlt, item.number, rawRef) || (rawRef.endsWith('@lid') ? '' : rawRef) || item.subtitle,
         avatar: item.profilePicUrl || item.avatar,
         unread: num(item.unreadMessages ?? item.unread ?? item.unreadCount),
         lastMessage: messagePreview(item.lastMessage),
@@ -399,18 +417,18 @@ export function calls(raw: any): WhatsAppCall[] {
   return asArray(raw).map((item, index) => {
     const callId = str(item.callId || item.id || item.call?.id || index)
     const remote = str(
+      item.callerPnJid ||
+      item.callerPn ||
       item.displayPeerJid ||
       item.remoteJid ||
       item.peerJid ||
-      item.callerPn ||
       item.peerJidAlt ||
       item.peerJidRaw ||
       item.from ||
       item.to ||
-      item.number ||
       '',
     )
-    const number = str(item.number || jidLocal(remote) || '')
+    const number = firstPhone(item.number, item.callerPnJid, item.callerPn, item.displayPeerJid, item.remoteJid, item.peerJid, item.peerJidAlt, item.peerJidRaw)
     const rawDirection = str(item.direction || item.type || '').toLowerCase()
     const direction: WhatsAppCall['direction'] = rawDirection.includes('in') || item.isIncoming === true
       ? 'incoming'
@@ -421,7 +439,7 @@ export function calls(raw: any): WhatsAppCall[] {
       id: callId,
       callId,
       number,
-      name: item.name || item.pushName || item.contactName || undefined,
+      name: item.contactName || item.name || item.pushName || undefined,
       avatar: item.profilePicUrl || item.avatar || undefined,
       remoteJid: remote || undefined,
       direction,

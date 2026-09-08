@@ -22,6 +22,10 @@ import type {
 const ACCESS_STORAGE_KEY = 'connect_access_code'
 let accessCode = sessionStorage.getItem(ACCESS_STORAGE_KEY) || ''
 let instanceCache = new Map<string, any>()
+let instanceCacheItems: any[] = []
+let instanceCacheFetchedAt = 0
+let instanceCachePromise: Promise<any[]> | null = null
+const INSTANCE_CACHE_TTL_MS = 5_000
 
 class CurrentApiError extends Error {
   status: number
@@ -48,6 +52,9 @@ function saveAccess(value: string) {
 export function clearCurrentAccess() {
   saveAccess('')
   instanceCache.clear()
+  instanceCacheItems = []
+  instanceCacheFetchedAt = 0
+  instanceCachePromise = null
 }
 
 export function hasCurrentAccess() {
@@ -117,13 +124,27 @@ function rememberInstances(items: any[]) {
     if (item?.instanceName) next.set(String(item.instanceName), item)
   }
   instanceCache = next
+  instanceCacheItems = items
+  instanceCacheFetchedAt = Date.now()
   return items
 }
 
-async function rawInstances() {
-  const data = await api<any>('/instance/fetchInstances')
-  const items = Array.isArray(data) ? data : data ? [data] : []
-  return rememberInstances(items)
+async function rawInstances(force = false) {
+  if (!force && instanceCacheFetchedAt && Date.now() - instanceCacheFetchedAt < INSTANCE_CACHE_TTL_MS) {
+    return instanceCacheItems
+  }
+  if (!force && instanceCachePromise) return instanceCachePromise
+
+  const pending = api<any>('/instance/fetchInstances').then((data) => {
+    const items = Array.isArray(data) ? data : data ? [data] : []
+    return rememberInstances(items)
+  })
+  instanceCachePromise = pending
+  try {
+    return await pending
+  } finally {
+    if (instanceCachePromise === pending) instanceCachePromise = null
+  }
 }
 
 async function rawInstance(ref: string, refresh = false) {
@@ -131,7 +152,7 @@ async function rawInstance(ref: string, refresh = false) {
     const cached = instanceCache.get(ref)
     if (cached) return cached
   }
-  const items = await rawInstances()
+  const items = await rawInstances(refresh)
   return items.find((item) => instanceId(item) === ref || item?.name === ref || item?.instanceName === ref) || null
 }
 
@@ -327,7 +348,7 @@ export const current = {
       const provider = normalize.normalizeProvider(item.integration)
       if (!normalize.providerCapabilities(provider).calls) return []
       return normalize.calls(await api<any>(`/call/list/${encodeURIComponent(name)}`, { token }))
-    }, true)
+    })
   },
 
   async offerCall(id: string, number: string, callDuration?: number) {
@@ -338,7 +359,7 @@ export const current = {
       return api(`/call/offer/${encodeURIComponent(name)}`, {
         method: 'POST', token, data: { number: String(number).replace(/\D/g, ''), ...(duration > 0 ? { callDuration: duration } : {}) },
       })
-    }, true)
+    })
   },
 
   async callAction(id: string, action: 'accept' | 'reject' | 'end' | 'mute', data: any = {}) {
@@ -346,7 +367,7 @@ export const current = {
       const provider = normalize.normalizeProvider(item.integration)
       if (!normalize.providerCapabilities(provider).calls) throw new CurrentApiError('Este provider não oferece chamadas nesta versão.', 409)
       return api(`/call/${action}/${encodeURIComponent(name)}`, { method: 'POST', token, data })
-    }, true)
+    })
   },
 
   async voiceMedia(id: string, callId: string, callbacks: VoiceMediaCallbacks = {}) {
