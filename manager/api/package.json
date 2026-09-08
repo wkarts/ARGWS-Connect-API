@@ -1,7 +1,7 @@
 {
   "name": "connect-api-manager-api",
   "private": true,
-  "version": "1.0.21-professional.2",
+  "version": "1.0.21-professional.1",
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
@@ -10,8 +10,5 @@
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "qrcode": "1.5.4"
   }
 }
