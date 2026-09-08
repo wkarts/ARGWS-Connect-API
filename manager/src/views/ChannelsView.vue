@@ -46,7 +46,9 @@ const groups = computed<ChannelSummary[]>(() => {
     <div class="channel-grid">
       <PanelCard v-for="item in groups" :key="item.name">
         <div class="channel-card">
-          <span class="channel-icon"><AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : 'channels'" :size="23"/></span>
+          <span class="channel-icon" :class="{ 'whatsapp-brand': item.name === 'WhatsApp' }">
+            <AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : 'channels'" :size="23" />
+          </span>
           <div>
             <h3>{{ item.name }}</h3>
             <p>{{ item.connected }} de {{ item.total }} conexões ativas</p>
@@ -57,3 +59,10 @@ const groups = computed<ChannelSummary[]>(() => {
     </div>
   </AppShell>
 </template>
+
+<style scoped>
+.channel-icon.whatsapp-brand {
+  color: #25d366;
+  background: color-mix(in srgb, #25d366 11%, var(--surface));
+}
+</style>
