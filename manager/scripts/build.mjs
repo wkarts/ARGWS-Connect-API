@@ -13,8 +13,20 @@ fs.mkdirSync(path.join(dist, 'assets', 'vendor'), { recursive: true });
 fs.cpSync(pub, dist, { recursive: true });
 fs.cpSync(src, path.join(dist, 'assets', 'app'), { recursive: true });
 
-const qrBundle = path.join(root, 'node_modules', 'qrcode', 'build', 'qrcode.min.js');
-if (!fs.existsSync(qrBundle)) throw new Error('Dependência local qrcode não encontrada. Execute npm install antes do build.');
+// The Manager is built in two legitimate contexts:
+// 1) standalone image: /app/node_modules/qrcode
+// 2) API image: /argws-connect/node_modules/qrcode, one level above manager/
+// qrcode 1.5.x can ship either the minified or regular precompiled browser file.
+const qrCandidates = [
+  path.join(root, 'node_modules', 'qrcode', 'build', 'qrcode.min.js'),
+  path.join(root, 'node_modules', 'qrcode', 'build', 'qrcode.js'),
+  path.resolve(root, '..', 'node_modules', 'qrcode', 'build', 'qrcode.min.js'),
+  path.resolve(root, '..', 'node_modules', 'qrcode', 'build', 'qrcode.js'),
+];
+const qrBundle = qrCandidates.find((candidate) => fs.existsSync(candidate));
+if (!qrBundle) {
+  throw new Error(`Dependência local qrcode sem bundle de browser. Procurado em: ${qrCandidates.join(', ')}`);
+}
 fs.copyFileSync(qrBundle, path.join(dist, 'assets', 'vendor', 'qrcode.min.js'));
 
 // Functional legacy modules are intentionally preserved in src/ until the new
@@ -45,10 +57,11 @@ for (const required of [
   'index.html',
   'assets/app/main.js',
   'assets/app/styles/app.css',
+  'assets/app/styles/security.css',
   'assets/app/api/manager.js',
   'assets/runtime-config.js',
   'assets/vendor/qrcode.min.js',
 ]) {
   if (!fs.existsSync(path.join(dist, required))) throw new Error(`Build incompleto: ${required}`);
 }
-console.log('Manager deterministic ES-module build generated at dist/');
+console.log(`Manager deterministic ES-module build generated at dist/ (QR: ${path.basename(qrBundle)})`);
