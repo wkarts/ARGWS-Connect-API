@@ -13,7 +13,6 @@ import {
   GroupUpdateSettingDto,
 } from '@api/dto/group.dto';
 import { BadRequestException, InternalServerErrorException, NotFoundException } from '@exceptions';
-import { createJid } from '@utils/createJid';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 
@@ -32,7 +31,7 @@ export class ZapoGroupStartupService extends ZapoAccountStartupService {
     const raw = String(value ?? '').trim();
     if (!raw) throw new BadRequestException('Group JID is required');
 
-    const jid = raw.includes('@') ? raw : createJid(raw);
+    const jid = raw.includes('@') ? raw : `${raw}@g.us`;
     if (!jid.endsWith('@g.us')) throw new BadRequestException('Invalid WhatsApp group JID');
     return jid;
   }
@@ -137,7 +136,9 @@ export class ZapoGroupStartupService extends ZapoAccountStartupService {
   public async updateGroupDescription(update: GroupDescriptionDto) {
     try {
       const groupJid = this.normalizeGroupJid(update?.groupJid);
-      const metadata = await this.groupClient().group.queryGroupMetadata(groupJid).catch(() => null);
+      const metadata = await this.groupClient()
+        .group.queryGroupMetadata(groupJid)
+        .catch(() => null);
       await this.groupClient().group.setDescription(groupJid, update?.description ?? null, metadata?.descId);
       return { update: 'success', groupJid, description: update?.description ?? null };
     } catch (error) {
