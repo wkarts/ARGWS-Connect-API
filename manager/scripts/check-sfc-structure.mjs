@@ -16,6 +16,14 @@ function walk(dir) {
       if (scripts !== scriptEnds) failures.push(`${file}: bloco script incompleto`)
       if (templates !== templateEnds) failures.push(`${file}: bloco template incompleto`)
       if (scripts > 0 && text.indexOf('</script>') > text.indexOf('<template')) failures.push(`${file}: template antes do fechamento do script`)
+
+      // vue-tsc parses the script body as TypeScript. Keeping </script> on the
+      // same physical line as TypeScript code can make the closing tag reach
+      // the TS parser in generated SFC code. Require a line break so the CI
+      // catches this regression before the expensive Docker build.
+      if (/<script\b[^>]*>[^\n]*\S[^\n]*<\/script>/i.test(text)) {
+        failures.push(`${file}: feche o bloco script em uma linha separada`)
+      }
     }
   }
 }
