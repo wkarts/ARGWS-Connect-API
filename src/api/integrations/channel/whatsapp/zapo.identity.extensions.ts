@@ -50,15 +50,12 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   private readonly profilePictureVerifiedAt = new Map<string, number>();
   private readonly nativeCallHints = new Map<string, NativeCallIdentityHint>();
   private readonly nativeIdentityBoundClients = new WeakSet<object>();
-  private identityBootstrapPromise: Promise<void> | null = null;
-  private identityBootstrapDone = false;
   private readonly profilePictureRefreshTtlMs = 6 * 60 * 60 * 1000;
   private readonly callHintTtlMs = 10 * 60 * 1000;
 
   public async connectToWhatsapp(): Promise<any> {
     const client = await super.connectToWhatsapp();
     this.bindNativeIdentityEvents(client);
-    if (this.isRegistered()) this.bootstrapIdentityState();
     return client;
   }
 
@@ -77,16 +74,6 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
   public async listCalls() {
     const calls = await super.listCalls();
     return Promise.all(calls.map((call: any) => this.enrichCall(call)));
-  }
-
-  private bootstrapIdentityState(): void {
-    if (this.identityBootstrapDone || this.identityBootstrapPromise) return;
-    this.identityBootstrapPromise = this.reconcileIdentityRows()
-      .catch((error: Error) => this.logger.warn(`ZAPO identity bootstrap failed: ${error?.message || error}`))
-      .finally(() => {
-        this.identityBootstrapDone = true;
-        this.identityBootstrapPromise = null;
-      });
   }
 
   public async sendDataWebhook<T extends object = any>(
