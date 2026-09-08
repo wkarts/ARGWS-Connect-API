@@ -14,7 +14,9 @@ export class ConnectRouter extends RouterBroker {
         return res.status(200).json({ status: 'ignored', reason: 'numberId not found' });
       }
 
-      const instance = await prismaRepository.instance.findFirst({ where: { number: numberId, integration: 'CONNECT' } });
+      const instance = await prismaRepository.instance.findFirst({
+        where: { number: numberId, integration: 'CONNECT' },
+      });
       if (!instance || !waMonitor.waInstances[instance.name]) {
         return res.status(200).json({ status: 'ignored', reason: 'legacy CONNECT instance not found' });
       }
