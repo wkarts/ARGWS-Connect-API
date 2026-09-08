@@ -52,43 +52,86 @@ function normalizeIdentity(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/:\d+(?=@)/, '')
 }
 
-function identityLocal(value: unknown): string {
-  return normalizeIdentity(value).split('@')[0]
+function phoneFromIdentity(value: unknown): string {
+  const normalized = normalizeIdentity(value)
+  if (!normalized || normalized.endsWith('@lid') || normalized.includes('@g.us') || normalized.includes('@broadcast')) {
+    return ''
+  }
+  if (normalized.endsWith('@s.whatsapp.net')) return normalized.split('@')[0].replace(/\D/g, '')
+  if (/^\+?\d+$/.test(normalized)) return normalized.replace(/\D/g, '')
+  return ''
+}
+
+function usableName(value: unknown): string {
+  const name = String(value ?? '').trim()
+  if (!name || /^\+?\d+$/.test(name) || name.includes('@lid') || name.includes('@s.whatsapp.net')) return ''
+  const ownName = String(selectedInstance.value?.profileName || '').trim().toLocaleLowerCase('pt-BR')
+  if (ownName && name.toLocaleLowerCase('pt-BR') === ownName) return ''
+  return name
 }
 
 function callContact(call: WhatsAppCall): ContactItem | undefined {
   const raw = call.raw || {}
+  if (raw.identityResolved !== true) return undefined
+
   const candidates = [
     call.remoteJid,
     call.number,
     raw.displayPeerJid,
     raw.peerJid,
-    raw.peerJidRaw,
-    raw.peerJidAlt,
     raw.callerPn,
     raw.callerPnJid,
-    raw.senderLidJid,
   ].filter(Boolean)
   const exact = new Set(candidates.map(normalizeIdentity).filter(Boolean))
-  const locals = new Set(candidates.map(identityLocal).filter(Boolean))
+  const phones = new Set(candidates.map(phoneFromIdentity).filter(Boolean))
 
   return contacts.value.find((contact) => {
     const refs = [contact.rawRef, contact.number, ...(contact.aliases || [])].filter(Boolean)
-    return refs.some((ref) => exact.has(normalizeIdentity(ref)) || locals.has(identityLocal(ref)))
+    return refs.some((ref) => {
+      const normalized = normalizeIdentity(ref)
+      const phone = phoneFromIdentity(ref)
+      return exact.has(normalized) || Boolean(phone && phones.has(phone))
+    })
   })
 }
 
-function callName(call: WhatsAppCall): string {
+function callNumber(call: WhatsAppCall): string {
+  const raw = call.raw || {}
+  if (raw.identityResolved !== true) return ''
+
   const contact = callContact(call)
-  return contact?.name || call.name || call.number || 'Número não informado'
+  const candidates = [
+    contact?.number,
+    call.number,
+    call.remoteJid,
+    raw.displayPeerJid,
+    raw.peerJid,
+    raw.callerPnJid,
+    raw.callerPn,
+  ]
+  for (const candidate of candidates) {
+    const phone = phoneFromIdentity(candidate)
+    if (phone) return phone
+  }
+  return ''
 }
 
-function callNumber(call: WhatsAppCall): string {
-  const contact = callContact(call)
-  return contact?.number || call.number || identityLocal(call.remoteJid)
+function callName(call: WhatsAppCall): string {
+  const contactName = usableName(callContact(call)?.name)
+  if (contactName) return contactName
+
+  const raw = call.raw || {}
+  if (raw.identityResolved === true) {
+    const resolvedName = usableName(call.name)
+    if (resolvedName) return resolvedName
+  }
+
+  return callNumber(call) || 'Contato WhatsApp'
 }
 
 function callAvatar(call: WhatsAppCall): string | undefined {
+  const raw = call.raw || {}
+  if (raw.identityResolved !== true) return undefined
   return callContact(call)?.avatar || call.avatar
 }
 
@@ -320,6 +363,7 @@ onBeforeUnmount(() => {
               <div class="call-main">
                 <strong>{{ callName(call) }}</strong>
                 <span v-if="callNumber(call) && callNumber(call) !== callName(call)">{{ callNumber(call) }}</span>
+                <span v-else-if="call.raw?.identityResolved !== true">Número não identificado</span>
                 <span>{{ callDirection(call) }} · {{ stateLabel(call.state) }}</span>
                 <small v-if="mediaCallId===call.callId">{{ mediaLabel }}</small>
               </div>
