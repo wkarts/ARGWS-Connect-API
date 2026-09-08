@@ -20,6 +20,22 @@ services:
       DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
+      ARGWS_CONNECT_DOCS_INTERNAL_URL: ${ARGWS_CONNECT_DOCS_INTERNAL_URL:-http://docs-argws-connect-develop:8080}
+      ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
+      MANAGER_FEATURE_DOCS: ${MANAGER_FEATURE_DOCS:-true}
+      MANAGER_FEATURE_VOICE: ${MANAGER_FEATURE_VOICE:-true}
+      MANAGER_FEATURE_VOICE_EXTENSIONS: ${MANAGER_FEATURE_VOICE_EXTENSIONS:-true}
+      MANAGER_FEATURE_VOICE_QUEUES: ${MANAGER_FEATURE_VOICE_QUEUES:-true}
+      MANAGER_FEATURE_FLOWS: ${MANAGER_FEATURE_FLOWS:-true}
+      MANAGER_FEATURE_AUTOMATIONS: ${MANAGER_FEATURE_AUTOMATIONS:-true}
+      MANAGER_FEATURE_CONTACTS: ${MANAGER_FEATURE_CONTACTS:-true}
+      MANAGER_FEATURE_MESSAGES: ${MANAGER_FEATURE_MESSAGES:-true}
+      MANAGER_FEATURE_USERS: ${MANAGER_FEATURE_USERS:-false}
+      MANAGER_FEATURE_PERMISSIONS: ${MANAGER_FEATURE_PERMISSIONS:-false}
+      MANAGER_FEATURE_AUDIT: ${MANAGER_FEATURE_AUDIT:-false}
+      MANAGER_FEATURE_SECURITY: ${MANAGER_FEATURE_SECURITY:-false}
+      MANAGER_FEATURE_UPDATES: ${MANAGER_FEATURE_UPDATES:-true}
+      MANAGER_FEATURE_SETTINGS: ${MANAGER_FEATURE_SETTINGS:-true}
     depends_on:
       postgres-argws-connect-develop:
         condition: service_healthy
@@ -28,6 +44,8 @@ services:
       rabbitmq-argws-connect-develop:
         condition: service_healthy
       minio-argws-connect-develop:
+        condition: service_healthy
+      docs-argws-connect-develop:
         condition: service_healthy
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38082}:8080"
@@ -48,6 +66,8 @@ services:
     container_name: docs-argws-connect-develop
     restart: unless-stopped
     environment:
+      BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
+      SERVER_URL: ${SERVER_URL:-}
       API_REFERENCE_CONFIG: >-
         {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost","customCss":".light-mode{--scalar-color-accent:#2563eb;--scalar-background-1:#ffffff;--scalar-background-2:#f7f9fc;--scalar-background-3:#eef3f9;--scalar-color-1:#0f172a;--scalar-color-2:#475569;--scalar-color-3:#64748b;--scalar-border-color:#dbe4ef}.dark-mode{--scalar-color-accent:#2f6df6;--scalar-background-1:#0f172a;--scalar-background-2:#111827;--scalar-background-3:#172033;--scalar-color-1:#f8fafc;--scalar-color-2:#cbd5e1;--scalar-color-3:#94a3b8;--scalar-border-color:#263249}"}
     ports:
