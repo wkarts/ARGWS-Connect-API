@@ -1,10 +1,4 @@
-import {
-  Button,
-  SendButtonsDto,
-  SendListDto,
-  SendStatusDto,
-  TypeButton,
-} from '@api/dto/sendMessage.dto';
+import { Button, SendButtonsDto, SendListDto, SendStatusDto, TypeButton } from '@api/dto/sendMessage.dto';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
@@ -128,7 +122,9 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         responseType: 'arraybuffer',
         timeout: 30_000,
       });
-      const contentType = String(response.headers?.['content-type'] ?? '').split(';')[0].trim();
+      const contentType = String(response.headers?.['content-type'] ?? '')
+        .split(';')[0]
+        .trim();
       return {
         buffer: Buffer.from(response.data),
         mimetype: contentType || String(mimeTypes.lookup(value) || fallbackMimetype),
