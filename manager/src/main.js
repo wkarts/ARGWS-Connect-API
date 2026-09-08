@@ -22,6 +22,11 @@ const root = document.getElementById('root');
 setTheme(getTheme());
 let authChecked = false;
 
+function requiresHttpsRedirect() {
+  if (location.protocol !== 'http:') return false;
+  return !['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+}
+
 async function ensureAuth() {
   if (getAuth()) return true;
   if (authChecked) return false;
@@ -30,6 +35,11 @@ async function ensureAuth() {
 }
 
 async function render() {
+  if (requiresHttpsRedirect()) {
+    location.replace(`https://${location.host}${location.pathname}${location.search}${location.hash}`);
+    return;
+  }
+
   document.body.classList.remove('sidebar-open');
   clear(root);
   const path = location.pathname.replace(/\/+$/, '') || '/';
