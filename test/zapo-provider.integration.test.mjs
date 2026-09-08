@@ -9,6 +9,7 @@ const zapo = read('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.t
 const zapoExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.extensions.ts');
 const zapoAccountExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.account.extensions.ts');
 const zapoGroupExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.group.extensions.ts');
+const zapoInteractiveExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.interactive.extensions.ts');
 const channelController = read('src/api/integrations/channel/channel.controller.ts');
 const baileys = read('src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts');
 const instanceController = read('src/api/controllers/instance.controller.ts');
@@ -43,7 +44,7 @@ assert(packageJson.dependencies?.['@innovatorssoft/zapo-js'] === '1.6.3', 'Zapo 
 assert(packageJson.dependencies?.['@innovatorssoft/voip'] === '1.0.0', 'Zapo VoIP version must stay pinned at 1.0.0');
 assert(packageJson.dependencies?.['zapo-js'] === 'npm:@innovatorssoft/zapo-js@1.6.3', 'Legacy zapo-js runtime alias is missing');
 
-assert(channelController.includes('ZapoGroupStartupService'), 'Zapo group compatibility layer is not wired');
+assert(channelController.includes('ZapoInteractiveStartupService'), 'Zapo interactive compatibility layer is not wired');
 assert(zapoExtensions.includes("client.on('presence'"), 'Zapo presence listener is missing');
 assert(zapoExtensions.includes("client.on('chatstate'"), 'Zapo chatstate listener is missing');
 assert(zapoExtensions.includes("client.on('app_state_mutation'"), 'Zapo app-state mutation listener is missing');
@@ -130,5 +131,19 @@ assert(zapoGroupExtensions.includes('public async toggleEphemeral'), 'Zapo disap
 assert(zapoGroupExtensions.includes('group.setEphemeralDuration'), 'Zapo ephemeral duration must use the public coordinator');
 assert(zapoGroupExtensions.includes('public async leaveGroup'), 'Zapo leave-group compatibility is missing');
 assert(zapoGroupExtensions.includes('group.leaveGroup([groupJid])'), 'Zapo leave-group must use the public coordinator');
+
+assert(zapoInteractiveExtensions.includes('class ZapoInteractiveStartupService'), 'Zapo interactive compatibility service is missing');
+assert(zapoInteractiveExtensions.includes('public async buttonMessage'), 'Zapo interactive button messages are missing');
+assert(zapoInteractiveExtensions.includes('nativeFlowMessage'), 'Zapo buttons must use WhatsApp native-flow payloads');
+assert(zapoInteractiveExtensions.includes("['reply', 'quick_reply']"), 'Zapo quick-reply button mapping is missing');
+assert(zapoInteractiveExtensions.includes("['pix', 'payment_info']"), 'Zapo Pix button mapping is missing');
+assert(zapoInteractiveExtensions.includes('public async listMessage'), 'Zapo list messages are missing');
+assert(zapoInteractiveExtensions.includes('listMessage:'), 'Zapo list messages must use the raw list-message payload');
+assert(zapoInteractiveExtensions.includes('public async statusMessage'), 'Zapo status publishing is missing');
+assert(zapoInteractiveExtensions.includes('.status.send({'), 'Zapo status publishing must use the public status coordinator');
+assert(zapoInteractiveExtensions.includes("statusSetting: 'contacts'"), 'Zapo all-contact status distribution is missing');
+assert(zapoInteractiveExtensions.includes("statusSetting: 'allowlist'"), 'Zapo explicit status allowlist distribution is missing');
+assert(zapoInteractiveExtensions.includes('convertAudioToOggOpus'), 'Zapo audio status conversion is missing');
+assert(zapoInteractiveExtensions.includes('backgroundArgb: this.parseArgb'), 'Zapo text-status background compatibility is missing');
 
 console.log('Zapo provider invariants: OK');
