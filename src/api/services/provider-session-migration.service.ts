@@ -331,13 +331,19 @@ export class ProviderSessionMigrationService {
     return Boolean(result.rows?.[0]?.table_name);
   }
 
-  private async rows(context: ZapoStoreContext, name: string, sql: string, values: unknown[] = []) {
+  private async rows(
+    context: ZapoStoreContext,
+    name: string,
+    sql: string,
+    values: unknown[] = [],
+  ): Promise<Record<string, any>[]> {
     if (!(await this.tableExists(context, name))) return [];
-    const result = await context.pool.query(sql.replaceAll('__TABLE__', this.table(context, name)), values);
+    const statement = sql.split('__TABLE__').join(this.table(context, name));
+    const result = await context.pool.query<Record<string, any>>(statement, values);
     return result.rows ?? [];
   }
 
-  private address(row: any) {
+  private address(row: Record<string, any>) {
     return { user: String(row.user), server: String(row.server || 's.whatsapp.net'), device: Number(row.device || 0) };
   }
 
@@ -367,9 +373,7 @@ export class ProviderSessionMigrationService {
         ? await context.session.identity.getRemoteIdentities(identityAddresses)
         : [];
       const identities = identityAddresses
-        .map((address, index) =>
-          identityKeys[index] ? { address, identityKey: identityKeys[index] } : null,
-        )
+        .map((address, index) => (identityKeys[index] ? { address, identityKey: identityKeys[index] } : null))
         .filter(Boolean);
 
       const sessionRows = await this.rows(
@@ -383,9 +387,7 @@ export class ProviderSessionMigrationService {
         ? await context.session.session.getSessionsBatch(sessionAddresses)
         : [];
       const sessions = sessionAddresses
-        .map((address, index) =>
-          sessionRecords[index] ? { address, record: sessionRecords[index] } : null,
-        )
+        .map((address, index) => (sessionRecords[index] ? { address, record: sessionRecords[index] } : null))
         .filter(Boolean);
 
       const senderGroups = await this.rows(
