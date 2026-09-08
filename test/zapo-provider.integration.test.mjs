@@ -69,6 +69,14 @@ assert(zapoAccountExtensions.includes('editKey:'), 'Zapo message edit must use t
 assert(zapoAccountExtensions.includes('Events.MESSAGES_UPDATE'), 'Zapo edit webhook parity is missing');
 assert(zapoAccountExtensions.includes("status: 'EDITED'"), 'Zapo local edited-message state is missing');
 assert(zapoAccountExtensions.includes("status: 'DELETED'"), 'Zapo local deleted-message state is missing');
+assert(zapoAccountExtensions.includes('public async getStatus'), 'Zapo peer status lookup is missing');
+assert(zapoAccountExtensions.includes('profile.getStatus'), 'Zapo peer status must use the public profile coordinator');
+assert(zapoAccountExtensions.includes('public async fetchBusinessProfile'), 'Zapo business-profile compatibility is missing');
+assert(zapoAccountExtensions.includes('business.getBusinessProfile'), 'Zapo business profile must use the public coordinator');
+assert(zapoAccountExtensions.includes('business.getVerifiedName'), 'Zapo verified business name lookup is missing');
+assert(zapoAccountExtensions.includes('public async fetchProfile'), 'Zapo full profile compatibility is missing');
+assert(zapoAccountExtensions.includes('numberExists:'), 'Zapo full profile response must expose numberExists');
+assert(zapoAccountExtensions.includes('isBusiness: business.isBusiness'), 'Zapo full profile must include business status');
 assert(zapoAccountExtensions.includes('public async fetchPrivacySettings'), 'Zapo privacy read compatibility is missing');
 assert(zapoAccountExtensions.includes('public async updatePrivacySettings'), 'Zapo privacy write compatibility is missing');
 assert(zapoAccountExtensions.includes("setPrivacySetting('profilePicture'"), 'Zapo profile privacy mapping is missing');
