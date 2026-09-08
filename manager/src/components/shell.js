@@ -35,16 +35,30 @@ function activeFor(path, href) {
 export function appShell(content, options = {}) {
   const auth = getAuth();
   const path = location.pathname;
-  const app = el('div', { class: 'app-shell' });
+  const enrollmentRequired = Boolean(auth?.security?.enrollmentRequired);
+  const app = el('div', { class: `app-shell ${enrollmentRequired ? 'security-enrollment-required' : ''}`.trim() });
   const sidebar = el('aside', { class: 'sidebar', id: 'app-sidebar' });
-  const brand = el('a', { class: 'brand', href: '/manager/', dataset: { nav: '1' } }, el('img', { src: getTheme() === 'dark' ? '/manager/assets/images/argws-connect-logo-dark.svg' : '/manager/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' }));
+  const brand = el('a', { class: 'brand', href: enrollmentRequired ? '/manager/security' : '/manager/', dataset: { nav: '1' } }, el('img', { src: getTheme() === 'dark' ? '/manager/assets/images/argws-connect-logo-dark.svg' : '/manager/assets/images/argws-connect-logo-horizontal.svg', alt: 'Connect|API' }));
   sidebar.append(brand, el('nav', { class: 'nav' }));
   const nav = sidebar.querySelector('.nav');
   groups.forEach(([title, items]) => {
     const visible = items.filter(([, , , permission]) => !permission || hasPermission(permission));
     if (!visible.length) return;
     const group = el('section', { class: 'nav-group' }, el('h4', { text: title }));
-    visible.forEach(([label, href, icon]) => group.append(el('a', { class: `nav-item ${activeFor(path, href) ? 'active' : ''}`, href, dataset: { nav: '1' } }, el('span', { class: 'nav-icon', text: icon }), el('span', { text: label }))));
+    visible.forEach(([label, href, icon]) => {
+      const locked = enrollmentRequired && href !== '/manager/security';
+      const target = locked ? '/manager/security' : href;
+      group.append(el('a', {
+        class: `nav-item ${activeFor(path, href) ? 'active' : ''} ${locked ? 'locked' : ''}`.trim(),
+        href: target,
+        dataset: { nav: '1' },
+        title: locked ? 'Conclua a configuração do 2FA para liberar este recurso.' : '',
+        'aria-disabled': locked ? 'true' : null,
+      },
+      el('span', { class: 'nav-icon', text: icon }),
+      el('span', { text: label }),
+      locked ? el('span', { class: 'nav-lock', text: '🔒' }) : null));
+    });
     nav.append(group);
   });
 
@@ -53,7 +67,10 @@ export function appShell(content, options = {}) {
   const title = el('div', { class: 'topbar-title' }, el('strong', { text: options.title || 'Connect|API' }), options.subtitle ? el('span', { text: options.subtitle }) : null);
   const themeButton = button(getTheme() === 'dark' ? '☀' : '☾', { class: 'icon-btn ghost', onclick: () => { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); location.reload(); } });
   const profile = el('div', { class: 'profile-menu' }, el('div', { class: 'avatar', text: (auth?.user?.name || auth?.user?.email || 'U')[0]?.toUpperCase() || 'U' }), el('div', { class: 'profile-copy' }, el('strong', { text: auth?.user?.name || 'Usuário' }), el('span', { text: auth?.user?.email || '' })), button('Sair', { class: 'ghost compact', onclick: async () => { await api.logout().catch(() => null); clearAuth(); navigate('/manager/login'); } }));
-  topbar.append(menuButton, title, el('div', { class: 'topbar-spacer' }), el('span', { class: 'system-pill' }, el('span', { class: 'status-dot' }), 'Administração local'), themeButton, profile);
+  const statePill = enrollmentRequired
+    ? el('span', { class: 'system-pill warning' }, el('span', { class: 'status-dot' }), '2FA obrigatório')
+    : el('span', { class: 'system-pill' }, el('span', { class: 'status-dot' }), 'Administração local');
+  topbar.append(menuButton, title, el('div', { class: 'topbar-spacer' }), statePill, themeButton, profile);
 
   const main = el('main', { class: 'main' }, content);
   const overlay = el('div', { class: 'sidebar-overlay', onclick: () => document.body.classList.remove('sidebar-open') });
