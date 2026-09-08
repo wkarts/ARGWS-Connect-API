@@ -24,6 +24,7 @@ const groups = [
     { label:'Filas', to:'/filas', icon:'list', permission:'pbx.read', feature:'voice' },
   ]},
   { title: 'STUDIO', items: [
+    { label:'Integrações', to:'/integracoes', icon:'channels', permission:'instances.read' },
     { label:'Fluxos', to:'/fluxos', icon:'workflow', permission:'studio.read', feature:'studio' },
     { label:'Automações', to:'/automacoes', icon:'automation', permission:'studio.read', feature:'studio' },
   ]},
