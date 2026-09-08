@@ -25,6 +25,14 @@ const pairNumber = ref('')
 let watchTimer: number | undefined
 
 const connected = computed(() => String(data.value?.connectionStatus || data.value?.status || '').toLowerCase() === 'open')
+const integration = computed(() => String(data.value?.integration || '').toUpperCase())
+const isBusiness = computed(() => integration.value === 'WHATSAPP-BUSINESS')
+const provider = computed(() => {
+  if (integration.value === 'WHATSAPP-BAILEYS') return 'Baileys'
+  if (integration.value === 'WHATSAPP-ZAPO') return 'ZAPO'
+  if (integration.value === 'WHATSAPP-BUSINESS') return 'WhatsApp Business / Cloud API'
+  return data.value?.provider || data.value?.integration || 'Não identificado'
+})
 
 async function load() {
   error.value = ''
@@ -125,7 +133,8 @@ onBeforeUnmount(stopWatch)
 
 <template>
   <AppShell>
-    <PageHeader :title="data?.name || data?.instanceName || 'Instância'" description="Informações e ações da conexão.">
+    <PageHeader :title="data?.name || data?.instanceName || 'Instância'" description="Informações, conexão e recursos da instância.">
+      <button class="btn primary" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)"><AppIcon name="channels" :size="16"/>Integrações</button>
       <button class="btn ghost" :disabled="busy" @click="load"><AppIcon name="refresh" :size="16"/>Atualizar</button>
       <button class="btn ghost" :disabled="busy" @click="restart">Reiniciar</button>
       <button class="btn danger" :disabled="busy || !connected" @click="disconnect">Desconectar</button>
@@ -136,7 +145,7 @@ onBeforeUnmount(stopWatch)
     <div v-if="!data" class="skeleton-page"></div>
 
     <template v-else>
-      <PanelCard v-if="!connected" title="Conectar WhatsApp" description="Escolha como deseja vincular esta instância.">
+      <PanelCard v-if="!connected && !isBusiness" title="Conectar WhatsApp" :description="`Provider: ${provider}`">
         <div class="connect-choice-grid">
           <button class="connect-choice" :disabled="busy" @click="showQr">
             <span class="connect-choice-icon"><AppIcon name="radio" :size="24"/></span>
@@ -151,10 +160,16 @@ onBeforeUnmount(stopWatch)
         </div>
       </PanelCard>
 
+      <PanelCard v-else-if="!connected && isBusiness" title="WhatsApp Business / Cloud API" description="Esta instância utiliza conexão empresarial configurada por credenciais próprias.">
+        <div class="business-connection-note"><AppIcon name="channels" :size="22"/><div><strong>Provider configurado</strong><p>Revise as informações da conta empresarial e as integrações vinculadas a esta instância.</p></div></div>
+      </PanelCard>
+
       <div class="detail-grid top-gap">
         <PanelCard title="Situação atual">
           <div class="detail-list">
             <div><span>Status</span><StatusPill :status="data.connectionStatus || data.status"/></div>
+            <div><span>Provider</span><strong>{{ provider }}</strong></div>
+            <div><span>Canal</span><strong>WhatsApp</strong></div>
             <div><span>Nome</span><strong>{{ data.name || data.instanceName || '—' }}</strong></div>
             <div><span>Número</span><strong>{{ data.number || data.ownerJid?.split('@')?.[0] || '—' }}</strong></div>
             <div><span>Última atualização</span><strong>{{ data.updatedAt ? new Date(data.updatedAt).toLocaleString('pt-BR') : '—' }}</strong></div>
@@ -168,6 +183,15 @@ onBeforeUnmount(stopWatch)
           </div>
         </PanelCard>
       </div>
+
+      <PanelCard class="top-gap" title="Recursos da instância" description="Acesse automações, integrações, eventos e preferências sem sair desta conexão.">
+        <div class="instance-resource-grid">
+          <button class="instance-resource" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)"><span><AppIcon name="automation" :size="20"/></span><div><strong>Automações e IA</strong><small>n8n, Typebot, Dify, Flowise, OpenAI, ConnectAI e ConnectBot.</small></div><AppIcon name="arrow" :size="16"/></button>
+          <button class="instance-resource" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracoes/webhook`)"><span><AppIcon name="workflow" :size="20"/></span><div><strong>Webhooks e eventos</strong><small>Envie eventos para sistemas externos e escolha exatamente o que será entregue.</small></div><AppIcon name="arrow" :size="16"/></button>
+          <button class="instance-resource" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracoes/chatwoot`)"><span><AppIcon name="chat" :size="20"/></span><div><strong>Chatwoot</strong><small>Sincronize contatos, conversas e mensagens com sua operação de atendimento.</small></div><AppIcon name="arrow" :size="16"/></button>
+          <button class="instance-resource" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracoes/settings`)"><span><AppIcon name="settings" :size="20"/></span><div><strong>Comportamento</strong><small>Chamadas, grupos, leitura, presença e sincronização de histórico.</small></div><AppIcon name="arrow" :size="16"/></button>
+        </div>
+      </PanelCard>
 
       <div class="danger-zone">
         <div><strong>Excluir instância</strong><p>Esta ação remove definitivamente a instância e seus dados associados.</p></div>
