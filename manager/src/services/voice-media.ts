@@ -12,6 +12,11 @@ export type VoiceMediaCredentials = {
   token: string
 }
 
+type VoiceMediaTicketResponse = {
+  ticket?: string
+  mediaPath?: string
+}
+
 function downsample(input: Float32Array, inputRate: number, outputRate = 16000) {
   if (inputRate === outputRate) return new Float32Array(input)
   if (outputRate > inputRate) return new Float32Array(input)
@@ -38,10 +43,10 @@ function downsample(input: Float32Array, inputRate: number, outputRate = 16000) 
   return result
 }
 
-function websocketUrl(apiBaseUrl: string) {
+function mediaWebsocketUrl(apiBaseUrl: string, mediaPath: string) {
   const url = new URL(apiBaseUrl)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  url.pathname = '/voice/media'
+  url.pathname = mediaPath || '/voice/media'
   url.search = ''
   url.hash = ''
   return url.toString()
@@ -76,7 +81,7 @@ export class VoiceMediaSession {
 
   async start() {
     if (this.closed) throw new Error('A sessão de áudio já foi encerrada.')
-    if (!this.credentials.token) throw new Error('A credencial da instância não está disponível para o áudio da chamada.')
+    if (!this.credentials.token) throw new Error('A credencial da instância não está disponível para solicitar o áudio da chamada.')
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador não oferece acesso ao microfone.')
 
     this.setState('requesting_microphone')
@@ -96,7 +101,10 @@ export class VoiceMediaSession {
       this.audioContext = new AudioContextCtor()
       await this.audioContext.resume()
       this.attachMicrophone()
-      await this.connectSocket()
+
+      const mediaTicket = await this.requestMediaTicket()
+      this.credentials.token = ''
+      await this.connectSocket(mediaTicket.mediaUrl, mediaTicket.ticket)
     } catch (error) {
       this.fail(error)
       this.stop()
@@ -111,6 +119,40 @@ export class VoiceMediaSession {
 
   isReady() {
     return this.ready
+  }
+
+  private async requestMediaTicket() {
+    const baseUrl = this.credentials.apiBaseUrl.replace(/\/+$/, '')
+    const url = new URL(`${baseUrl}/call/mediaTicket/${encodeURIComponent(this.credentials.instanceName)}`)
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'content-type': 'application/json',
+        apikey: this.credentials.token,
+      },
+      body: JSON.stringify({ callId: this.credentials.callId }),
+    })
+
+    const text = await response.text()
+    let payload: VoiceMediaTicketResponse & { message?: string; error?: string } = {}
+    try {
+      payload = text ? JSON.parse(text) : {}
+    } catch {
+      payload = {}
+    }
+
+    if (!response.ok) {
+      throw new Error(String(payload.message || payload.error || response.statusText || 'Não foi possível autorizar o áudio da chamada.'))
+    }
+
+    const ticket = String(payload.ticket || '')
+    if (!ticket) throw new Error('A autorização temporária do áudio da chamada não foi emitida.')
+
+    return {
+      ticket,
+      mediaUrl: mediaWebsocketUrl(this.credentials.apiBaseUrl, String(payload.mediaPath || '/voice/media')),
+    }
   }
 
   private attachMicrophone() {
@@ -132,10 +174,10 @@ export class VoiceMediaSession {
     this.silentGain.connect(this.audioContext.destination)
   }
 
-  private connectSocket() {
+  private connectSocket(mediaUrl: string, ticket: string) {
     return new Promise<void>((resolve, reject) => {
       this.setState('connecting')
-      const socket = new WebSocket(websocketUrl(this.credentials.apiBaseUrl))
+      const socket = new WebSocket(mediaUrl)
       this.socket = socket
       socket.binaryType = 'arraybuffer'
 
@@ -147,11 +189,7 @@ export class VoiceMediaSession {
       }
 
       socket.onopen = () => {
-        socket.send(JSON.stringify({
-          instanceName: this.credentials.instanceName,
-          callId: this.credentials.callId,
-          token: this.credentials.token,
-        }))
+        socket.send(JSON.stringify({ ticket }))
       }
 
       socket.onmessage = async (event) => {
@@ -215,6 +253,7 @@ export class VoiceMediaSession {
     if (this.closed) return
     this.closed = true
     this.ready = false
+    this.credentials.token = ''
 
     if (this.processor) {
       this.processor.onaudioprocess = null

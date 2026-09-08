@@ -1119,6 +1119,76 @@
         "x-source-file": "src/api/routes/call.router.ts"
       }
     },
+    "/call/mediaTicket/{instanceName}": {
+      "post": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "Media Ticket",
+        "operationId": "post_call_mediaticket_instancename",
+        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/call/mute/{instanceName}": {
       "post": {
         "tags": [

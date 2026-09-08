@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-08T13:32:40.372Z",
+  "generatedAt": "2026-09-08T19:21:20.997Z",
   "version": "1.0.21",
-  "sourceDigest": "e37952300add7f0034badbd8cf1b794fda2f2fd0032e263b3bc0d3e8945c8a09",
+  "sourceDigest": "20cdc08916b0a068699d587448c7091baff424cfd60c122550adf498726e9853",
   "operations": [
     {
       "method": "GET",
@@ -76,6 +76,11 @@
     {
       "method": "GET",
       "path": "/call/list/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/mediaTicket/{instanceName}",
       "source": "src/api/routes/call.router.ts"
     },
     {
