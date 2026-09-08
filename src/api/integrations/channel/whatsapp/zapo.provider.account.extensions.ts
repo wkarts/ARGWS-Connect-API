@@ -2,6 +2,7 @@ import {
   ArchiveChatDto,
   BlockUserDto,
   DeleteMessage,
+  getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
   NumberBusiness,
   PrivacySettingDto,
@@ -11,12 +12,23 @@ import {
 import { Events } from '@api/types/wa.types';
 import type { Database } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
+import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
+import ffmpeg from 'fluent-ffmpeg';
+import mimeTypes from 'mime-types';
+import { PassThrough } from 'stream';
 
 import { ZapoExtendedStartupService } from './zapo.provider.extensions';
+
+type ZapoMediaEnvelope = {
+  typeMessage: string;
+  mediaType: string;
+  message: Record<string, any>;
+  mediaMessage: Record<string, any>;
+};
 
 /**
  * Connect|API account/chat compatibility built only on Zapo's public client
@@ -64,6 +76,60 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
         instanceId: this.instanceId,
         key: { path: prismaJsonPath('id'), equals: messageId },
       },
+    });
+  }
+
+  private unwrapMediaMessage(message: unknown): ZapoMediaEnvelope | null {
+    if (!message || typeof message !== 'object') return null;
+
+    let current = message as Record<string, any>;
+    const wrapperKeys = [
+      'ephemeralMessage',
+      'viewOnceMessage',
+      'viewOnceMessageV2',
+      'viewOnceMessageV2Extension',
+      'documentWithCaptionMessage',
+      'editedMessage',
+    ];
+
+    for (let depth = 0; depth < 8; depth++) {
+      const mediaKeys = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
+      const typeMessage = mediaKeys.find((key) => current?.[key] && typeof current[key] === 'object');
+      if (typeMessage) {
+        const mediaMessage = current[typeMessage] as Record<string, any>;
+        const mediaType = typeMessage.replace(/Message$/, '');
+        return { typeMessage, mediaType, message: current, mediaMessage };
+      }
+
+      const wrapper = wrapperKeys.find((key) => current?.[key]?.message && typeof current[key].message === 'object');
+      if (!wrapper) return null;
+      current = current[wrapper].message;
+    }
+
+    return null;
+  }
+
+  private async convertAudioToMp4(input: Buffer): Promise<Buffer> {
+    ffmpeg.setFfmpegPath(ffmpegPath.path);
+
+    return new Promise<Buffer>((resolve, reject) => {
+      const inputStream = new PassThrough();
+      const outputStream = new PassThrough();
+      const chunks: Buffer[] = [];
+
+      outputStream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      outputStream.on('error', reject);
+
+      ffmpeg(inputStream)
+        .noVideo()
+        .audioCodec('aac')
+        .format('mp4')
+        .outputOptions(['-movflags frag_keyframe+empty_moov'])
+        .on('error', reject)
+        .on('end', () => resolve(Buffer.concat(chunks)))
+        .pipe(outputStream, { end: true });
+
+      inputStream.end(input);
     });
   }
 
@@ -267,6 +333,58 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       throw new InternalServerErrorException('Error updating message', (error as Error)?.toString());
+    }
+  }
+
+  /**
+   * Download media with Zapo's verified media pipeline and preserve the public
+   * Connect|API base64 response contract used by the Baileys provider.
+   */
+  public async getBase64FromMediaMessage(data: getBase64FromMediaMessageDto, getBuffer = false) {
+    try {
+      const input = data?.message as any;
+      const keyId = String(input?.key?.id ?? '').trim();
+      const stored = !input?.message && keyId ? await this.findStoredMessage(keyId) : null;
+      const rawMessage = input?.message ?? stored?.message;
+      if (!rawMessage || typeof rawMessage !== 'object') {
+        throw new BadRequestException('Message not found');
+      }
+
+      const envelope = this.unwrapMediaMessage(rawMessage);
+      if (!envelope) throw new BadRequestException('Message does not contain downloadable media');
+
+      const bytes = await this.connectedClient().message.downloadBytes(envelope.message);
+      let buffer = Buffer.from(bytes);
+      let mimetype = String(envelope.mediaMessage.mimetype ?? 'application/octet-stream');
+
+      if (data?.convertToMp4 === true && envelope.typeMessage === 'audioMessage') {
+        buffer = await this.convertAudioToMp4(buffer);
+        mimetype = 'audio/mp4';
+      }
+
+      const extension = mimeTypes.extension(mimetype) || 'bin';
+      const fileName =
+        String(envelope.mediaMessage.fileName ?? '').trim() ||
+        `${String(input?.key?.id ?? stored?.id ?? Date.now())}.${extension}`;
+
+      return {
+        mediaType: envelope.mediaType,
+        fileName,
+        caption: envelope.mediaMessage.caption,
+        size: {
+          fileLength: envelope.mediaMessage.fileLength ?? buffer.length,
+          height: envelope.mediaMessage.height,
+          width: envelope.mediaMessage.width,
+        },
+        mimetype,
+        base64: buffer.toString('base64'),
+        buffer: getBuffer ? buffer : null,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error('Error processing media message:');
+      this.logger.error(error);
+      throw new InternalServerErrorException('Error processing media message', (error as Error)?.toString());
     }
   }
 
