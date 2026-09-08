@@ -1,0 +1,402 @@
+from pathlib import Path
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'{label}: expected exactly one match, found {count}')
+    return text.replace(old, new, 1)
+
+
+# ---------------------------------------------------------------------------
+# ZAPO base service: remove the old startup-wide LID scan and expose a
+# single-identity store lookup for event/call resolution.
+# ---------------------------------------------------------------------------
+base_path = Path('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts')
+base = base_path.read_text()
+
+base = replace_once(
+    base,
+    '  private lidReconciliationDone = false;\n',
+    '',
+    'remove lidReconciliationDone',
+)
+
+base = replace_once(
+    base,
+    "      void this.reconcileStoredLidAliases().catch((error: Error) => this.logger.error(error));\n",
+    '',
+    'remove startup LID reconciliation',
+)
+
+reconcile_start = base.find('  private async reconcileStoredLidAliases() {')
+reconcile_end = base.find('  private async handleIncomingCall(call: any) {', reconcile_start)
+if reconcile_start < 0 or reconcile_end < 0:
+    raise SystemExit('reconcileStoredLidAliases block boundaries not found')
+base = base[:reconcile_start] + base[reconcile_end:]
+
+profile_anchor = """  public async profilePicture(number: string) {
+    const jid = createJid(number);
+    const result = await this.client.profile.getProfilePicture(jid, 'image').catch(() => ({}));
+    return { wuid: jid, profilePictureUrl: result?.url ?? null };
+  }
+
+"""
+targeted_lookup = """  public async profilePicture(number: string) {
+    const jid = createJid(number);
+    const result = await this.client.profile.getProfilePicture(jid, 'image').catch(() => ({}));
+    return { wuid: jid, profilePictureUrl: result?.url ?? null };
+  }
+
+  /**
+   * Resolve only one identity against ZAPO's persisted contact mailbox.
+   * This intentionally avoids history/contact scans in the call hot path.
+   */
+  protected async findStoredZapoContactIdentityRows(identityJid: string): Promise<any[]> {
+    const pool = this.storeBackend?.pool;
+    if (!pool || !this.instanceId) return [];
+
+    const normalized = this.normalizeDeviceJid(String(identityJid || ''));
+    if (!normalized) return [];
+
+    const prefix = process.env.ZAPO_STORE_TABLE_PREFIX || 'zapo_';
+    if (!/^[A-Za-z0-9_]*$/.test(prefix)) {
+      this.logger.warn('ZAPO_STORE_TABLE_PREFIX contains unsafe characters; targeted identity lookup skipped');
+      return [];
+    }
+
+    const tableName = `${prefix}mailbox_contacts`;
+    const exists = await pool.query('SELECT to_regclass($1) AS table_name', [tableName]);
+    if (!exists.rows?.[0]?.table_name) return [];
+
+    const user = normalized.split('@')[0];
+    const candidates = [...new Set([normalized, user].filter(Boolean))];
+    const result = await pool.query(
+      `SELECT jid, display_name, push_name, lid, phone_number
+       FROM "${tableName}"
+       WHERE session_id = $1
+         AND (
+           jid::text = ANY($2::text[])
+           OR lid::text = ANY($2::text[])
+           OR phone_number::text = ANY($2::text[])
+         )
+       LIMIT 8`,
+      [this.instanceId, candidates],
+    );
+    return result.rows || [];
+  }
+
+"""
+base = replace_once(base, profile_anchor, targeted_lookup, 'insert targeted ZAPO identity lookup')
+base_path.write_text(base)
+
+
+# ---------------------------------------------------------------------------
+# ZAPO identity adapter: resolve an unresolved incoming LID on demand, cache
+# the result briefly, and keep repeated alias events O(1).
+# ---------------------------------------------------------------------------
+identity_path = Path('src/api/integrations/channel/whatsapp/zapo.identity.extensions.ts')
+identity = identity_path.read_text()
+
+hint_type = """type NativeCallIdentityHint = {
+  phoneJid?: string;
+  lidJid?: string;
+  pushName?: string;
+  observedAt: number;
+};
+
+"""
+extended_types = hint_type + """type StoredCallIdentityLookup = {
+  phoneJid?: string;
+  lidJid?: string;
+  name?: string;
+  avatar?: string;
+};
+
+"""
+identity = replace_once(identity, hint_type, extended_types, 'add stored call identity type')
+
+field_anchor = '  private readonly nativeIdentityBoundClients = new WeakSet<object>();\n'
+field_block = field_anchor + """  private readonly callIdentityLookupCache = new Map<
+    string,
+    { expiresAt: number; value: StoredCallIdentityLookup | null }
+  >();
+  private readonly callIdentityLookupPromises = new Map<string, Promise<StoredCallIdentityLookup | null>>();
+  private readonly callIdentityLookupTtlMs = 30_000;
+"""
+identity = replace_once(identity, field_anchor, field_block, 'add targeted call lookup cache')
+
+call_listener = """    client.on('call', (event: any) => {
+      void this.handleNativeCallIdentity(event).catch((error: Error) => this.logger.error(error));
+    });
+
+"""
+call_listeners = call_listener + """    // Some ZAPO versions expose PN only on the VOIP incoming event. Feed the
+    // same canonical resolver without creating a second call-processing flow.
+    client.on('voip_call_incoming', (event: any) => {
+      void this.handleNativeCallIdentity(event).catch((error: Error) => this.logger.error(error));
+    });
+
+"""
+identity = replace_once(identity, call_listener, call_listeners, 'bind VOIP call identity event')
+
+old_hint = """    const phoneJid = zapoPhoneJid(event?.callerPnJid || event?.callerPn) || previous?.phoneJid;
+    const lidJid =
+      zapoKnownLidJid(event?.senderLidJid) ||
+      zapoLidJid(event?.callCreatorJid) ||
+      zapoLidJid(event?.chatJid) ||
+      previous?.lidJid;
+"""
+new_hint = """    const phoneJid =
+      zapoPhoneJid(
+        event?.callerPnJid || event?.callerPn || event?.displayPeerJid || event?.peerJidAlt || event?.remoteJid,
+      ) || previous?.phoneJid;
+    const lidJid =
+      zapoKnownLidJid(event?.senderLidJid) ||
+      zapoLidJid(event?.peerJid) ||
+      zapoLidJid(event?.callCreatorJid) ||
+      zapoLidJid(event?.chatJid) ||
+      previous?.lidJid;
+"""
+identity = replace_once(identity, old_hint, new_hint, 'widen native call identity sources')
+
+old_inbound = """    const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
+    const isInboundIdentity =
+      !isOwnPeer &&
+      Boolean(phoneJid) &&
+      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) || Boolean(event?.callerPushName));
+"""
+new_inbound = """    const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
+    const eventDirection = String(event?.direction || '').toLowerCase();
+    const isInboundIdentity =
+      !isOwnPeer &&
+      Boolean(phoneJid) &&
+      (['offer', 'notify', 'incoming', 'inbound'].includes(eventType) ||
+        eventDirection === 'incoming' ||
+        Boolean(event?.callerPushName));
+"""
+identity = replace_once(identity, old_inbound, new_inbound, 'recognize VOIP incoming direction')
+
+old_signature = '  private async persistNativeContactHint(phoneJid: string, pushName?: string): Promise<void> {\n'
+new_signature = (
+    '  private async persistNativeContactHint(\n'
+    '    phoneJid: string,\n'
+    '    pushName?: string,\n'
+    '    knownProfilePicUrl?: string,\n'
+    '  ): Promise<void> {\n'
+)
+identity = replace_once(identity, old_signature, new_signature, 'extend persisted call hint')
+identity = replace_once(
+    identity,
+    '    let profilePicUrl = existing?.profilePicUrl || undefined;\n',
+    '    let profilePicUrl = knownProfilePicUrl || existing?.profilePicUrl || undefined;\n',
+    'use known profile picture',
+)
+
+stored_anchor = '  private async storedCallIdentity(phoneJid: string): Promise<ContactIdentity | undefined> {\n'
+lookup_methods = """  private async lookupStoredCallIdentity(identityJid: string): Promise<StoredCallIdentityLookup | null> {
+    const normalized = zapoTryNormalizeJid(identityJid);
+    if (!normalized) return null;
+
+    const key = this.identityKey(normalized);
+    const now = Date.now();
+    const cached = this.callIdentityLookupCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    const inFlight = this.callIdentityLookupPromises.get(key);
+    if (inFlight) return inFlight;
+
+    const pending = (async (): Promise<StoredCallIdentityLookup | null> => {
+      const rows = await this.findStoredZapoContactIdentityRows(normalized).catch((error: Error) => {
+        this.logger.debug?.(`ZAPO targeted identity lookup failed: ${error?.message || error}`);
+        return [];
+      });
+
+      const storedContact = this.instanceId
+        ? await this.prismaRepository.contact
+            .findUnique({
+              where: { remoteJid_instanceId: { remoteJid: normalized, instanceId: this.instanceId } },
+            })
+            .catch(() => null)
+        : null;
+
+      let phoneJid = zapoPhoneJid(normalized) || undefined;
+      let lidJid = zapoLidJid(normalized) || undefined;
+      let name = this.sanitizeRemoteName(storedContact?.pushName);
+      let avatar = storedContact?.profilePicUrl || undefined;
+
+      for (const row of rows as ZapoContactIdentityRow[]) {
+        const rowJid = zapoTryNormalizeJid(row.jid);
+        const rowPhoneJid = zapoPhoneJid(row.phone_number) || zapoPhoneJid(rowJid) || undefined;
+        const rowLidJid = zapoKnownLidJid(row.lid) || zapoLidJid(rowJid) || undefined;
+        phoneJid ||= rowPhoneJid;
+        lidJid ||= rowLidJid;
+        name ||= this.sanitizeRemoteName(row.display_name) || this.sanitizeRemoteName(row.push_name);
+      }
+
+      const pictureJid = phoneJid || lidJid || normalized;
+      if (!avatar && this.connectionStatus?.state === 'open' && pictureJid) {
+        for (const type of ['image', 'preview'] as const) {
+          const picture = await this.client?.profile?.getProfilePicture?.(pictureJid, type).catch(() => null);
+          if (picture?.url) {
+            avatar = picture.url;
+            break;
+          }
+        }
+      }
+
+      if (!phoneJid && !lidJid && !name && !avatar) return null;
+      return { phoneJid, lidJid, name, avatar };
+    })();
+
+    this.callIdentityLookupPromises.set(key, pending);
+    try {
+      const value = await pending;
+      this.callIdentityLookupCache.set(key, { expiresAt: Date.now() + this.callIdentityLookupTtlMs, value });
+      return value;
+    } finally {
+      if (this.callIdentityLookupPromises.get(key) === pending) this.callIdentityLookupPromises.delete(key);
+    }
+  }
+
+""" + stored_anchor
+identity = replace_once(identity, stored_anchor, lookup_methods, 'insert targeted call identity lookup')
+
+enrich_start = identity.find('  private async enrichCall(call: any) {')
+class_end = identity.rfind('\n}')
+if enrich_start < 0 or class_end < enrich_start:
+    raise SystemExit('enrichCall block boundaries not found')
+
+new_enrich = """  private async enrichCall(call: any) {
+    if (!call || typeof call !== 'object') return call;
+
+    this.pruneCallHints();
+    const callId = call?.callId ? String(call.callId) : '';
+    const hint = callId ? this.nativeCallHints.get(callId) : undefined;
+    const resolvedPeer = this.resolveCallPeer(call);
+    let phoneJid = zapoPhoneJid(resolvedPeer) || undefined;
+    const rawPeerJid = zapoTryNormalizeJid(call.peerJidRaw || call.peerJid || call.displayPeerJid);
+    let rawLidJid = hint?.lidJid || zapoLidJid(rawPeerJid) || undefined;
+
+    let targetedIdentity: StoredCallIdentityLookup | null = null;
+    if (!phoneJid && rawLidJid) {
+      targetedIdentity = await this.lookupStoredCallIdentity(rawLidJid);
+      phoneJid = targetedIdentity?.phoneJid || phoneJid;
+      rawLidJid = targetedIdentity?.lidJid || rawLidJid;
+    }
+
+    if (rawLidJid && phoneJid) {
+      const mapping = this.rememberAlias(rawLidJid, phoneJid);
+      if (mapping?.changed) {
+        void this.mergeCanonicalIdentityRecords(rawLidJid, phoneJid).catch((error: Error) =>
+          this.logger.warn(`ZAPO call identity merge failed: ${error?.message || error}`),
+        );
+      }
+    }
+
+    let contact = phoneJid ? await this.storedCallIdentity(phoneJid) : undefined;
+    if (!targetedIdentity && (rawLidJid || (phoneJid && (!contact?.name || !contact?.avatar)))) {
+      targetedIdentity = await this.lookupStoredCallIdentity(rawLidJid || phoneJid!);
+      if (!phoneJid && targetedIdentity?.phoneJid) phoneJid = targetedIdentity.phoneJid;
+      rawLidJid = targetedIdentity?.lidJid || rawLidJid;
+      if (phoneJid && !contact) contact = await this.storedCallIdentity(phoneJid);
+    }
+
+    const hintedName =
+      String(call?.direction || '').toLowerCase() === 'incoming' ? this.sanitizeRemoteName(hint?.pushName) : undefined;
+    const contactName = contact?.name || targetedIdentity?.name || hintedName || this.safeRemoteCallName(call);
+
+    let profilePicUrl = contact?.avatar || targetedIdentity?.avatar;
+    if (
+      phoneJid &&
+      !profilePicUrl &&
+      this.connectionStatus?.state === 'open' &&
+      this.shouldRefreshProfilePicture(phoneJid)
+    ) {
+      const picture = await this.profilePicture(phoneJid).catch(() => null);
+      profilePicUrl = picture?.profilePictureUrl || undefined;
+    }
+
+    if (callId && (phoneJid || rawLidJid || contactName)) {
+      this.nativeCallHints.set(callId, {
+        phoneJid: phoneJid || hint?.phoneJid,
+        lidJid: rawLidJid || hint?.lidJid,
+        pushName: contactName || hint?.pushName,
+        observedAt: Date.now(),
+      });
+    }
+
+    if (phoneJid && (contactName || profilePicUrl)) {
+      void this.persistNativeContactHint(phoneJid, contactName, profilePicUrl).catch((error: Error) =>
+        this.logger.debug?.(`Unable to persist resolved call identity: ${error?.message || error}`),
+      );
+    }
+
+    const phoneNumber = phoneJid ? zapoJidUser(phoneJid) || undefined : undefined;
+    const identityResolved = Boolean(phoneJid || contactName || profilePicUrl);
+    return {
+      ...call,
+      peerJid: phoneJid || rawPeerJid || call.peerJid,
+      displayPeerJid: phoneJid || undefined,
+      peerJidRaw: rawPeerJid || call.peerJidRaw,
+      peerJidAlt: rawLidJid || call.peerJidAlt,
+      callerPnJid: phoneJid || call.callerPnJid,
+      senderLidJid: rawLidJid || call.senderLidJid,
+      number: phoneNumber,
+      name: contactName,
+      pushName: contactName,
+      contactName,
+      profilePicUrl,
+      identityResolved,
+      phoneResolved: Boolean(phoneJid),
+      contactResolved: Boolean(contact || targetedIdentity),
+      identitySource: phoneJid
+        ? hint?.phoneJid
+          ? 'zapo-call'
+          : rawLidJid
+            ? 'zapo-store-lid-map'
+            : 'zapo-pn'
+        : targetedIdentity
+          ? 'zapo-store-lid'
+          : 'unresolved-lid',
+    };
+  }
+"""
+identity = identity[:enrich_start] + new_enrich + identity[class_end:]
+identity_path.write_text(identity)
+
+
+# ---------------------------------------------------------------------------
+# DOCs: generated document logos must be relative so the same image works at
+# / and when proxied below /manager/docs/.
+# ---------------------------------------------------------------------------
+generator_path = Path('docs/scripts/generate-openapi.mjs')
+generator = generator_path.read_text()
+for old, new in [
+    ('![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)', '![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)'),
+    ('![Connect|API Meta](/openapi/branding/docs/connect-api-meta-light.png)', '![Connect|API Meta](openapi/branding/docs/connect-api-meta-light.png)'),
+    ('![Connect|API Events](/openapi/branding/docs/connect-api-events-light.png)', '![Connect|API Events](openapi/branding/docs/connect-api-events-light.png)'),
+]:
+    generator = replace_once(generator, old, new, f'generator asset {old}')
+generator_path.write_text(generator)
+
+for path in [
+    Path('docs/openapi/connect-api.openapi.json'),
+    Path('docs/openapi/meta-compatible.openapi.json'),
+    Path('docs/asyncapi/connect-api-events.asyncapi.json'),
+]:
+    content = path.read_text()
+    content = content.replace('](/openapi/branding/docs/', '](openapi/branding/docs/')
+    path.write_text(content)
+
+topology_path = Path('docs/DOCS-DEPLOYMENT-TOPOLOGY.md')
+topology = topology_path.read_text()
+marker = '### Assets e branding no modo interno\n'
+if marker not in topology:
+    topology += """
+
+### Assets e branding no modo interno
+
+Os documentos OpenAPI/AsyncAPI usam caminhos relativos para os assets de branding. Assim, a mesma imagem DOCs resolve logos e demais recursos tanto na raiz de um deployment standalone quanto sob `/manager/docs/` no acesso interno same-origin, sem depender de um hostname externo de documentação.
+"""
+topology_path.write_text(topology)
