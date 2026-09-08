@@ -2,12 +2,12 @@
 
 ## DOCs integradas por ambiente
 
-| Ambiente     | Porta local DOCs | Imagem                                       | URL pública padrão                    |
-| ------------ | ---------------: | -------------------------------------------- | ------------------------------------- |
-| Production   |          `38180` | `ghcr.io/wkarts/argws-connect-docs:latest`   | `https://docs.connect.argws.com.br`   |
-| Homologation |          `38181` | `ghcr.io/wkarts/argws-connect-docs:develop`  | `https://docs.connect.argws.com.br`   |
-| Develop      |          `38182` | `ghcr.io/wkarts/argws-connect-docs:develop`  | `https://d.docs.connect.argws.com.br` |
-| Canonical    |          `38183` | `ghcr.io/wkarts/argws-connect-docs:<SemVer>` | `https://docs.connect.argws.com.br`   |
+| Ambiente | Porta local DOCs | Imagem | URL pública padrão |
+|---|---:|---|---|
+| Production | `38180` | `ghcr.io/wkarts/argws-connect-docs:latest` | `https://docs.connect.argws.com.br` |
+| Homologation | `38181` | `ghcr.io/wkarts/argws-connect-docs:develop` | `https://docs.connect.argws.com.br` |
+| Develop | `38182` | `ghcr.io/wkarts/argws-connect-docs:develop` | `https://d.docs.connect.argws.com.br` |
+| Canonical | `38183` | `ghcr.io/wkarts/argws-connect-docs:<SemVer>` | `https://docs.connect.argws.com.br` |
 
 CloudPanel e Dockge seguem o canal estável e apontam por padrão para `https://docs.connect.argws.com.br` quando a publicação pública independente estiver habilitada.
 

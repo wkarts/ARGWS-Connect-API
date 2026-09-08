@@ -57,34 +57,11 @@ function operationId(method, apiPath) {
 function tagFromPath(apiPath, sourceFile) {
   const segment = apiPath.split('/').filter(Boolean)[0];
   const map = {
-    instance: 'Instances',
-    message: 'Messages',
-    chat: 'Chats & Contacts',
-    group: 'Groups',
-    business: 'Business',
-    call: 'Calls',
-    template: 'Templates',
-    settings: 'Settings',
-    proxy: 'Proxy',
-    label: 'Labels',
-    webhook: 'Webhooks',
-    websocket: 'WebSocket',
-    rabbitmq: 'RabbitMQ',
-    nats: 'NATS',
-    pusher: 'Pusher',
-    sqs: 'SQS',
-    kafka: 'Kafka',
-    s3: 'Storage',
-    storage: 'Storage',
-    minio: 'Storage',
-    chatbot: 'Chatbots',
-    typebot: 'Chatbots',
-    openai: 'Chatbots',
-    dify: 'Chatbots',
-    flowise: 'Chatbots',
-    n8n: 'Chatbots',
-    evoai: 'Chatbots',
-    connectai: 'Chatbots',
+    instance: 'Instances', message: 'Messages', chat: 'Chats & Contacts', group: 'Groups', business: 'Business',
+    call: 'Calls', template: 'Templates', settings: 'Settings', proxy: 'Proxy', label: 'Labels', webhook: 'Webhooks',
+    websocket: 'WebSocket', rabbitmq: 'RabbitMQ', nats: 'NATS', pusher: 'Pusher', sqs: 'SQS', kafka: 'Kafka',
+    s3: 'Storage', storage: 'Storage', minio: 'Storage', chatbot: 'Chatbots', typebot: 'Chatbots', openai: 'Chatbots',
+    dify: 'Chatbots', flowise: 'Chatbots', n8n: 'Chatbots', evoai: 'Chatbots', connectai: 'Chatbots',
     compat: 'Meta Compatible Admin',
   };
   if (map[segment]) return map[segment];
@@ -104,10 +81,7 @@ function pathParameters(apiPath) {
       in: 'path',
       required: true,
       schema: { type: 'string', minLength: 1 },
-      description:
-        name === 'instanceName'
-          ? 'Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição.'
-          : `Parâmetro de rota ${name}.`,
+      description: name === 'instanceName' ? 'Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição.' : `Parâmetro de rota ${name}.`,
     });
   }
   return params;
@@ -127,8 +101,7 @@ function parseRouterFile(file) {
   const mountRegex = /\.use\(\s*['"]([^'"]*)['"]\s*,\s*new\s+([A-Za-z0-9_]+)\s*\(/gms;
   for (const match of source.matchAll(mountRegex)) mounts.push({ prefix: match[1], child: match[2] });
 
-  const routerPathRegex =
-    /\.(get|post|put|patch|delete)\(\s*this\.routerPath\(\s*['"]([^'"]+)['"]\s*(?:,\s*(false|true))?\s*\)/gims;
+  const routerPathRegex = /\.(get|post|put|patch|delete)\(\s*this\.routerPath\(\s*['"]([^'"]+)['"]\s*(?:,\s*(false|true))?\s*\)/gims;
   for (const match of source.matchAll(routerPathRegex)) {
     const method = match[1].toLowerCase();
     const operation = match[2];
@@ -204,11 +177,7 @@ function discoverRoutes() {
     const effectivePrefixes = classPrefixes?.size ? [...classPrefixes] : ['/'];
     for (const prefix of effectivePrefixes) {
       for (const endpoint of item.endpoints) {
-        discovered.push({
-          ...endpoint,
-          apiPath: joinPaths(prefix, endpoint.localPath),
-          className: item.className || path.basename(item.file),
-        });
+        discovered.push({ ...endpoint, apiPath: joinPaths(prefix, endpoint.localPath), className: item.className || path.basename(item.file) });
       }
     }
   }
@@ -218,9 +187,7 @@ function discoverRoutes() {
     const key = `${route.method.toUpperCase()} ${route.apiPath}`;
     if (!unique.has(key)) unique.set(key, route);
   }
-  return [...unique.values()].sort((a, b) =>
-    a.apiPath === b.apiPath ? a.method.localeCompare(b.method) : a.apiPath.localeCompare(b.apiPath),
-  );
+  return [...unique.values()].sort((a, b) => a.apiPath === b.apiPath ? a.method.localeCompare(b.method) : a.apiPath.localeCompare(b.apiPath));
 }
 
 const requestOverrides = {
@@ -232,12 +199,7 @@ const requestOverrides = {
       content: {
         'application/json': {
           schema: { $ref: '#/components/schemas/CreateInstanceRequest' },
-          examples: {
-            baileys: {
-              summary: 'WHATSAPP-BAILEYS',
-              value: { instanceName: 'minha-instancia', integration: 'WHATSAPP-BAILEYS', qrcode: true },
-            },
-          },
+          examples: { baileys: { summary: 'WHATSAPP-BAILEYS', value: { instanceName: 'minha-instancia', integration: 'WHATSAPP-BAILEYS', qrcode: true } } },
         },
       },
     },
@@ -245,24 +207,12 @@ const requestOverrides = {
   'GET /instance/connect/{instanceName}': {
     summary: 'Conectar instância',
     description: 'Obtém QR Code ou, quando `number` é informado, código de pareamento para a instância.',
-    parameters: [
-      {
-        name: 'number',
-        in: 'query',
-        required: false,
-        schema: { type: 'string' },
-        description: 'Telefone internacional somente com dígitos para gerar código de pareamento.',
-      },
-    ],
+    parameters: [{ name: 'number', in: 'query', required: false, schema: { type: 'string' }, description: 'Telefone internacional somente com dígitos para gerar código de pareamento.' }],
   },
-  'DELETE /instance/delete/{instanceName}': {
-    summary: 'Excluir instância definitivamente',
-    description: 'Remove a instância e os dados persistidos associados segundo o ciclo de limpeza atual.',
-  },
+  'DELETE /instance/delete/{instanceName}': { summary: 'Excluir instância definitivamente', description: 'Remove a instância e os dados persistidos associados segundo o ciclo de limpeza atual.' },
   'POST /instance/migrateProvider/{instanceName}': {
     summary: 'Converter provider da sessão',
-    description:
-      'Converte uma sessão pareada entre WHATSAPP-BAILEYS e WHATSAPP-ZAPO por snapshot. A operação fecha o provider de origem sem logout, converte o estado, valida o destino e restaura a origem automaticamente se a nova sessão não abrir. Use `dryRun: true` para validar perdas sem interromper a conexão.',
+    description: 'Converte uma sessão pareada entre WHATSAPP-BAILEYS e WHATSAPP-ZAPO por snapshot. A operação fecha o provider de origem sem logout, converte o estado, valida o destino e restaura a origem automaticamente se a nova sessão não abrir. Use `dryRun: true` para validar perdas sem interromper a conexão.',
     requestBody: {
       required: true,
       content: {
@@ -279,15 +229,7 @@ const requestOverrides = {
   },
   'POST /message/sendText/{instanceName}': {
     summary: 'Enviar mensagem de texto',
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: { $ref: '#/components/schemas/SendTextRequest' },
-          example: { number: '5575999999999', text: 'Olá pelo Connect|API' },
-        },
-      },
-    },
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SendTextRequest' }, example: { number: '5575999999999', text: 'Olá pelo Connect|API' } } } },
   },
   'POST /message/sendMedia/{instanceName}': {
     summary: 'Enviar mídia',
@@ -298,14 +240,7 @@ const requestOverrides = {
         'multipart/form-data': {
           schema: {
             type: 'object',
-            properties: {
-              number: { type: 'string' },
-              mediatype: { type: 'string', enum: ['image', 'video', 'document'] },
-              mimetype: { type: 'string' },
-              caption: { type: 'string' },
-              fileName: { type: 'string' },
-              file: { type: 'string', format: 'binary' },
-            },
+            properties: { number: { type: 'string' }, mediatype: { type: 'string', enum: ['image', 'video', 'document'] }, mimetype: { type: 'string' }, caption: { type: 'string' }, fileName: { type: 'string' }, file: { type: 'string', format: 'binary' } },
             required: ['number', 'file'],
           },
         },
@@ -313,28 +248,18 @@ const requestOverrides = {
       },
     },
   },
-  'POST /chat/markMessageAsRead/{instanceName}': {
-    summary: 'Marcar mensagem como lida',
-    requestBody: {
-      required: true,
-      content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageKeyRequest' } } },
-    },
-  },
+  'POST /chat/markMessageAsRead/{instanceName}': { summary: 'Marcar mensagem como lida', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageKeyRequest' } } } } },
   'GET /health': { summary: 'Healthcheck da API', security: [] },
   'GET /': { summary: 'Informações da API', security: [] },
   'POST /verify-creds': { summary: 'Validar credenciais da API' },
   'GET /compat/meta/{instanceName}': {
     summary: 'Consultar Meta Compatible',
-    description:
-      'Retorna a identidade Graph derivada da instância e a configuração opcional do webhook Meta Compatible.',
+    description: 'Retorna a identidade Graph derivada da instância e a configuração opcional do webhook Meta Compatible.',
     responses: {
-      200: {
-        description: 'Identidade Meta Compatible da instância.',
-        content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaCompatibilityConfig' } } },
-      },
-      400: { $ref: '#/components/responses/BadRequest' },
-      401: { $ref: '#/components/responses/Unauthorized' },
-      404: { $ref: '#/components/responses/NotFound' },
+      '200': { description: 'Identidade Meta Compatible da instância.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaCompatibilityConfig' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
     },
   },
   'PUT /compat/meta/{instanceName}': {
@@ -349,13 +274,10 @@ const requestOverrides = {
       },
     },
     responses: {
-      200: {
-        description: 'Configuração Meta Compatible atualizada.',
-        content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaCompatibilityConfig' } } },
-      },
-      400: { $ref: '#/components/responses/BadRequest' },
-      401: { $ref: '#/components/responses/Unauthorized' },
-      404: { $ref: '#/components/responses/NotFound' },
+      '200': { description: 'Configuração Meta Compatible atualizada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaCompatibilityConfig' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
     },
   },
 };
@@ -379,8 +301,7 @@ function nativeSpec(routes, version) {
   for (const route of routes.filter((r) => !r.apiPath.startsWith('/graph/'))) {
     const key = `${route.method.toUpperCase()} ${route.apiPath}`;
     const params = pathParameters(route.apiPath);
-    const successDescription =
-      route.method === 'post' ? 'Operação aceita/criada com sucesso.' : 'Operação concluída com sucesso.';
+    const successDescription = route.method === 'post' ? 'Operação aceita/criada com sucesso.' : 'Operação concluída com sucesso.';
     const base = {
       tags: [tagFromPath(route.apiPath, route.sourceFile)],
       summary: humanize(route.operation),
@@ -389,25 +310,16 @@ function nativeSpec(routes, version) {
       parameters: params.length ? params : undefined,
       security: route.apiPath === '/' || route.apiPath === '/health' ? [] : [{ apiKey: [] }],
       responses: {
-        200: {
-          description: successDescription,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/GenericResponse' } } },
-        },
-        201: {
-          description: successDescription,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/GenericResponse' } } },
-        },
-        400: { $ref: '#/components/responses/BadRequest' },
-        401: { $ref: '#/components/responses/Unauthorized' },
-        404: { $ref: '#/components/responses/NotFound' },
+        '200': { description: successDescription, content: { 'application/json': { schema: { $ref: '#/components/schemas/GenericResponse' } } } },
+        '201': { description: successDescription, content: { 'application/json': { schema: { $ref: '#/components/schemas/GenericResponse' } } } },
+        '400': { $ref: '#/components/responses/BadRequest' },
+        '401': { $ref: '#/components/responses/Unauthorized' },
+        '404': { $ref: '#/components/responses/NotFound' },
       },
       'x-source-file': route.sourceFile,
     };
     if (route.method !== 'get' && route.apiPath !== '/verify-creds') {
-      base.requestBody = {
-        required: false,
-        content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } },
-      };
+      base.requestBody = { required: false, content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } } };
     }
     const operation = mergeOperation(base, requestOverrides[key]);
     Object.keys(operation).forEach((prop) => operation[prop] === undefined && delete operation[prop]);
@@ -422,145 +334,41 @@ function nativeSpec(routes, version) {
       version,
       summary: 'Referência interativa da API nativa do Connect|API.',
       description: [
-        '![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)',
-        '',
-        'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.',
-        '',
-        '### Autenticação',
-        'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.',
-        '',
-        '### Providers',
-        '- `WHATSAPP-BUSINESS`',
-        '- `WHATSAPP-BAILEYS`',
-        '- `WHATSAPP-ZAPO`',
-        '',
-        '### Atualização automática',
-        'Este documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado.',
+        '![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)', '',
+        'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.', '',
+        '### Autenticação', 'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.', '',
+        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `WHATSAPP-ZAPO`', '',
+        '### Atualização automática', 'Este documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado.',
       ].join('\n'),
     },
-    servers: [
-      { url: 'https://d.api.connect.argws.com.br', description: 'Develop / homologação' },
-      { url: 'http://localhost:38080', description: 'Docker local' },
-    ],
+    servers: [{ url: 'https://d.api.connect.argws.com.br', description: 'Develop / homologação' }, { url: 'http://localhost:38080', description: 'Docker local' }],
     tags: [
-      { name: 'Core', description: 'Healthcheck, descoberta e utilidades globais.' },
-      { name: 'Instances', description: 'Criação, conexão, estado, logout, restart e exclusão.' },
-      {
-        name: 'Messages',
-        description: 'Texto, mídia, áudio, PTV, sticker, localização, contatos, reações, enquetes, listas e botões.',
-      },
-      {
-        name: 'Chats & Contacts',
-        description: 'Chats, contatos, mensagens persistidas, perfil, presença e privacidade.',
-      },
-      { name: 'Groups', description: 'Criação e administração de grupos.' },
-      { name: 'Business', description: 'Recursos business suportados pelo provider.' },
-      { name: 'Calls', description: 'Recursos de chamadas.' },
-      { name: 'Templates', description: 'Templates oficiais quando suportados.' },
-      { name: 'Settings', description: 'Configurações por instância.' },
-      { name: 'Proxy', description: 'Proxy por instância.' },
-      { name: 'Labels', description: 'Labels e associações.' },
-      { name: 'Webhooks', description: 'Configuração e recebimento de webhooks.' },
-      { name: 'WebSocket', description: 'Eventos via WebSocket.' },
-      { name: 'RabbitMQ', description: 'Eventos via RabbitMQ.' },
-      { name: 'NATS', description: 'NATS opcional.' },
-      { name: 'Pusher', description: 'Pusher opcional.' },
-      { name: 'SQS', description: 'AWS SQS opcional.' },
-      { name: 'Kafka', description: 'Kafka opcional.' },
-      { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' },
-      { name: 'Chatbots', description: 'Integrações de chatbot/automação.' },
-      { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
-      {
-        name: 'Meta Compatible Admin',
-        description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.',
-      },
+      { name: 'Core', description: 'Healthcheck, descoberta e utilidades globais.' }, { name: 'Instances', description: 'Criação, conexão, estado, logout, restart e exclusão.' },
+      { name: 'Messages', description: 'Texto, mídia, áudio, PTV, sticker, localização, contatos, reações, enquetes, listas e botões.' },
+      { name: 'Chats & Contacts', description: 'Chats, contatos, mensagens persistidas, perfil, presença e privacidade.' }, { name: 'Groups', description: 'Criação e administração de grupos.' },
+      { name: 'Business', description: 'Recursos business suportados pelo provider.' }, { name: 'Calls', description: 'Recursos de chamadas.' }, { name: 'Templates', description: 'Templates oficiais quando suportados.' },
+      { name: 'Settings', description: 'Configurações por instância.' }, { name: 'Proxy', description: 'Proxy por instância.' }, { name: 'Labels', description: 'Labels e associações.' },
+      { name: 'Webhooks', description: 'Configuração e recebimento de webhooks.' }, { name: 'WebSocket', description: 'Eventos via WebSocket.' }, { name: 'RabbitMQ', description: 'Eventos via RabbitMQ.' },
+      { name: 'NATS', description: 'NATS opcional.' }, { name: 'Pusher', description: 'Pusher opcional.' }, { name: 'SQS', description: 'AWS SQS opcional.' }, { name: 'Kafka', description: 'Kafka opcional.' },
+      { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' }, { name: 'Chatbots', description: 'Integrações de chatbot/automação.' }, { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
+      { name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },
     ],
     paths,
     components: {
-      securitySchemes: {
-        apiKey: {
-          type: 'apiKey',
-          in: 'header',
-          name: 'apikey',
-          description: 'Chave global da API ou token autorizado da instância.',
-        },
-      },
+      securitySchemes: { apiKey: { type: 'apiKey', in: 'header', name: 'apikey', description: 'Chave global da API ou token autorizado da instância.' } },
       schemas: {
         ...metaCompatibilityAdminSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
-        ErrorResponse: {
-          type: 'object',
-          additionalProperties: true,
-          properties: {
-            status: { type: ['integer', 'string', 'null'] },
-            error: { type: ['string', 'boolean', 'object', 'null'] },
-            message: { type: ['string', 'array', 'null'] },
-          },
-        },
-        CreateInstanceRequest: {
-          type: 'object',
-          properties: {
-            instanceName: { type: 'string' },
-            integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] },
-            token: { type: 'string' },
-            number: { type: 'string' },
-            qrcode: { type: 'boolean' },
-            syncFullHistory: { type: 'boolean' },
-          },
-          required: ['instanceName'],
-          additionalProperties: true,
-        },
-        ProviderMigrationRequest: {
-          type: 'object',
-          properties: {
-            targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] },
-            dryRun: { type: 'boolean', default: false },
-          },
-          required: ['targetProvider'],
-          additionalProperties: false,
-        },
-        SendTextRequest: {
-          type: 'object',
-          properties: {
-            number: { type: 'string' },
-            text: { type: 'string' },
-            delay: { type: 'integer', minimum: 0 },
-            linkPreview: { type: 'boolean' },
-            mentionsEveryOne: { type: 'boolean' },
-            mentioned: { type: 'array', items: { type: 'string' } },
-            quoted: { type: 'object', additionalProperties: true },
-          },
-          required: ['number', 'text'],
-          additionalProperties: true,
-        },
-        MessageKeyRequest: {
-          type: 'object',
-          properties: {
-            readMessages: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } },
-                required: ['remoteJid', 'id'],
-              },
-            },
-          },
-          additionalProperties: true,
-        },
+        ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
+        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
+        ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
+        SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
+        MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
       },
       responses: {
-        BadRequest: {
-          description: 'Requisição inválida.',
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
-        },
-        Unauthorized: {
-          description: 'Credencial inválida ou ausente.',
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
-        },
-        NotFound: {
-          description: 'Recurso ou instância não encontrado.',
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
-        },
+        BadRequest: { description: 'Requisição inválida.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        Unauthorized: { description: 'Credencial inválida ou ausente.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        NotFound: { description: 'Recurso ou instância não encontrado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
       },
     },
   };
@@ -570,191 +378,51 @@ function graphSpec(version) {
   return {
     openapi: '3.1.0',
     info: {
-      title: 'Connect|API — Meta Compatible /graph',
-      version,
-      summary: 'Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.',
+      title: 'Connect|API — Meta Compatible /graph', version, summary: 'Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.',
       description: [
-        '![Connect|API Meta](openapi/branding/docs/connect-api-meta-light.png)',
-        '',
-        'Fachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.',
-        '',
+        '![Connect|API Meta](openapi/branding/docs/connect-api-meta-light.png)', '',
+        'Fachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.', '',
         'A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão.',
       ].join('\n'),
     },
-    servers: [
-      { url: 'https://d.api.connect.argws.com.br/graph', description: 'Develop / homologação' },
-      { url: 'http://localhost:38080/graph', description: 'Docker local' },
-    ],
+    servers: [{ url: 'https://d.api.connect.argws.com.br/graph', description: 'Develop / homologação' }, { url: 'http://localhost:38080/graph', description: 'Docker local' }],
     tags: [{ name: 'Messages' }, { name: 'Media' }, { name: 'Templates' }],
     paths: {
       '/{version}/{phoneNumberId}/messages': {
         post: {
-          tags: ['Messages'],
-          summary: 'Enviar mensagem compatível com Meta',
-          operationId: 'meta_send_message',
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: 'version',
-              in: 'path',
-              required: true,
-              schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' },
-              example: 'v20.0',
-            },
-            { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/MetaMessageRequest' },
-                examples: {
-                  text: {
-                    value: {
-                      messaging_product: 'whatsapp',
-                      recipient_type: 'individual',
-                      to: '5575999999999',
-                      type: 'text',
-                      text: { body: 'Olá pelo /graph' },
-                    },
-                  },
-                  reaction: {
-                    value: {
-                      messaging_product: 'whatsapp',
-                      to: '5575999999999',
-                      type: 'reaction',
-                      reaction: { message_id: 'REAL_PROVIDER_ID', emoji: '👍' },
-                    },
-                  },
-                  read: { value: { messaging_product: 'whatsapp', status: 'read', message_id: 'REAL_PROVIDER_ID' } },
-                },
-              },
-            },
-          },
-          responses: {
-            200: {
-              description: 'Mensagem enviada ou leitura confirmada.',
-              content: {
-                'application/json': {
-                  schema: {
-                    oneOf: [
-                      { $ref: '#/components/schemas/MetaMessageResponse' },
-                      { $ref: '#/components/schemas/MetaReadReceiptResponse' },
-                    ],
-                  },
-                },
-              },
-            },
-            400: { $ref: '#/components/responses/GraphError' },
-            401: { $ref: '#/components/responses/GraphError' },
-            404: { $ref: '#/components/responses/GraphError' },
-            409: { $ref: '#/components/responses/GraphError' },
-          },
+          tags: ['Messages'], summary: 'Enviar mensagem compatível com Meta', operationId: 'meta_send_message', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMessageRequest' }, examples: { text: { value: { messaging_product: 'whatsapp', recipient_type: 'individual', to: '5575999999999', type: 'text', text: { body: 'Olá pelo /graph' } } }, reaction: { value: { messaging_product: 'whatsapp', to: '5575999999999', type: 'reaction', reaction: { message_id: 'REAL_PROVIDER_ID', emoji: '👍' } } }, read: { value: { messaging_product: 'whatsapp', status: 'read', message_id: 'REAL_PROVIDER_ID' } } } } } },
+          responses: { '200': { description: 'Mensagem enviada ou leitura confirmada.', content: { 'application/json': { schema: { oneOf: [{ $ref: '#/components/schemas/MetaMessageResponse' }, { $ref: '#/components/schemas/MetaReadReceiptResponse' }] } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{phoneNumberId}/media': {
         post: {
-          tags: ['Media'],
-          summary: 'Upload temporário de mídia',
-          operationId: 'meta_upload_media',
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: 'version',
-              in: 'path',
-              required: true,
-              schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' },
-              example: 'v20.0',
-            },
-            { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } },
-          ],
-          requestBody: {
-            required: true,
-            content: { 'multipart/form-data': { schema: { $ref: '#/components/schemas/MetaMediaUploadRequest' } } },
-          },
-          responses: {
-            200: {
-              description: 'Mídia recebida para uso temporário.',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaUploadResponse' } } },
-            },
-            400: { $ref: '#/components/responses/GraphError' },
-            401: { $ref: '#/components/responses/GraphError' },
-          },
+          tags: ['Media'], summary: 'Upload temporário de mídia', operationId: 'meta_upload_media', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: true, content: { 'multipart/form-data': { schema: { $ref: '#/components/schemas/MetaMediaUploadRequest' } } } },
+          responses: { '200': { description: 'Mídia recebida para uso temporário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaUploadResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{businessAccountId}/message_templates': {
         get: {
-          tags: ['Templates'],
-          summary: 'Listar templates',
-          operationId: 'meta_list_templates',
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: 'version',
-              in: 'path',
-              required: true,
-              schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' },
-              example: 'v20.0',
-            },
-            { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } },
-          ],
-          responses: {
-            200: {
-              description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } },
-            },
-            401: { $ref: '#/components/responses/GraphError' },
-          },
+          tags: ['Templates'], summary: 'Listar templates', operationId: 'meta_list_templates', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{mediaId}': {
         get: {
-          tags: ['Media'],
-          summary: 'Resolver mídia recebida',
-          operationId: 'meta_get_media',
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            {
-              name: 'version',
-              in: 'path',
-              required: true,
-              schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' },
-              example: 'v20.0',
-            },
-            {
-              name: 'mediaId',
-              in: 'path',
-              required: true,
-              schema: { type: 'string', description: 'ID real da mensagem/provider usado como media id.' },
-            },
-          ],
-          responses: {
-            200: {
-              description: 'Metadados e URL presigned segura.',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaResponse' } } },
-            },
-            401: { $ref: '#/components/responses/GraphError' },
-            404: { $ref: '#/components/responses/GraphError' },
-          },
+          tags: ['Media'], summary: 'Resolver mídia recebida', operationId: 'meta_get_media', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'mediaId', in: 'path', required: true, schema: { type: 'string', description: 'ID real da mensagem/provider usado como media id.' } }],
+          responses: { '200': { description: 'Metadados e URL presigned segura.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' } },
         },
       },
     },
     components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'Instance token',
-          description: 'Token real da instância correspondente ao recurso Graph.',
-        },
-      },
+      securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'Instance token', description: 'Token real da instância correspondente ao recurso Graph.' } },
       schemas: metaCompatibleSchemas,
-      responses: {
-        GraphError: {
-          description: 'Erro em formato Graph.',
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/GraphError' } } },
-        },
-      },
+      responses: { GraphError: { description: 'Erro em formato Graph.', content: { 'application/json': { schema: { $ref: '#/components/schemas/GraphError' } } } } },
     },
   };
 }
@@ -768,10 +436,7 @@ function asyncSpec(version) {
   for (const event of events) {
     channels[event] = {
       description: `Evento \`${event}\` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.`,
-      subscribe: {
-        operationId: `consume_${event.replace(/[^A-Za-z0-9]+/g, '_')}`,
-        message: { $ref: '#/components/messages/ConnectEvent' },
-      },
+      subscribe: { operationId: `consume_${event.replace(/[^A-Za-z0-9]+/g, '_')}`, message: { $ref: '#/components/messages/ConnectEvent' } },
     };
   }
   return {
@@ -780,43 +445,21 @@ function asyncSpec(version) {
       title: 'Connect|API — Eventos',
       version,
       description: [
-        '![Connect|API Events](openapi/branding/docs/connect-api-events-light.png)',
-        '',
+        '![Connect|API Events](openapi/branding/docs/connect-api-events-light.png)', '',
         'Eventos do Connect|API publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte.',
       ].join('\n'),
     },
     channels,
-    components: {
-      messages: {
-        ConnectEvent: {
-          name: 'ConnectEvent',
-          title: 'Evento Connect|API',
-          payload: {
-            type: 'object',
-            additionalProperties: true,
-            properties: { event: { type: 'string' }, instance: {}, data: {} },
-          },
-        },
-      },
-    },
+    components: { messages: { ConnectEvent: { name: 'ConnectEvent', title: 'Evento Connect|API', payload: { type: 'object', additionalProperties: true, properties: { event: { type: 'string' }, instance: {}, data: {} } } } } },
   };
 }
 
-function stableJson(value) {
-  return JSON.stringify(value, null, 2) + '\n';
-}
+function stableJson(value) { return JSON.stringify(value, null, 2) + '\n'; }
 
 function writeOrCheck(file, content) {
   if (CHECK_MODE) {
-    if (!fs.existsSync(file)) {
-      console.error(`[docs] Missing generated file: ${path.relative(ROOT, file)}`);
-      process.exitCode = 1;
-      return;
-    }
-    if (fs.readFileSync(file, 'utf8') !== content) {
-      console.error(`[docs] Stale generated file: ${path.relative(ROOT, file)}. Run npm run docs:generate.`);
-      process.exitCode = 1;
-    }
+    if (!fs.existsSync(file)) { console.error(`[docs] Missing generated file: ${path.relative(ROOT, file)}`); process.exitCode = 1; return; }
+    if (fs.readFileSync(file, 'utf8') !== content) { console.error(`[docs] Stale generated file: ${path.relative(ROOT, file)}. Run npm run docs:generate.`); process.exitCode = 1; }
     return;
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -829,18 +472,10 @@ const native = nativeSpec(routes, pkg.version);
 const graph = graphSpec(pkg.version);
 const asyncapi = asyncSpec(pkg.version);
 const coverage = {
-  generatedAt: new Date().toISOString(),
-  version: pkg.version,
-  sourceDigest: crypto
-    .createHash('sha256')
-    .update(routes.map((r) => `${r.method.toUpperCase()} ${r.apiPath} ${r.sourceFile}`).join('\n'))
-    .digest('hex'),
-  operations: routes
-    .filter((r) => !r.apiPath.startsWith('/graph/'))
-    .map((r) => ({ method: r.method.toUpperCase(), path: r.apiPath, source: r.sourceFile })),
-  graphOperations: routes
-    .filter((r) => r.apiPath.startsWith('/graph/'))
-    .map((r) => ({ method: r.method.toUpperCase(), path: r.apiPath, source: r.sourceFile })),
+  generatedAt: new Date().toISOString(), version: pkg.version,
+  sourceDigest: crypto.createHash('sha256').update(routes.map((r) => `${r.method.toUpperCase()} ${r.apiPath} ${r.sourceFile}`).join('\n')).digest('hex'),
+  operations: routes.filter((r) => !r.apiPath.startsWith('/graph/')).map((r) => ({ method: r.method.toUpperCase(), path: r.apiPath, source: r.sourceFile })),
+  graphOperations: routes.filter((r) => r.apiPath.startsWith('/graph/')).map((r) => ({ method: r.method.toUpperCase(), path: r.apiPath, source: r.sourceFile })),
 };
 
 writeOrCheck(path.join(OUTPUT_DIR, 'connect-api.openapi.json'), stableJson(native));
@@ -849,27 +484,16 @@ writeOrCheck(path.join(ASYNC_DIR, 'connect-api-events.asyncapi.json'), stableJso
 
 const coverageFile = path.join(OUTPUT_DIR, 'coverage.json');
 if (CHECK_MODE) {
-  if (!fs.existsSync(coverageFile)) {
-    console.error('[docs] Missing generated file: docs/openapi/coverage.json');
-    process.exitCode = 1;
-  } else {
-    const current = JSON.parse(fs.readFileSync(coverageFile, 'utf8'));
-    delete current.generatedAt;
-    const expected = { ...coverage };
-    delete expected.generatedAt;
-    if (stableJson(current) !== stableJson(expected)) {
-      console.error('[docs] Route coverage is stale. Run npm run docs:generate.');
-      process.exitCode = 1;
-    }
+  if (!fs.existsSync(coverageFile)) { console.error('[docs] Missing generated file: docs/openapi/coverage.json'); process.exitCode = 1; }
+  else {
+    const current = JSON.parse(fs.readFileSync(coverageFile, 'utf8')); delete current.generatedAt;
+    const expected = { ...coverage }; delete expected.generatedAt;
+    if (stableJson(current) !== stableJson(expected)) { console.error('[docs] Route coverage is stale. Run npm run docs:generate.'); process.exitCode = 1; }
   }
 } else {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   fs.writeFileSync(coverageFile, stableJson(coverage));
 }
 
-if (!CHECK_MODE)
-  console.log(
-    `[docs] Generated ${Object.keys(native.paths).length} native paths, ${Object.keys(graph.paths).length} Graph paths and ${Object.keys(asyncapi.channels).length} event channels.`,
-  );
-else if (!process.exitCode)
-  console.log('[docs] OpenAPI/AsyncAPI contracts are synchronized with current route/event sources.');
+if (!CHECK_MODE) console.log(`[docs] Generated ${Object.keys(native.paths).length} native paths, ${Object.keys(graph.paths).length} Graph paths and ${Object.keys(asyncapi.channels).length} event channels.`);
+else if (!process.exitCode) console.log('[docs] OpenAPI/AsyncAPI contracts are synchronized with current route/event sources.');
