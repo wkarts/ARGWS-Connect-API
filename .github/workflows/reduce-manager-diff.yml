@@ -1,0 +1,33 @@
+name: Reduce manager diff noise
+
+on:
+  push:
+    branches:
+      - fix/zapo-identity-performance-docs
+    paths:
+      - .github/workflows/reduce-manager-diff.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reduce:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/zapo-identity-performance-docs
+          fetch-depth: 0
+      - name: Restore Manager baseline and reapply functional hunks
+        run: |
+          git fetch origin develop
+          git checkout origin/develop -- manager/src/services/current.ts manager/src/services/normalizers.ts
+          python3 .github/scripts/reduce-manager-diff.py
+      - name: Commit reduced diff
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add manager/src/services/current.ts manager/src/services/normalizers.ts
+          HUSKY=0 git commit -m "chore(manager): reduce formatting noise"
+          HUSKY=0 git push origin HEAD:fix/zapo-identity-performance-docs
