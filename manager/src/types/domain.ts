@@ -37,13 +37,14 @@ export type ConnectionItem = {
   name: string
   status: 'connected' | 'connecting' | 'disconnected' | 'unknown'
   channel: string
+  provider?: string
+  integration?: string
   number?: string
   profileName?: string
   avatar?: string
   counts: { contacts: number; conversations: number; messages: number }
   updatedAt?: string | null
 }
-
 
 export type ContactItem = {
   id: string
