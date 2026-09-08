@@ -40,6 +40,63 @@ function roleLabel(roles: string[] = []) {
   return roles[0] ? roles[0].replaceAll('_', ' ') : 'Usuário'
 }
 
+function jidLocal(value: any): string {
+  return str(value).split('@')[0].replace(/:\d+$/, '')
+}
+
+function identityKey(value: any): string {
+  return str(value).trim().toLowerCase()
+}
+
+function nameKey(value: any): string {
+  return str(value).trim().toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ')
+}
+
+function looksLikeIdentifier(value: string): boolean {
+  const text = value.trim()
+  return !text || /^\+?\d+$/.test(text) || text.includes('@lid') || text.includes('@s.whatsapp.net')
+}
+
+function chooseDisplayName(primary: string, secondary: string): string {
+  if (!looksLikeIdentifier(primary)) return primary
+  if (!looksLikeIdentifier(secondary)) return secondary
+  return primary || secondary || 'Contato'
+}
+
+function mergeAliases(...values: Array<string[] | string | undefined>): string[] {
+  const aliases = values
+    .flatMap((value) => Array.isArray(value) ? value : value ? [value] : [])
+    .map((value) => identityKey(value))
+    .filter(Boolean)
+  return [...new Set(aliases)]
+}
+
+function messagePreview(value: any): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  if (Array.isArray(value)) return value.length ? '[Conteúdo]' : ''
+  if (typeof value !== 'object') return ''
+
+  if (value.text && typeof value.text === 'string') return value.text
+  if (value.body && typeof value.body === 'string') return value.body
+  if (value.content && typeof value.content === 'string') return value.content
+  if (value.conversation && typeof value.conversation === 'string') return value.conversation
+  if (value.extendedTextMessage?.text) return str(value.extendedTextMessage.text)
+  if (value.imageMessage) return str(value.imageMessage.caption || 'Imagem')
+  if (value.videoMessage) return str(value.videoMessage.caption || 'Vídeo')
+  if (value.audioMessage) return 'Áudio'
+  if (value.stickerMessage) return 'Figurinha'
+  if (value.documentMessage) return str(value.documentMessage.caption || value.documentMessage.fileName || 'Documento')
+  if (value.documentWithCaptionMessage) return messagePreview(value.documentWithCaptionMessage.message)
+  if (value.contactMessage) return str(value.contactMessage.displayName || 'Contato')
+  if (value.contactsArrayMessage) return 'Contatos'
+  if (value.locationMessage || value.liveLocationMessage) return 'Localização'
+  if (value.pollCreationMessage || value.pollCreationMessageV3) return 'Enquete'
+  if (value.message) return messagePreview(value.message)
+
+  return '[Conteúdo]'
+}
+
 export function security(raw: any): SecurityState {
   const s = raw?.security ?? raw ?? {}
   return {
@@ -210,36 +267,123 @@ function normalizeChannel(value: any) {
   return value ? str(value) : 'Canal'
 }
 
+function mergeContact(existing: ContactItem, incoming: ContactItem): ContactItem {
+  const canonical = existing.isLid && !incoming.isLid ? incoming : existing
+  const secondary = canonical === existing ? incoming : existing
+  return {
+    ...canonical,
+    name: chooseDisplayName(canonical.name, secondary.name),
+    number: canonical.number || secondary.number,
+    avatar: canonical.avatar || secondary.avatar,
+    rawRef: canonical.rawRef || secondary.rawRef,
+    aliases: mergeAliases(canonical.aliases, secondary.aliases, canonical.rawRef, secondary.rawRef),
+    isLid: canonical.isLid && secondary.isLid,
+    updatedAt: canonical.updatedAt || secondary.updatedAt,
+  }
+}
+
 export function contacts(raw: any): ContactItem[] {
-  return asArray(raw).map((item, index) => ({
-    id: str(item.id || item.remoteJid || item.jid || item.number || index),
-    name: str(item.pushName || item.name || item.verifiedName || item.notify || item.remoteJid || item.number || 'Contato'),
-    number: item.number || item.remoteJid?.split('@')?.[0] || item.jid?.split('@')?.[0] || undefined,
-    avatar: item.profilePicUrl || item.avatar || undefined,
-    updatedAt: item.updatedAt || null,
-  }))
+  const normalized = asArray(raw)
+    .filter((item) => item?.remoteJid !== 'status@broadcast' && !str(item?.remoteJid).endsWith('@broadcast'))
+    .map((item, index): ContactItem => {
+      const rawRef = str(item.remoteJid || item.jid || item.number || '')
+      const number = item.number || jidLocal(rawRef) || undefined
+      const name = str(
+        item.pushName || item.name || item.verifiedName || item.notify || number || rawRef || 'Contato',
+      )
+      return {
+        id: str(item.id || rawRef || index),
+        name,
+        number,
+        avatar: item.profilePicUrl || item.avatar || undefined,
+        rawRef: rawRef || undefined,
+        aliases: mergeAliases(rawRef, item.lid, item.phoneNumber, item.remoteJidAlt),
+        isLid: rawRef.endsWith('@lid'),
+        updatedAt: item.updatedAt || null,
+      }
+    })
+
+  const result: ContactItem[] = []
+  for (const item of normalized) {
+    let index = result.findIndex((current) => current.id === item.id || current.rawRef === item.rawRef)
+    if (index < 0 && nameKey(item.name)) {
+      index = result.findIndex(
+        (current) => nameKey(current.name) === nameKey(item.name) && (current.isLid === true || item.isLid === true),
+      )
+    }
+    if (index < 0) result.push(item)
+    else result[index] = mergeContact(result[index], item)
+  }
+
+  return result.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }))
+}
+
+function mergeConversation(existing: Conversation, incoming: Conversation): Conversation {
+  const canonical = existing.isLid && !incoming.isLid ? incoming : existing
+  const secondary = canonical === existing ? incoming : existing
+  return {
+    ...canonical,
+    title: chooseDisplayName(canonical.title, secondary.title),
+    subtitle: canonical.subtitle || secondary.subtitle,
+    avatar: canonical.avatar || secondary.avatar,
+    unread: Math.max(canonical.unread, secondary.unread),
+    lastMessage: canonical.lastMessage || secondary.lastMessage,
+    updatedAt: canonical.updatedAt || secondary.updatedAt,
+    rawRef: canonical.rawRef || secondary.rawRef,
+    aliases: mergeAliases(canonical.aliases, secondary.aliases, canonical.rawRef, secondary.rawRef),
+    isLid: canonical.isLid && secondary.isLid,
+  }
 }
 
 export function conversations(raw: any): Conversation[] {
-  return asArray(raw).map((item, index) => ({
-    id: str(item.id || item.remoteJid || item.jid || index),
-    title: str(item.pushName || item.name || item.contactName || item.remoteJid || 'Conversa'),
-    subtitle: item.number || item.remoteJid || item.subtitle,
-    avatar: item.profilePicUrl || item.avatar,
-    unread: num(item.unreadMessages ?? item.unread ?? item.unreadCount),
-    lastMessage: str(item.lastMessage?.message || item.lastMessage?.text || item.lastMessage || ''),
-    updatedAt: item.updatedAt || item.lastMessage?.messageTimestamp || item.timestamp,
-    rawRef: item.remoteJid || item.jid || item.id,
-  }))
+  const normalized = asArray(raw)
+    .filter((item) => {
+      const ref = str(item.remoteJid || item.jid || item.id)
+      return ref !== 'status@broadcast' && !ref.endsWith('@broadcast')
+    })
+    .map((item, index): Conversation => {
+      const rawRef = str(item.remoteJid || item.jid || item.id || '')
+      const title = str(item.pushName || item.name || item.contactName || jidLocal(rawRef) || 'Conversa')
+      return {
+        id: str(item.id || rawRef || index),
+        title,
+        subtitle: item.number || rawRef || item.subtitle,
+        avatar: item.profilePicUrl || item.avatar,
+        unread: num(item.unreadMessages ?? item.unread ?? item.unreadCount),
+        lastMessage: messagePreview(item.lastMessage),
+        updatedAt: item.updatedAt || item.lastMessage?.messageTimestamp || item.timestamp,
+        rawRef: rawRef || undefined,
+        aliases: mergeAliases(rawRef, item.lid, item.phoneNumber, item.remoteJidAlt),
+        isLid: rawRef.endsWith('@lid'),
+      }
+    })
+
+  const result: Conversation[] = []
+  for (const item of normalized) {
+    let index = result.findIndex((current) => current.id === item.id || current.rawRef === item.rawRef)
+    if (index < 0 && nameKey(item.title)) {
+      index = result.findIndex(
+        (current) => nameKey(current.title) === nameKey(item.title) && (current.isLid === true || item.isLid === true),
+      )
+    }
+    if (index < 0) result.push(item)
+    else result[index] = mergeConversation(result[index], item)
+  }
+
+  return result.sort((a, b) => {
+    const aTime = Number(new Date(a.updatedAt || 0)) || 0
+    const bTime = Number(new Date(b.updatedAt || 0)) || 0
+    return bTime - aTime
+  })
 }
 
 export function messages(raw: any): Message[] {
   return asArray(raw).map((item, index) => {
-    const text = item.message?.conversation || item.message?.extendedTextMessage?.text || item.text || item.body || item.content || ''
+    const text = messagePreview(item.message || item.text || item.body || item.content)
     const fromMe = Boolean(item.key?.fromMe ?? item.fromMe)
     return {
       id: str(item.key?.id || item.id || index),
-      text: str(text || '[Conteúdo]'),
+      text: text || '[Conteúdo]',
       direction: fromMe ? 'out' : 'in',
       timestamp: item.messageTimestamp || item.createdAt || item.timestamp,
       status: item.status,
@@ -250,8 +394,19 @@ export function messages(raw: any): Message[] {
 export function calls(raw: any): WhatsAppCall[] {
   return asArray(raw).map((item, index) => {
     const callId = str(item.callId || item.id || item.call?.id || index)
-    const remote = str(item.remoteJid || item.peerJid || item.from || item.to || item.number || '')
-    const number = str(item.number || remote.split('@')[0] || '')
+    const remote = str(
+      item.displayPeerJid ||
+      item.remoteJid ||
+      item.peerJid ||
+      item.callerPn ||
+      item.peerJidAlt ||
+      item.peerJidRaw ||
+      item.from ||
+      item.to ||
+      item.number ||
+      '',
+    )
+    const number = str(item.number || jidLocal(remote) || '')
     const rawDirection = str(item.direction || item.type || '').toLowerCase()
     const direction: WhatsAppCall['direction'] = rawDirection.includes('in') || item.isIncoming === true
       ? 'incoming'
@@ -262,6 +417,8 @@ export function calls(raw: any): WhatsAppCall[] {
       id: callId,
       callId,
       number,
+      name: item.name || item.pushName || item.contactName || undefined,
+      avatar: item.profilePicUrl || item.avatar || undefined,
       remoteJid: remote || undefined,
       direction,
       state: str(item.state || item.status || item.callState || 'Em andamento'),
