@@ -8,7 +8,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
-import type { ConnectionItem, WhatsAppCall } from '@/types/domain'
+import type { ConnectionItem, ContactItem, WhatsAppCall } from '@/types/domain'
 import type { VoiceMediaSession, VoiceMediaState } from '@/services/voice-media'
 
 const route = useRoute()
@@ -16,6 +16,7 @@ const router = useRouter()
 const instances = ref<ConnectionItem[]>([])
 const selected = ref(String(route.query.instance || ''))
 const calls = ref<WhatsAppCall[]>([])
+const contacts = ref<ContactItem[]>([])
 const instanceDetails = ref<any>(null)
 const instanceSettings = ref<Record<string, any>>({})
 const loading = ref(false)
@@ -29,6 +30,7 @@ const mediaError = ref('')
 const mediaCallId = ref('')
 let voiceSession: VoiceMediaSession | null = null
 let timer: number | undefined
+let contactsLoadedAt = 0
 
 const selectedInstance = computed(() => instances.value.find((item) => item.id === selected.value))
 const supportsCalls = computed(() => Boolean(selectedInstance.value?.capabilities.calls))
@@ -45,6 +47,50 @@ const mediaLabel = computed(() => {
   if (mediaState.value === 'closed') return 'Áudio encerrado'
   return 'Áudio aguardando'
 })
+
+function normalizeIdentity(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/:\d+(?=@)/, '')
+}
+
+function identityLocal(value: unknown): string {
+  return normalizeIdentity(value).split('@')[0]
+}
+
+function callContact(call: WhatsAppCall): ContactItem | undefined {
+  const raw = call.raw || {}
+  const candidates = [
+    call.remoteJid,
+    call.number,
+    raw.displayPeerJid,
+    raw.peerJid,
+    raw.peerJidRaw,
+    raw.peerJidAlt,
+    raw.callerPn,
+    raw.callerPnJid,
+    raw.senderLidJid,
+  ].filter(Boolean)
+  const exact = new Set(candidates.map(normalizeIdentity).filter(Boolean))
+  const locals = new Set(candidates.map(identityLocal).filter(Boolean))
+
+  return contacts.value.find((contact) => {
+    const refs = [contact.rawRef, contact.number, ...(contact.aliases || [])].filter(Boolean)
+    return refs.some((ref) => exact.has(normalizeIdentity(ref)) || locals.has(identityLocal(ref)))
+  })
+}
+
+function callName(call: WhatsAppCall): string {
+  const contact = callContact(call)
+  return contact?.name || call.name || call.number || 'Número não informado'
+}
+
+function callNumber(call: WhatsAppCall): string {
+  const contact = callContact(call)
+  return contact?.number || call.number || identityLocal(call.remoteJid)
+}
+
+function callAvatar(call: WhatsAppCall): string | undefined {
+  return callContact(call)?.avatar || call.avatar
+}
 
 function isCallActive(call: WhatsAppCall) {
   return !endedStates.includes(String(call.state || '').toLowerCase())
@@ -83,9 +129,24 @@ async function loadBehavior() {
   }
 }
 
+async function loadContacts(force = false) {
+  if (!selected.value) {
+    contacts.value = []
+    return
+  }
+  if (!force && Date.now() - contactsLoadedAt < 15_000) return
+  try {
+    contacts.value = await connect.contacts(selected.value)
+    contactsLoadedAt = Date.now()
+  } catch {
+    // A chamada continua utilizável mesmo se a agenda não puder ser atualizada.
+  }
+}
+
 async function loadCalls(silent = false) {
   if (!selected.value) {
     calls.value = []
+    contacts.value = []
     instanceDetails.value = null
     closeMedia()
     return
@@ -95,6 +156,7 @@ async function loadCalls(silent = false) {
   if (!silent) error.value = ''
   try {
     calls.value = supportsCalls.value ? await connect.calls(selected.value) : []
+    void loadContacts()
     if (mediaCallId.value) {
       const current = calls.value.find((call) => call.callId === mediaCallId.value)
       if (!current || !isCallActive(current)) closeMedia()
@@ -192,14 +254,15 @@ onMounted(async () => {
   if (!selected.value || !instances.value.some((item) => item.id === selected.value)) {
     selected.value = instances.value.find((item) => item.capabilities.calls)?.id || instances.value[0]?.id || ''
   }
-  await Promise.all([loadCalls(), loadBehavior()])
+  await Promise.all([loadCalls(), loadBehavior(), loadContacts(true)])
   startPolling()
 })
 watch(selected, async () => {
   number.value = ''
   mediaError.value = ''
+  contactsLoadedAt = 0
   closeMedia()
-  await Promise.all([loadCalls(), loadBehavior()])
+  await Promise.all([loadCalls(), loadBehavior(), loadContacts(true)])
   startPolling()
 })
 onBeforeUnmount(() => {
@@ -236,7 +299,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="supportsCalls" class="voice-layout">
-        <PanelCard title="Nova chamada de teste" description="Inicie uma chamada com encerramento automático para facilitar a validação.">
+        <PanelCard title="Nova chamada de teste" description="Inicie uma chamada e encerre manualmente ou defina um tempo opcional.">
           <form class="form-stack" @submit.prevent="makeTestCall">
             <label class="field"><span>Número do WhatsApp</span><input v-model="number" inputmode="numeric" placeholder="5575999999999" required/><small>Informe DDI, DDD e número.</small></label>
             <label class="field"><span>Encerramento automático</span><select v-model.number="duration" class="select"><option :value="0">Sem encerramento automático</option><option :value="60">1 minuto</option><option :value="120">2 minutos</option><option :value="300">5 minutos</option><option :value="600">10 minutos</option><option :value="1800">30 minutos</option></select><small>A chamada também pode ser encerrada manualmente a qualquer momento.</small></label>
@@ -250,8 +313,16 @@ onBeforeUnmount(() => {
           <p v-else-if="!activeCalls.length" class="muted-block">Nenhuma chamada ativa neste momento.</p>
           <div v-else class="call-list">
             <div v-for="call in activeCalls" :key="call.callId" :class="['call-row', { 'media-active': mediaCallId===call.callId && mediaReady }]">
-              <div class="call-avatar"><AppIcon name="phone" :size="18"/></div>
-              <div class="call-main"><strong>{{ call.number || 'Número não informado' }}</strong><span>{{ callDirection(call) }} · {{ stateLabel(call.state) }}</span><small v-if="mediaCallId===call.callId">{{ mediaLabel }}</small></div>
+              <div class="call-avatar">
+                <img v-if="callAvatar(call)" :src="callAvatar(call)" alt="" />
+                <AppIcon v-else name="phone" :size="18"/>
+              </div>
+              <div class="call-main">
+                <strong>{{ callName(call) }}</strong>
+                <span v-if="callNumber(call) && callNumber(call) !== callName(call)">{{ callNumber(call) }}</span>
+                <span>{{ callDirection(call) }} · {{ stateLabel(call.state) }}</span>
+                <small v-if="mediaCallId===call.callId">{{ mediaLabel }}</small>
+              </div>
               <div class="call-actions">
                 <button v-if="call.direction==='incoming'" class="btn primary compact" :disabled="busy" @click="action(call,'accept')">Atender com áudio</button>
                 <button v-if="call.direction==='incoming'" class="btn danger compact" :disabled="busy" @click="action(call,'reject')">Recusar</button>
@@ -265,3 +336,19 @@ onBeforeUnmount(() => {
     </template>
   </AppShell>
 </template>
+
+<style scoped>
+.call-avatar {
+  overflow: hidden;
+}
+.call-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.call-main strong,
+.call-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
