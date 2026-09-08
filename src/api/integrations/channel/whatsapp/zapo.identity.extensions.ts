@@ -119,8 +119,10 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
       const lidJid = zapoKnownLidJid(event?.lid);
       const phoneJid = zapoPhoneJid(event?.pnJid);
       if (lidJid && phoneJid) {
-        this.rememberAlias(lidJid, phoneJid);
-        void this.mergeCanonicalIdentityRecords(lidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+        const mapping = this.rememberAlias(lidJid, phoneJid);
+        if (mapping?.changed) {
+          void this.mergeCanonicalIdentityRecords(lidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+        }
       }
     };
     client.on('mutation', rememberPnForLid);
@@ -158,8 +160,10 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     const credentials = this.client?.getCredentials?.();
     const isOwnPeer = Boolean(phoneJid && zapoIsOwnAccountJid(phoneJid, credentials?.meJid, credentials?.meLid));
     if (phoneJid && lidJid && !isOwnPeer) {
-      this.rememberAlias(lidJid, phoneJid);
-      void this.mergeCanonicalIdentityRecords(lidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+      const mapping = this.rememberAlias(lidJid, phoneJid);
+      if (mapping?.changed) {
+        void this.mergeCanonicalIdentityRecords(lidJid, phoneJid).catch((error: Error) => this.logger.warn(error));
+      }
     }
 
     const eventType = String(event?.type || event?.kind || event?.event || '').toLowerCase();
@@ -261,7 +265,7 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     first: unknown,
     second: unknown,
     aliases?: Map<string, string>,
-  ): { lidJid: string; phoneJid: string } | null {
+  ): { lidJid: string; phoneJid: string; changed: boolean } | null {
     const firstJid = zapoTryNormalizeJid(first);
     const secondJid = zapoTryNormalizeJid(second);
     if (!firstJid || !secondJid || firstJid === secondJid) return null;
@@ -273,13 +277,16 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     if (!phoneJid) return null;
 
     aliases?.set(lidJid, phoneJid);
-    this.lidToPhone.set(this.identityKey(lidJid), phoneJid);
-    return { lidJid, phoneJid };
+    const key = this.identityKey(lidJid);
+    const previous = this.lidToPhone.get(key);
+    if (previous === phoneJid) return { lidJid, phoneJid, changed: false };
+    this.lidToPhone.set(key, phoneJid);
+    return { lidJid, phoneJid, changed: true };
   }
 
   private rememberEventAlias(first: unknown, second: unknown): void {
     const mapping = this.rememberAlias(first, second);
-    if (!mapping) return;
+    if (!mapping?.changed) return;
     void this.mergeCanonicalIdentityRecords(mapping.lidJid, mapping.phoneJid).catch((error: Error) =>
       this.logger.warn(`ZAPO alias merge failed: ${error?.message || error}`),
     );
