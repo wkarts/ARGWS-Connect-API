@@ -4,7 +4,7 @@
 
 # Connect|API
 
-**Communication & Integration**
+**Communication & Integration Platform**
 
 Connect|API é a API de comunicação e integração multicanal da linha de produtos ARGWS. A identidade pública passa a usar **Connect|API** / **🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸**, preservando os identificadores técnicos existentes do projeto para compatibilidade operacional.
 

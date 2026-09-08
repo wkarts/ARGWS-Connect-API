@@ -2,8 +2,8 @@
   "product": "ARGWS Connect API",
   "package": "argws-connect-api",
   "version": "1.0.21",
-  "revision_date": "2026-09-07",
-  "source_files_excluding_node_modules": 715,
+  "revision_date": "2026-09-06",
+  "source_files_excluding_node_modules": 667,
   "typescript_files_in_src": 204,
   "distribution": {
     "registry": "ghcr.io",
@@ -11,8 +11,7 @@
     "runtime_policy": "GHCR-only for production and homologation",
     "application_images": [
       "ghcr.io/wkarts/argws-connect-api",
-      "ghcr.io/wkarts/argws-connect-manager",
-      "ghcr.io/wkarts/argws-connect-manager-api"
+      "ghcr.io/wkarts/argws-connect-manager"
     ],
     "infrastructure_images": [
       "ghcr.io/wkarts/argws-connect-node:24-alpine",
@@ -79,18 +78,7 @@
     "zapo_provider_invariants_passed": true,
     "typescript_parse_errors": 0,
     "shell_syntax_errors": 0,
-    "legacy_platform_module_present": false,
-    "manager_legacy_functional_modules_preserved": true,
-    "manager_legacy_modules_excluded_from_web_dist": true,
-    "ghcr_artifact_prefix_collision_fixed": true,
-    "deployment_contract_manager_aware": true,
-    "develop_manifest_publish_verification_added": true,
-    "manager_data_bind_mount_bootstrap_fixed": true,
-    "manager_subpath_assets_fixed": true,
-    "manager_reverse_proxy_routes_fixed": true,
-    "manager_first_access_setup_fixed": true,
-    "deployment_integrity_channel_check_fixed": true,
-    "manager_deploy_failure_logs_added": true
+    "legacy_platform_module_present": false
   },
   "release_automation": {
     "enabled": true,

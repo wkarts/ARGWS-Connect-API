@@ -32,7 +32,6 @@ fi
 
 mkdir -p \
   ./volumes/instances \
-  ./volumes/manager \
   ./volumes/postgres \
   ./volumes/redis \
   ./volumes/rabbitmq \
@@ -44,8 +43,6 @@ mkdir -p \
   ./volumes/zookeeper/log \
   ./volumes/logs \
   ./volumes/backups
-
-chmod 700 ./volumes/manager 2>/dev/null || true
 
 docker compose config >/dev/null
 
@@ -64,12 +61,7 @@ while IFS= read -r image; do
 done < <(docker compose config --images)
 
 docker compose pull
-if ! docker compose up -d --remove-orphans; then
-  echo "ERRO: falha ao iniciar a stack. Estado e logs recentes:" >&2
-  docker compose ps || true
-  docker compose logs --tail=200 || true
-  exit 1
-fi
+docker compose up -d --remove-orphans
 
 echo "Stack iniciada. API e Connect|API DOCs possuem portas locais dedicadas no host."
 docker compose ps

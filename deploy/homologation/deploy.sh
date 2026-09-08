@@ -6,7 +6,6 @@ cd "$(dirname "$0")"
 
 mkdir -p \
   ./volumes/instances \
-  ./volumes/manager \
   ./volumes/postgres \
   ./volumes/redis \
   ./volumes/rabbitmq \
@@ -18,16 +17,10 @@ mkdir -p \
   ./volumes/logs \
   ./volumes/backups
 
-chmod 700 ./volumes/manager 2>/dev/null || true
 ./preflight.sh
 
 docker compose -f compose.yaml pull
-if ! docker compose -f compose.yaml up -d --remove-orphans; then
-  echo "ERRO: falha ao iniciar a stack. Estado e logs recentes:" >&2
-  docker compose -f compose.yaml ps || true
-  docker compose -f compose.yaml logs --tail=200 || true
-  exit 1
-fi
+docker compose -f compose.yaml up -d --remove-orphans
 docker compose -f compose.yaml ps
 
 echo

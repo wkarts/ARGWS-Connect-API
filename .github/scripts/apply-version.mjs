@@ -42,17 +42,8 @@ if (fs.existsSync('RELEASE-MANIFEST.json')) {
 
 fs.writeFileSync('VERSION', `${version}\n`);
 
-for (const file of ['manager/package.json', 'manager/api/package.json']) {
-  if (!fs.existsSync(file)) continue;
-  const managerPkg = readJson(file);
-  managerPkg.version = version;
-  writeJson(file, managerPkg);
-}
-
 const canonicalImage = `ghcr.io/wkarts/argws-connect-api:${version}`;
 const canonicalDocsImage = `ghcr.io/wkarts/argws-connect-docs:${version}`;
-const canonicalManagerImage = `ghcr.io/wkarts/argws-connect-manager:${version}`;
-const canonicalManagerApiImage = `ghcr.io/wkarts/argws-connect-manager-api:${version}`;
 replaceRequired(
   'deploy/canonical/env.example',
   /^ARGWS_CONNECT_API_IMAGE=ghcr\.io\/wkarts\/argws-connect-api:\d+\.\d+\.\d+$/m,
@@ -75,30 +66,6 @@ replaceRequired(
   canonicalDocsImage,
 );
 
-
-replaceRequired(
-  'deploy/canonical/env.example',
-  /^ARGWS_CONNECT_MANAGER_IMAGE=ghcr\.io\/wkarts\/argws-connect-manager:\d+\.\d+\.\d+$/m,
-  `ARGWS_CONNECT_MANAGER_IMAGE=${canonicalManagerImage}`,
-);
-replaceRequired(
-  'deploy/canonical/compose.yaml',
-  /ghcr\.io\/wkarts\/argws-connect-manager:\d+\.\d+\.\d+/,
-  canonicalManagerImage,
-);
-replaceRequired(
-  'deploy/canonical/env.example',
-  /^ARGWS_CONNECT_MANAGER_API_IMAGE=ghcr\.io\/wkarts\/argws-connect-manager-api:\d+\.\d+\.\d+$/m,
-  `ARGWS_CONNECT_MANAGER_API_IMAGE=${canonicalManagerApiImage}`,
-);
-replaceRequired(
-  'deploy/canonical/compose.yaml',
-  /ghcr\.io\/wkarts\/argws-connect-manager-api:\d+\.\d+\.\d+/,
-  canonicalManagerApiImage,
-);
-
 console.log(`ARGWS Connect API version set to ${version}`);
 console.log(`Production tracks :latest. Canonical API pinned to ${canonicalImage}.`);
 console.log(`Canonical DOCs pinned to ${canonicalDocsImage}.`);
-console.log(`Canonical Manager pinned to ${canonicalManagerImage}.`);
-console.log(`Canonical Manager API pinned to ${canonicalManagerApiImage}.`);

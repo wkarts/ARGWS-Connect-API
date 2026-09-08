@@ -4,7 +4,7 @@ This document provides comprehensive guidelines for AI agents (Claude, GPT, Curs
 
 ## Project Overview
 
-**ARGWS Connect API** is a production-ready, multi-instance communication API built with Node.js, TypeScript, and Express.js. It supports multiple WhatsApp providers and extensive integrations with chatbots, CRM systems, and messaging platforms.
+**ARGWS Connect API** is a production-ready, multi-tenant WhatsApp API platform built with Node.js, TypeScript, and Express.js. It supports multiple WhatsApp providers and extensive integrations with chatbots, CRM systems, and messaging platforms.
 
 ## Project Structure & Module Organization
 

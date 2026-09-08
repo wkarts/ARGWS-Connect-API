@@ -11,7 +11,7 @@ API e Connect|API DOCs publicam portas locais dedicadas no host:
 127.0.0.1:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180} -> DOCs container:8080
 ```
 
-O Connect|API Manager é um service separado. Encaminhe `/manager/` e `/manager-api/` para a porta local da Manager; `/metrics`, `/health`, WebSocket, webhooks e demais recursos do Engine continuam no upstream da API.
+O Manager é servido pela própria API em `/manager`. `/metrics`, `/health`, WebSocket, webhooks e demais recursos usam o mesmo upstream.
 
 No CloudPanel mantenha o Reverse Proxy da API apontando para:
 

@@ -1,134 +1,84 @@
-# Connect|API Manager — Validação da entrega profissional
+# Validação da reconstrução do Connect|API Manager
 
-## Escopo validado
+## Fonte analisada
 
-Esta entrega reconstrói a camada administrativa sem alterar a tecnologia do Engine.
+A reconstrução foi baseada no bundle recuperado existente em `manager/recovered/legacy` e nos contratos do backend presentes em `src/api`.
 
-```text
-Manager Web   -> JavaScript moderno / ES Modules / HTML / CSS
-Manager API   -> Node.js
-Engine        -> Node.js + TypeScript (preservado)
-```
+`manager/src` é o fonte operacional. `manager/recovered` permanece somente como trilha de auditoria e comparação.
 
-A Manager não depende de conceitos de administração central de clientes. Cada instalação administra apenas o ambiente local do Connect|API.
+## Validações executadas
 
-## Testes automatizados executados
-
-### Manager Web
+A partir de `manager/`:
 
 ```bash
-cd manager
 npm test
 ```
 
-Resultado desta entrega:
+Resultado esperado e validado nesta entrega:
 
 ```text
-OK: 21 módulos JS da Manager validados.
-Manager deterministic ES-module build generated at dist/
-Manager Web SMOKE OK
+OK: 17 módulos JS validados.
+Manager build generated at manager/dist
+SMOKE OK: 100 API contract calls validated.
+RUNTIME SMOKE OK: docs URL and pt-BR-first locale policy validated.
 ```
 
-O check também impede que a interface operacional volte a expor termos e referências que não pertencem ao produto atual, incluindo `Tenant`, `Partner`, `Control Plane`, `Connect|API Platform`, GitHub público, Postman, Discord e Suporte Premium.
-
-### Manager API / BFF
+A partir da raiz:
 
 ```bash
-cd manager/api
-npm test
+npm run manager:test
 ```
 
-Resultado desta entrega:
+O check/build/smoke do Manager também passou pela integração dos scripts do projeto principal.
 
-```text
-TOKEN COMPAT OK: Global API Key + tokens de instância preservados
-Manager API SMOKE OK: auth + mandatory 2FA + recovery + RBAC
-```
+Também foram validados:
 
-O smoke cobre configuração inicial, autenticação por senha, exigência de 2FA para administrador, TOTP, códigos de recuperação, cookie de sessão, CSRF e criação de usuário com RBAC.
+- `nginx -t` carregando `manager/nginx.conf` dentro de um contexto HTTP válido;
+- servidor local do build: `/manager/login`, `/assets/app/main.js` e `/assets/runtime-config.js` retornando HTTP 200;
+- runtime config standalone: `pt-BR` obrigatório quando idiomas extras estão desligados;
+- runtime config standalone: idiomas extras somente com `MANAGER_ENABLE_EXTRA_LOCALES=true`;
+- locale desconhecido é descartado;
+- `ARGWS_CONNECT_DOCS_PUBLIC_URL` e `MANAGER_DOCUMENTATION_URL` alimentam o link condicional de documentação;
+- ausência de referências ao bundle legado no novo `dist` operacional;
+- ausência, no código operacional, de Postman, Discord, GitHub público e Suporte Premium;
+- sintaxe YAML dos Compose estáveis alterados;
+- `deploy/develop` idêntico ao diretório correspondente do ZIP fornecido;
+- `npm run docs:check` sincronizado;
+- sintaxe TypeScript dos pontos de integração do Manager no backend (`index.router.ts` e `view.router.ts`).
 
-### Integração local Manager API -> Engine
+## Paridade funcional reconstruída
 
-Foi executado um Engine simulado localmente com instâncias Baileys, Zapo e Meta. Foram validados:
+- login por URL da API + API key;
+- sessão local e logout;
+- lista, criação e exclusão de instâncias;
+- dashboard da instância;
+- QR Code e código de pareamento;
+- restart e logout da instância;
+- chat, atualização periódica e envio de texto/mídia;
+- rota de chat embutido baseada na última instância selecionada;
+- comportamento, proxy, webhook, websocket, RabbitMQ, SQS e Chatwoot;
+- Typebot, OpenAI, Dify, n8n, ConnectAI, ConnectBot e Flowise;
+- credenciais OpenAI;
+- configurações globais e sessões dos bots;
+- alteração de status de sessões e lista de JIDs ignorados;
+- tema claro/dark;
+- documentação condicional por runtime/API;
+- pt-BR como idioma operacional padrão e único por padrão;
+- build standalone Nginx e Manager embutido na API.
 
-- login administrativo;
-- sessão assinada;
-- dashboard agregado;
-- leitura das instâncias pelo BFF;
-- remoção do token de cada instância antes da resposta ao navegador;
-- estado `not_configured` para licença, telemetria e releases quando os respectivos serviços externos não estão configurados;
-- bloqueio de envio de telemetria sem configuração externa.
+## Itens removidos do runtime reconstruído
 
-Exemplo de dashboard retornado no teste:
+- landing legado em `/`;
+- Postman;
+- Discord;
+- GitHub público;
+- Suporte Premium;
+- dependência do bundle `index-*.js` legado.
 
-```json
-{
-  "engine": {"status":"ok","version":"1.0.21","uptime":86400},
-  "instances": {"total":3,"connected":2,"disconnected":1},
-  "totals": {"contacts":5759,"chats":19421,"messages":108358}
-}
-```
+## Build reproduzível
 
-## Segurança validada na nova Manager
+O Dockerfile do Manager compila o `dist` a partir do `src` em estágio separado. O Dockerfile principal também executa check/build/smoke do Manager antes do build da API, evitando publicar um `dist` legado por engano.
 
-- Global API Key não é solicitada no login;
-- URL interna do Engine não é solicitada no login;
-- Global API Key não é persistida no navegador;
-- credencial do Engine fica no Manager API por variável de ambiente;
-- sessão administrativa via cookie `HttpOnly`;
-- cookie `Secure` configurável e habilitado por padrão;
-- `SameSite=Strict`;
-- CSRF obrigatório em alterações autenticadas;
-- senha armazenada com `scrypt` e salt individual;
-- senha nova com mínimo de 12 caracteres;
-- TOTP compatível com autenticadores padrão;
-- segredo TOTP criptografado em repouso com AES-256-GCM;
-- códigos de recuperação de uso único, armazenados somente como HMAC;
-- proteção contra replay do mesmo time-step TOTP;
-- rate limiting e bloqueio temporário após falhas repetidas de senha/2FA;
-- 2FA obrigatório para administradores em produção por padrão;
-- segredo de sessão mínimo de 32 caracteres em `NODE_ENV=production`;
-- revogação de sessões por `sessionVersion`;
-- RBAC validado no backend;
-- respostas de listagem/detalhe de instância usam whitelist explícita e não vazam tokens/configurações internas;
-- Global API Key e token de instância permanecem suportados diretamente pelo Engine;
-- auditoria local de operações administrativas relevantes.
+## Limite deste ambiente
 
-## Compose e automação
-
-Foram validados por parser YAML os Compose atualizados e os workflows GitHub alterados para publicação do `manager-api`.
-
-A distribuição passa a possuir imagens independentes:
-
-```text
-ghcr.io/wkarts/argws-connect-api
-ghcr.io/wkarts/argws-connect-manager
-ghcr.io/wkarts/argws-connect-manager-api
-```
-
-O Manager legado embutido no Engine fica desabilitado por padrão nas configurações de deploy atualizadas (`SERVER_DISABLE_MANAGER=true`).
-
-## Preservação funcional durante a migração
-
-Os módulos funcionais existentes na Manager anterior que ainda não possuem paridade comprovada foram restaurados e permanecem em `manager/src`. Eles não são importados pelo `main.js` da nova Manager e o build de produção os exclui de `manager/dist`, evitando regressão no repositório sem distribuir código legado inativo ao navegador.
-
-A validação automatizada falha caso qualquer um dos módulos preservados seja removido prematuramente. Consulte `manager/LEGACY-MIGRATION.md`.
-
-## Limites objetivos da validação neste ambiente
-
-O ZIP original não contém `node_modules` do projeto raiz. Por isso a compilação TypeScript completa do Engine não foi refeita neste runtime. A implementação não refatorou o código funcional do Engine; as alterações de integração concentram-se em Manager, Compose, exemplos de ambiente, documentação e CI.
-
-O navegador Chromium disponível neste ambiente bloqueia acesso HTTP a `127.0.0.1` por política administrativa (`ERR_BLOCKED_BY_ADMINISTRATOR`), portanto a validação visual automatizada via Playwright não pôde ser concluída aqui. Os endpoints HTTP foram testados diretamente e os smoke tests do frontend passaram.
-
-Os serviços externos de licença, telemetria e distribuição de releases não estão implementados no ZIP original. A entrega contém os adapters/configurações para integração com esses serviços, sem inventar contratos externos inexistentes.
-
-
-## Teste de compatibilidade dos tokens
-
-`manager/api/scripts/token-compat.mjs` valida que a camada administrativa não quebrou o contrato de autenticação existente:
-
-```text
-TOKEN COMPAT OK: Global API Key + tokens de instância preservados
-```
-
-O teste verifica `AUTHENTICATION_API_KEY`, o caminho global do `authGuard`, o token individual da instância, o header `apikey` usado pelo BFF e o vínculo `MANAGER_ENGINE_API_KEY <- AUTHENTICATION_API_KEY` no Compose.
+A compilação completa da API (`npm run build` na raiz) não pôde ser certificada neste runtime porque o cache local `node_modules` estava incompleto e a reinstalação das dependências não concluiu dentro da janela disponível. Esse cache não faz parte do ZIP entregue. O código do Manager em si não depende desse cache e passou integralmente pelos testes acima.
