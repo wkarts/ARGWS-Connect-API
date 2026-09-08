@@ -8,6 +8,7 @@ const assert = (condition, message) => {
 const zapo = read('src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts');
 const zapoExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.extensions.ts');
 const zapoAccountExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.account.extensions.ts');
+const zapoGroupExtensions = read('src/api/integrations/channel/whatsapp/zapo.provider.group.extensions.ts');
 const channelController = read('src/api/integrations/channel/channel.controller.ts');
 const baileys = read('src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts');
 const instanceController = read('src/api/controllers/instance.controller.ts');
@@ -42,7 +43,7 @@ assert(packageJson.dependencies?.['@innovatorssoft/zapo-js'] === '1.6.3', 'Zapo 
 assert(packageJson.dependencies?.['@innovatorssoft/voip'] === '1.0.0', 'Zapo VoIP version must stay pinned at 1.0.0');
 assert(packageJson.dependencies?.['zapo-js'] === 'npm:@innovatorssoft/zapo-js@1.6.3', 'Legacy zapo-js runtime alias is missing');
 
-assert(channelController.includes('ZapoAccountStartupService'), 'Zapo account compatibility layer is not wired');
+assert(channelController.includes('ZapoGroupStartupService'), 'Zapo group compatibility layer is not wired');
 assert(zapoExtensions.includes("client.on('presence'"), 'Zapo presence listener is missing');
 assert(zapoExtensions.includes("client.on('chatstate'"), 'Zapo chatstate listener is missing');
 assert(zapoExtensions.includes("client.on('app_state_mutation'"), 'Zapo app-state mutation listener is missing');
@@ -95,5 +96,39 @@ assert(zapoAccountExtensions.includes('profile.deleteProfilePicture'), 'Zapo pro
 assert(zapoAccountExtensions.includes('public async blockUser'), 'Zapo block/unblock compatibility is missing');
 assert(zapoAccountExtensions.includes('privacy.blockUser'), 'Zapo block must use the LID-aware privacy coordinator');
 assert(zapoAccountExtensions.includes('privacy.unblockUser'), 'Zapo unblock must use the LID-aware privacy coordinator');
+
+assert(zapoGroupExtensions.includes('class ZapoGroupStartupService'), 'Zapo group compatibility service is missing');
+assert(zapoGroupExtensions.includes('public async createGroup'), 'Zapo group creation is missing');
+assert(zapoGroupExtensions.includes('group.createGroup'), 'Zapo group creation must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async updateGroupPicture'), 'Zapo group picture update is missing');
+assert(zapoGroupExtensions.includes('profile.setProfilePicture(bytes, groupJid)'), 'Zapo group picture must use the public profile coordinator');
+assert(zapoGroupExtensions.includes('public async updateGroupSubject'), 'Zapo group subject update is missing');
+assert(zapoGroupExtensions.includes('group.setSubject'), 'Zapo group subject must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async updateGroupDescription'), 'Zapo group description update is missing');
+assert(zapoGroupExtensions.includes('group.setDescription'), 'Zapo group description must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async findGroup'), 'Zapo group metadata lookup is missing');
+assert(zapoGroupExtensions.includes('group.queryGroupMetadata'), 'Zapo group lookup must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async fetchAllGroups'), 'Zapo all-groups lookup is missing');
+assert(zapoGroupExtensions.includes('group.queryAllGroups'), 'Zapo all-groups lookup must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async inviteCode'), 'Zapo group invite-code lookup is missing');
+assert(zapoGroupExtensions.includes('group.queryInviteCode'), 'Zapo invite code must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async inviteInfo'), 'Zapo invite preview is missing');
+assert(zapoGroupExtensions.includes('group.queryGroupInviteInfo'), 'Zapo invite preview must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async acceptInviteCode'), 'Zapo invite acceptance is missing');
+assert(zapoGroupExtensions.includes('group.joinGroupViaInvite'), 'Zapo invite acceptance must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async revokeInviteCode'), 'Zapo invite revocation is missing');
+assert(zapoGroupExtensions.includes('group.revokeInvite'), 'Zapo invite revocation must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async updateGParticipant'), 'Zapo participant management is missing');
+assert(zapoGroupExtensions.includes('group.addParticipants'), 'Zapo add participant support is missing');
+assert(zapoGroupExtensions.includes('group.removeParticipants'), 'Zapo remove participant support is missing');
+assert(zapoGroupExtensions.includes('group.promoteParticipants'), 'Zapo promote participant support is missing');
+assert(zapoGroupExtensions.includes('group.demoteParticipants'), 'Zapo demote participant support is missing');
+assert(zapoGroupExtensions.includes('public async updateGSetting'), 'Zapo group settings parity is missing');
+assert(zapoGroupExtensions.includes("setSetting(groupJid, 'announce'"), 'Zapo announcement group setting is missing');
+assert(zapoGroupExtensions.includes("setSetting(groupJid, 'restrict'"), 'Zapo restricted group setting is missing');
+assert(zapoGroupExtensions.includes('public async toggleEphemeral'), 'Zapo disappearing-message group setting is missing');
+assert(zapoGroupExtensions.includes('group.setEphemeralDuration'), 'Zapo ephemeral duration must use the public coordinator');
+assert(zapoGroupExtensions.includes('public async leaveGroup'), 'Zapo leave-group compatibility is missing');
+assert(zapoGroupExtensions.includes('group.leaveGroup([groupJid])'), 'Zapo leave-group must use the public coordinator');
 
 console.log('Zapo provider invariants: OK');
