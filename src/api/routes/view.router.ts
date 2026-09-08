@@ -70,28 +70,63 @@ export class ViewsRouter extends RouterBroker {
           return res.status(405).send('Method Not Allowed');
         }
 
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
         try {
-          const suffix = req.url === '/' ? '/' : req.url;
-          const target = new URL(`${docsBasePath.replace(/\/$/, '')}${suffix}`, docsInternalUrl);
+          // The DOCs container serves its application at `/`. The public-facing
+          // prefix belongs to this API router only, so strip `/manager/docs`
+          // before forwarding. Relative DOCs assets then resolve back through
+          // this same endpoint without a second public hostname.
+          const suffix = req.url === '/' ? '/' : req.url.startsWith('/') ? req.url : `/${req.url}`;
+          const target = new URL(suffix, `${docsInternalUrl.replace(/\/$/, '')}/`);
           const upstream = await fetch(target, {
             method: req.method,
+            signal: controller.signal,
             headers: {
               accept: req.get('accept') || '*/*',
               'accept-language': req.get('accept-language') || 'pt-BR,pt;q=0.9',
+              ...(req.get('if-none-match') ? { 'if-none-match': req.get('if-none-match') as string } : {}),
+              ...(req.get('if-modified-since') ? { 'if-modified-since': req.get('if-modified-since') as string } : {}),
+              ...(req.get('range') ? { range: req.get('range') as string } : {}),
             },
           });
 
           res.status(upstream.status);
-          for (const header of ['content-type', 'cache-control', 'etag', 'last-modified']) {
+          for (const header of [
+            'content-type',
+            'cache-control',
+            'etag',
+            'last-modified',
+            'content-range',
+            'accept-ranges',
+          ]) {
             const value = upstream.headers.get(header);
             if (value) res.set(header, value);
           }
 
-          if (req.method === 'HEAD') return res.end();
+          const location = upstream.headers.get('location');
+          if (location) {
+            try {
+              const redirected = new URL(location, target);
+              const internal = new URL(docsInternalUrl);
+              if (redirected.origin === internal.origin) {
+                res.set('location', `${docsBasePath.replace(/\/$/, '')}${redirected.pathname}${redirected.search}`);
+              } else {
+                res.set('location', location);
+              }
+            } catch {
+              res.set('location', location);
+            }
+          }
+
+          res.set('X-Connect-Docs-Proxy', 'internal');
+          if (req.method === 'HEAD' || upstream.status === 304) return res.end();
           const body = Buffer.from(await upstream.arrayBuffer());
           return res.send(body);
         } catch {
           return res.status(502).type('text/plain').send('Documentação interna temporariamente indisponível.');
+        } finally {
+          clearTimeout(timeout);
         }
       });
     }

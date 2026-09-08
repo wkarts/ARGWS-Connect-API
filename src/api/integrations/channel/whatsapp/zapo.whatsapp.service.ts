@@ -1063,10 +1063,12 @@ export class ZapoStartupService extends ChannelStartupService {
       const rawJid = this.normalizeDeviceJid(String(row.jid || ''));
       if (!rawJid || rawJid === 'status@broadcast' || rawJid.endsWith('@broadcast')) continue;
       const remoteJid = this.canonicalStoredJid(rawJid, lidToPhone);
-      const name = String(row.name || displayByJid.get(rawJid) || displayByJid.get(remoteJid) || '').trim() || undefined;
+      const name =
+        String(row.name || displayByJid.get(rawJid) || displayByJid.get(remoteJid) || '').trim() || undefined;
       canonicalChats.set(remoteJid, {
         name,
-        unreadMessages: row.unread_count === null || row.unread_count === undefined ? undefined : Number(row.unread_count),
+        unreadMessages:
+          row.unread_count === null || row.unread_count === undefined ? undefined : Number(row.unread_count),
       });
     }
 
@@ -1169,7 +1171,9 @@ export class ZapoStartupService extends ChannelStartupService {
           participant,
           messageType: this.detectMessageType(message),
           message,
-          messageTimestamp: row.timestamp_ms ? Math.round(Number(row.timestamp_ms) / 1000) : Math.round(Date.now() / 1000),
+          messageTimestamp: row.timestamp_ms
+            ? Math.round(Number(row.timestamp_ms) / 1000)
+            : Math.round(Date.now() / 1000),
           source: 'web',
           instanceId: this.instanceId,
         });
@@ -1270,12 +1274,17 @@ export class ZapoStartupService extends ChannelStartupService {
       );
     }
 
+    // `pushName` on messages sent by this account identifies this account,
+    // not the remote peer. Persist it only for inbound messages; otherwise a
+    // single local profile name can contaminate many unrelated contacts/chats.
+    const remotePushName = messageRaw.key.fromMe ? undefined : messageRaw.pushName;
+
     if (db.SAVE_DATA.CONTACTS) {
-      await this.upsertContact(messageRaw.key.remoteJid, messageRaw.pushName);
+      await this.upsertContact(messageRaw.key.remoteJid, remotePushName);
     }
 
     if (db.SAVE_DATA.CHATS) {
-      await this.upsertChat(messageRaw.key.remoteJid, messageRaw.pushName);
+      await this.upsertChat(messageRaw.key.remoteJid, remotePushName);
     }
 
     if (rawRemoteJid !== canonicalRemoteJid) {
@@ -1346,7 +1355,9 @@ export class ZapoStartupService extends ChannelStartupService {
   private async persistOutgoingMessage(id: string | undefined, jid: string, messageType: string, message: any) {
     const messageRaw: any = {
       key: { id: id || `local-${Date.now()}`, remoteJid: jid, fromMe: true },
-      pushName: this.instance.profileName,
+      // Outgoing message metadata must not identify the remote peer with
+      // this account's own WhatsApp profile name.
+      pushName: undefined,
       messageType,
       message,
       messageTimestamp: Math.round(Date.now() / 1000),
@@ -1471,15 +1482,9 @@ export class ZapoStartupService extends ChannelStartupService {
 
     try {
       const maxConcurrentCalls = this.effectiveMaxConcurrentCalls();
-      if (
-        call?.callId &&
-        call?.canReject !== false &&
-        this.activeCallCount() > maxConcurrentCalls
-      ) {
+      if (call?.callId && call?.canReject !== false && this.activeCallCount() > maxConcurrentCalls) {
         await this.client.voip.rejectCall(call.callId);
-        this.logger.warn(
-          `Incoming WhatsApp call rejected because instance limit ${maxConcurrentCalls} was reached`,
-        );
+        this.logger.warn(`Incoming WhatsApp call rejected because instance limit ${maxConcurrentCalls} was reached`);
         return;
       }
 

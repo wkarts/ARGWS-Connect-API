@@ -14,6 +14,7 @@ export class RabbitmqController extends EventController implements EventControll
   private maxReconnectAttempts = 10;
   private reconnectDelay = 5000; // 5 seconds
   private isReconnecting = false;
+  private readonly preparedBindings = new Set<string>();
 
   constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
     super(prismaRepository, waMonitor, configService.get<Rabbitmq>('RABBITMQ')?.ENABLED, 'rabbitmq');
@@ -106,6 +107,7 @@ export class RabbitmqController extends EventController implements EventControll
 
           this.amqpConnection = connection;
           this.amqpChannel = channel;
+          this.preparedBindings.clear();
           this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
           this.isReconnecting = false;
 
@@ -188,6 +190,21 @@ export class RabbitmqController extends EventController implements EventControll
     return this.amqpChannel;
   }
 
+  private async ensureBinding(exchangeName: string, queueName: string, routingKey: string): Promise<void> {
+    if (!this.amqpChannel) throw new Error('AMQP channel is not available');
+    const key = `${exchangeName}\u0000${queueName}\u0000${routingKey}`;
+    if (this.preparedBindings.has(key)) return;
+
+    await this.amqpChannel.assertExchange(exchangeName, 'topic', { durable: true, autoDelete: false });
+    await this.amqpChannel.assertQueue(queueName, {
+      durable: true,
+      autoDelete: false,
+      arguments: { 'x-queue-type': 'quorum' },
+    });
+    await this.amqpChannel.bindQueue(queueName, exchangeName, routingKey);
+    this.preparedBindings.add(key);
+  }
+
   private async ensureConnection(): Promise<boolean> {
     if (!this.amqpChannel) {
       this.logger.warn('AMQP channel is not available, attempting to reconnect...');
@@ -252,24 +269,9 @@ export class RabbitmqController extends EventController implements EventControll
 
         while (retry < 3) {
           try {
-            await this.amqpChannel.assertExchange(exchangeName, 'topic', {
-              durable: true,
-              autoDelete: false,
-            });
-
             const eventName = event.replace(/_/g, '.').toLowerCase();
-
             const queueName = `${instanceName}.${eventName}`;
-
-            await this.amqpChannel.assertQueue(queueName, {
-              durable: true,
-              autoDelete: false,
-              arguments: {
-                'x-queue-type': 'quorum',
-              },
-            });
-
-            await this.amqpChannel.bindQueue(queueName, exchangeName, eventName);
+            await this.ensureBinding(exchangeName, queueName, eventName);
 
             await this.amqpChannel.publish(exchangeName, event, Buffer.from(JSON.stringify(message)));
 
@@ -305,24 +307,10 @@ export class RabbitmqController extends EventController implements EventControll
 
       while (retry < 3) {
         try {
-          await this.amqpChannel.assertExchange(exchangeName, 'topic', {
-            durable: true,
-            autoDelete: false,
-          });
-
           const queueName = prefixKey
             ? `${prefixKey}.${event.replace(/_/g, '.').toLowerCase()}`
             : event.replace(/_/g, '.').toLowerCase();
-
-          await this.amqpChannel.assertQueue(queueName, {
-            durable: true,
-            autoDelete: false,
-            arguments: {
-              'x-queue-type': 'quorum',
-            },
-          });
-
-          await this.amqpChannel.bindQueue(queueName, exchangeName, event);
+          await this.ensureBinding(exchangeName, queueName, event);
 
           await this.amqpChannel.publish(exchangeName, event, Buffer.from(JSON.stringify(message)));
 
@@ -414,6 +402,7 @@ export class RabbitmqController extends EventController implements EventControll
         await this.amqpChannel.close();
         this.amqpChannel = null;
       }
+      this.preparedBindings.clear();
       if (this.amqpConnection) {
         await this.amqpConnection.close();
         this.amqpConnection = null;
