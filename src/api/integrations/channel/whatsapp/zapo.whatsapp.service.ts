@@ -99,7 +99,6 @@ export class ZapoStartupService extends ChannelStartupService {
   private resolvePairingReady: (() => void) | null = null;
   private pairingReady = false;
   private authMode: 'qrcode' | 'pairing-code' = 'qrcode';
-  private lidReconciliationDone = false;
   private readonly outgoingCallPeers = new Map<string, string>();
   private readonly callMuteStates = new Map<string, boolean>();
   private readonly contactProfileRefreshAt = new Map<string, number>();
@@ -230,6 +229,44 @@ export class ZapoStartupService extends ChannelStartupService {
     const jid = createJid(number);
     const result = await this.client.profile.getProfilePicture(jid, 'image').catch(() => ({}));
     return { wuid: jid, profilePictureUrl: result?.url ?? null };
+  }
+
+  /**
+   * Resolve only one identity against ZAPO's persisted contact mailbox.
+   * This intentionally avoids history/contact scans in the call hot path.
+   */
+  protected async findStoredZapoContactIdentityRows(identityJid: string): Promise<any[]> {
+    const pool = this.storeBackend?.pool;
+    if (!pool || !this.instanceId) return [];
+
+    const normalized = this.normalizeDeviceJid(String(identityJid || ''));
+    if (!normalized) return [];
+
+    const prefix = process.env.ZAPO_STORE_TABLE_PREFIX || 'zapo_';
+    if (!/^[A-Za-z0-9_]*$/.test(prefix)) {
+      this.logger.warn('ZAPO_STORE_TABLE_PREFIX contains unsafe characters; targeted identity lookup skipped');
+      return [];
+    }
+
+    const tableName = `${prefix}mailbox_contacts`;
+    const exists = await pool.query('SELECT to_regclass($1) AS table_name', [tableName]);
+    if (!exists.rows?.[0]?.table_name) return [];
+
+    const user = normalized.split('@')[0];
+    const candidates = [...new Set([normalized, user].filter(Boolean))];
+    const result = await pool.query(
+      `SELECT jid, display_name, push_name, lid, phone_number
+       FROM "${tableName}"
+       WHERE session_id = $1
+         AND (
+           jid::text = ANY($2::text[])
+           OR lid::text = ANY($2::text[])
+           OR phone_number::text = ANY($2::text[])
+         )
+       LIMIT 8`,
+      [this.instanceId, candidates],
+    );
+    return result.rows || [];
   }
 
   private async resetLinkingClient() {
@@ -848,7 +885,6 @@ export class ZapoStartupService extends ChannelStartupService {
 
     if (state === 'open') {
       this.instance.qrcode = { count: 0 };
-      void this.reconcileStoredLidAliases().catch((error: Error) => this.logger.error(error));
       return;
     }
 
@@ -1449,82 +1485,6 @@ export class ZapoStartupService extends ChannelStartupService {
             return;
           }
         }
-      }
-    }
-  }
-
-  private async reconcileStoredLidAliases() {
-    if (this.lidReconciliationDone) return;
-    this.lidReconciliationDone = true;
-
-    const rows = await this.prismaRepository.message.findMany({
-      where: { instanceId: this.instanceId },
-      orderBy: { messageTimestamp: 'desc' },
-      take: 5000,
-      select: { id: true, key: true },
-    });
-    const aliases = new Map<string, string>();
-
-    for (const row of rows) {
-      const key = row.key as any;
-      const remoteJid = String(key?.remoteJid || '');
-      const remoteJidAlt = String(key?.remoteJidAlt || '');
-      if (remoteJid.endsWith('@lid') && remoteJidAlt && !remoteJidAlt.endsWith('@lid')) {
-        aliases.set(remoteJid, remoteJidAlt);
-      } else if (remoteJidAlt.endsWith('@lid') && remoteJid && !remoteJid.endsWith('@lid')) {
-        aliases.set(remoteJidAlt, remoteJid);
-      }
-    }
-
-    for (const [lidJid, phoneJid] of aliases) {
-      const [lidContact, phoneContact, lidChat, phoneChat] = await Promise.all([
-        this.prismaRepository.contact.findUnique({
-          where: { remoteJid_instanceId: { remoteJid: lidJid, instanceId: this.instanceId } },
-        }),
-        this.prismaRepository.contact.findUnique({
-          where: { remoteJid_instanceId: { remoteJid: phoneJid, instanceId: this.instanceId } },
-        }),
-        this.prismaRepository.chat.findUnique({
-          where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: lidJid } },
-        }),
-        this.prismaRepository.chat.findUnique({
-          where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: phoneJid } },
-        }),
-      ]);
-
-      if (lidContact && !phoneContact) {
-        await this.prismaRepository.contact.create({
-          data: {
-            remoteJid: phoneJid,
-            pushName: lidContact.pushName,
-            profilePicUrl: lidContact.profilePicUrl,
-            instanceId: this.instanceId,
-          },
-        });
-      }
-      if (lidChat && !phoneChat) {
-        await this.prismaRepository.chat.create({
-          data: {
-            remoteJid: phoneJid,
-            name: lidChat.name,
-            unreadMessages: lidChat.unreadMessages,
-            instanceId: this.instanceId,
-          },
-        });
-      }
-
-      await Promise.all([
-        this.prismaRepository.contact.deleteMany({ where: { instanceId: this.instanceId, remoteJid: lidJid } }),
-        this.prismaRepository.chat.deleteMany({ where: { instanceId: this.instanceId, remoteJid: lidJid } }),
-      ]);
-
-      for (const row of rows) {
-        const key = row.key as any;
-        if (String(key?.remoteJid || '') !== lidJid) continue;
-        await this.prismaRepository.message.update({
-          where: { id: row.id },
-          data: { key: { ...key, remoteJid: phoneJid, remoteJidAlt: lidJid } },
-        });
       }
     }
   }
