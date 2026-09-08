@@ -69,6 +69,10 @@ assert(zapoAccountExtensions.includes('editKey:'), 'Zapo message edit must use t
 assert(zapoAccountExtensions.includes('Events.MESSAGES_UPDATE'), 'Zapo edit webhook parity is missing');
 assert(zapoAccountExtensions.includes("status: 'EDITED'"), 'Zapo local edited-message state is missing');
 assert(zapoAccountExtensions.includes("status: 'DELETED'"), 'Zapo local deleted-message state is missing');
+assert(zapoAccountExtensions.includes('public async getBase64FromMediaMessage'), 'Zapo media-download compatibility is missing');
+assert(zapoAccountExtensions.includes('message.downloadBytes'), 'Zapo media download must use the public verified media pipeline');
+assert(zapoAccountExtensions.includes('convertAudioToMp4'), 'Zapo audio-to-MP4 compatibility is missing');
+assert(zapoAccountExtensions.includes("base64: buffer.toString('base64')"), 'Zapo media response must expose base64');
 assert(zapoAccountExtensions.includes('public async getStatus'), 'Zapo peer status lookup is missing');
 assert(zapoAccountExtensions.includes('profile.getStatus'), 'Zapo peer status must use the public profile coordinator');
 assert(zapoAccountExtensions.includes('public async fetchBusinessProfile'), 'Zapo business-profile compatibility is missing');
