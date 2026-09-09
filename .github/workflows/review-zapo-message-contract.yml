@@ -166,7 +166,8 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts src/api/integrations/channel/whatsapp/zapo.jid.helpers.ts package.json test/zapo-message-contract.test.cjs docs/operations/zapo-raw-sends-jid-review.md
+          git add src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts src/api/integrations/channel/whatsapp/zapo.jid.helpers.ts package.json docs/operations/zapo-raw-sends-jid-review.md
+          git add -f test/zapo-message-contract.test.cjs
           git diff --cached --check
           git commit -m 'fix(zapo): preserve real group content using native message helpers'
           git push origin HEAD:feat/operations-archive-zapo-catalog-groups
