@@ -26,7 +26,7 @@
     "docs:check": "node docs/scripts/generate-openapi.mjs --check",
     "test:zapo": "node ./test/zapo-provider.integration.test.mjs",
     "runtime:deps:check": "node ./scripts/check-zapo-runtime.cjs",
-    "test:operations": "node --test test/operations-groups-catalog.test.cjs"
+    "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs"
   },
   "repository": {
     "type": "git",

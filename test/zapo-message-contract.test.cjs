@@ -1,0 +1,83 @@
+
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Module = require('node:module');
+const typescript = require('typescript');
+const sdk = require('@innovatorssoft/zapo-js');
+const root = path.resolve(__dirname, '..');
+function loadTs(relative) {
+  const absolute = path.join(root, relative);
+  const compiled = typescript.transpileModule(fs.readFileSync(absolute, 'utf8'), {
+    compilerOptions: { module: typescript.ModuleKind.CommonJS, target: typescript.ScriptTarget.ES2020 },
+  }).outputText;
+  const loaded = new Module(absolute, module);
+  loaded.filename = absolute;
+  loaded.paths = Module._nodeModulePaths(path.dirname(absolute));
+  loaded._compile(compiled, absolute);
+  return loaded.exports;
+}
+const jids = loadTs('src/api/integrations/channel/whatsapp/zapo.jid.helpers.ts');
+const service = fs.readFileSync(path.join(root, 'src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts'), 'utf8');
+// Exercise the actual production method body with the real pinned SDK,
+// without constructing WhatsApp, Prisma, media or external services.
+const method = service.match(/private detectMessageType\(message: any\): string \{([\s\S]*?)\n  \}/);
+assert.ok(method, 'Production message detector must be present');
+assert.match(service, /import \{ getContentType \} from '@innovatorssoft\/zapo-js'/);
+const detect = new Function('getContentType', `return function(message) {${method[1]}\n}`)(sdk.getContentType);
+const senderKey = { groupId: '123456789-987654@g.us', axolotlSenderKeyDistributionMessage: Buffer.from([1]) };
+test('group media and extended text are not discarded as sender-key messages', () => {
+  for (const type of ['imageMessage', 'audioMessage', 'videoMessage', 'extendedTextMessage', 'documentMessage', 'productMessage', 'orderMessage']) {
+    const input = { senderKeyDistributionMessage: senderKey, [type]: {} };
+    assert.equal(detect(input), type);
+    assert.equal(input.senderKeyDistributionMessage, senderKey);
+  }
+});
+test('metadata and cleared proto fields cannot mask the real content type', () => {
+  assert.equal(detect({ messageContextInfo: {}, senderKeyDistributionMessage: senderKey, imageMessage: null, orderMessage: {} }), 'orderMessage');
+  assert.equal(detect({ imageMessage: undefined, extendedTextMessage: { text: 'fixture' } }), 'extendedTextMessage');
+  assert.equal(detect({ senderKeyDistributionMessage: senderKey, conversation: '' }), 'conversation');
+});
+test('sender-key-only and protocol-only envelopes retain internal classification', () => {
+  assert.equal(detect({ senderKeyDistributionMessage: senderKey }), 'senderKeyDistributionMessage');
+  assert.equal(detect({ senderKeyDistributionMessage: senderKey, protocolMessage: {} }), 'protocolMessage');
+  for (const value of [null, undefined, [], 12, 'text', {}]) assert.equal(detect(value), 'unknown');
+});
+test('documented raw product/order/contact/payment fields remain detectable', () => {
+  for (const type of ['productMessage', 'orderMessage', 'contactMessage', 'contactsArrayMessage', 'groupInviteMessage', 'interactiveMessage', 'requestPhoneNumberMessage']) {
+    assert.equal(detect({ [type]: {} }), type);
+  }
+});
+test('official JID normalization preserves group/LID/newsletter namespaces', () => {
+  for (const jid of ['123456789-987654@g.us', '120363123456789012@g.us', '177159062745149@lid', '120363123456789012@newsletter', 'status@broadcast']) {
+    assert.equal(jids.zapoNormalizeJid(jid), jid);
+    assert.equal(jids.zapoPhoneJid(jid), null);
+  }
+  assert.equal(jids.zapoNormalizeJid('5511999999999:12@s.whatsapp.net'), '5511999999999@s.whatsapp.net');
+  assert.equal(jids.zapoPhoneJid('5511999999999'), '5511999999999@s.whatsapp.net');
+  assert.equal(jids.zapoIsGroupJid('123456789-987654@g.us'), true);
+  assert.equal(jids.zapoIsLidJid('177159062745149@lid'), true);
+});
+test('typed bare LID accepts digits but cannot manufacture identities from text', () => {
+  assert.equal(jids.zapoKnownLidJid('177159062745149'), '177159062745149@lid');
+  assert.equal(jids.zapoKnownLidJid('177159062745149@lid'), '177159062745149@lid');
+  for (const value of ['lid:177159062745149', 'peer123abc456', '123-456', '', '123@s.whatsapp.net', '123@g.us']) {
+    assert.equal(jids.zapoKnownLidJid(value), null);
+  }
+});
+test('pinned protobuf retains raw product/order monetary units without conversion', () => {
+  const product = { productMessage: { businessOwnerJid: '5511999999999@s.whatsapp.net', product: { productId: 'fixture-product', title: 'Fixture', currencyCode: 'BRL', priceAmount1000: 49900 } } };
+  const order = { orderMessage: { orderId: 'fixture-order', sellerJid: '5511999999999@s.whatsapp.net', itemCount: 3, totalAmount1000: 149700, totalCurrencyCode: 'BRL' } };
+  // The pinned ZAPO codec accepts IMessage directly; it does not
+  // expose ProtobufJS fromObject. Long fields may decode as numbers
+  // or the public Long shape with toNumber().
+  const p = sdk.proto.Message.decode(sdk.proto.Message.encode(product).finish());
+  const o = sdk.proto.Message.decode(sdk.proto.Message.encode(order).finish());
+  const integer = value => typeof value === 'number' ? value : value.toNumber();
+  assert.equal(integer(p.productMessage.product.priceAmount1000), 49900);
+  assert.equal(integer(o.orderMessage.totalAmount1000), 149700);
+  assert.equal(p.productMessage.businessOwnerJid, product.productMessage.businessOwnerJid);
+  assert.equal(o.orderMessage.sellerJid, order.orderMessage.sellerJid);
+});

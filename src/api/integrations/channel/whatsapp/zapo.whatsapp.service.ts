@@ -19,6 +19,7 @@ import { Chatwoot, ConfigService, ConfigSessionPhone, Database, QrCode } from '@
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createPostgresStore } from '@innovatorssoft/store-postgres';
+import { getContentType } from '@innovatorssoft/zapo-js';
 import { createJid } from '@utils/createJid';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
@@ -1765,9 +1766,17 @@ export class ZapoStartupService extends ChannelStartupService {
   }
 
   private detectMessageType(message: any): string {
-    if (!message || typeof message !== 'object') return 'unknown';
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return 'unknown';
     if (typeof message.conversation === 'string') return 'conversation';
-    return Object.keys(message).find((key) => message[key] !== null && message[key] !== undefined) || 'unknown';
+    // Native detection skips the sender-key piggyback on real group content.
+    const contentType = getContentType(message);
+    if (contentType) return contentType;
+    // Preserve the internal-only sentinel used by handleIncomingMessage.
+    // A sender-key-only envelope must never become a regular conversation.
+    if (message.senderKeyDistributionMessage !== null && message.senderKeyDistributionMessage !== undefined) {
+      return 'senderKeyDistributionMessage';
+    }
+    return 'unknown';
   }
 
   private toJson<T = any>(value: T): any {
