@@ -1,0 +1,53 @@
+name: Operations Deployment and Statistics
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+permissions:
+  contents: read
+jobs:
+  operations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Check generated templates without rewriting sources
+        run: python3 scripts/sync-operations-deployments.py --check
+      - name: Test secure idempotent environment preparation
+        run: python3 test/deploy-operations.test.py
+      - name: Validate all active layouts with operations enabled and disabled
+        run: python3 test/operations-compose-contract.py
+      - name: Test statistics calculations, privacy and archived runtime reads
+        run: node --test test/operations-statistics.test.cjs test/operations-statistics-http.test.cjs
+      - name: Check syntax of all active launch scripts
+        run: |
+          set -euo pipefail
+          for dir in . deploy/develop deploy/production deploy/homologation deploy/cloudpanel deploy/dockge; do
+            for script in prepare-env.sh preflight.sh deploy.sh update.sh; do
+              test -x "$dir/$script"
+              bash -n "$dir/$script"
+            done
+          done
+      - name: Package deployment templates without runtime secrets
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          with zipfile.ZipFile('Connect-API-Deployments-Operations.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              paths = [*Path('deploy').rglob('*'), *Path('scripts').glob('*operations*.py'), Path('docs/operations/deploy-and-statistics.md')]
+              paths += [Path(name) for name in ['docker-compose.yaml', 'docker-compose.dev.yaml', 'env.example', '.env.example', 'prepare-env.sh', 'prepare-operations-env.py', 'deploy.sh', 'update.sh', 'preflight.sh', 'backup.sh', 'verify-backup.sh', 'restore-backup.sh']]
+              paths += [Path('scripts/connect-stack-backup.sh'), Path('scripts/connect-backup-crypto.cjs')]
+              for path in paths:
+                  if not path.is_file() or path.name == '.env' or path.name.endswith('.lock') or '__pycache__' in path.parts or 'volumes' in path.parts:
+                      continue
+                  archive.write(path, str(path))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: connect-deployments-operations
+          path: Connect-API-Deployments-Operations.zip
+          retention-days: 7

@@ -116,7 +116,8 @@ jobs:
               if stack in ('production', 'develop'):
                   optional.add(f'operations-{suffix}')
 
-              assert set(default['services']) == core, (
+              expected_default = core | ({f'operations-{suffix}'} if stack in ('production', 'develop') else set())
+              assert set(default['services']) == expected_default, (
                   f'{stack}: core incorreto: {sorted(default["services"])}'
               )
               assert set(full['services']) == core | optional, (
@@ -167,7 +168,7 @@ jobs:
                   assert not agent.get('network_mode'), f'{stack}: operations nao pode usar rede do host'
                   assert agent_name not in api_service.get('depends_on', {}), f'{stack}: agente nao pode bloquear o inicio da API'
                   assert api_service['environment'].get('OPERATIONS_AGENT_URL') == 'http://operations:8092', f'{stack}: URL interna do agente incorreta'
-                  assert str(api_service['environment'].get('OPERATIONS_ENABLED')).lower() == 'false', f'{stack}: monitoramento deve iniciar desabilitado'
+                  assert str(api_service['environment'].get('OPERATIONS_ENABLED')).lower() == 'true', f'{stack}: modelo atualizado deve selecionar monitoramento'
                   assert agent['environment'].get('OPERATIONS_INTERNAL_TOKEN') == api_service['environment'].get('OPERATIONS_INTERNAL_TOKEN'), f'{stack}: token interno divergente'
                   mounts = agent.get('volumes', [])
                   assert len(mounts) == 1 and mounts[0]['target'] == '/data', f'{stack}: apenas volume de dados permitido'

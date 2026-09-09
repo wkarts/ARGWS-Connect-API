@@ -6,6 +6,7 @@ const zlib = require('node:zlib');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { OperationalStore, publicEvent, SERVICES, validDay } = require('./store.cjs');
+const { createStatistics } = require('./statistics.cjs');
 
 function equalSecret(left, right) {
   return crypto.timingSafeEqual(crypto.createHash('sha256').update(left).digest(), crypto.createHash('sha256').update(right).digest());
@@ -53,6 +54,7 @@ async function createAgent(options = {}) {
     retentionDays: process.env.OPERATIONS_RETENTION_DAYS,
   });
   await store.init();
+  const statistics = createStatistics(store);
   const checks = options.checks || JSON.parse(process.env.OPERATIONS_CHECKS || '[]');
   if (!Array.isArray(checks) || checks.length > 8) throw new Error('Invalid operations checks');
   for (const check of checks) {
@@ -98,6 +100,7 @@ async function createAgent(options = {}) {
       if (reading >= 1) return send(res, 429, { error: 'Outra consulta ou exportação está em execução.' });
       reading++;
       try {
+        if (url.pathname === '/statistics') return send(res, 200, await statistics.query({ from: url.searchParams.get('from'), to: url.searchParams.get('to') }));
         if (url.pathname === '/history') return send(res, 200, await store.query({
           from: url.searchParams.get('from'), to: url.searchParams.get('to'),
           cursor: url.searchParams.get('cursor') || undefined, limit: Number(url.searchParams.get('limit') || 100),
