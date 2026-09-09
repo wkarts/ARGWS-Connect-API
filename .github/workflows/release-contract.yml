@@ -3,27 +3,15 @@ name: Release Contract Integrity
 on:
   pull_request:
     branches: [main, develop]
-    paths:
-      - '.github/scripts/apply-version.mjs'
-      - '.github/scripts/compute-next-version.mjs'
-      - '.github/workflows/auto-version-release.yml'
-      - '.github/workflows/release-contract.yml'
-      - 'test/release-version.test.cjs'
   push:
     branches: [main, develop]
-    paths:
-      - '.github/scripts/apply-version.mjs'
-      - '.github/scripts/compute-next-version.mjs'
-      - '.github/workflows/auto-version-release.yml'
-      - '.github/workflows/release-contract.yml'
-      - 'test/release-version.test.cjs'
 
 permissions:
   contents: read
 
 jobs:
   contract:
-    name: Version and frozen canonical safety
+    name: Version, frozen canonical and Manager security
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -31,4 +19,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22.x
-      - run: node --test test/release-version.test.cjs
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node --test test/release-version.test.cjs test/release-web-security.test.cjs
