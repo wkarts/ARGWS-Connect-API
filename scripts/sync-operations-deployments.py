@@ -66,7 +66,7 @@ def compose_text(text, api, agent, network, image, full):
         'OPERATIONS_INTERNAL_TOKEN': '${OPERATIONS_INTERNAL_TOKEN:-}',
     })
     text = replace_service(text, api, api_block)
-    suffix = api[3:] if api.startswith('api-') else ''
+    suffix = api[4:] if api.startswith('api-') else ''
     service = lambda name: name + ('-' + suffix if suffix else '')
     checks = [{'service': 'api', 'type': 'http', 'url': f'http://{api}:8080/health'}]
     if full:

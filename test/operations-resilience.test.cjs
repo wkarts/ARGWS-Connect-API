@@ -119,7 +119,7 @@ function administrativeAuth(expectedKey) {
 test('all operational reads register after the administrative guard', () => {
   const auth = administrativeAuth('test-only-global-key');
   assert.equal(auth.registrations[0].kind, 'use');
-  assert.deepEqual(auth.registrations.slice(1).map(({ route }) => route), ['/snapshot', '/history', '/archives', '/export']);
+  assert.deepEqual(auth.registrations.slice(1).map(({ route }) => route), ['/snapshot', '/statistics', '/history', '/archives', '/export']);
 });
 test('administrative authentication compares the exact key bytes without hashing', () => {
   const expected = 'test-only-global-key';

@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-09T02:43:57.160Z",
+  "generatedAt": "2026-09-09T15:26:11.384Z",
   "version": "1.0.21",
-  "sourceDigest": "7bb2d0f1777f5ef98d7e09c735092adb5f7ad4130cdbb469eb6d2a1434f6e807",
+  "sourceDigest": "e010482a4b428563c846cc23e916cca991fa3081d1639b413aa2520e439d2423",
   "operations": [
     {
       "method": "GET",
@@ -806,6 +806,11 @@
     {
       "method": "GET",
       "path": "/operations/snapshot",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/statistics",
       "source": "src/api/routes/operations.router.ts"
     },
     {

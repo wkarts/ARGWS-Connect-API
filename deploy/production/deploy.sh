@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./prepare-env.sh
+export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
 mkdir -p ./volumes/{instances,postgres,redis,rabbitmq,minio,nats,kafka,zookeeper/data,zookeeper/log,logs,backups}
 ./preflight.sh
 docker compose --env-file .env -f compose.yaml pull

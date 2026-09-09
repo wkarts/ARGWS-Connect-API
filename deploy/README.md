@@ -1,3 +1,5 @@
+> **Modelos atuais:** o perfil `operations` é entregue selecionado e seu segredo é gerado pelo preparador. Todos os modelos ativos de API estão cobertos; `canonical` antiga e DOCs independentes são preservados. Consulte [implantação e gráficos operacionais](../docs/operations/deploy-and-statistics.md).
+
 # Deployments oficiais — ARGWS Connect API
 
 A plataforma possui duas stacks oficiais e autocontidas: `deploy/production/` e `deploy/homologation/`.

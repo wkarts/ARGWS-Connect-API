@@ -1,3 +1,5 @@
+> **Atualização dos deployments:** os modelos ativos agora incluem os parâmetros, a preparação idempotente e o perfil operacional selecionado. A desativação explícita em instalações existentes é preservada. Consulte [implantação e estatísticas](deploy-and-statistics.md).
+
 # Histórico operacional, grupos e catálogo ZAPO
 
 ## Histórico privado, sem dados de comunicação
