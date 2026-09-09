@@ -1,0 +1,98 @@
+name: Prepare reviewed operations delivery
+on:
+  push:
+    branches: [fix/deploy-operations-parity-dashboard-charts]
+    paths: [.github/workflows/prepare-operations-delivery.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/fix/deploy-operations-parity-dashboard-charts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Materialize reviewed additions and all deployment templates
+        run: |
+          python3 scripts/sync-operations-deployments.py
+          python3 - <<'PY'
+          from pathlib import Path
+          def edit(name, old, new):
+              path = Path(name)
+              value = path.read_text()
+              if old not in value:
+                  raise SystemExit('Expected source context missing: ' + name)
+              path.write_text(value.replace(old, new, 1))
+          edit('operations-agent/server.cjs', "const { OperationalStore, publicEvent, SERVICES, validDay } = require('./store.cjs');", "const { OperationalStore, publicEvent, SERVICES, validDay } = require('./store.cjs');\nconst { createStatistics } = require('./statistics.cjs');")
+          edit('operations-agent/server.cjs', '  await store.init();', '  await store.init();\n  const statistics = createStatistics(store);')
+          edit('operations-agent/server.cjs', "        if (url.pathname === '/history')", "        if (url.pathname === '/statistics') return send(res, 200, await statistics.query({ from: url.searchParams.get('from'), to: url.searchParams.get('to') }));\n        if (url.pathname === '/history')")
+          edit('test/operations-resilience.test.cjs', "['/snapshot', '/history', '/archives', '/export']", "['/snapshot', '/statistics', '/history', '/archives', '/export']")
+          edit('docs/scripts/generate-openapi.mjs', "import crypto from 'node:crypto';", "import crypto from 'node:crypto';\nimport { operationsStatisticsOperation } from './operations-statistics-schema.mjs';")
+          edit('docs/scripts/generate-openapi.mjs', 'const requestOverrides = {', "const requestOverrides = {\n  'GET /operations/statistics': operationsStatisticsOperation,")
+          edit('.github/workflows/deployment-integrity.yml', "assert set(default['services']) == core, (", "expected_default = core | ({f'operations-{suffix}'} if stack in ('production', 'develop') else set())\n              assert set(default['services']) == expected_default, (")
+          edit('.github/workflows/deployment-integrity.yml', "== 'false', f'{stack}: monitoramento deve iniciar desabilitado'", "== 'true', f'{stack}: modelo atualizado deve selecionar monitoramento'")
+          path = Path('deploy/README.md')
+          path.write_text('> **Modelos atuais:** o perfil `operations` é entregue selecionado e seu segredo é gerado pelo preparador. Todos os modelos ativos de API estão cobertos; `canonical` antiga e DOCs independentes são preservados. Consulte [implantação e gráficos operacionais](../docs/operations/deploy-and-statistics.md).\n\n' + path.read_text())
+          path = Path('docs/operations/history-and-zapo-commerce.md')
+          path.write_text('> **Atualização dos deployments:** os modelos ativos agora incluem os parâmetros, a preparação idempotente e o perfil operacional selecionado. A desativação explícita em instalações existentes é preservada. Consulte [implantação e estatísticas](deploy-and-statistics.md).\n\n' + path.read_text())
+          PY
+      - name: Test environment preparation and all Compose layouts
+        run: |
+          python3 scripts/sync-operations-deployments.py --check
+          python3 test/deploy-operations.test.py
+          python3 test/operations-compose-contract.py
+          node --test test/operations-statistics.test.cjs test/operations-statistics-http.test.cjs
+      - name: Install locked API dependencies and validate code
+        env:
+          DATABASE_PROVIDER: postgresql
+        run: |
+          npm ci --no-audit --no-fund
+          npx eslint --fix src/api/routes/operations.router.ts
+          npm run db:generate
+          npm run lint:check
+          npm run build
+          npm run test:operations
+          node --test test/operations-resilience.test.cjs
+      - name: Validate Manager and regenerate the API contract
+        run: |
+          npm --prefix manager install --ignore-scripts --no-audit --no-fund
+          npm --prefix manager run test
+          npm run docs:generate
+          npm run docs:check
+      - name: Prepare immutable reviewed commit object without moving a branch
+        env:
+          PREPARE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json, os, subprocess, urllib.request
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('sync_ops', 'scripts/sync-operations-deployments.py')
+          sync = importlib.util.module_from_spec(spec); spec.loader.exec_module(sync)
+          allowed = set(sync.generate(Path('.')))
+          allowed.update(['operations-agent/server.cjs', 'src/api/routes/operations.router.ts', 'test/operations-resilience.test.cjs', 'docs/scripts/generate-openapi.mjs', '.github/workflows/deployment-integrity.yml', 'deploy/README.md', 'docs/operations/history-and-zapo-commerce.md'])
+          allowed.update(str(p) for p in Path('docs/openapi').glob('*.json'))
+          allowed.update(str(p) for p in Path('docs/asyncapi').glob('*.json'))
+          parent = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          entries = []
+          for name in sorted(allowed):
+              path = Path(name)
+              if not path.is_file():
+                  raise SystemExit('Missing reviewed output: ' + name)
+              entries.append({'path': name, 'mode': '100755' if name.endswith('.sh') else '100644', 'type': 'blob', 'content': path.read_text()})
+          entries.append({'path': '.github/workflows/prepare-operations-delivery.yml', 'mode': '100644', 'type': 'blob', 'sha': None})
+          base_url = 'https://api.github.com/repos/' + os.environ['REPOSITORY']
+          def post(endpoint, payload):
+              req = urllib.request.Request(base_url + endpoint, data=json.dumps(payload).encode(), method='POST', headers={'Authorization': 'Bearer ' + os.environ['PREPARE_GITHUB_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
+              with urllib.request.urlopen(req, timeout=90) as response:
+                  return json.load(response)
+          tree = post('/git/trees', {'base_tree': base_tree, 'tree': entries})
+          commit = post('/git/commits', {'message': 'fix(deploy): materialize operational templates and measured dashboard integration', 'tree': tree['sha'], 'parents': [parent]})
+          print('PREPARED_PARENT=' + parent)
+          print('PREPARED_COMMIT=' + commit['sha'])
+          print('No branch was moved; the temporary preparation workflow is absent from the prepared tree.')
+          PY
