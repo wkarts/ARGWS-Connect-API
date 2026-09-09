@@ -41,6 +41,36 @@ jobs:
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
+        output: codeql-results
+
+    - name: Report CodeQL source locations without source snippets
+      if: always()
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+        for file in Path('codeql-results').glob('*.sarif'):
+            document = json.loads(file.read_text())
+            for run in document.get('runs', []):
+                rules = {r['id']: r for r in run.get('tool', {}).get('driver', {}).get('rules', [])}
+                for result in run.get('results', []):
+                    rule_id = result.get('ruleId', 'unknown')
+                    rule = rules.get(rule_id, {})
+                    severity = rule.get('properties', {}).get('security-severity', result.get('level', 'warning'))
+                    locations = []
+                    for location in result.get('locations', []):
+                        physical = location.get('physicalLocation', {})
+                        locations.append({'path': physical.get('artifactLocation', {}).get('uri'), 'line': physical.get('region', {}).get('startLine')})
+                    print(json.dumps({'rule': rule_id, 'severity': severity, 'locations': locations}))
+                    for flow in result.get('codeFlows', []):
+                        for thread in flow.get('threadFlows', []):
+                            trace = []
+                            for location in thread.get('locations', []):
+                                physical = location.get('location', {}).get('physicalLocation', {})
+                                trace.append({'path': physical.get('artifactLocation', {}).get('uri'), 'line': physical.get('region', {}).get('startLine')})
+                            print(json.dumps({'rule': rule_id, 'flow': trace}))
+        PY
 
   dependency-review:
     name: Dependency Review
