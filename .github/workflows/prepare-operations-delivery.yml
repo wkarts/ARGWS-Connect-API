@@ -69,13 +69,12 @@ jobs:
           npm --prefix manager run test
           npm run docs:generate
           npm run docs:check
-      - name: Prepare immutable reviewed commit object without moving a branch
+      - name: Commit reviewed outputs only to this feature branch
         env:
-          PREPARE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
+          HUSKY: "0"
         run: |
           python3 - <<'PY'
-          import importlib.util, json, os, subprocess, urllib.request, urllib.error
+          import importlib.util, subprocess
           from pathlib import Path
           spec = importlib.util.spec_from_file_location('sync_ops', 'scripts/sync-operations-deployments.py')
           sync = importlib.util.module_from_spec(spec); spec.loader.exec_module(sync)
@@ -83,36 +82,15 @@ jobs:
           allowed.update(['scripts/sync-operations-deployments.py', 'operations-agent/server.cjs', 'src/api/routes/operations.router.ts', 'test/operations-resilience.test.cjs', 'docs/scripts/generate-openapi.mjs', '.github/workflows/deployment-integrity.yml', 'deploy/README.md', 'docs/operations/history-and-zapo-commerce.md'])
           allowed.update(str(p) for p in Path('docs/openapi').glob('*.json'))
           allowed.update(str(p) for p in Path('docs/asyncapi').glob('*.json'))
-          parent = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
-          entries = []
           for name in sorted(allowed):
-              path = Path(name)
-              if not path.is_file():
+              if not Path(name).is_file():
                   raise SystemExit('Missing reviewed output: ' + name)
-              entries.append({'path': name, 'mode': '100755' if name.endswith('.sh') else '100644', 'type': 'blob', 'content': path.read_text()})
-          entries.append({'path': '.github/workflows/prepare-operations-delivery.yml', 'mode': '100644', 'type': 'blob', 'sha': None})
-          Path('reviewed-tree.json').write_text(json.dumps({'base_tree': base_tree, 'tree': entries, 'parent': parent}))
-          base_url = 'https://api.github.com/repos/' + os.environ['REPOSITORY']
-          def post(endpoint, payload):
-              req = urllib.request.Request(base_url + endpoint, data=json.dumps(payload).encode(), method='POST', headers={'Authorization': 'Bearer ' + os.environ['PREPARE_GITHUB_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
-              try:
-                  with urllib.request.urlopen(req, timeout=90) as response:
-                      return json.load(response)
-              except urllib.error.HTTPError as error:
-                  print('GitHub validation response: ' + error.read().decode('utf-8'))
-                  raise
-          tree = post('/git/trees', {'base_tree': base_tree, 'tree': entries})
-          commit = post('/git/commits', {'message': 'fix(deploy): materialize operational templates and measured dashboard integration', 'tree': tree['sha'], 'parents': [parent]})
-          print('PREPARED_PARENT=' + parent)
-          print('PREPARED_COMMIT=' + commit['sha'])
-          print('No branch was moved; the temporary preparation workflow is absent from the prepared tree.')
+          subprocess.run(['git', 'add', '-f', '--', *sorted(allowed)], check=True)
+          subprocess.run(['git', 'rm', '.github/workflows/prepare-operations-delivery.yml'], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
           PY
-      - name: Preserve only reviewed source outputs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: reviewed-operations-tree
-          path: reviewed-tree.json
-          if-no-files-found: ignore
-          retention-days: 3
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(deploy): materialize operational templates and measured dashboard integration'
+          git push origin HEAD:refs/heads/fix/deploy-operations-parity-dashboard-charts
+          echo "VALIDATED_COMMIT=$(git rev-parse HEAD)"
