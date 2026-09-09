@@ -18,5 +18,6 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run test:operations
+      - run: node --test test/operations-resilience.test.cjs
       - run: npm --prefix manager install --ignore-scripts --no-audit --no-fund
       - run: npm --prefix manager run test

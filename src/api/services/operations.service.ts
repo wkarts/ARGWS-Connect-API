@@ -47,10 +47,13 @@ function publishSummary() {
     },
     (response) => {
       accepted = response.statusCode === 202;
-      response.resume();
+      response.once('error', () => {
+        publishing = false;
+      });
       response.once('end', () => {
         publishing = false;
       });
+      response.resume();
     },
   );
   request.once('timeout', () => request.destroy());
