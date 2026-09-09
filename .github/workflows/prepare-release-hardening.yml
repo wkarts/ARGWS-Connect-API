@@ -38,6 +38,8 @@ jobs:
           assert source.count(old) == 1, 'Current credential writer changed unexpectedly'
           source = source.replace(old, '', 1)
           file.write_text(source)
+          notes = Path('docs/releases/1.0.22.md')
+          notes.write_text(notes.read_text() + '\n## Segurança do Manager e da documentação\n\nO modo de acesso direto por API key mantém a credencial somente em memória, removendo valores antigos do armazenamento do navegador. Recarregar ou reabrir o Manager exige autenticação novamente nesse modo; isso não desconecta a sessão WhatsApp do servidor. O modo de conta permanece com seu mecanismo próprio de sessão. A documentação interna só encaminha para o serviço configurado, recusa alterações de host pelo caminho solicitado e não segue redirecionamentos externos.\n')
           PY
       - name: Install locked dependencies and validate the security corrections
         run: |
@@ -57,7 +59,7 @@ jobs:
           HUSKY: '0'
         run: |
           set -euo pipefail
-          git add -- manager/src/services/current.ts src/utils/internalDocsTarget.ts src/api/routes/view.router.ts
+          git add -- manager/src/services/current.ts src/utils/internalDocsTarget.ts src/api/routes/view.router.ts docs/releases/1.0.22.md
           git diff --cached --check
           git diff --cached --exit-code -- .github/workflows
           git config user.name 'github-actions[bot]'
