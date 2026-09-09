@@ -63,7 +63,8 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  operations:
+  operations-argws-connect-develop:
+    container_name: operations-argws-connect-develop
     profiles: ["operations"]
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
     pull_policy: always
@@ -85,7 +86,9 @@ services:
     pids_limit: 64
     volumes:
       - ${ARGWS_CONNECT_OPERATIONS_DATA_PATH:-./volumes/operations}:/data
-    networks: [argws-connect-develop-net]
+    networks:
+      argws-connect-develop-net:
+        aliases: [operations]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8092/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
