@@ -26,6 +26,7 @@ export class OperationsRouter {
       next();
     });
     this.router.get('/snapshot', (req, res) => this.forward('/snapshot', req, res));
+    this.router.get('/statistics', (req, res) => this.forward('/statistics', req, res));
     this.router.get('/history', (req, res) => this.forward('/history', req, res));
     this.router.get('/archives', (req, res) => this.forward('/archives', req, res));
     this.router.get('/export', (req, res) => this.forward('/export', req, res));
@@ -39,7 +40,13 @@ export class OperationsRouter {
     if (this.reading >= 4) return res.status(429).json({ error: 'Aguarde a consulta anterior.' });
     const url = new URL(endpoint, target.url);
     const allowed =
-      endpoint === '/history' ? ['from', 'to', 'cursor', 'limit'] : endpoint === '/export' ? ['day', 'format'] : [];
+      endpoint === '/history'
+        ? ['from', 'to', 'cursor', 'limit']
+        : endpoint === '/statistics'
+          ? ['from', 'to']
+          : endpoint === '/export'
+            ? ['day', 'format']
+            : [];
     for (const key of allowed) {
       const value = req.query[key];
       if (value === undefined) continue;
