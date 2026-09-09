@@ -1,0 +1,4 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'; import AppShell from '@/layouts/AppShell.vue'; import PageHeader from '@/components/PageHeader.vue'; import PanelCard from '@/components/PanelCard.vue'; import StatusPill from '@/components/StatusPill.vue'; import { connect } from '@/services/connect'; const data=ref<any>(null); onMounted(async()=>data.value=await connect.health().catch(()=>null))
+</script>
+<template><AppShell><PageHeader title="Saúde" description="Acompanhe o funcionamento geral do Connect|API."/><PanelCard title="Situação atual"><div class="health-hero"><span class="health-orb"></span><div><h2>{{data?'Tudo em funcionamento':'Verificando serviços'}}</h2><p>{{data?'Os principais recursos estão respondendo normalmente.':'Aguarde enquanto verificamos o funcionamento.'}}</p></div><StatusPill :status="data?'ok':'attention'"/></div></PanelCard></AppShell></template>

@@ -3,6 +3,7 @@ import { WAMonitoringService } from '@api/services/monitor.service';
 import { Auth, configService, Cors, Log, Websocket } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { Server } from 'http';
+import type { Socket } from 'socket.io';
 import { Server as SocketIO } from 'socket.io';
 
 import { EmitData, EventController, EventControllerInterface } from '../event.controller';
@@ -11,6 +12,46 @@ export class WebsocketController extends EventController implements EventControl
   private io: SocketIO;
   private corsConfig: Array<any>;
   private readonly logger = new Logger('WebsocketController');
+
+  private socketApiKey(socket: Socket): string {
+    return String(
+      socket.data?.apiKey ||
+        socket.handshake.auth?.apikey ||
+        socket.handshake.query?.apikey ||
+        socket.handshake.headers?.apikey ||
+        '',
+    );
+  }
+
+  private async voiceInstance(socket: Socket, instanceName: string): Promise<any> {
+    const name = String(instanceName || '').trim();
+    if (!name) throw new Error('instanceName is required');
+
+    const runtime = this.waMonitor.waInstances[name];
+    if (!runtime) throw new Error(`Instance "${name}" not found`);
+
+    const apiKey = this.socketApiKey(socket);
+    const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+    if (apiKey !== globalToken) {
+      const persisted = await this.prismaRepository.instance.findFirst({ where: { name, token: apiKey } });
+      if (!persisted) throw new Error('This token cannot access the requested instance');
+    }
+
+    if (typeof runtime.onInboundVoiceAudio !== 'function' || typeof runtime.feedLiveAudio !== 'function') {
+      throw new Error('The selected provider does not expose browser voice media');
+    }
+
+    return runtime;
+  }
+
+  private decodeFloat32Base64(value: unknown): Float32Array {
+    const encoded = String(value || '');
+    if (!encoded) throw new Error('PCM payload is required');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (!bytes.length || bytes.length % 4 !== 0) throw new Error('Invalid Float32 PCM payload');
+    const copy = Uint8Array.from(bytes);
+    return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
+  }
 
   constructor(prismaRepository: PrismaRepository, waMonitor: WAMonitoringService) {
     super(prismaRepository, waMonitor, configService.get<Websocket>('WEBSOCKET')?.ENABLED, 'websocket');
@@ -180,6 +221,7 @@ export class WebsocketController extends EventController implements EventControl
           }
         }
 
+        socket.data.apiKey = apiKey;
         return next();
       } catch (error) {
         this.logger.error('Authentication error:');
@@ -191,8 +233,76 @@ export class WebsocketController extends EventController implements EventControl
     this.socket.on('connection', (socket) => {
       this.logger.info(`Socket.IO user connected: ${socket.id}`);
 
+      let unsubscribeVoice: (() => void) | null = null;
+      let voiceRuntime: any = null;
+      let voiceCallId = '';
+
+      const stopVoice = () => {
+        unsubscribeVoice?.();
+        unsubscribeVoice = null;
+        if (voiceRuntime && voiceCallId && typeof voiceRuntime.setExternalAudioMode === 'function') {
+          try {
+            voiceRuntime.setExternalAudioMode(voiceCallId, false);
+          } catch {
+            // Call may already have ended.
+          }
+        }
+        voiceRuntime = null;
+        voiceCallId = '';
+      };
+
       socket.on('disconnect', (reason) => {
+        stopVoice();
         this.logger.info(`User disconnected: ${socket.id} - ${reason}`);
+      });
+
+      socket.on('voice:subscribe', async (data: any, acknowledge?: (result: any) => void) => {
+        try {
+          stopVoice();
+          const runtime = await this.voiceInstance(socket, data?.instanceName);
+          const callId = String(data?.callId || '').trim();
+          if (!callId) throw new Error('callId is required');
+
+          if (typeof runtime.setExternalAudioMode === 'function') runtime.setExternalAudioMode(callId, true);
+          unsubscribeVoice = runtime.onInboundVoiceAudio(({ call, pcm }: any) => {
+            const currentCallId = String(call?.callId || call?.id || '');
+            if (currentCallId && currentCallId !== callId) return;
+            const frame = pcm instanceof Float32Array ? pcm : new Float32Array(pcm || []);
+            const bytes = Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength);
+            socket.emit('voice:audio', {
+              callId,
+              sampleRate: 16000,
+              channels: 1,
+              pcm: bytes.toString('base64'),
+            });
+          });
+          voiceRuntime = runtime;
+          voiceCallId = callId;
+          acknowledge?.({ ok: true, callId, sampleRate: 16000, channels: 1 });
+        } catch (error) {
+          stopVoice();
+          acknowledge?.({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      });
+
+      socket.on('voice:audio', async (data: any, acknowledge?: (result: any) => void) => {
+        try {
+          const callId = String(data?.callId || '').trim();
+          if (!callId) throw new Error('callId is required');
+          const runtime =
+            voiceRuntime && voiceCallId === callId
+              ? voiceRuntime
+              : await this.voiceInstance(socket, data?.instanceName);
+          runtime.feedLiveAudio(callId, this.decodeFloat32Base64(data?.pcm));
+          acknowledge?.({ ok: true });
+        } catch (error) {
+          acknowledge?.({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      });
+
+      socket.on('voice:unsubscribe', (_data: any, acknowledge?: (result: any) => void) => {
+        stopVoice();
+        acknowledge?.({ ok: true });
       });
 
       socket.on('sendNode', async (data) => {

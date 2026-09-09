@@ -20,6 +20,25 @@ services:
       DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
+      ARGWS_CONNECT_DOCS_INTERNAL_URL: ${ARGWS_CONNECT_DOCS_INTERNAL_URL:-http://docs-argws-connect-production:8080}
+      ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
+      OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}
+      OPERATIONS_AGENT_URL: ${OPERATIONS_AGENT_URL:-http://operations:8092}
+      OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
+      MANAGER_FEATURE_DOCS: ${MANAGER_FEATURE_DOCS:-true}
+      MANAGER_FEATURE_VOICE: ${MANAGER_FEATURE_VOICE:-true}
+      MANAGER_FEATURE_VOICE_EXTENSIONS: ${MANAGER_FEATURE_VOICE_EXTENSIONS:-false}
+      MANAGER_FEATURE_VOICE_QUEUES: ${MANAGER_FEATURE_VOICE_QUEUES:-false}
+      MANAGER_FEATURE_FLOWS: ${MANAGER_FEATURE_FLOWS:-false}
+      MANAGER_FEATURE_AUTOMATIONS: ${MANAGER_FEATURE_AUTOMATIONS:-false}
+      MANAGER_FEATURE_CONTACTS: ${MANAGER_FEATURE_CONTACTS:-true}
+      MANAGER_FEATURE_MESSAGES: ${MANAGER_FEATURE_MESSAGES:-true}
+      MANAGER_FEATURE_USERS: ${MANAGER_FEATURE_USERS:-false}
+      MANAGER_FEATURE_PERMISSIONS: ${MANAGER_FEATURE_PERMISSIONS:-false}
+      MANAGER_FEATURE_AUDIT: ${MANAGER_FEATURE_AUDIT:-false}
+      MANAGER_FEATURE_SECURITY: ${MANAGER_FEATURE_SECURITY:-false}
+      MANAGER_FEATURE_UPDATES: ${MANAGER_FEATURE_UPDATES:-true}
+      MANAGER_FEATURE_SETTINGS: ${MANAGER_FEATURE_SETTINGS:-true}
     depends_on:
       postgres-argws-connect-production:
         condition: service_healthy
@@ -28,6 +47,8 @@ services:
       rabbitmq-argws-connect-production:
         condition: service_healthy
       minio-argws-connect-production:
+        condition: service_healthy
+      docs-argws-connect-production:
         condition: service_healthy
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080"
@@ -42,17 +63,54 @@ services:
       start_period: 60s
     logging: *default-logging
 
+  operations-argws-connect-production:
+    container_name: operations-argws-connect-production
+    profiles: ["operations"]
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
+    pull_policy: always
+    restart: unless-stopped
+    entrypoint: ["node", "/argws-connect/operations-agent/server.cjs"]
+    environment:
+      TZ: ${TZ:-America/Bahia}
+      OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
+      OPERATIONS_DATA_PATH: /data
+      OPERATIONS_HOT_DAYS: ${OPERATIONS_HOT_DAYS:-3}
+      OPERATIONS_RETENTION_DAYS: ${OPERATIONS_RETENTION_DAYS:-90}
+      OPERATIONS_CHECKS: '[{"service":"api","type":"http","url":"http://api-argws-connect-production:8080/health"},{"service":"docs","type":"http","url":"http://docs-argws-connect-production:8080/health"},{"service":"database","type":"tcp","url":"tcp://postgres-argws-connect-production:5432"},{"service":"cache","type":"tcp","url":"tcp://redis-argws-connect-production:6379"},{"service":"events","type":"tcp","url":"tcp://rabbitmq-argws-connect-production:5672"},{"service":"storage","type":"http","url":"http://minio-argws-connect-production:9000/minio/health/live"}]'
+    expose: ["8092"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 192m
+    cpus: "0.50"
+    pids_limit: 64
+    volumes:
+      - ${ARGWS_CONNECT_OPERATIONS_DATA_PATH:-./volumes/operations}:/data
+    networks:
+      argws-connect-production-net:
+        aliases: [operations]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8092/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+
   docs-argws-connect-production:
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
     pull_policy: always
     container_name: docs-argws-connect-production
     restart: unless-stopped
     environment:
+      BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
       SERVER_URL: ${SERVER_URL:-}
       API_REFERENCE_CONFIG: >-
         {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost","customCss":".light-mode{--scalar-color-accent:#2563eb;--scalar-background-1:#ffffff;--scalar-background-2:#f7f9fc;--scalar-background-3:#eef3f9;--scalar-color-1:#0f172a;--scalar-color-2:#475569;--scalar-color-3:#64748b;--scalar-border-color:#dbe4ef}.dark-mode{--scalar-color-accent:#2f6df6;--scalar-background-1:#0f172a;--scalar-background-2:#111827;--scalar-background-3:#172033;--scalar-color-1:#f8fafc;--scalar-color-2:#cbd5e1;--scalar-color-3:#94a3b8;--scalar-border-color:#263249}"}
-    ports:
-      - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38180}:8080"
+    expose: ["8080"]
     networks: [argws-connect-production-net]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]

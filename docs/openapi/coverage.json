@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-06T15:46:10.289Z",
+  "generatedAt": "2026-09-09T15:26:11.384Z",
   "version": "1.0.21",
-  "sourceDigest": "fc9761cc54df80401d42df9241bd95ce87df7deba1e06646d1728c3846735800",
+  "sourceDigest": "e010482a4b428563c846cc23e916cca991fa3081d1639b413aa2520e439d2423",
   "operations": [
     {
       "method": "GET",
@@ -65,7 +65,37 @@
     },
     {
       "method": "POST",
+      "path": "/call/accept/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/end/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/call/list/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/mediaTicket/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/mute/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
       "path": "/call/offer/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/reject/{instanceName}",
       "source": "src/api/routes/call.router.ts"
     },
     {
@@ -525,6 +555,11 @@
     },
     {
       "method": "POST",
+      "path": "/instance/migrateProvider/{instanceName}",
+      "source": "src/api/routes/instance.router.ts"
+    },
+    {
+      "method": "POST",
       "path": "/instance/restart/{instanceName}",
       "source": "src/api/routes/instance.router.ts"
     },
@@ -755,6 +790,31 @@
     },
     {
       "method": "GET",
+      "path": "/operations/archives",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/export",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/history",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/snapshot",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/statistics",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
       "path": "/proxy/find/{instanceName}",
       "source": "src/api/routes/proxy.router.ts"
     },
@@ -892,11 +952,6 @@
       "method": "POST",
       "path": "/verify-creds",
       "source": "src/api/routes/index.router.ts"
-    },
-    {
-      "method": "POST",
-      "path": "/webhook/connect",
-      "source": "src/api/integrations/channel/connect/connect.router.ts"
     },
     {
       "method": "GET",

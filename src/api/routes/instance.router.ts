@@ -1,8 +1,9 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import { InstanceDto, SetPresenceDto } from '@api/dto/instance.dto';
+import { ProviderMigrationDto } from '@api/dto/provider-migration.dto';
 import { instanceController } from '@api/server.module';
 import { ConfigService } from '@config/env.config';
-import { instanceSchema, presenceOnlySchema } from '@validate/validate.schema';
+import { instanceSchema, presenceOnlySchema, providerMigrationSchema } from '@validate/validate.schema';
 import { RequestHandler, Router } from 'express';
 
 import { HttpStatus } from './index.router';
@@ -62,6 +63,16 @@ export class InstanceRouter extends RouterBroker {
           schema: null,
           ClassRef: InstanceDto,
           execute: (instance) => instanceController.fetchInstances(instance, key),
+        });
+
+        return res.status(HttpStatus.OK).json(response);
+      })
+      .post(this.routerPath('migrateProvider'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<ProviderMigrationDto>({
+          request: req,
+          schema: providerMigrationSchema,
+          ClassRef: ProviderMigrationDto,
+          execute: (instance, data) => instanceController.migrateProvider(instance, data),
         });
 
         return res.status(HttpStatus.OK).json(response);

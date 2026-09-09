@@ -31,7 +31,7 @@ export const settingsSchema: JSONSchema7 = {
     readMessages: { type: 'boolean' },
     readStatus: { type: 'boolean' },
     syncFullHistory: { type: 'boolean' },
-    wavoipToken: { type: 'string' },
+    voipMaxConcurrentCalls: { type: 'integer', minimum: 1 },
   },
   required: ['rejectCall', 'groupsIgnore', 'alwaysOnline', 'readMessages', 'readStatus', 'syncFullHistory'],
   ...isNotEmpty('rejectCall', 'groupsIgnore', 'alwaysOnline', 'readMessages', 'readStatus', 'syncFullHistory'),

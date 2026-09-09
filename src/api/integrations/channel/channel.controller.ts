@@ -11,6 +11,7 @@ import EventEmitter2 from 'eventemitter2';
 import { ConnectStartupService } from './connect/connect.channel.service';
 import { BusinessStartupService } from './meta/whatsapp.business.service';
 import { BaileysStartupService } from './whatsapp/whatsapp.baileys.service';
+import { ZapoIdentityStartupService } from './whatsapp/zapo.identity.extensions';
 
 type ChannelDataType = {
   configService: ConfigService;
@@ -68,8 +69,8 @@ export class ChannelController {
       );
     }
 
-    if (instanceData.integration === Integration.CONNECT) {
-      return new ConnectStartupService(
+    if (instanceData.integration === Integration.WHATSAPP_ZAPO) {
+      return new ZapoIdentityStartupService(
         data.configService,
         data.eventEmitter,
         data.prismaRepository,
@@ -87,6 +88,18 @@ export class ChannelController {
         data.chatwootCache,
         data.baileysCache,
         data.providerFiles,
+      );
+    }
+
+    // Upgrade compatibility only: existing 1.0.21 CONNECT rows continue to
+    // run, while CONNECT remains absent from the current creation schema.
+    if (instanceData.integration === 'CONNECT') {
+      return new ConnectStartupService(
+        data.configService,
+        data.eventEmitter,
+        data.prismaRepository,
+        data.cache,
+        data.chatwootCache,
       );
     }
 

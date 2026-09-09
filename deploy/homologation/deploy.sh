@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-
 ./prepare-env.sh
+export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
 
 mkdir -p \
   ./volumes/instances \

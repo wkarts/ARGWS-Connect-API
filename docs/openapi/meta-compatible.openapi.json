@@ -4,7 +4,7 @@
     "title": "Connect|API — Meta Compatible /graph",
     "version": "1.0.21",
     "summary": "Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.",
-    "description": "![Connect|API Meta](/openapi/branding/docs/connect-api-meta-light.png)\n\nFachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.\n\nA autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão."
+    "description": "![Connect|API Meta](openapi/branding/docs/connect-api-meta-light.png)\n\nFachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.\n\nA autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão."
   },
   "servers": [
     {
@@ -230,7 +230,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS e CONNECT retornam `data: []`.",
+            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.",
             "content": {
               "application/json": {
                 "schema": {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { operationsStatisticsOperation } from './operations-statistics-schema.mjs';
 import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
 
 const ROOT = process.cwd();
@@ -191,6 +192,11 @@ function discoverRoutes() {
 }
 
 const requestOverrides = {
+  'GET /operations/statistics': operationsStatisticsOperation,
+  "GET /operations/snapshot": {"summary": "Resumo operacional privado", "description": "Exige a API key global. Somente verificações técnicas, sem canais ou conteúdo de mensagens. Retorna 503 quando o monitoramento está desabilitado ou indisponível."},
+  "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
+  "GET /operations/archives": {"summary": "Listar arquivos diários", "description": "Índice de dias disponíveis, tamanhos e verificação. Sem conteúdo do WhatsApp."},
+  "GET /operations/export": {"summary": "Baixar diagnóstico compactado", "description": "Exportação administrativa de um único dia, sem credenciais ou conteúdo de comunicação.", "parameters": [{"name": "day", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["text", "jsonl"], "default": "text"}}], "responses": {"200": {"description": "Arquivo GZIP de texto legível ou JSONL.", "content": {"application/gzip": {"schema": {"type": "string", "format": "binary"}}}}}},
   'POST /instance/create': {
     summary: 'Criar instância',
     description: 'Cria uma nova instância e retorna token, estado e QR/pairing quando solicitado.',
@@ -210,6 +216,23 @@ const requestOverrides = {
     parameters: [{ name: 'number', in: 'query', required: false, schema: { type: 'string' }, description: 'Telefone internacional somente com dígitos para gerar código de pareamento.' }],
   },
   'DELETE /instance/delete/{instanceName}': { summary: 'Excluir instância definitivamente', description: 'Remove a instância e os dados persistidos associados segundo o ciclo de limpeza atual.' },
+  'POST /instance/migrateProvider/{instanceName}': {
+    summary: 'Converter provider da sessão',
+    description: 'Converte uma sessão pareada entre WHATSAPP-BAILEYS e WHATSAPP-ZAPO por snapshot. A operação fecha o provider de origem sem logout, converte o estado, valida o destino e restaura a origem automaticamente se a nova sessão não abrir. Use `dryRun: true` para validar perdas sem interromper a conexão.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProviderMigrationRequest' },
+          examples: {
+            toZapo: { summary: 'Baileys → Zapo', value: { targetProvider: 'WHATSAPP-ZAPO' } },
+            toBaileys: { summary: 'Zapo → Baileys', value: { targetProvider: 'WHATSAPP-BAILEYS' } },
+            dryRun: { summary: 'Somente validar conversão', value: { targetProvider: 'WHATSAPP-ZAPO', dryRun: true } },
+          },
+        },
+      },
+    },
+  },
   'POST /message/sendText/{instanceName}': {
     summary: 'Enviar mensagem de texto',
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SendTextRequest' }, example: { number: '5575999999999', text: 'Olá pelo Connect|API' } } } },
@@ -317,10 +340,10 @@ function nativeSpec(routes, version) {
       version,
       summary: 'Referência interativa da API nativa do Connect|API.',
       description: [
-        '![Connect|API REST](/openapi/branding/docs/connect-api-rest-light.png)', '',
+        '![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)', '',
         'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.', '',
         '### Autenticação', 'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.', '',
-        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `CONNECT`', '',
+        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `WHATSAPP-ZAPO`', '',
         '### Atualização automática', 'Este documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado.',
       ].join('\n'),
     },
@@ -343,7 +366,8 @@ function nativeSpec(routes, version) {
         ...metaCompatibilityAdminSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
-        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'CONNECT'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
+        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
+        ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
       },
@@ -362,7 +386,7 @@ function graphSpec(version) {
     info: {
       title: 'Connect|API — Meta Compatible /graph', version, summary: 'Fachada HTTP/Webhook compatível com o contrato Meta WhatsApp Cloud.',
       description: [
-        '![Connect|API Meta](/openapi/branding/docs/connect-api-meta-light.png)', '',
+        '![Connect|API Meta](openapi/branding/docs/connect-api-meta-light.png)', '',
         'Fachada Meta Compatible sobre o mesmo núcleo do Connect|API, sem provider paralelo e sem `wamid` artificial.', '',
         'A autenticação usa `Authorization: Bearer <INSTANCE_TOKEN>`. Toda instância compatível com identidade telefônica estável é Graph-addressable por padrão.',
       ].join('\n'),
@@ -390,7 +414,7 @@ function graphSpec(version) {
         get: {
           tags: ['Templates'], summary: 'Listar templates', operationId: 'meta_list_templates', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e CONNECT retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
+          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{mediaId}': {
@@ -427,7 +451,7 @@ function asyncSpec(version) {
       title: 'Connect|API — Eventos',
       version,
       description: [
-        '![Connect|API Events](/openapi/branding/docs/connect-api-events-light.png)', '',
+        '![Connect|API Events](openapi/branding/docs/connect-api-events-light.png)', '',
         'Eventos do Connect|API publicáveis por Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher ou Kafka conforme configuração e suporte.',
       ].join('\n'),
     },

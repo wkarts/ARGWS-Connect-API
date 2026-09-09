@@ -9,6 +9,7 @@ import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
 import { waMonitor } from '@api/server.module';
+import { observeOperations } from '@api/services/operations.service';
 import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
 import express, { NextFunction, Request, Response, Router } from 'express';
@@ -21,6 +22,7 @@ import { ChatRouter } from './chat.router';
 import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
+import { OperationsRouter } from './operations.router';
 import { ProxyRouter } from './proxy.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
@@ -38,6 +40,8 @@ enum HttpStatus {
 }
 
 const router: Router = Router();
+router.use(observeOperations);
+router.use('/operations', new OperationsRouter().router);
 const serverConfig = configService.get('SERVER');
 const databaseConfig = configService.get<Database>('DATABASE');
 const guards = [instanceExistsGuard, instanceLoggedGuard, authGuard['apikey']];
@@ -50,14 +54,9 @@ const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 const metricsIPWhitelist = (req: Request, res: Response, next: NextFunction) => {
   const metricsConfig = configService.get('METRICS');
   const allowedIPs = metricsConfig.ALLOWED_IPS?.split(',').map((ip) => ip.trim()) || ['127.0.0.1'];
-  const clientIPs = [
-    req.ip,
-    req.connection.remoteAddress,
-    req.socket.remoteAddress,
-    req.headers['x-forwarded-for'],
-  ].filter((ip) => ip !== undefined);
-
-  if (allowedIPs.filter((ip) => clientIPs.includes(ip)) === 0) {
+  // req.ip respects the configured trusted-proxy policy, unlike raw headers.
+  const clientIP = String(req.ip || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  if (!allowedIPs.some((ip) => ip.replace(/^::ffff:/, '') === clientIP)) {
     return res.status(403).send('Forbidden: IP not allowed');
   }
 

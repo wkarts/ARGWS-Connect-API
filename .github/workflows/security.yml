@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main, develop ]
   schedule:
-    - cron: '0 0 * * 1' # Weekly on Mondays
+    - cron: '0 0 * * 1'
 
 jobs:
   codeql:
@@ -17,30 +17,76 @@ jobs:
       actions: read
       contents: read
       security-events: write
-
     strategy:
       fail-fast: false
       matrix:
         language: [ 'javascript' ]
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
       with:
         submodules: recursive
-
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-
     - name: Autobuild
       uses: github/codeql-action/autobuild@v3
-
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
+        output: codeql-results
+    - name: Report CodeQL findings and analyzed source fingerprints
+      if: always()
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import hashlib, json, subprocess
+        from pathlib import Path
+        print('Analyzed checkout:', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
+        allowed = {'scripts/connect-backup-crypto.cjs', 'operations-agent/store.cjs', 'operations-agent/server.cjs'}
+        for name in sorted(allowed):
+            data = Path(name).read_bytes()
+            print(json.dumps({'source': name, 'sha256': hashlib.sha256(data).hexdigest(), 'lines': len(data.splitlines())}))
+        for file in Path('codeql-results').glob('*.sarif'):
+            document = json.loads(file.read_text())
+            for run in document.get('runs', []):
+                rules = {r['id']: r for r in run.get('tool', {}).get('driver', {}).get('rules', [])}
+                for result in run.get('results', []):
+                    rule_id = result.get('ruleId', 'unknown')
+                    rule = rules.get(rule_id, {})
+                    severity = rule.get('properties', {}).get('security-severity', result.get('level', 'warning'))
+                    print(json.dumps({'rule': rule_id, 'severity': severity, 'explanation': result.get('message', {}).get('text')}))
+                    locations = [item.get('physicalLocation', {}) for item in result.get('locations', [])]
+                    for flow in result.get('codeFlows', []):
+                        for thread in flow.get('threadFlows', []):
+                            for item in thread.get('locations', []):
+                                locations.append(item.get('location', {}).get('physicalLocation', {}))
+                    seen = set()
+                    for physical in locations:
+                        name = physical.get('artifactLocation', {}).get('uri')
+                        line = physical.get('region', {}).get('startLine')
+                        if (name, line) in seen:
+                            continue
+                        seen.add((name, line))
+                        print(json.dumps({'rule': rule_id, 'path': name, 'line': line}))
+                        if name in allowed and isinstance(line, int):
+                            lines = Path(name).read_text().splitlines()
+                            for index in range(max(0, line - 3), min(len(lines), line + 2)):
+                                print(f'{name}:{index + 1}: {lines[index]}')
+        PY
+    - name: Retain analysis and reviewed public source
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-codeql-triage-${{ github.run_id }}
+        retention-days: 3
+        path: |
+          codeql-results/*.sarif
+          scripts/connect-backup-crypto.cjs
+          operations-agent/store.cjs
+          operations-agent/server.cjs
 
   dependency-review:
     name: Dependency Review
@@ -55,7 +101,6 @@ jobs:
         id: dependency-review
         continue-on-error: true
         uses: actions/dependency-review-action@v4
-
       - name: Dependency Review availability notice
         if: steps.dependency-review.outcome == 'failure'
         run: |

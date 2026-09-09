@@ -1,18 +1,21 @@
 import { InstanceDto, SetPresenceDto } from '@api/dto/instance.dto';
+import { ProviderMigrationDto } from '@api/dto/provider-migration.dto';
 import { ChatwootService } from '@api/integrations/chatbot/chatwoot/services/chatwoot.service';
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { channelController, eventManager } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { ProviderSessionMigrationService, WhatsAppSessionProvider } from '@api/services/provider-session-migration.service';
 import { SettingsService } from '@api/services/settings.service';
 import { Events, Integration, wa } from '@api/types/wa.types';
-import { Auth, Chatwoot, ConfigService, HttpServer, WaBusiness } from '@config/env.config';
+import { Auth, Chatwoot, ConfigService, HttpServer, QrCode, WaBusiness } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, InternalServerErrorException, UnauthorizedException } from '@exceptions';
 import { delay } from 'baileys';
 import { isArray, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
+import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import { v4 } from 'uuid';
 
 import { ProxyController } from './proxy.controller';
@@ -30,9 +33,118 @@ export class InstanceController {
     private readonly chatwootCache: CacheService,
     private readonly baileysCache: CacheService,
     private readonly providerFiles: ProviderFiles,
-  ) {}
+  ) {
+    this.providerMigrationService = new ProviderSessionMigrationService(
+      this.configService,
+      this.prismaRepository,
+      this.cache,
+    );
+  }
 
   private readonly logger = new Logger('InstanceController');
+  private readonly providerMigrationService: ProviderSessionMigrationService;
+  private readonly authenticationQueues = new Map<string, Promise<void>>();
+
+  private authenticationKey(instance: any): string {
+    return String(instance.instanceId || instance.instanceName || instance.instance?.id || instance.instance?.name);
+  }
+
+  private providerRuntimeFromRecord(record: any, integration: WhatsAppSessionProvider) {
+    const instanceData: InstanceDto = {
+      instanceId: record.id,
+      instanceName: record.name,
+      integration,
+      token: record.token,
+      number: record.number,
+      businessId: record.businessId,
+      ownerJid: record.ownerJid,
+      profileName: record.profileName,
+      profilePicUrl: record.profilePicUrl,
+      connectionStatus: 'close',
+    };
+
+    const runtime = channelController.init(instanceData, {
+      configService: this.configService,
+      eventEmitter: this.eventEmitter,
+      prismaRepository: this.prismaRepository,
+      cache: this.cache,
+      chatwootCache: this.chatwootCache,
+      baileysCache: this.baileysCache,
+      providerFiles: this.providerFiles,
+    });
+
+    if (!runtime) throw new BadRequestException(`Unable to initialize provider ${integration}`);
+
+    runtime.setInstance({
+      instanceId: record.id,
+      instanceName: record.name,
+      integration,
+      token: record.token,
+      number: record.number,
+      businessId: record.businessId,
+      ownerJid: record.ownerJid,
+      profileName: record.profileName,
+      profilePicUrl: record.profilePicUrl,
+    });
+
+    return runtime;
+  }
+
+  private async waitForProviderMigrationConnection(instance: any, timeoutMs = 60_000): Promise<void> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      if (instance?.connectionStatus?.state === 'open') return;
+
+      const qrCode = instance?.qrCode;
+      if (qrCode?.code || qrCode?.base64 || qrCode?.pairingCode) {
+        throw new BadRequestException(
+          'Converted snapshot was not accepted as an existing WhatsApp device. The original provider will be restored.',
+        );
+      }
+
+      await delay(250);
+    }
+
+    throw new BadRequestException('Timed out while validating the converted WhatsApp session.');
+  }
+
+  private async stopProviderRuntime(instance: any): Promise<void> {
+    if (!instance) return;
+    if (typeof instance.closeClient === 'function') {
+      await instance.closeClient();
+      return;
+    }
+
+    try {
+      instance.client?.ws?.close?.();
+      instance.client?.end?.(new Error('Provider migration handoff'));
+    } catch (error) {
+      this.logger.warn(`Error stopping provider runtime: ${error?.message || error}`);
+    }
+  }
+
+  /** Serialize QR/pairing operations per instance while keeping different instances fully concurrent. */
+  private async withAuthenticationLock<T>(instance: any, operation: () => Promise<T>): Promise<T> {
+    const key = this.authenticationKey(instance);
+    const previous = this.authenticationQueues.get(key) ?? Promise.resolve();
+    let release: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => gate);
+    this.authenticationQueues.set(key, queued);
+
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.authenticationQueues.get(key) === queued) {
+        this.authenticationQueues.delete(key);
+      }
+    }
+  }
 
   private normalizePairingPhoneNumber(number?: string | null): string | undefined {
     if (!number) return undefined;
@@ -45,14 +157,30 @@ export class InstanceController {
     return normalized;
   }
 
+  private async normalizeQrCode(qrCode: wa.QrCode): Promise<wa.QrCode> {
+    if (!qrCode) return qrCode;
+    if (qrCode.base64 || !qrCode.code) return qrCode;
+
+    const opts: QRCodeToDataURLOptions = {
+      margin: 3,
+      scale: 4,
+      errorCorrectionLevel: 'H',
+      color: {
+        light: '#ffffff',
+        dark: this.configService.get<QrCode>('QRCODE').COLOR,
+      },
+    };
+    return { ...qrCode, base64: await qrcode.toDataURL(qrCode.code, opts) };
+  }
+
   private async waitForQrCode(instance: any, pairingCodeRequested: boolean): Promise<wa.QrCode> {
-    const timeoutMs = pairingCodeRequested ? 15000 : 10000;
+    const timeoutMs = this.configService.get<QrCode>('QRCODE').AUTH_TIMEOUT_MS;
     const startedAt = Date.now();
 
     do {
       const qrCode = instance.qrCode;
-      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code) {
-        return qrCode;
+      if (pairingCodeRequested ? qrCode?.pairingCode : qrCode?.code || qrCode?.base64) {
+        return pairingCodeRequested ? qrCode : await this.normalizeQrCode(qrCode);
       }
       await delay(250);
     } while (Date.now() - startedAt < timeoutMs);
@@ -68,32 +196,62 @@ export class InstanceController {
       throw new BadRequestException('Unable to generate QR code. Try again.');
     }
 
-    return qrCode;
+    return pairingCodeRequested ? qrCode : await this.normalizeQrCode(qrCode);
+  }
+
+  private async requestExplicitQrCode(instance: any): Promise<wa.QrCode> {
+    return await this.withAuthenticationLock(instance, async () => {
+      if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
+        throw new BadRequestException('QR connection is not available for the selected WhatsApp provider');
+      }
+
+      await instance.prepareQrConnection();
+      return await this.waitForQrCode(instance, false);
+    });
   }
 
   private async requestExplicitPairingCode(instance: any, number: string): Promise<wa.QrCode> {
-    if (instance.client?.authState?.creds?.registered) {
-      throw new BadRequestException('This WhatsApp session is already registered.');
-    }
+    return await this.withAuthenticationLock(instance, async () => {
+      const registered =
+        typeof instance.isRegistered === 'function'
+          ? instance.isRegistered()
+          : Boolean(instance.client?.authState?.creds?.registered);
+      if (registered) {
+        throw new BadRequestException('This WhatsApp session is already registered.');
+      }
 
-    await instance.preparePairingConnection(number);
-    const qrCode = await this.waitForQrCode(instance, false);
-    const pairingCode = await instance.client.requestPairingCode(number);
+      if (typeof instance.preparePairingConnection !== 'function') {
+        throw new BadRequestException('Pairing code is not available for the selected WhatsApp provider');
+      }
 
-    if (!pairingCode) {
-      throw new BadRequestException(
-        'Unable to generate pairing code. Confirm the international phone number and try again.',
-      );
-    }
+      await instance.preparePairingConnection(number);
 
-    if (typeof instance.setPairingCode === 'function') {
-      instance.setPairingCode(pairingCode);
-    }
+      // Baileys exposes its pair-device challenge as the initial QR event.
+      // Zapo has its own auth_pairing_required readiness signal and does not need this wait.
+      const qrCode =
+        instance.integration === Integration.WHATSAPP_BAILEYS
+          ? await this.waitForQrCode(instance, false)
+          : (instance.qrCode ?? {});
 
-    const maskedNumber = `${'*'.repeat(Math.max(0, number.length - 4))}${number.slice(-4)}`;
-    this.logger.info(`Explicit pairing code generated for ${maskedNumber}`);
+      const pairingCode =
+        typeof instance.requestPairingCode === 'function'
+          ? await instance.requestPairingCode(number)
+          : await instance.client.requestPairingCode(number);
 
-    return { ...qrCode, pairingCode };
+      if (!pairingCode) {
+        throw new BadRequestException(
+          'Unable to generate pairing code. Confirm the international phone number and try again.',
+        );
+      }
+
+      if (typeof instance.setPairingCode === 'function') {
+        instance.setPairingCode(pairingCode);
+      }
+
+      const maskedNumber = `${'*'.repeat(Math.max(0, number.length - 4))}${number.slice(-4)}`;
+      this.logger.info(`Explicit pairing code generated for ${maskedNumber}`);
+      return { ...qrCode, pairingCode };
+    });
   }
 
   public async createInstance(instanceData: InstanceDto) {
@@ -192,7 +350,10 @@ export class InstanceController {
         readMessages: instanceData.readMessages === true,
         readStatus: instanceData.readStatus === true,
         syncFullHistory: instanceData.syncFullHistory === true,
-        wavoipToken: instanceData.wavoipToken || '',
+        voipMaxConcurrentCalls:
+          instanceData.voipMaxConcurrentCalls !== undefined
+            ? Number(instanceData.voipMaxConcurrentCalls)
+            : undefined,
       };
 
       await this.settingsService.create(instanceDto, settings);
@@ -212,7 +373,11 @@ export class InstanceController {
       if (!instanceData.chatwootAccountId || !instanceData.chatwootToken || !instanceData.chatwootUrl) {
         let getQrcode: wa.QrCode;
 
-        if (instanceData.qrcode && instanceData.integration === Integration.WHATSAPP_BAILEYS) {
+        const supportsDevicePairing =
+          instanceData.integration === Integration.WHATSAPP_BAILEYS ||
+          instanceData.integration === Integration.WHATSAPP_ZAPO;
+
+        if (instanceData.qrcode && supportsDevicePairing) {
           const pairingNumber = this.normalizePairingPhoneNumber(instanceData.number);
 
           // QR and pairing-code are independent authentication modes.
@@ -220,11 +385,7 @@ export class InstanceController {
           if (pairingNumber) {
             getQrcode = await this.requestExplicitPairingCode(instance, pairingNumber);
           } else {
-            if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
-              throw new BadRequestException('QR connection is only available for the Baileys provider');
-            }
-            await instance.prepareQrConnection();
-            getQrcode = await this.waitForQrCode(instance, false);
+            getQrcode = await this.requestExplicitQrCode(instance);
           }
         }
 
@@ -399,11 +560,7 @@ export class InstanceController {
           return await this.requestExplicitPairingCode(instance, pairingNumber);
         }
 
-        if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
-          throw new BadRequestException('QR connection is only available for the Baileys provider');
-        }
-        await instance.prepareQrConnection();
-        return await this.waitForQrCode(instance, false);
+        return await this.requestExplicitQrCode(instance);
       }
 
       if (state == 'close') {
@@ -413,11 +570,7 @@ export class InstanceController {
           return await this.requestExplicitPairingCode(instance, pairingNumber);
         }
 
-        if (!('prepareQrConnection' in instance) || typeof instance.prepareQrConnection !== 'function') {
-          throw new BadRequestException('QR connection is only available for the Baileys provider');
-        }
-        await instance.prepareQrConnection();
-        return await this.waitForQrCode(instance, false);
+        return await this.requestExplicitQrCode(instance);
       }
 
       return {
@@ -478,6 +631,156 @@ export class InstanceController {
       this.logger.error(error);
       return { error: true, message: error.toString() };
     }
+  }
+
+  public async migrateProvider({ instanceName }: InstanceDto, data: ProviderMigrationDto) {
+    const current = this.waMonitor.waInstances[instanceName];
+    if (!current) throw new BadRequestException(`The "${instanceName}" instance does not exist`);
+
+    return await this.withAuthenticationLock(current, async () => {
+      this.providerMigrationService.assertMigrationStorageSupported();
+
+      const record = await this.prismaRepository.instance.findUnique({ where: { name: instanceName } });
+      if (!record) throw new BadRequestException(`The "${instanceName}" instance does not exist`);
+
+      const sourceProvider = record.integration as WhatsAppSessionProvider;
+      const targetProvider = data.targetProvider as WhatsAppSessionProvider;
+      if (!this.providerMigrationService.isProvider(sourceProvider)) {
+        throw new BadRequestException('Only Baileys and Zapo WhatsApp instances can be converted');
+      }
+      if (!this.providerMigrationService.isProvider(targetProvider)) {
+        throw new BadRequestException('Invalid target WhatsApp provider');
+      }
+      if (sourceProvider === targetProvider) {
+        return {
+          status: 'SUCCESS',
+          migrated: false,
+          sourceProvider,
+          targetProvider,
+          message: 'Instance already uses the requested provider',
+        };
+      }
+
+      // Preflight while the source is still online. This proves the snapshot is
+      // readable/convertible before we interrupt the active provider. The real
+      // cutover snapshot is captured again after the source socket is closed so
+      // Signal/app-state cannot continue changing underneath the migration.
+      const preflightSnapshot = await this.providerMigrationService.exportSnapshot(record.id, sourceProvider);
+      if (!preflightSnapshot) {
+        throw new BadRequestException('No valid paired session snapshot was found for the current provider');
+      }
+
+      const preflightConversion = await this.providerMigrationService.convert(
+        sourceProvider,
+        targetProvider,
+        preflightSnapshot,
+      );
+      if (data.dryRun === true) {
+        return {
+          status: 'SUCCESS',
+          migrated: false,
+          dryRun: true,
+          sourceProvider,
+          targetProvider,
+          losses: preflightConversion.losses,
+          pairingRequired: false,
+        };
+      }
+
+      const sourceState = current.connectionStatus?.state || record.connectionStatus || 'close';
+      const keepConnected = sourceState === 'open' || sourceState === 'connecting';
+      const targetBackup = await this.providerMigrationService.exportSnapshot(record.id, targetProvider);
+
+      await this.prismaRepository.instance.update({
+        where: { id: record.id },
+        data: { connectionStatus: 'connecting' },
+      });
+
+      let targetRuntime: any = null;
+      try {
+        await this.stopProviderRuntime(current);
+
+        const cutoverSnapshot = await this.providerMigrationService.exportSnapshot(record.id, sourceProvider);
+        if (!cutoverSnapshot) {
+          throw new BadRequestException('The source session snapshot became unavailable during provider handoff');
+        }
+        const conversion = await this.providerMigrationService.convert(sourceProvider, targetProvider, cutoverSnapshot);
+
+        await this.providerMigrationService.writeSnapshot(record.id, targetProvider, conversion.data);
+
+        targetRuntime = this.providerRuntimeFromRecord(record, targetProvider);
+        this.waMonitor.waInstances[instanceName] = targetRuntime;
+        this.waMonitor.clearDelInstanceTime(instanceName);
+
+        await targetRuntime.connectToWhatsapp();
+        await this.waitForProviderMigrationConnection(targetRuntime);
+
+        await this.prismaRepository.instance.update({
+          where: { id: record.id },
+          data: {
+            integration: targetProvider,
+            connectionStatus: keepConnected ? 'open' : 'close',
+            disconnectionAt: null,
+            disconnectionReasonCode: null,
+            disconnectionObject: null,
+          },
+        });
+
+        if (!keepConnected) {
+          await this.stopProviderRuntime(targetRuntime);
+        }
+
+        return {
+          status: 'SUCCESS',
+          migrated: true,
+          sourceProvider,
+          targetProvider,
+          instanceName,
+          instanceId: record.id,
+          pairingRequired: false,
+          connectionState: keepConnected ? 'open' : 'close',
+          losses: conversion.losses,
+        };
+      } catch (migrationError) {
+        this.logger.error({
+          localError: 'providerMigration',
+          instanceName,
+          sourceProvider,
+          targetProvider,
+          error: migrationError,
+        });
+
+        await this.stopProviderRuntime(targetRuntime).catch(() => undefined);
+
+        try {
+          if (targetBackup) {
+            await this.providerMigrationService.writeSnapshot(record.id, targetProvider, targetBackup);
+          } else {
+            await this.providerMigrationService.clearSnapshot(record.id, targetProvider);
+          }
+        } catch (restoreTargetError) {
+          this.logger.error({ localError: 'providerMigrationTargetRollback', instanceName, restoreTargetError });
+        }
+
+        await this.prismaRepository.instance.update({
+          where: { id: record.id },
+          data: { integration: sourceProvider, connectionStatus: keepConnected ? 'connecting' : 'close' },
+        });
+
+        const sourceRuntime = this.providerRuntimeFromRecord(record, sourceProvider);
+        this.waMonitor.waInstances[instanceName] = sourceRuntime;
+        if (keepConnected) {
+          try {
+            await sourceRuntime.connectToWhatsapp();
+            await this.waitForProviderMigrationConnection(sourceRuntime);
+          } catch (rollbackConnectionError) {
+            this.logger.error({ localError: 'providerMigrationSourceReconnect', instanceName, rollbackConnectionError });
+          }
+        }
+
+        throw migrationError;
+      }
+    });
   }
 
   public async connectionState({ instanceName }: InstanceDto) {
@@ -558,7 +861,7 @@ export class InstanceController {
         this.logger.error(error);
       }
 
-      this.eventEmitter.emit('remove.instance', instanceName, 'inner');
+      await this.waMonitor.removeInstanceNow(instanceName);
       return { status: 'SUCCESS', error: false, response: { message: 'Instance deleted' } };
     } catch (error) {
       throw new BadRequestException(error.toString());

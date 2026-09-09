@@ -1,10 +1,15 @@
-ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:24-alpine
+ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
 ARG APP_VERSION=1.0.0
+ARG MANAGER_BUILD_MODE=production
 FROM ${NODE_IMAGE} AS builder
 ARG APP_VERSION
+ARG MANAGER_BUILD_MODE
 
-RUN apk update && \
-    apk add --no-cache git ffmpeg wget curl bash openssl
+# Zapo VOIP uses @roamhq/wrtc, whose Linux prebuilt is glibc-based.
+# Debian Bookworm + Node 22 is the supported production base for the voice-enabled API.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ffmpeg wget curl bash openssl ca-certificates dos2unix && \
+    rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.title="ARGWS Connect API" \
       org.opencontainers.image.description="Communication & Integration Platform" \
@@ -24,9 +29,16 @@ COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
+COPY ./scripts ./scripts
+COPY ./operations-agent ./operations-agent
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
+
+# The principal web interface is delivered by the same image under /manager/.
+# Install its pinned build dependencies before the deterministic validation/build.
+RUN npm --prefix manager install --no-audit --no-fund
+RUN MANAGER_BUILD_MODE="${MANAGER_BUILD_MODE}" npm --prefix manager run test
 
 RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
 RUN ./Docker/scripts/generate_database.sh
@@ -37,8 +49,9 @@ FROM ${NODE_IMAGE} AS final
 ARG APP_VERSION=1.0.0
 LABEL org.opencontainers.image.version="${APP_VERSION}"
 
-RUN apk update && \
-    apk add --no-cache tzdata ffmpeg bash openssl curl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tzdata ffmpeg bash openssl curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV TZ=America/Bahia
 ENV DOCKER_ENV=true
@@ -51,11 +64,17 @@ COPY --from=builder /argws-connect/package-lock.json ./package-lock.json
 COPY --from=builder /argws-connect/node_modules ./node_modules
 COPY --from=builder /argws-connect/dist ./dist
 COPY --from=builder /argws-connect/prisma ./prisma
-COPY --from=builder /argws-connect/manager ./manager
+COPY --from=builder /argws-connect/manager/dist ./manager/dist
 COPY --from=builder /argws-connect/public ./public
+COPY --from=builder /argws-connect/scripts ./scripts
+COPY --from=builder /argws-connect/operations-agent ./operations-agent
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /argws-connect/tsup.config.ts ./tsup.config.ts
+
+# Validate the exact Zapo module path required by the published stores/VOIP packages
+# in the same final filesystem that will run in production.
+RUN npm run runtime:deps:check
 
 EXPOSE 8080
 

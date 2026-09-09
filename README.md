@@ -92,7 +92,7 @@ branding/ARGWS-Connect-API-Branding/
 | produto/API — nome público | `Connect|API` / `🅲🅾🅽🅽🅴🅲🆃​|🅰🅿🅸` |
 | bot integration | `ConnectBot` / `connectBot` |
 | AI integration | `ConnectAI` / `connectAI` |
-| channel integration | `Connect` / `CONNECT` |
+| WhatsApp providers | `WHATSAPP-BAILEYS` / `WHATSAPP-ZAPO` / `WHATSAPP-BUSINESS` |
 | package técnico | `argws-connect-api` |
 | Docker/network namespace | `argws-connect-*` |
 | repositório | `wkarts/ARGWS-Connect-API` |

@@ -1,0 +1,4 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'; import AppShell from '@/layouts/AppShell.vue'; import PageHeader from '@/components/PageHeader.vue'; import PanelCard from '@/components/PanelCard.vue'; import { connect } from '@/services/connect'; const roles=ref<any[]>([]); onMounted(async()=>{const r:any=await connect.roles().catch(()=>[]);roles.value=Array.isArray(r)?r:Array.isArray(r?.roles)?r.roles:[]})
+</script>
+<template><AppShell><PageHeader title="Permissões" description="Defina responsabilidades e níveis de acesso."/><div class="role-grid"><PanelCard v-for="(role,i) in roles" :key="role.id||role.name||i" :title="role.label || role.name || 'Perfil de acesso'"><p>{{role.description || 'Conjunto de permissões para este perfil.'}}</p></PanelCard><PanelCard v-if="!roles.length" title="Perfis de acesso"><p class="muted-block">Os perfis disponíveis aparecerão aqui.</p></PanelCard></div></AppShell></template>

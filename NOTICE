@@ -17,3 +17,8 @@ This product includes software derived from CodeChat WhatsApp API
 The CodeChat project implemented the Baileys library
 (https://github.com/WhiskeySockets/Baileys), which ARGWS Connect API also uses for
 its WhatsApp Web integration.
+
+This product integrates Zapo (`@innovatorssoft/zapo-js`) for WhatsApp protocol
+capabilities and `wa-store-migrate` for explicit provider session conversion.
+Both are used under their respective open-source licenses and remain separate
+third-party projects.

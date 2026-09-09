@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '20.x'
+  NODE_VERSION: '22.x'
 
 jobs:
   validate:
@@ -30,10 +30,18 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_PROVIDER: postgresql
     steps:
+      - name: Refuse publication outside main
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo 'Production releases must run on main.' >&2; exit 1; }
       - name: Checkout merge commit
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.sha }}
           submodules: recursive
           fetch-depth: 0
       - name: Install Node
@@ -45,6 +53,17 @@ jobs:
       - run: npm run lint:check
       - run: npm run db:generate
       - run: npm run build
+      - name: Validate operations, groups, catalog and release preservation
+        run: |
+          npm run test:operations
+          node --test test/operations-resilience.test.cjs test/operations-statistics.test.cjs test/operations-statistics-http.test.cjs test/release-version.test.cjs
+          python3 scripts/sync-operations-deployments.py --check
+          python3 test/deploy-operations.test.py
+          python3 test/operations-compose-contract.py
+      - name: Validate production Manager
+        run: |
+          npm --prefix manager install --ignore-scripts --no-audit --no-fund
+          MANAGER_BUILD_MODE=production npm --prefix manager run test
       - name: Synchronize generated docs for validation
         run: npm run docs:generate
       - run: npm run docs:check
@@ -61,6 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Resolve merged PR metadata
         id: pr
@@ -85,7 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --tags --force
+          git fetch --tags
           latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
           labels="$LABELS"
           if [[ "$FORCE_BUMP" != "auto" && -n "$FORCE_BUMP" ]]; then
@@ -105,7 +125,7 @@ jobs:
             echo "bump=$bump"
             echo "previous=$previous"
           } >> "$GITHUB_OUTPUT"
-          echo "Planned ARGWS Connect API v${version} (${bump})"
+          echo "Planned Connect|API v${version} (${bump})"
 
   prepare-build-bases:
     name: Prepare GHCR build bases
@@ -121,10 +141,30 @@ jobs:
       - name: Ensure build images exist in GHCR
         env:
           OWNER: ${{ github.repository_owner }}
+        shell: bash
         run: |
           set -euo pipefail
-          skopeo copy --all docker://docker.io/library/node:24-alpine docker://ghcr.io/${OWNER}/argws-connect-node:24-alpine
-          skopeo copy --all docker://docker.io/library/nginx:1.27-alpine docker://ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
+          ensure_image() {
+            local source="$1"
+            local target="$2"
+            if skopeo inspect "docker://${target}" >/dev/null 2>&1; then
+              echo "Build base already available: ${target}"
+              return 0
+            fi
+            for attempt in 1 2 3 4 5; do
+              if skopeo copy --all "docker://${source}" "docker://${target}"; then
+                return 0
+              fi
+              echo "Registry copy attempt ${attempt}/5 failed; retrying..." >&2
+              sleep $((attempt * 10))
+            done
+            echo "Unable to seed ${target}." >&2
+            return 1
+          }
+          ensure_image docker.io/library/node:24-alpine ghcr.io/${OWNER}/argws-connect-node:24-alpine
+          ensure_image docker.io/library/node:22-bookworm-slim ghcr.io/${OWNER}/argws-connect-node:22-bookworm-slim
+          ensure_image docker.io/library/nginx:1.27-alpine ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
+          ensure_image docker.io/moby/buildkit:buildx-stable-1 ghcr.io/${OWNER}/argws-connect-buildkit:buildx-stable-1
 
   build-native:
     name: Build ${{ matrix.component }} / ${{ matrix.arch }}
@@ -165,14 +205,17 @@ jobs:
         run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
       - name: Regenerate docs for planned version
         run: node docs/scripts/generate-openapi.mjs
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
       - name: Login GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=ghcr.io/${{ github.repository_owner }}/argws-connect-buildkit:buildx-stable-1
       - name: Build native image and push by digest
         id: build
         uses: docker/build-push-action@v6
@@ -183,8 +226,9 @@ jobs:
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             APP_VERSION=${{ needs.plan-version.outputs.version }}
+            MANAGER_BUILD_MODE=production
           labels: |
-            org.opencontainers.image.title=ARGWS Connect ${{ matrix.component }}
+            org.opencontainers.image.title=Connect|API ${{ matrix.component }}
             org.opencontainers.image.version=${{ needs.plan-version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -231,7 +275,7 @@ jobs:
         run: node .github/scripts/apply-version.mjs "${{ needs.plan-version.outputs.version }}"
       - name: Synchronize generated docs for release version
         run: node docs/scripts/generate-openapi.mjs
-      - name: Commit version metadata
+      - name: Commit version metadata only
         id: commit
         shell: bash
         run: |
@@ -239,13 +283,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add VERSION package.json package-lock.json RELEASE-MANIFEST.json \
-            deploy/canonical/env.example deploy/canonical/compose.yaml \
             docs/openapi/connect-api.openapi.json \
             docs/openapi/meta-compatible.openapi.json \
             docs/openapi/coverage.json \
             docs/asyncapi/connect-api-events.asyncapi.json
+          git diff --exit-code -- deploy/canonical
+          if ! git diff --cached --quiet -- .github/workflows; then
+            echo 'Release metadata must never modify workflows.' >&2
+            exit 1
+          fi
           if ! git diff --cached --quiet; then
-            git commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
+            git -c core.hooksPath=/dev/null commit -m "chore(release): v${{ needs.plan-version.outputs.version }} [skip release]"
             git push origin HEAD:main
           fi
           echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -270,8 +318,6 @@ jobs:
           pattern: digest-${{ matrix.component }}-*
           path: /tmp/digests
           merge-multiple: true
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
       - name: Login GHCR
         uses: docker/login-action@v3
         with:
@@ -337,7 +383,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ needs.plan-version.outputs.tag }}" "${{ needs.version-source.outputs.release_sha }}" \
-            -m "ARGWS Connect API ${{ needs.plan-version.outputs.tag }}"
+            -m "Connect|API ${{ needs.plan-version.outputs.tag }}"
           git push origin "${{ needs.plan-version.outputs.tag }}"
       - name: Build image manifest report
         shell: bash
@@ -345,7 +391,7 @@ jobs:
           set -euo pipefail
           version="${{ needs.plan-version.outputs.version }}"
           {
-            echo "ARGWS Connect API ${version}"
+            echo "Connect|API ${version}"
             echo
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
@@ -363,7 +409,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          notes="docs/releases/${{ needs.plan-version.outputs.version }}.md"
+          notes_args=(--generate-notes)
+          if [[ -f "$notes" ]]; then
+            notes_args=(--notes-file "$notes")
+          fi
           gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt \
             --target "${{ needs.version-source.outputs.release_sha }}" \
-            --title "ARGWS Connect API ${{ needs.plan-version.outputs.tag }}" \
-            --generate-notes
+            --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
+            "${notes_args[@]}"

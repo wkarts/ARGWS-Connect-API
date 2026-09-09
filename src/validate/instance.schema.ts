@@ -28,8 +28,8 @@ export const instanceSchema: JSONSchema7 = {
     // Instance
     instanceName: { type: 'string' },
     token: { type: 'string' },
-    number: { type: 'string', pattern: '^\\d+[\\.@\\w-]+' },
-    businessId: { type: 'string' },
+    number: { type: ['string', 'null'], pattern: '^\\d+[\\.@\\w-]+' },
+    businessId: { type: ['string', 'null'] },
     qrcode: { type: 'boolean' },
     Integration: {
       type: 'string',
@@ -43,7 +43,7 @@ export const instanceSchema: JSONSchema7 = {
     readMessages: { type: 'boolean' },
     readStatus: { type: 'boolean' },
     syncFullHistory: { type: 'boolean' },
-    wavoipToken: { type: 'string' },
+    voipMaxConcurrentCalls: { type: 'integer', minimum: 1 },
     // Proxy
     proxyHost: { type: 'string' },
     proxyPort: { type: 'string' },

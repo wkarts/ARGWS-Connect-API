@@ -14,6 +14,9 @@ services:
     env_file:
       - .env
     environment:
+      OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
+      OPERATIONS_AGENT_URL: ${OPERATIONS_AGENT_URL:-http://operations:8092}
+      OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}
       SERVER_TYPE: http
       SERVER_PORT: "8080"
       DOCKER_ENV: "true"
@@ -42,6 +45,42 @@ services:
       retries: 10
       start_period: 60s
     logging: *default-logging
+
+  operations:
+    profiles: ["operations"]
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
+    pull_policy: always
+    restart: unless-stopped
+    entrypoint: ["node", "/argws-connect/operations-agent/server.cjs"]
+    environment:
+      TZ: ${TZ:-America/Bahia}
+      OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
+      OPERATIONS_DATA_PATH: /data
+      OPERATIONS_HOT_DAYS: ${OPERATIONS_HOT_DAYS:-3}
+      OPERATIONS_RETENTION_DAYS: ${OPERATIONS_RETENTION_DAYS:-90}
+      OPERATIONS_CHECKS: '[{"service":"api","type":"http","url":"http://api:8080/health"},{"service":"docs","type":"http","url":"http://docs:8080/health"},{"service":"database","type":"tcp","url":"tcp://postgres:5432"},{"service":"cache","type":"tcp","url":"tcp://redis:6379"},{"service":"events","type":"tcp","url":"tcp://rabbitmq:5672"},{"service":"storage","type":"http","url":"http://minio:9000/minio/health/live"}]'
+    expose: ["8092"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 192m
+    cpus: "0.50"
+    pids_limit: 64
+    volumes:
+      - ${ARGWS_CONNECT_OPERATIONS_DATA_PATH:-./volumes/operations}:/data
+    networks:
+      argws-connect-net:
+        aliases: [operations]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8092/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
   docs:
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:develop}

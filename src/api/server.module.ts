@@ -25,7 +25,6 @@ import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
 import { TemplateController } from './controllers/template.controller';
 import { ChannelController } from './integrations/channel/channel.controller';
-import { ConnectController } from './integrations/channel/connect/connect.controller';
 import { MetaController } from './integrations/channel/meta/meta.controller';
 import { BaileysController } from './integrations/channel/whatsapp/baileys.controller';
 import { ChatbotController } from './integrations/chatbot/chatbot.controller';
@@ -55,6 +54,7 @@ import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
+import { VoiceMediaService } from './services/voice-media.service';
 
 const logger = new Logger('WA MODULE');
 
@@ -85,6 +85,7 @@ export const waMonitor = new WAMonitoringService(
   chatwootCache,
   baileysCache,
 );
+export const voiceMediaService = new VoiceMediaService(waMonitor);
 
 const s3Service = new S3Service(prismaRepository);
 export const s3Controller = new S3Controller(s3Service);
@@ -115,7 +116,7 @@ export const instanceController = new InstanceController(
   providerFiles,
 );
 export const sendMessageController = new SendMessageController(waMonitor);
-export const callController = new CallController(waMonitor);
+export const callController = new CallController(waMonitor, voiceMediaService);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
@@ -157,7 +158,6 @@ export const chatbotController = new ChatbotController(prismaRepository, waMonit
 export const channelController = new ChannelController(prismaRepository, waMonitor);
 
 // channels
-export const connectController = new ConnectController(prismaRepository, waMonitor);
 export const metaController = new MetaController(prismaRepository, waMonitor);
 export const baileysController = new BaileysController(waMonitor);
 

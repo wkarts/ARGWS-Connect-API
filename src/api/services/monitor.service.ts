@@ -39,6 +39,7 @@ export class WAMonitoringService {
   private readonly logger = new Logger('WAMonitoringService');
   public readonly waInstances: Record<string, any> = {};
   private readonly delInstanceTimeouts: Record<string, NodeJS.Timeout> = {};
+  private readonly removeInstancePromises: Record<string, Promise<void>> = {};
 
   private readonly providerSession: ProviderSession;
 
@@ -56,10 +57,13 @@ export class WAMonitoringService {
           try {
             if (this.waInstances[instance]?.connectionStatus?.state !== 'open') {
               if (this.waInstances[instance]?.connectionStatus?.state === 'connecting') {
-                if ((await this.waInstances[instance].integration) === Integration.WHATSAPP_BAILEYS) {
-                  await this.waInstances[instance]?.client?.logout('Log out instance: ' + instance);
-                  this.waInstances[instance]?.client?.ws?.close();
-                  this.waInstances[instance]?.client?.end(undefined);
+                const current = this.waInstances[instance];
+                if (typeof current?.logoutInstance === 'function') {
+                  await current.logoutInstance();
+                } else if ((await current?.integration) === Integration.WHATSAPP_BAILEYS) {
+                  await current?.client?.logout('Log out instance: ' + instance);
+                  current?.client?.ws?.close();
+                  current?.client?.end(undefined);
                 }
                 this.eventEmitter.emit('remove.instance', instance, 'inner');
               } else {
@@ -249,7 +253,10 @@ export class WAMonitoringService {
           profileName: data.profileName,
           profilePicUrl: data.profilePicUrl,
           connectionStatus:
-            data.integration && data.integration === Integration.WHATSAPP_BAILEYS ? 'close' : (data.status ?? 'open'),
+            data.integration &&
+            (data.integration === Integration.WHATSAPP_BAILEYS || data.integration === Integration.WHATSAPP_ZAPO)
+              ? 'close'
+              : (data.status ?? 'open'),
           number: data.number,
           integration: data.integration || Integration.WHATSAPP_BAILEYS,
           token: data.hash,
@@ -262,12 +269,44 @@ export class WAMonitoringService {
     }
   }
 
-  public deleteInstance(instanceName: string) {
+  public async removeInstanceNow(instanceName: string) {
+    const runningRemoval = this.removeInstancePromises[instanceName];
+    if (runningRemoval) return runningRemoval;
+
+    const removal = (async () => {
+      const current = this.waInstances[instanceName];
+      try {
+        await current?.sendDataWebhook(Events.REMOVE_INSTANCE, null);
+        this.clearDelInstanceTime(instanceName);
+
+        if (typeof current?.purgeProviderState === 'function') {
+          try {
+            await current.purgeProviderState();
+          } catch (error) {
+            this.logger.error({ localError: 'purgeProviderState', instanceName, error });
+          }
+        }
+
+        await this.cleaningUp(instanceName);
+        await this.cleaningStoreData(instanceName);
+      } finally {
+        delete this.waInstances[instanceName];
+        this.logger.warn(`Instance "${instanceName}" - REMOVED`);
+      }
+    })();
+
+    this.removeInstancePromises[instanceName] = removal;
     try {
-      this.eventEmitter.emit('remove.instance', instanceName, 'inner');
-    } catch (error) {
-      this.logger.error(error);
+      await removal;
+    } finally {
+      delete this.removeInstancePromises[instanceName];
     }
+  }
+
+  public deleteInstance(instanceName: string) {
+    void this.removeInstanceNow(instanceName).catch((error) => {
+      this.logger.error({ localError: 'removeInstanceNow', instanceName, error });
+    });
   }
 
   private async setInstance(instanceData: InstanceDto) {
@@ -390,23 +429,10 @@ export class WAMonitoringService {
   }
 
   private removeInstance() {
-    this.eventEmitter.on('remove.instance', async (instanceName: string) => {
-      try {
-        await this.waInstances[instanceName]?.sendDataWebhook(Events.REMOVE_INSTANCE, null);
-
-        this.clearDelInstanceTime(instanceName);
-
-        this.cleaningUp(instanceName);
-        this.cleaningStoreData(instanceName);
-      } finally {
-        this.logger.warn(`Instance "${instanceName}" - REMOVED`);
-      }
-
-      try {
-        delete this.waInstances[instanceName];
-      } catch (error) {
-        this.logger.error(error);
-      }
+    this.eventEmitter.on('remove.instance', (instanceName: string) => {
+      void this.removeInstanceNow(instanceName).catch((error) => {
+        this.logger.error({ localError: 'remove.instance', instanceName, error });
+      });
     });
     this.eventEmitter.on('logout.instance', async (instanceName: string) => {
       try {
@@ -418,7 +444,7 @@ export class WAMonitoringService {
           this.waInstances[instanceName]?.clearCacheChatwoot();
         }
 
-        this.cleaningUp(instanceName);
+        await this.cleaningUp(instanceName);
       } finally {
         this.logger.warn(`Instance "${instanceName}" - LOGOUT`);
       }
@@ -428,11 +454,15 @@ export class WAMonitoringService {
   private noConnection() {
     this.eventEmitter.on('no.connection', async (instanceName) => {
       try {
-        await this.waInstances[instanceName]?.client?.logout('Log out instance: ' + instanceName);
+        const instance = this.waInstances[instanceName];
+        if (typeof instance?.logoutInstance === 'function') {
+          await instance.logoutInstance();
+        } else {
+          await instance?.client?.logout('Log out instance: ' + instanceName);
+          instance?.client?.ws?.close();
+        }
 
-        this.waInstances[instanceName]?.client?.ws?.close();
-
-        this.waInstances[instanceName].instance.qrcode = { count: 0 };
+        instance.instance.qrcode = { count: 0 };
         this.waInstances[instanceName].stateConnection.state = 'close';
       } catch (error) {
         this.logger.error({

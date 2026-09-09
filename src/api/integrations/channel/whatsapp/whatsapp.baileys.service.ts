@@ -1,4 +1,4 @@
-import { getCollectionsDto } from '@api/dto/business.dto';
+import { getCatalogDto, getCollectionsDto } from '@api/dto/business.dto';
 import { OfferCallDto } from '@api/dto/call.dto';
 import {
   ArchiveChatDto,
@@ -153,7 +153,7 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
-import { useVoiceCallsBaileys } from './voiceCalls/useVoiceCallsBaileys';
+import { BAILEYS_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
   remoteJidAlt?: string;
@@ -225,6 +225,8 @@ async function getVideoDuration(input: Buffer | string | Readable): Promise<numb
 }
 
 export class BaileysStartupService extends ChannelStartupService {
+  public readonly capabilities = BAILEYS_WHATSAPP_CAPABILITIES;
+
   private messageProcessor = new BaileysMessageProcessor();
 
   constructor(
@@ -268,6 +270,29 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public setPairingCode(pairingCode?: string) {
     this.instance.qrcode.pairingCode = pairingCode ?? null;
+  }
+
+  /** Close the transport without logging out or deleting auth state. */
+  public async closeClient() {
+    const current = this.client;
+
+    this.endSession = true;
+    ++this.connectionGeneration;
+    this.client = null;
+    this.stateConnection = { state: 'close' };
+    this.messageProcessor.onDestroy();
+
+    try {
+      current?.ws?.close?.();
+    } catch (error) {
+      this.logger.warn(`Error closing WhatsApp socket: ${error?.message || error}`);
+    }
+
+    try {
+      current?.end?.(new Error('Provider migration handoff'));
+    } catch (error) {
+      this.logger.warn(`Error ending WhatsApp socket: ${error?.message || error}`);
+    }
   }
 
   public async logoutInstance() {
@@ -706,7 +731,9 @@ export class BaileysStartupService extends ChannelStartupService {
         }
 
         const isGroupJid = this.localSettings.groupsIgnore && isJidGroup(jid);
-        const isBroadcast = !this.localSettings.readStatus && isJidBroadcast(jid);
+        // Status capture is independent from read receipts. Keep status@broadcast
+        // available for the dedicated Status view even when readStatus=false.
+        const isBroadcast = isJidBroadcast(jid) && jid !== 'status@broadcast';
         const isNewsletter = isJidNewsletter(jid);
 
         return isGroupJid || isBroadcast || isNewsletter;
@@ -742,10 +769,6 @@ export class BaileysStartupService extends ChannelStartupService {
     const generation = ++this.connectionGeneration;
     const client = makeWASocket(socketConfig);
     this.client = client;
-
-    if (this.localSettings.wavoipToken && this.localSettings.wavoipToken.length > 0) {
-      useVoiceCallsBaileys(this.localSettings.wavoipToken, client, this.connectionStatus.state as any, true);
-    }
 
     this.eventHandler(client, generation);
 
@@ -1412,11 +1435,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
           const isVideo = received?.message?.videoMessage;
 
-          if (this.localSettings.readMessages && received.key.id !== 'status@broadcast') {
+          const isStatusMessage = received.key.remoteJid === 'status@broadcast';
+          if (this.localSettings.readMessages && !isStatusMessage) {
             await this.client.readMessages([received.key]);
           }
 
-          if (this.localSettings.readStatus && received.key.id === 'status@broadcast') {
+          if (this.localSettings.readStatus && isStatusMessage) {
             await this.client.readMessages([received.key]);
           }
 
@@ -2148,10 +2172,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
     try {
       const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image');
-
       return { wuid: jid, profilePictureUrl };
     } catch {
-      return { wuid: jid, profilePictureUrl: null };
+      try {
+        const profilePictureUrl = await this.client.profilePictureUrl(jid, 'preview');
+        return { wuid: jid, profilePictureUrl };
+      } catch {
+        return { wuid: jid, profilePictureUrl: null };
+      }
     }
   }
 
@@ -4547,13 +4575,13 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async fetchAllGroups(getParticipants: GetParticipant) {
-    const fetch = Object.values(await this?.client?.groupFetchAllParticipating());
+    const fetch = Object.values((await this.client.groupFetchAllParticipating()) as Record<string, GroupMetadata>);
 
-    let groups = [];
+    let groups: Array<Partial<GroupMetadata> & { pictureUrl?: string; size: number }> = [];
     for (const group of fetch) {
       const picture = await this.profilePicture(group.id);
 
-      const result = {
+      const result: Partial<GroupMetadata> & { pictureUrl?: string; size: number } = {
         id: group.id,
         subject: group.subject,
         subjectOwner: group.subjectOwner,
@@ -4572,7 +4600,7 @@ export class BaileysStartupService extends ChannelStartupService {
       };
 
       if (getParticipants.getParticipants == 'true') {
-        result['participants'] = group.participants;
+        result.participants = group.participants;
       }
 
       groups = [...groups, result];
@@ -4999,15 +5027,17 @@ export class BaileysStartupService extends ChannelStartupService {
     return response;
   }
 
-  //Business Controller
-  public async fetchCatalog(instanceName: string, data: getCollectionsDto) {
+  // Business catalog controller.
+  // Keep the provider-native cursor public instead of decoding internal cursor payloads.
+  public async fetchCatalog(instanceName: string, data: getCatalogDto) {
     const jid = data.number ? createJid(data.number) : this.client?.user?.id;
-    const limit = data.limit || 10;
-    const cursor = null;
+    const limit = Math.max(1, Math.min(100, Number(data.limit || 10)));
+    const maxPages = Math.max(1, Math.min(20, Number(data.maxPages || (data.cursor ? 1 : 5))));
+    const cursor = data.cursor || undefined;
 
     const onWhatsapp = (await this.whatsappNumber({ numbers: [jid] }))?.shift();
 
-    if (!onWhatsapp.exists) {
+    if (!onWhatsapp?.exists) {
       throw new BadRequestException(onWhatsapp);
     }
 
@@ -5015,26 +5045,19 @@ export class BaileysStartupService extends ChannelStartupService {
       const info = (await this.whatsappNumber({ numbers: [jid] }))?.shift();
       const business = await this.fetchBusinessProfile(info?.jid);
 
-      let catalog = await this.getCatalog({ jid: info?.jid, limit, cursor });
-      let nextPageCursor = catalog.nextPageCursor;
-      let nextPageCursorJson = nextPageCursor ? JSON.parse(atob(nextPageCursor)) : null;
-      let pagination = nextPageCursorJson?.pagination_cursor
-        ? JSON.parse(atob(nextPageCursorJson.pagination_cursor))
-        : null;
-      let fetcherHasMore = pagination?.fetcher_has_more === true ? true : false;
+      const productsCatalog: Product[] = [];
+      let nextPageCursor: string | undefined = cursor;
 
-      let productsCatalog = catalog.products || [];
-      let countLoops = 0;
-      while (fetcherHasMore && countLoops < 4) {
-        catalog = await this.getCatalog({ jid: info?.jid, limit, cursor: nextPageCursor });
+      for (let page = 0; page < maxPages; page += 1) {
+        const catalog = await this.getCatalog({
+          jid: info?.jid,
+          limit,
+          cursor: nextPageCursor,
+        });
+
+        productsCatalog.push(...(catalog.products || []));
         nextPageCursor = catalog.nextPageCursor;
-        nextPageCursorJson = nextPageCursor ? JSON.parse(atob(nextPageCursor)) : null;
-        pagination = nextPageCursorJson?.pagination_cursor
-          ? JSON.parse(atob(nextPageCursorJson.pagination_cursor))
-          : null;
-        fetcherHasMore = pagination?.fetcher_has_more === true ? true : false;
-        productsCatalog = [...productsCatalog, ...catalog.products];
-        countLoops++;
+        if (!nextPageCursor) break;
       }
 
       return {
@@ -5043,10 +5066,13 @@ export class BaileysStartupService extends ChannelStartupService {
         isBusiness: business.isBusiness,
         catalogLength: productsCatalog.length,
         catalog: productsCatalog,
+        nextPageCursor,
+        hasMore: Boolean(nextPageCursor),
+        pageSize: limit,
       };
     } catch (error) {
-      console.log(error);
-      return { wuid: jid, name: null, isBusiness: false };
+      this.logger.error(error);
+      throw new InternalServerErrorException('Error fetching business catalog', (error as Error)?.toString());
     }
   }
 

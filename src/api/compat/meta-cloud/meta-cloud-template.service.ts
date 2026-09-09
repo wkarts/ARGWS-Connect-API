@@ -18,7 +18,7 @@ export class MetaCloudTemplateService {
       if (result && typeof result === 'object' && 'data' in result) return result;
       return { data: Array.isArray(result) ? result : result ? [result] : [] };
     }
-    if (identity.provider === 'WHATSAPP-BAILEYS' || identity.provider === 'CONNECT') return { data: [] };
+    if (identity.provider === 'WHATSAPP-BAILEYS' || identity.provider === 'WHATSAPP-ZAPO') return { data: [] };
     throw new MetaCloudGraphError(400, `Templates are not supported by provider ${identity.provider}.`);
   }
 }
