@@ -1,4 +1,5 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
+import { internalDocsTarget } from '@utils/internalDocsTarget';
 import express, { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -57,9 +58,7 @@ export class ViewsRouter extends RouterBroker {
         .send(`window.__CONNECT_WEB__ = Object.freeze(${config});\n`);
     });
 
-    // Internal API documentation. The Scalar service stays on the Docker
-    // network and is surfaced to the authenticated Manager UX through the API
-    // origin instead of requiring a second public documentation endpoint.
+    // Same-origin documentation facade. Upstream host comes only from ENV.
     if (envBoolean('MANAGER_FEATURE_DOCS', true)) {
       const docsInternalUrl =
         process.env.ARGWS_CONNECT_DOCS_INTERNAL_URL?.trim() || 'http://docs-argws-connect-production:8080';
@@ -73,15 +72,11 @@ export class ViewsRouter extends RouterBroker {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10_000);
         try {
-          // The DOCs container serves its application at `/`. The public-facing
-          // prefix belongs to this API router only, so strip `/manager/docs`
-          // before forwarding. Relative DOCs assets then resolve back through
-          // this same endpoint without a second public hostname.
-          const suffix = req.url === '/' ? '/' : req.url.startsWith('/') ? req.url : `/${req.url}`;
-          const target = new URL(suffix, `${docsInternalUrl.replace(/\/$/, '')}/`);
+          const target = internalDocsTarget(docsInternalUrl, req.url);
           const upstream = await fetch(target, {
             method: req.method,
             signal: controller.signal,
+            redirect: 'manual',
             headers: {
               accept: req.get('accept') || '*/*',
               'accept-language': req.get('accept-language') || 'pt-BR,pt;q=0.9',
@@ -90,6 +85,16 @@ export class ViewsRouter extends RouterBroker {
               ...(req.get('range') ? { range: req.get('range') as string } : {}),
             },
           });
+
+          const location = upstream.headers.get('location');
+          if (location) {
+            const redirected = new URL(location, target);
+            if (redirected.origin !== target.origin || redirected.username || redirected.password) {
+              await upstream.body?.cancel();
+              return res.status(502).type('text/plain').send('Redirecionamento externo da documentação recusado.');
+            }
+            res.set('location', `${docsBasePath.replace(/\/$/, '')}${redirected.pathname}${redirected.search}`);
+          }
 
           res.status(upstream.status);
           for (const header of [
@@ -102,21 +107,6 @@ export class ViewsRouter extends RouterBroker {
           ]) {
             const value = upstream.headers.get(header);
             if (value) res.set(header, value);
-          }
-
-          const location = upstream.headers.get('location');
-          if (location) {
-            try {
-              const redirected = new URL(location, target);
-              const internal = new URL(docsInternalUrl);
-              if (redirected.origin === internal.origin) {
-                res.set('location', `${docsBasePath.replace(/\/$/, '')}${redirected.pathname}${redirected.search}`);
-              } else {
-                res.set('location', location);
-              }
-            } catch {
-              res.set('location', location);
-            }
           }
 
           res.set('X-Connect-Docs-Proxy', 'internal');
