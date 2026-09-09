@@ -116,10 +116,14 @@ jobs:
           test('pinned protobuf retains raw product/order monetary units without conversion', () => {
             const product = { productMessage: { businessOwnerJid: '5511999999999@s.whatsapp.net', product: { productId: 'fixture-product', title: 'Fixture', currencyCode: 'BRL', priceAmount1000: 49900 } } };
             const order = { orderMessage: { orderId: 'fixture-order', sellerJid: '5511999999999@s.whatsapp.net', itemCount: 3, totalAmount1000: 149700, totalCurrencyCode: 'BRL' } };
-            const p = sdk.proto.Message.decode(sdk.proto.Message.encode(sdk.proto.Message.fromObject(product)).finish());
-            const o = sdk.proto.Message.decode(sdk.proto.Message.encode(sdk.proto.Message.fromObject(order)).finish());
-            assert.equal(String(p.productMessage.product.priceAmount1000), '49900');
-            assert.equal(String(o.orderMessage.totalAmount1000), '149700');
+            // The pinned ZAPO codec accepts IMessage directly; it does not
+            // expose ProtobufJS fromObject. Long fields may decode as numbers
+            // or the public Long shape with toNumber().
+            const p = sdk.proto.Message.decode(sdk.proto.Message.encode(product).finish());
+            const o = sdk.proto.Message.decode(sdk.proto.Message.encode(order).finish());
+            const integer = value => typeof value === 'number' ? value : value.toNumber();
+            assert.equal(integer(p.productMessage.product.priceAmount1000), 49900);
+            assert.equal(integer(o.orderMessage.totalAmount1000), 149700);
             assert.equal(p.productMessage.businessOwnerJid, product.productMessage.businessOwnerJid);
             assert.equal(o.orderMessage.sellerJid, order.orderMessage.sellerJid);
           });
