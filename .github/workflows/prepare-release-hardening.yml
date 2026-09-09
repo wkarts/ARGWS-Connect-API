@@ -1,0 +1,67 @@
+name: Prepare reviewed release security fix
+on:
+  push:
+    branches: [release/v1.0.22]
+    paths: [.github/workflows/prepare-release-hardening.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/release/v1.0.22'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_PROVIDER: postgresql
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Remove Web Storage of the direct-access credential
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path('manager/src/services/current.ts')
+          source = file.read_text()
+          old = "let accessCode = sessionStorage.getItem(ACCESS_STORAGE_KEY) || ''"
+          new = """// Direct API access is memory-only; never persist a privileged key in Web Storage.
+          let accessCode = ''
+          try {
+            sessionStorage.removeItem(ACCESS_STORAGE_KEY)
+            localStorage.removeItem(ACCESS_STORAGE_KEY)
+          } catch { /* Storage can be unavailable in restricted browsers. */ }"""
+          assert source.count(old) == 1, 'Current credential initialization changed unexpectedly'
+          source = source.replace(old, new, 1)
+          old = "  if (accessCode) sessionStorage.setItem(ACCESS_STORAGE_KEY, accessCode)\n  else sessionStorage.removeItem(ACCESS_STORAGE_KEY)"
+          assert source.count(old) == 1, 'Current credential writer changed unexpectedly'
+          source = source.replace(old, '', 1)
+          file.write_text(source)
+          PY
+      - name: Install locked dependencies and validate the security corrections
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx eslint --fix src/utils/internalDocsTarget.ts src/api/routes/view.router.ts
+          node --test test/release-web-security.test.cjs test/release-version.test.cjs
+          npm run lint:check
+          npm run db:generate
+          npm run build
+          npm run test:operations
+          node --test test/operations-resilience.test.cjs test/operations-statistics.test.cjs test/operations-statistics-http.test.cjs
+          npm --prefix manager install --ignore-scripts --no-audit --no-fund
+          npm --prefix manager run test
+          npm run docs:check
+      - name: Commit application files only, never workflows
+        env:
+          HUSKY: '0'
+        run: |
+          set -euo pipefail
+          git add -- manager/src/services/current.ts src/utils/internalDocsTarget.ts src/api/routes/view.router.ts
+          git diff --cached --check
+          git diff --cached --exit-code -- .github/workflows
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'fix(security): remove persisted Manager keys and validate confined docs proxy'
+          git push origin HEAD:refs/heads/release/v1.0.22
+          echo "VALIDATED_COMMIT=$(git rev-parse HEAD)"
