@@ -1,0 +1,22 @@
+name: Operations and ZAPO Regression Tests
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:operations
+      - run: npm --prefix manager install --ignore-scripts --no-audit --no-fund
+      - run: npm --prefix manager run test
