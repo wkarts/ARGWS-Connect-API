@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main, develop ]
   schedule:
-    - cron: '0 0 * * 1' # Weekly on Mondays
+    - cron: '0 0 * * 1'
 
 jobs:
   codeql:
@@ -17,33 +17,27 @@ jobs:
       actions: read
       contents: read
       security-events: write
-
     strategy:
       fail-fast: false
       matrix:
         language: [ 'javascript' ]
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
       with:
         submodules: recursive
-
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-
     - name: Autobuild
       uses: github/codeql-action/autobuild@v3
-
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
         output: codeql-results
-
-    - name: Report CodeQL source locations without source snippets
+    - name: Report CodeQL findings without source snippets
       if: always()
       shell: bash
       run: |
@@ -62,7 +56,7 @@ jobs:
                     for location in result.get('locations', []):
                         physical = location.get('physicalLocation', {})
                         locations.append({'path': physical.get('artifactLocation', {}).get('uri'), 'line': physical.get('region', {}).get('startLine')})
-                    print(json.dumps({'rule': rule_id, 'severity': severity, 'locations': locations}))
+                    print(json.dumps({'rule': rule_id, 'severity': severity, 'locations': locations, 'explanation': result.get('message', {}).get('text')}))
                     for flow in result.get('codeFlows', []):
                         for thread in flow.get('threadFlows', []):
                             trace = []
@@ -85,7 +79,6 @@ jobs:
         id: dependency-review
         continue-on-error: true
         uses: actions/dependency-review-action@v4
-
       - name: Dependency Review availability notice
         if: steps.dependency-review.outcome == 'failure'
         run: |
