@@ -75,7 +75,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           python3 - <<'PY'
-          import importlib.util, json, os, subprocess, urllib.request
+          import importlib.util, json, os, subprocess, urllib.request, urllib.error
           from pathlib import Path
           spec = importlib.util.spec_from_file_location('sync_ops', 'scripts/sync-operations-deployments.py')
           sync = importlib.util.module_from_spec(spec); spec.loader.exec_module(sync)
@@ -92,14 +92,27 @@ jobs:
                   raise SystemExit('Missing reviewed output: ' + name)
               entries.append({'path': name, 'mode': '100755' if name.endswith('.sh') else '100644', 'type': 'blob', 'content': path.read_text()})
           entries.append({'path': '.github/workflows/prepare-operations-delivery.yml', 'mode': '100644', 'type': 'blob', 'sha': None})
+          Path('reviewed-tree.json').write_text(json.dumps({'base_tree': base_tree, 'tree': entries, 'parent': parent}))
           base_url = 'https://api.github.com/repos/' + os.environ['REPOSITORY']
           def post(endpoint, payload):
               req = urllib.request.Request(base_url + endpoint, data=json.dumps(payload).encode(), method='POST', headers={'Authorization': 'Bearer ' + os.environ['PREPARE_GITHUB_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
-              with urllib.request.urlopen(req, timeout=90) as response:
-                  return json.load(response)
+              try:
+                  with urllib.request.urlopen(req, timeout=90) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  print('GitHub validation response: ' + error.read().decode('utf-8'))
+                  raise
           tree = post('/git/trees', {'base_tree': base_tree, 'tree': entries})
           commit = post('/git/commits', {'message': 'fix(deploy): materialize operational templates and measured dashboard integration', 'tree': tree['sha'], 'parents': [parent]})
           print('PREPARED_PARENT=' + parent)
           print('PREPARED_COMMIT=' + commit['sha'])
           print('No branch was moved; the temporary preparation workflow is absent from the prepared tree.')
           PY
+      - name: Preserve only reviewed source outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-operations-tree
+          path: reviewed-tree.json
+          if-no-files-found: ignore
+          retention-days: 3
