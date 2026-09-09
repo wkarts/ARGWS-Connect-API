@@ -100,6 +100,7 @@ export type ContactItem = {
 }
 
 export type Conversation = {
+  isGroup?: boolean
   id: string
   title: string
   subtitle?: string
@@ -113,6 +114,8 @@ export type Conversation = {
 }
 
 export type Message = {
+  participantRef?: string
+  participantName?: string
   id: string
   text: string
   direction: 'in' | 'out' | 'system'

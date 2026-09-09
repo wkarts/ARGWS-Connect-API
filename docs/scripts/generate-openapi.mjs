@@ -191,6 +191,10 @@ function discoverRoutes() {
 }
 
 const requestOverrides = {
+  "GET /operations/snapshot": {"summary": "Resumo operacional privado", "description": "Exige a API key global. Somente verificações técnicas, sem canais ou conteúdo de mensagens. Retorna 503 quando o monitoramento está desabilitado ou indisponível."},
+  "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
+  "GET /operations/archives": {"summary": "Listar arquivos diários", "description": "Índice de dias disponíveis, tamanhos e verificação. Sem conteúdo do WhatsApp."},
+  "GET /operations/export": {"summary": "Baixar diagnóstico compactado", "description": "Exportação administrativa de um único dia, sem credenciais ou conteúdo de comunicação.", "parameters": [{"name": "day", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["text", "jsonl"], "default": "text"}}], "responses": {"200": {"description": "Arquivo GZIP de texto legível ou JSONL.", "content": {"application/gzip": {"schema": {"type": "string", "format": "binary"}}}}}},
   'POST /instance/create': {
     summary: 'Criar instância',
     description: 'Cria uma nova instância e retorna token, estado e QR/pairing quando solicitado.',

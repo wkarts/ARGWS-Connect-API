@@ -77,11 +77,20 @@ async function openChat(chat: Conversation, behavior: ScrollBehavior = 'auto') {
   }
 }
 
+async function refreshGroup() {
+  const chat = selectedChat.value
+  if (!chat?.isGroup || !chat.rawRef) return
+  try {
+    const info = await connect.groupInfo(selectedInstance.value, chat.rawRef)
+    if (info?.subject) { chat.title = info.subject; selectedChat.value = { ...chat } }
+  } catch (e) { error.value = friendlyError(e) }
+}
+
 async function send() {
   if (!draft.value.trim() || !selectedChat.value || sending.value) return
 
   const chat = selectedChat.value
-  const number = (chat.rawRef || chat.subtitle || '').split('@')[0]
+  const number = chat.rawRef || chat.subtitle || ''
   const text = draft.value.trim()
   sending.value = true
   error.value = ''
@@ -153,8 +162,9 @@ onMounted(async () => {
             </span>
             <div class="chat-contact-title">
               <strong>{{ selectedChat.title }}</strong>
-              <small>{{ selectedChat.subtitle }}</small>
+              <small>{{ selectedChat.isGroup ? 'Grupo' : selectedChat.subtitle }}</small>
             </div>
+            <button v-if="selectedChat.isGroup" class="btn compact" type="button" @click="refreshGroup">Atualizar grupo</button>
           </header>
 
           <div ref="messageList" class="message-list">
@@ -166,6 +176,7 @@ onMounted(async () => {
                 class="message-bubble"
                 :class="message.direction"
               >
+                <strong v-if="selectedChat.isGroup && message.direction === 'in'" class="message-author">{{ message.participantName || 'Participante' }}</strong>
                 <p>{{ message.text }}</p>
                 <small>{{ formatTime(message.timestamp) }}</small>
               </div>

@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-08T19:21:20.997Z",
+  "generatedAt": "2026-09-09T02:43:57.160Z",
   "version": "1.0.21",
-  "sourceDigest": "20cdc08916b0a068699d587448c7091baff424cfd60c122550adf498726e9853",
+  "sourceDigest": "7bb2d0f1777f5ef98d7e09c735092adb5f7ad4130cdbb469eb6d2a1434f6e807",
   "operations": [
     {
       "method": "GET",
@@ -787,6 +787,26 @@
       "method": "PUT",
       "path": "/openai/update/{openaiBotId}/{instanceName}",
       "source": "src/api/integrations/chatbot/openai/routes/openai.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/archives",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/export",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/history",
+      "source": "src/api/routes/operations.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/operations/snapshot",
+      "source": "src/api/routes/operations.router.ts"
     },
     {
       "method": "GET",

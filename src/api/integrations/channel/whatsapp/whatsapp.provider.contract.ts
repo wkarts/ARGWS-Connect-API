@@ -99,9 +99,9 @@ export const ZAPO_WHATSAPP_CAPABILITIES: WhatsAppProviderCapabilities = Object.f
   labels: true,
   receipts: true,
   businessProfile: true,
-  // Zapo 1.6.3 exposes catalog notifications/MEX definitions but not a stable
-  // typed public catalog coordinator equivalent to Baileys getCatalog yet.
-  businessCatalog: false,
+  // Read-only commerce over ZAPO's public queryWithContext plugin surface.
+  // Products, native cursors and collections share the existing API contract.
+  businessCatalog: true,
   calls: true,
   voice: true,
   text: true,

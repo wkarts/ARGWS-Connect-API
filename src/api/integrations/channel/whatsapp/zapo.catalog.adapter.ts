@@ -22,7 +22,8 @@ async function owner(host: Host, number?: string) {
   return info;
 }
 function pageLimit(limit: number): number {
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new BadRequestException('limit deve estar entre 1 e 100.');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    throw new BadRequestException('limit deve estar entre 1 e 100.');
   return limit;
 }
 export async function readZapoCatalog(host: Host, data: getCatalogDto) {
@@ -50,9 +51,16 @@ export async function readZapoCatalog(host: Host, data: getCatalogDto) {
       if (!nextPageCursor) break;
     }
     const profile = await host.fetchBusinessProfile(info.jid);
-    return { wuid: info.jid, numberExists: true, isBusiness: profile?.isBusiness === true,
-      catalogLength: products.size, catalog: [...products.values()], nextPageCursor,
-      hasMore: Boolean(nextPageCursor), pageSize: limit };
+    return {
+      wuid: info.jid,
+      numberExists: true,
+      isBusiness: profile?.isBusiness === true,
+      catalogLength: products.size,
+      catalog: [...products.values()],
+      nextPageCursor,
+      hasMore: Boolean(nextPageCursor),
+      pageSize: limit,
+    };
   } catch {
     throw new InternalServerErrorException('Não foi possível consultar o catálogo comercial no WhatsApp.');
   }
@@ -63,8 +71,14 @@ export async function readZapoCollections(host: Host, data: getCollectionsDto) {
   try {
     const result = await host.client.connectCatalog!.getCollections(info.jid, limit);
     const profile = await host.fetchBusinessProfile(info.jid);
-    return { wuid: info.jid, name: info.name, numberExists: true, isBusiness: profile?.isBusiness === true,
-      collectionsLength: result.collections.length, collections: result.collections };
+    return {
+      wuid: info.jid,
+      name: info.name,
+      numberExists: true,
+      isBusiness: profile?.isBusiness === true,
+      collectionsLength: result.collections.length,
+      collections: result.collections,
+    };
   } catch {
     throw new InternalServerErrorException('Não foi possível consultar as coleções comerciais no WhatsApp.');
   }

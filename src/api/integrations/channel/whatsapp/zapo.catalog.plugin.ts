@@ -48,9 +48,14 @@ function parseProduct(node: CatalogNode) {
   const price = priceText === undefined ? undefined : Number(priceText);
   if (price !== undefined && !Number.isFinite(price)) throw new Error('Invalid WhatsApp product price');
   return {
-    id, name, description: text(node, 'description') || '',
-    retailerId: text(node, 'retailer_id'), url: text(node, 'url'),
-    price, currency: text(node, 'currency'), isHidden: node.attrs.is_hidden === 'true',
+    id,
+    name,
+    description: text(node, 'description') || '',
+    retailerId: text(node, 'retailer_id'),
+    url: text(node, 'url'),
+    price,
+    currency: text(node, 'currency'),
+    isHidden: node.attrs.is_hidden === 'true',
     // Preserve protocol price units, as the existing Baileys contract does.
     imageUrls: { requested: text(image, 'request_image_url'), original: text(image, 'original_image_url') },
     reviewStatus: { whatsapp: text(child(node, 'status_info'), 'status') },
@@ -80,38 +85,70 @@ export function createCatalogReader(query: Query) {
       return singleFlight(`catalog:${jid}:${pageSize}:${cursor || ''}`, async () => {
         const content = [valueNode('limit', pageSize), valueNode('width', 100), valueNode('height', 100)];
         if (cursor) content.push(valueNode('after', cursor));
-        const response = await query('connect.catalog.read', {
-          tag: 'iq', attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'w:biz:catalog' },
-          content: [{ tag: 'product_catalog', attrs: { jid, allow_shop_source: 'true' }, content }],
-        }, 15_000);
+        const response = await query(
+          'connect.catalog.read',
+          {
+            tag: 'iq',
+            attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'w:biz:catalog' },
+            content: [{ tag: 'product_catalog', attrs: { jid, allow_shop_source: 'true' }, content }],
+          },
+          15_000,
+        );
         const result = requiredResult(response, 'product_catalog');
-        return { products: children(result, 'product').map(parseProduct), nextPageCursor: text(child(result, 'paging'), 'after') };
+        return {
+          products: children(result, 'product').map(parseProduct),
+          nextPageCursor: text(child(result, 'paging'), 'after'),
+        };
       });
     },
     getCollections(jid: string, limit = 20) {
       jid = userJid(jid);
       const pageSize = positiveInteger(limit, 20, 100);
       return singleFlight(`collections:${jid}:${pageSize}`, async () => {
-        const response = await query('connect.collections.read', {
-          tag: 'iq', attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'w:biz:catalog', smax_id: '35' },
-          content: [{ tag: 'collections', attrs: { biz_jid: jid }, content: [
-            valueNode('collection_limit', pageSize), valueNode('item_limit', pageSize),
-            valueNode('width', 100), valueNode('height', 100),
-          ] }],
-        }, 15_000);
+        const response = await query(
+          'connect.collections.read',
+          {
+            tag: 'iq',
+            attrs: { to: 's.whatsapp.net', type: 'get', xmlns: 'w:biz:catalog', smax_id: '35' },
+            content: [
+              {
+                tag: 'collections',
+                attrs: { biz_jid: jid },
+                content: [
+                  valueNode('collection_limit', pageSize),
+                  valueNode('item_limit', pageSize),
+                  valueNode('width', 100),
+                  valueNode('height', 100),
+                ],
+              },
+            ],
+          },
+          15_000,
+        );
         const result = requiredResult(response, 'collections');
-        return { collections: children(result, 'collection').map((collection) => {
-          const id = text(collection, 'id'), name = text(collection, 'name');
-          if (!id || !name) throw new Error('Invalid WhatsApp collection response');
-          const status = child(collection, 'status_info');
-          return { id, name, products: children(collection, 'product').map(parseProduct),
-            status: { status: text(status, 'status'), canAppeal: text(status, 'can_appeal') === 'true' } };
-        }) };
+        return {
+          collections: children(result, 'collection').map((collection) => {
+            const id = text(collection, 'id'),
+              name = text(collection, 'name');
+            if (!id || !name) throw new Error('Invalid WhatsApp collection response');
+            const status = child(collection, 'status_info');
+            return {
+              id,
+              name,
+              products: children(collection, 'product').map(parseProduct),
+              status: { status: text(status, 'status'), canAppeal: text(status, 'can_appeal') === 'true' },
+            };
+          }),
+        };
       });
     },
   };
 }
 
 export function connectCatalogPlugin(): WaClientPluginDefinition {
-  return { id: 'connect-commerce', exposeAs: 'connectCatalog', setup: (ctx) => createCatalogReader((...args) => ctx.queryWithContext(...args)) };
+  return {
+    id: 'connect-commerce',
+    exposeAs: 'connectCatalog',
+    setup: (ctx) => createCatalogReader((...args) => ctx.queryWithContext(...args)),
+  };
 }

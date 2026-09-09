@@ -151,6 +151,7 @@ export class ZapoGroupStartupService extends ZapoAccountStartupService {
     try {
       const groupJid = this.normalizeGroupJid(data?.groupJid);
       const metadata = await this.groupClient().group.queryGroupMetadata(groupJid);
+      await this.persistGroupConversation(groupJid, { subject: metadata.subject });
       return this.normalizeGroupMetadata(metadata);
     } catch (error) {
       if (error && typeof error === 'object' && 'status' in error) throw error;

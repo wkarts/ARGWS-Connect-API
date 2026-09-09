@@ -1,7 +1,9 @@
+import { getCatalogDto, getCollectionsDto } from '@api/dto/business.dto';
 import { Events } from '@api/types/wa.types';
 import { Database } from '@config/env.config';
 import { Pool } from 'pg';
 
+import { readZapoCatalog, readZapoCollections } from './zapo.catalog.adapter';
 import {
   zapoIsOwnAccountJid,
   zapoJidUser,
@@ -82,6 +84,14 @@ export class ZapoIdentityStartupService extends ZapoInteractiveStartupService {
     const client = await super.preparePairingConnection(number);
     this.bindNativeIdentityEvents(client);
     return client;
+  }
+
+  public async fetchCatalog(_instanceName: string, data: getCatalogDto) {
+    return readZapoCatalog(this, data);
+  }
+
+  public async fetchCollections(_instanceName: string, data: getCollectionsDto) {
+    return readZapoCollections(this, data);
   }
 
   public async listCalls() {

@@ -30,6 +30,7 @@ COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
 COPY ./scripts ./scripts
+COPY ./operations-agent ./operations-agent
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
@@ -66,6 +67,7 @@ COPY --from=builder /argws-connect/prisma ./prisma
 COPY --from=builder /argws-connect/manager/dist ./manager/dist
 COPY --from=builder /argws-connect/public ./public
 COPY --from=builder /argws-connect/scripts ./scripts
+COPY --from=builder /argws-connect/operations-agent ./operations-agent
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /argws-connect/tsup.config.ts ./tsup.config.ts

@@ -56,6 +56,11 @@ find_service() {
   printf '%s\n' "$services" | grep -E "^${prefix}($|-)" | head -n 1 || true
 }
 
+operations_service="$(find_service operations)"
+operation_event() {
+  [[ -n "$operations_service" ]] || return 0
+  compose exec -T "$operations_service" node /argws-connect/operations-agent/emit.cjs "$1" >/dev/null 2>&1 || true
+}
 api_service="$(find_service api)"
 postgres_service="$(find_service postgres)"
 mysql_service="$(find_service mysql)"
@@ -248,6 +253,7 @@ EOF
   restart_api=0
   rm -rf "$tmp"
   trap - EXIT
+  operation_event backup.created
   echo "$output"
 }
 
@@ -263,6 +269,7 @@ backup_verify() {
     cd "$tmp/payload"
     sha256sum -c manifest.sha256 >/dev/null
   )
+  operation_event backup.verified
   echo "OK: $(basename "$file")"
 }
 
@@ -323,6 +330,7 @@ backup_restore() {
   fi
 
   compose up -d
+  operation_event backup.restored
   echo "Restore concluído: $(basename "$file")"
 }
 

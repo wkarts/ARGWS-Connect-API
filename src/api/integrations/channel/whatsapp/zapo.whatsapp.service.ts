@@ -31,6 +31,8 @@ import sharp from 'sharp';
 import { PassThrough } from 'stream';
 
 import { ZAPO_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
+import { connectCatalogPlugin } from './zapo.catalog.plugin';
+import { GroupIdentity,ZapoGroupIdentityCache } from './zapo.group-identity';
 
 let sharedZapoPostgresBackend: any = null;
 let sharedZapoPostgresUri: string | null = null;
@@ -91,6 +93,12 @@ export class ZapoStartupService extends ChannelStartupService {
 
   public readonly capabilities = ZAPO_WHATSAPP_CAPABILITIES;
 
+  private readonly persistedGroups = new Map<string, GroupIdentity>();
+  private readonly groupIdentities = new ZapoGroupIdentityCache(async (jid) => {
+    const group = await this.client.group.queryGroupMetadata(jid);
+    const picture = await this.profilePicture(jid).catch(() => null);
+    return { subject: group.subject, avatar: picture?.profilePictureUrl || undefined };
+  });
   private storeBackend: any = null;
   private cleanupPoller: any = null;
   private store: any = null;
@@ -727,8 +735,10 @@ export class ZapoStartupService extends ChannelStartupService {
     this.cleanupPoller = this.storeBackend.startCleanup(this.instanceId);
 
     const maxConcurrentCalls = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
-    const plugins =
-      process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })];
+    const plugins = [
+      connectCatalogPlugin(),
+      ...(process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })]),
+    ];
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
     const configuredBrowser =
       process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || process.env.ZAPO_DEVICE_BROWSER || session.NAME || 'Chrome';
@@ -1117,7 +1127,8 @@ export class ZapoStartupService extends ChannelStartupService {
             this.prismaRepository.chat.upsert({
               where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid } },
               update: {
-                // Do not oscillate a chat name based on later history rows.
+                // Group thread names are authoritative metadata, not push names.
+                ...(remoteJid.endsWith('@g.us') && info.name ? { name: info.name } : {}),
                 ...(Number.isFinite(info.unreadMessages) ? { unreadMessages: info.unreadMessages } : {}),
               },
               create: {
@@ -1245,10 +1256,38 @@ export class ZapoStartupService extends ChannelStartupService {
     );
   }
 
+  protected async persistGroupConversation(jid: string, known?: GroupIdentity): Promise<void> {
+    const db = this.configService.get<Database>('DATABASE');
+    if (!db.SAVE_DATA.CHATS || !jid.endsWith('@g.us')) return;
+    if (known) this.groupIdentities.invalidate(jid);
+    const info = known || await this.groupIdentities.resolve(jid);
+    if (info && this.persistedGroups.get(jid) === info) return;
+    await this.prismaRepository.chat.upsert({
+      where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: jid } },
+      update: info?.subject ? { name: info.subject } : {},
+      create: { instanceId: this.instanceId, remoteJid: jid, name: info?.subject || 'Grupo WhatsApp' },
+    });
+    if (info && db.SAVE_DATA.CONTACTS) {
+      // Existing group avatar cache, never a participant's pushName.
+      await this.prismaRepository.contact.upsert({
+        where: { remoteJid_instanceId: { remoteJid: jid, instanceId: this.instanceId } },
+        update: { pushName: info.subject, ...(info.avatar ? { profilePicUrl: info.avatar } : {}) },
+        create: { remoteJid: jid, instanceId: this.instanceId, pushName: info.subject, profilePicUrl: info.avatar },
+      });
+    }
+    if (info) {
+      this.persistedGroups.set(jid, info);
+      if (this.persistedGroups.size > 256) this.persistedGroups.delete(this.persistedGroups.keys().next().value);
+      this.sendDataWebhook(Events.GROUPS_UPDATE, [{ id: jid, subject: info.subject }]);
+    }
+  }
+
   private async handleIncomingMessage(event: any) {
     if (!event?.message || !event?.key?.remoteJid) return;
 
     const rawRemoteJid = this.normalizeDeviceJid(String(event.key.remoteJid));
+    const isGroupMessage = rawRemoteJid.endsWith('@g.us');
+    if (isGroupMessage && this.localSettings.groupsIgnore === true) return;
     const remoteJidAlt = this.resolveAlternatePhoneJid(event, 'remote');
     const canonicalRemoteJid =
       rawRemoteJid.endsWith('@lid') && remoteJidAlt && !remoteJidAlt.endsWith('@lid') ? remoteJidAlt : rawRemoteJid;
@@ -1313,12 +1352,16 @@ export class ZapoStartupService extends ChannelStartupService {
       );
     }
 
-    if (db.SAVE_DATA.CONTACTS) {
-      await this.upsertContact(messageRaw.key.remoteJid, messageRaw.pushName);
-    }
-
-    if (db.SAVE_DATA.CHATS) {
-      await this.upsertChat(messageRaw.key.remoteJid, messageRaw.pushName);
+    if (isGroupMessage) {
+      // The group's author is NOT the group identity. Keep both namespaces.
+      if (db.SAVE_DATA.CONTACTS && !messageRaw.key.fromMe && canonicalParticipant &&
+          /@(s\.whatsapp\.net|lid)$/.test(canonicalParticipant)) {
+        await this.upsertContact(canonicalParticipant, messageRaw.pushName);
+      }
+      if (db.SAVE_DATA.CHATS) await this.persistGroupConversation(rawRemoteJid);
+    } else {
+      if (db.SAVE_DATA.CONTACTS) await this.upsertContact(messageRaw.key.remoteJid, messageRaw.pushName);
+      if (db.SAVE_DATA.CHATS) await this.upsertChat(messageRaw.key.remoteJid, messageRaw.pushName);
     }
 
     if (rawRemoteJid !== canonicalRemoteJid) {
