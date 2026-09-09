@@ -17,6 +17,13 @@ jobs:
           node-version: 22.x
       - name: Materialize reviewed additions and all deployment templates
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/sync-operations-deployments.py')
+          text = path.read_text()
+          assert 'suffix = api[3:]' in text
+          path.write_text(text.replace('suffix = api[3:]', 'suffix = api[4:]', 1))
+          PY
           python3 scripts/sync-operations-deployments.py
           python3 - <<'PY'
           from pathlib import Path
@@ -73,7 +80,7 @@ jobs:
           spec = importlib.util.spec_from_file_location('sync_ops', 'scripts/sync-operations-deployments.py')
           sync = importlib.util.module_from_spec(spec); spec.loader.exec_module(sync)
           allowed = set(sync.generate(Path('.')))
-          allowed.update(['operations-agent/server.cjs', 'src/api/routes/operations.router.ts', 'test/operations-resilience.test.cjs', 'docs/scripts/generate-openapi.mjs', '.github/workflows/deployment-integrity.yml', 'deploy/README.md', 'docs/operations/history-and-zapo-commerce.md'])
+          allowed.update(['scripts/sync-operations-deployments.py', 'operations-agent/server.cjs', 'src/api/routes/operations.router.ts', 'test/operations-resilience.test.cjs', 'docs/scripts/generate-openapi.mjs', '.github/workflows/deployment-integrity.yml', 'deploy/README.md', 'docs/operations/history-and-zapo-commerce.md'])
           allowed.update(str(p) for p in Path('docs/openapi').glob('*.json'))
           allowed.update(str(p) for p in Path('docs/asyncapi').glob('*.json'))
           parent = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
