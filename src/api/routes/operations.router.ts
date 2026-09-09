@@ -1,6 +1,6 @@
 import { operationsTarget } from '@api/services/operations.service';
 import { Auth, configService } from '@config/env.config';
-import { createHash, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import { Request, Response, Router } from 'express';
 import http from 'http';
 
@@ -14,10 +14,15 @@ export class OperationsRouter {
     this.router.use((req, res, next) => {
       const expected = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
       const supplied = req.get('apikey') || '';
-      const hash = (value: string) => createHash('sha256').update(value).digest();
-      if (!expected || !supplied || !timingSafeEqual(hash(expected), hash(supplied)))
-        return res.status(403).json({ error: 'Acesso administrativo necessário.' });
       res.set('Cache-Control', 'no-store');
+      if (typeof expected !== 'string' || !expected || !supplied)
+        return res.status(403).json({ error: 'Acesso administrativo necessário.' });
+      // Compare the configured API key directly; no password hash is stored.
+      // timingSafeEqual requires equal byte lengths, not equal string lengths.
+      const expectedBytes = Buffer.from(expected, 'utf8');
+      const suppliedBytes = Buffer.from(supplied, 'utf8');
+      if (expectedBytes.length !== suppliedBytes.length || !timingSafeEqual(expectedBytes, suppliedBytes))
+        return res.status(403).json({ error: 'Acesso administrativo necessário.' });
       next();
     });
     this.router.get('/snapshot', (req, res) => this.forward('/snapshot', req, res));
