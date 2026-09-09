@@ -21,7 +21,12 @@ import type {
 } from '@/types/domain'
 
 const ACCESS_STORAGE_KEY = 'connect_access_code'
-let accessCode = sessionStorage.getItem(ACCESS_STORAGE_KEY) || ''
+// Direct API access is memory-only; never persist a privileged key in Web Storage.
+let accessCode = ''
+try {
+  sessionStorage.removeItem(ACCESS_STORAGE_KEY)
+  localStorage.removeItem(ACCESS_STORAGE_KEY)
+} catch { /* Storage can be unavailable in restricted browsers. */ }
 let instanceCache = new Map<string, any>()
 let instanceCacheItems: any[] = []
 let instanceCacheFetchedAt = 0
@@ -46,8 +51,7 @@ function messageFrom(data: any, fallback: string) {
 
 function saveAccess(value: string) {
   accessCode = String(value || '').trim()
-  if (accessCode) sessionStorage.setItem(ACCESS_STORAGE_KEY, accessCode)
-  else sessionStorage.removeItem(ACCESS_STORAGE_KEY)
+
 }
 
 export function clearCurrentAccess() {
