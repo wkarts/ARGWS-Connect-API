@@ -241,7 +241,7 @@ const baseCapabilities: ProviderCapabilitySet = {
 export function providerCapabilities(value: any): ProviderCapabilitySet {
   const provider = normalizeProvider(value)
   if (provider === 'WHATSAPP-ZAPO') {
-    return { ...baseCapabilities, calls: true, voice: true, businessCatalog: false }
+    return { ...baseCapabilities, calls: true, voice: true, businessCatalog: true }
   }
   if (provider === 'WHATSAPP-BAILEYS') {
     return { ...baseCapabilities, calls: false, voice: false, businessCatalog: true }
@@ -318,7 +318,7 @@ function mergeContact(existing: ContactItem, incoming: ContactItem): ContactItem
 
 export function contacts(raw: any): ContactItem[] {
   const normalized = asArray(raw)
-    .filter((item) => item?.remoteJid !== 'status@broadcast' && !str(item?.remoteJid).endsWith('@broadcast'))
+    .filter((item) => !/@(g\.us|broadcast|newsletter)$/.test(str(item?.remoteJid || item?.jid)))
     .map((item, index): ContactItem => {
       const rawRef = str(item.remoteJid || item.jid || item.number || '')
       const number = firstPhone(item.phoneNumber, item.phoneJid, item.remoteJidAlt, rawRef.endsWith('@lid') ? undefined : item.number, rawRef) || undefined
@@ -370,11 +370,15 @@ export function conversations(raw: any): Conversation[] {
     })
     .map((item, index): Conversation => {
       const rawRef = str(item.remoteJid || item.jid || item.id || '')
-      const title = str(item.pushName || item.name || item.contactName || jidLocal(rawRef) || 'Conversa')
+      const isGroup = rawRef.endsWith('@g.us')
+      const title = isGroup
+        ? str(item.subject || item.groupSubject || item.name || item.pushName || 'Grupo WhatsApp')
+        : str(item.pushName || item.name || item.contactName || jidLocal(rawRef) || 'Conversa')
       return {
         id: str(item.id || rawRef || index),
         title,
-        subtitle: firstPhone(item.phoneNumber, item.phoneJid, item.remoteJidAlt, item.number, rawRef) || (rawRef.endsWith('@lid') ? '' : rawRef) || item.subtitle,
+        isGroup,
+        subtitle: isGroup ? 'Grupo' : firstPhone(item.phoneNumber, item.phoneJid, item.remoteJidAlt, item.number, rawRef) || (rawRef.endsWith('@lid') ? '' : rawRef) || item.subtitle,
         avatar: item.profilePicUrl || item.avatar,
         unread: num(item.unreadMessages ?? item.unread ?? item.unreadCount),
         lastMessage: messagePreview(item.lastMessage),
@@ -407,6 +411,10 @@ export function messages(raw: any): Message[] {
       id: str(item.key?.id || item.id || index),
       text: text || '[Conteúdo]',
       direction: fromMe ? 'out' : 'in',
+      participantRef: item.key?.participant || item.participant || undefined,
+      participantName: !fromMe && (item.key?.participant || item.participant)
+        ? str(item.pushName || firstPhone(item.key?.participantAlt, item.key?.participant, item.participant) || 'Participante')
+        : undefined,
       timestamp: item.messageTimestamp || item.createdAt || item.timestamp,
       status: item.status,
     }

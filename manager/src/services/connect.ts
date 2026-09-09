@@ -69,6 +69,7 @@ export const connect = {
   migrateProvider: (id: string, target: WhatsAppProvider, dryRun = false): Promise<ProviderMigrationResult> => invoke('migrateProvider', id, target, dryRun),
   conversations: (id: string): Promise<Conversation[]> => invoke('conversations', id),
   messages: (id: string, ref = ''): Promise<Message[]> => invoke('messages', id, ref),
+  groupInfo: (id: string, groupJid: string): Promise<any> => invoke('groupInfo', id, groupJid),
   sendText: (id: string, number: string, text: string): Promise<any> => invoke('sendText', id, number, text),
   contacts: (id: string): Promise<ContactItem[]> => typeof adapter.contacts === 'function' ? invoke('contacts', id) : Promise.resolve([]),
   calls: async (id: string): Promise<WhatsAppCall[]> => {

@@ -1,9 +1,113 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import AppShell from '@/layouts/AppShell.vue'; import PageHeader from '@/components/PageHeader.vue'; import MetricCard from '@/components/MetricCard.vue'; import PanelCard from '@/components/PanelCard.vue'; import StatusPill from '@/components/StatusPill.vue'; import SparkBars from '@/components/SparkBars.vue'; import SparkLine from '@/components/SparkLine.vue'; import AppIcon from '@/components/AppIcon.vue'; import { connect } from '@/services/connect'; import { friendlyError } from '@/services/errors'; import type { Overview } from '@/types/domain'
-const data=ref<Overview|null>(null), error=ref('')
-onMounted(async()=>{try{const [overview,audit]=await Promise.allSettled([connect.overview(),connect.audit()]); if(overview.status==='fulfilled') data.value={...overview.value,recent:audit.status==='fulfilled'?audit.value.slice(0,4).map(x=>({id:x.id,title:x.description,detail:x.actor,when:x.createdAt})):overview.value.recent}; else throw overview.reason}catch(e){error.value=friendlyError(e)}})
-const fmt=(v:number)=>new Intl.NumberFormat('pt-BR').format(v||0)
-const when=(value?:string)=>{if(!value)return 'Agora'; const d=new Date(value); if(Number.isNaN(d.getTime()))return String(value); const mins=Math.max(0,Math.round((Date.now()-d.getTime())/60000)); return mins<1?'Agora':mins<60?`Há ${mins} min`:`Há ${Math.round(mins/60)} h`}
+import AppShell from '@/layouts/AppShell.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import PanelCard from '@/components/PanelCard.vue'
+import MetricCard from '@/components/MetricCard.vue'
+import { operations, type OperationalArchive, type OperationalEvent, type OperationalSnapshot } from '@/services/operations'
+
+const snapshot = ref<OperationalSnapshot | null>(null)
+const events = ref<OperationalEvent[]>([])
+const archives = ref<OperationalArchive[]>([])
+const error = ref(''), busy = ref(false), nextCursor = ref<string | null>(null)
+const today = new Date().toLocaleDateString('en-CA')
+const from = ref(today), to = ref(today)
+const serviceNames: Record<string, string> = { api: 'API', database: 'Banco de dados', cache: 'Cache', events: 'Entrega de eventos', storage: 'Armazenamento', docs: 'Documentação', operations: 'Monitoramento', backup: 'Backup' }
+const bytes = (value: number) => `${(value / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`
+const when = (value?: string) => value ? new Date(value).toLocaleString('pt-BR') : 'Não verificado'
+const message = (e: unknown) => e instanceof Error ? e.message : 'Não foi possível concluir a consulta.'
+async function refresh() {
+  if (busy.value) return
+  busy.value = true; error.value = ''
+  try {
+    snapshot.value = await operations.snapshot()
+    archives.value = (await operations.archives()).archives
+    const history = await operations.history(from.value, to.value)
+    events.value = history.events
+    nextCursor.value = history.nextCursor
+  } catch (e) { error.value = message(e) } finally { busy.value = false }
+}
+async function search(cursor = '') {
+  if (busy.value) return
+  busy.value = true; error.value = ''
+  try {
+    const result = await operations.history(from.value, to.value, cursor)
+    events.value = result.events; nextCursor.value = result.nextCursor
+  } catch (e) { error.value = message(e) } finally { busy.value = false }
+}
+async function inspectDay(day: string) { from.value = day; to.value = day; await search() }
+async function download(day: string) {
+  if (busy.value) return
+  busy.value = true; error.value = ''
+  try { await operations.download(day) } catch (e) { error.value = message(e) } finally { busy.value = false }
+}
+onMounted(refresh)
 </script>
-<template><AppShell><PageHeader title="Visão Geral" description="Acompanhe sua operação em uma única tela."/><div v-if="error" class="alert error">{{error}}</div><div v-else-if="!data" class="skeleton-page"></div><template v-else><div class="metric-grid"><MetricCard icon="automation" title="Operação" :value="data.online?'Online':'Indisponível'" :hint="data.version?`v${data.version}`:''" accent="green"/><MetricCard icon="radio" title="Instâncias ativas" :value="`${data.connections.connected}/${data.connections.total}`" hint="conectadas"/><MetricCard icon="mail" title="Mensagens" :value="fmt(data.totals.messages)" hint="registradas" accent="cyan"/><MetricCard icon="chat" title="Conversas" :value="fmt(data.totals.conversations)" hint="registradas" accent="violet"/></div><div class="dashboard-layout"><div class="dashboard-main"><div class="chart-grid"><PanelCard title="Mensagens" description="Movimentação recente"><div class="chart-value">{{fmt(data.totals.messages)}}</div><SparkBars :values="data.trends?.messages"/></PanelCard><PanelCard title="Conversas ativas" description="Movimentação recente"><div class="chart-value">{{fmt(data.totals.conversations)}}</div><SparkLine :values="data.trends?.conversations"/></PanelCard></div><PanelCard title="Atividade recente"><div v-if="data.recent.length" class="activity-list"><div v-for="item in data.recent" :key="item.id" class="activity-item"><span class="activity-icon"><AppIcon name="chat" :size="17"/></span><div><strong>{{item.title}}</strong><small>{{item.detail}}</small></div><time>{{when(item.when)}}</time></div></div><div v-else class="muted-block">Nenhuma atividade recente.</div></PanelCard></div><aside class="dashboard-side"><PanelCard title="Status dos serviços"><div class="service-list"><div v-for="item in data.services" :key="item.key"><span>{{item.label}}</span><StatusPill :status="item.status"/></div></div></PanelCard><div class="all-good"><span><AppIcon name="automation" :size="30"/></span><div><strong>{{ data.online ? 'Tudo em funcionamento' : 'Atenção necessária' }}</strong><p>{{ data.online ? 'Sua operação está ativa e os serviços principais estão funcionando normalmente.' : 'Há um item que precisa de atenção.' }}</p></div></div></aside></div></template></AppShell></template>
+<template>
+  <AppShell>
+    <PageHeader title="Visão Geral" description="Saúde da instalação e eventos operacionais. Sem conteúdo de conversas." />
+    <div class="operations-toolbar"><button class="btn" :disabled="busy" @click="refresh">{{ busy ? 'Consultando...' : 'Atualizar' }}</button></div>
+    <div v-if="error" class="alert error">{{ error }}</div>
+    <div v-if="!snapshot && !busy" class="panel-card muted-block">Nenhum dado operacional disponível. O painel não exibe dados de exemplo.</div>
+    <template v-if="snapshot">
+      <div class="metric-grid">
+        <MetricCard icon="heart" title="Serviços verificados" :value="String(snapshot.services.length)" hint="Verificações técnicas, não conversas" />
+        <MetricCard icon="list" title="Dias no histórico" :value="String(archives.length)" />
+        <MetricCard icon="settings" title="Espaço dos registros" :value="bytes(snapshot.diskBytes)" :hint="`Limite: ${bytes(snapshot.maxDiskBytes)}`" />
+        <MetricCard icon="refresh" title="Tempo ativo do monitor" :value="`${Math.floor(snapshot.uptimeSeconds / 60)} min`" :hint="`Coleta: ${when(snapshot.checkedAt)}`" />
+      </div>
+      <div v-if="snapshot.maintenanceError || snapshot.dropped" class="alert error">O monitoramento precisa de atenção. Verifique armazenamento, arquivamento e registros não coletados: {{ snapshot.dropped }}.</div>
+      <PanelCard title="Status dos serviços" description="Acessibilidade medida. Uma porta acessível não comprova a integridade dos dados.">
+        <div class="operations-services">
+          <div v-for="service in snapshot.services" :key="service.key" class="operations-service">
+            <strong>{{ serviceNames[service.key] || 'Serviço' }}</strong>
+            <span>{{ service.status === 'reachable' ? 'Acessível' : service.status === 'unavailable' ? 'Indisponível' : 'Não verificado' }}</span>
+            <small>{{ service.type === 'tcp' ? 'Conectividade' : 'Verificação de resposta' }} · {{ service.durationMs }} ms · {{ when(service.checkedAt) }}</small>
+          </div>
+          <p v-if="!snapshot.services.length" class="muted">Nenhuma verificação configurada.</p>
+        </div>
+      </PanelCard>
+      <PanelCard title="Eventos da operação" description="Consulte até 31 dias por vez. O histórico arquivado é lido sem restaurar registros no banco.">
+        <form class="operations-filter" @submit.prevent="search()">
+          <label>De<input v-model="from" type="date" required /></label>
+          <label>Até<input v-model="to" type="date" required /></label>
+          <button class="btn primary" :disabled="busy">Consultar período</button>
+        </form>
+        <div class="operations-table-wrap"><table class="operations-table">
+          <thead><tr><th>Data e hora</th><th>Serviço</th><th>Evento</th><th>Dados técnicos</th></tr></thead>
+          <tbody><tr v-for="event in events" :key="event.id">
+            <td>{{ when(event.timestamp) }}</td><td>{{ serviceNames[event.service || 'operations'] || 'Operação' }}</td><td>{{ event.title }}</td>
+            <td><span v-if="event.count !== undefined">Quantidade: {{ event.count }}</span><span v-if="event.errors !== undefined"> · Falhas: {{ event.errors }}</span></td>
+          </tr></tbody>
+        </table></div>
+        <div v-if="!events.length" class="muted-block">Nenhum evento registrado no período consultado.</div>
+        <button v-if="nextCursor" class="btn" :disabled="busy" @click="search(nextCursor)">Próxima página</button>
+      </PanelCard>
+      <PanelCard title="Arquivos diários" description="Somente registros operacionais permitidos. Não contém mensagens, contatos, fotos, áudio, QR ou credenciais.">
+        <div class="operations-table-wrap"><table class="operations-table">
+          <thead><tr><th>Dia</th><th>Estado</th><th>Tamanho</th><th>Verificação</th><th>Ações</th></tr></thead>
+          <tbody><tr v-for="archive in archives" :key="archive.day">
+            <td>{{ archive.day }}</td><td>{{ archive.archived ? 'Compactado' : 'Registro recente' }}</td><td>{{ bytes(archive.bytes) }}</td><td>{{ when(archive.verifiedAt) }}</td>
+            <td><button class="btn compact" :disabled="busy" @click="inspectDay(archive.day)">Consultar</button> <button class="btn compact" :disabled="busy" @click="download(archive.day)">Baixar registro</button></td>
+          </tr></tbody>
+        </table></div>
+        <p v-if="!archives.length" class="muted-block">Nenhum arquivo disponível.</p>
+      </PanelCard>
+    </template>
+  </AppShell>
+</template>
+<style scoped>
+.operations-toolbar { display:flex; justify-content:flex-end; margin-bottom:16px }
+.panel-card { margin-bottom:18px }
+.operations-services { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px }
+.operations-service { display:flex; flex-direction:column; gap:6px }
+.operations-filter { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px }
+.operations-filter label { display:flex; flex-direction:column; gap:6px }
+.operations-filter input { padding:8px; border:1px solid var(--border,#dbe4ef); border-radius:8px; background:transparent; color:inherit }
+.operations-table-wrap { overflow:auto; max-height:480px }
+.operations-table { width:100%; border-collapse:collapse; text-align:left }
+.operations-table th,.operations-table td { padding:10px; border-bottom:1px solid var(--border,#dbe4ef); vertical-align:top }
+.operations-table th { font-weight:600 }
+.operations-table small { white-space:nowrap }
+@media(max-width:640px) { .operations-filter label,.operations-filter button { width:100% } }
+</style>

@@ -51,8 +51,10 @@ export function zapoLidJid(value: unknown): string | null {
 export function zapoKnownLidJid(value: unknown): string | null {
   const raw = String(value ?? '').trim();
   if (!raw) return null;
-  const candidate = raw.includes('@') ? raw : `${raw.replace(/\D/g, '')}@lid`;
-  if (candidate === '@lid') return null;
+  // A typed LID field may contain bare digits, never arbitrary text
+  // from which digits are extracted to manufacture another identity.
+  if (!raw.includes('@') && !/^\d+$/.test(raw)) return null;
+  const candidate = raw.includes('@') ? raw : `${raw}@lid`;
   const jid = zapoTryNormalizeJid(candidate);
   return jid && isLidJid(jid) ? jid : null;
 }

@@ -1,4 +1,5 @@
 import { runtime } from '@/config/runtime'
+import { whatsappDestination } from './whatsapp-destination'
 import * as normalize from './normalizers'
 import { integrationDefinitions } from './integration-definitions'
 import { VoiceMediaSession, type VoiceMediaCallbacks } from './voice-media'
@@ -331,9 +332,15 @@ export const current = {
     })
   },
 
+  async groupInfo(id: string, groupJid: string) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/group/findGroupInfos/${encodeURIComponent(name)}`, {
+      token, params: { groupJid },
+    }))
+  },
+
   async sendText(id: string, number: string, text: string) {
     return withInstance(id, async (_item, name, token) => api(`/message/sendText/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data: { number: String(number).replace(/@.+$/, '').replace(/\D/g, ''), text },
+      method: 'POST', token, data: { number: whatsappDestination(number), text },
     }))
   },
 
