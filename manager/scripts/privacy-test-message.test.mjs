@@ -141,3 +141,39 @@ test('standalone development reads its local defaults without imports outside it
   assert.match(read('vite.config.ts'), /public\/assets\/feature-defaults\.json/);
   assert.doesNotMatch(read('vite.config.ts'), /from ['"]\.\.\//);
 });
+
+
+test('instance actions share a footer and the test action keeps its feature, permission and connection guards', () => {
+  const view = read('src/views/InstancesView.vue');
+  const footer = view.match(/<footer class="instance-card-actions" @click\.stop>([\s\S]*?)<\/footer>/)?.[1];
+  assert.ok(footer, 'Both card actions must be inside the click-isolated footer');
+  const buttons = [...footer.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
+  assert.equal(buttons.length, 2);
+  const [send, open] = buttons;
+  assert.equal(send[2].trim(), 'Enviar teste');
+  assert.match(send[1], /featureEnabled\('instanceTestMessage', true\) && session\.hasPermission\('messages\.send'\)/);
+  assert.match(send[1], /:disabled="item\.status !== 'connected' \|\| !item\.capabilities\.messaging"/);
+  assert.match(send[1], /aria-haspopup="dialog"/);
+  assert.match(send[1], /@click\.stop="testInstance = item"/);
+  assert.match(open[1], /instance-card-open/);
+  assert.match(open[1], /@click\.stop="router\.push\(`/);
+  assert.ok(open[1].includes('encodeURIComponent(item.id)'));
+  assert.match(open[2], /Abrir <AppIcon name="arrow" :size="15"\/>/);
+  for (const button of buttons) {
+    assert.match(button[1], /type="button"/);
+    assert.match(button[1], /class="card-link instance-card-action/);
+    assert.doesNotMatch(button[1], /class="btn/);
+  }
+});
+
+test('instance footer styling is scoped, uses the existing link tokens and keeps open right-aligned', () => {
+  const view = read('src/views/InstancesView.vue');
+  const style = view.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1];
+  assert.ok(style);
+  assert.match(style, /\.instance-card-actions\s*\{[^}]*align-items:\s*center;[^}]*justify-content:\s*space-between;[^}]*margin-top:\s*auto;/);
+  assert.match(style, /\.instance-card-open\s*\{[^}]*margin-left:\s*auto;/);
+  assert.match(style, /\.instance-card-action\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;/);
+  assert.match(style, /\.instance-card-action:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--primary\);/);
+  assert.match(style, /\.instance-card-action:disabled\s*\{[^}]*cursor:\s*not-allowed;/);
+  assert.doesNotMatch(style, /#[0-9a-f]{3,8}\b/i);
+});

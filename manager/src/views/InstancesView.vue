@@ -107,8 +107,10 @@ onMounted(load)
           <div><b>{{ item.counts.conversations.toLocaleString('pt-BR') }}</b><span>Conversas</span></div>
           <div><b>{{ item.counts.messages.toLocaleString('pt-BR') }}</b><span>Mensagens</span></div>
         </div>
-        <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" class="btn ghost compact" :disabled="item.status !== 'connected' || !item.capabilities.messaging" @click.stop="testInstance = item">Enviar teste</button>
-        <div class="card-link">Abrir <AppIcon name="arrow" :size="15"/></div>
+        <footer class="instance-card-actions" @click.stop>
+          <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" type="button" class="card-link instance-card-action" :disabled="item.status !== 'connected' || !item.capabilities.messaging" aria-haspopup="dialog" @click.stop="testInstance = item">Enviar teste</button>
+          <button type="button" class="card-link instance-card-action instance-card-open" @click.stop="router.push(`/instancias/${encodeURIComponent(item.id)}`)">Abrir <AppIcon name="arrow" :size="15"/></button>
+        </footer>
       </article>
     </div>
 
@@ -138,3 +140,50 @@ onMounted(load)
     </AppModal>
   </AppShell>
 </template>
+
+<style scoped>
+.instance-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.instance-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 13px;
+}
+
+.instance-card-action {
+  margin-top: 0;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.instance-card-open {
+  margin-left: auto;
+}
+
+.instance-card-action:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.instance-card-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+
+.instance-card-action:disabled {
+  color: var(--muted);
+  opacity: .65;
+  cursor: not-allowed;
+}
+</style>
