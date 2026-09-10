@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { MetaCloudAuthService } from '../../src/api/compat/meta-cloud/meta-cloud-auth.service';
 import { MetaCloudIdentityResolver } from '../../src/api/compat/meta-cloud/meta-cloud-identity.resolver';
 import { MetaCloudStatusMapper } from '../../src/api/compat/meta-cloud/meta-cloud-status.mapper';
+import { Auth, configService } from '../../src/config/env.config';
 
 const resolver = new MetaCloudIdentityResolver({} as any);
 const baileys = resolver.identityFromInstance({
@@ -37,6 +38,8 @@ assert.equal(business.businessAccountId, 'waba-1');
 
 const auth = new MetaCloudAuthService();
 auth.assertAuthorized(baileys, 'Bearer secret');
+const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+auth.assertAuthorized(baileys, `Bearer ${globalToken}`);
 assert.throws(() => auth.assertAuthorized(baileys, 'Bearer wrong'));
 
 const mapper = new MetaCloudStatusMapper();
