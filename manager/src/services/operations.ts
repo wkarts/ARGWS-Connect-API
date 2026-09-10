@@ -1,4 +1,5 @@
 import { runtime } from '@/config/runtime'
+import { getCurrentAccessCode } from './current'
 
 export type OperationalEvent = { id: string; timestamp: string; title: string; severity: string; service?: string; count?: number; errors?: number }
 export type OperationalArchive = { day: string; archived: boolean; bytes: number; count?: number; verifiedAt?: string }
@@ -18,7 +19,7 @@ export type OperationalStatistics = {
   archives: Array<{ day: string; bytes: number; archived: boolean }>
 }
 async function request(path: string, params: Record<string, string> = {}) {
-  const key = sessionStorage.getItem('connect_access_code') || ''
+  const key = getCurrentAccessCode()
   if (!key) throw new Error('Este painel exige acesso administrativo com a chave global.')
   const url = new URL(`${runtime.apiBaseUrl}/operations/${path}`)
   for (const [name, value] of Object.entries(params)) if (value) url.searchParams.set(name, value)

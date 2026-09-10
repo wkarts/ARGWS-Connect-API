@@ -66,6 +66,11 @@ export function hasCurrentAccess() {
   return Boolean(accessCode)
 }
 
+// Read the validated login credential at request time; never cache or persist it.
+export function getCurrentAccessCode(): string {
+  return accessCode
+}
+
 async function api<T>(path: string, options: {
   method?: string
   data?: unknown
