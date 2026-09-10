@@ -58,26 +58,14 @@ async function main() {
     ).messages[0].id,
     'TEXT1',
   );
-  await adapter.execute(identity, {
-    to: '5511888888888',
-    type: 'image',
-    image: { link: 'https://e/i.jpg' },
-  });
-  await adapter.execute(identity, {
-    to: '5511888888888',
-    type: 'video',
-    video: { link: 'https://e/v.mp4' },
-  });
+  await adapter.execute(identity, { to: '5511888888888', type: 'image', image: { link: 'https://e/i.jpg' } });
+  await adapter.execute(identity, { to: '5511888888888', type: 'video', video: { link: 'https://e/v.mp4' } });
   await adapter.execute(identity, {
     to: '5511888888888',
     type: 'document',
     document: { link: 'https://e/f.pdf', filename: 'f.pdf' },
   });
-  await adapter.execute(identity, {
-    to: '5511888888888',
-    type: 'audio',
-    audio: { link: 'https://e/a.ogg' },
-  });
+  await adapter.execute(identity, { to: '5511888888888', type: 'audio', audio: { link: 'https://e/a.ogg' } });
   await adapter.execute(identity, {
     to: '5511888888888',
     type: 'location',
@@ -86,12 +74,7 @@ async function main() {
   await adapter.execute(identity, {
     to: '5511888888888',
     type: 'contacts',
-    contacts: [
-      {
-        name: { formatted_name: 'Cliente' },
-        phones: [{ phone: '5511888888888' }],
-      },
-    ],
+    contacts: [{ name: { formatted_name: 'Cliente' }, phones: [{ phone: '5511888888888' }] }],
   });
   await adapter.execute(identity, {
     to: '5511888888888',
@@ -104,9 +87,7 @@ async function main() {
     interactive: {
       type: 'button',
       body: { text: 'Escolha' },
-      action: {
-        buttons: [{ type: 'reply', reply: { id: '1', title: 'Um' } }],
-      },
+      action: { buttons: [{ type: 'reply', reply: { id: '1', title: 'Um' } }] },
     },
   });
   await adapter.execute(identity, {
@@ -117,45 +98,51 @@ async function main() {
       body: { text: 'Escolha' },
       action: {
         button: 'Abrir',
-        sections: [
-          {
-            title: 'S',
-            rows: [{ id: '1', title: 'Um', description: 'D' }],
-          },
-        ],
+        sections: [{ title: 'S', rows: [{ id: '1', title: 'Um', description: 'D' }] }],
       },
     },
   });
   await adapter.execute(identity, { status: 'read', message_id: 'M1' });
 
-  for (const name of [
-    'text',
-    'image',
-    'video',
-    'document',
-    'audio',
-    'location',
-    'contacts',
-    'reaction',
-    'button',
-    'list',
-    'read',
-  ]) {
+  for (const name of ['text', 'image', 'video', 'document', 'audio', 'location', 'contacts', 'reaction', 'button', 'list', 'read']) {
     assert.ok(calls.includes(name), `missing adapter call: ${name}`);
   }
 
   const statusMapper = new MetaCloudStatusMapper();
-  const serializer = new MetaCloudWebhookSerializer({} as any, statusMapper);
-  const incoming = serializer.serializeIncoming(identity, {
-    key: { id: 'ABC123', remoteJid: '5511888888888@s.whatsapp.net' },
+  const contactProfileResolver: any = {
+    resolveContactProfile: async () => ({ pushName: 'Cliente salvo', profilePicUrl: 'https://cdn.example/avatar.jpg' }),
+  };
+  const serializer = new MetaCloudWebhookSerializer(contactProfileResolver, statusMapper);
+  const incoming = await serializer.serializeIncoming(identity, {
+    key: { id: 'ABC123', remoteJid: '5511888888888@s.whatsapp.net', fromMe: false },
     pushName: 'Cliente',
     messageTimestamp: 1788230000,
     message: { conversation: 'Olá' },
   });
   assert.equal(incoming?.entry[0].changes[0].value.messages[0].id, 'ABC123');
   assert.equal(incoming?.entry[0].changes[0].value.messages[0].text.body, 'Olá');
+  assert.equal(incoming?.entry[0].changes[0].value.messages[0].from, '5511888888888');
+  assert.equal(incoming?.entry[0].changes[0].value.contacts[0].wa_id, '5511888888888');
+  assert.equal(incoming?.entry[0].changes[0].value.contacts[0].profile.name, 'Cliente');
 
-  const mediaWebhook = serializer.serializeIncoming(identity, {
+  const outgoingFromPhone = await serializer.serializeIncoming(identity, {
+    key: {
+      id: 'PHONE-OUT-1',
+      remoteJid: '22654721644999@lid',
+      remoteJidAlt: '557596236940@s.whatsapp.net',
+      fromMe: true,
+    },
+    messageTimestamp: 1788230001,
+    message: { conversation: 'Enviado pelo celular' },
+  });
+  const outgoingValue = outgoingFromPhone?.entry[0].changes[0].value;
+  assert.equal(outgoingValue?.messages[0].from, identity.displayPhoneNumber);
+  assert.equal(outgoingValue?.messages[0].connect_api.from_me, true);
+  assert.equal(outgoingValue?.contacts[0].wa_id, '557596236940');
+  assert.equal(outgoingValue?.contacts[0].profile.name, 'Cliente salvo');
+  assert.equal(outgoingValue?.contacts[0].profile.picture, 'https://cdn.example/avatar.jpg');
+
+  const mediaWebhook = await serializer.serializeIncoming(identity, {
     key: { id: 'MEDIA123', remoteJid: '5511888888888@s.whatsapp.net' },
     messageTimestamp: 1788230000,
     message: { imageMessage: { mimetype: 'image/jpeg' } },
@@ -168,43 +155,25 @@ async function main() {
   });
   assert.equal(delivered?.entry[0].changes[0].value.statuses[0].id, 'ABC123');
   assert.equal(delivered?.entry[0].changes[0].value.statuses[0].status, 'delivered');
-  assert.equal(
-    serializer.serializeStatus(identity, {
-      key: { id: 'ABC123' },
-      update: { status: 'PENDING' },
-    }),
-    null,
-  );
+  assert.equal(serializer.serializeStatus(identity, { key: { id: 'ABC123' }, update: { status: 'PENDING' } }), null);
 
   const eventManagerSource = fs.readFileSync('src/api/integrations/event/event.manager.ts', 'utf8');
   assert.match(eventManagerSource, /metaCloudDispatcher\.handleEvent/);
 
-  const dispatcherSource = fs.readFileSync(
-    'src/api/compat/meta-cloud/meta-cloud-webhook.dispatcher.ts',
-    'utf8',
-  );
+  const dispatcherSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-webhook.dispatcher.ts', 'utf8');
   assert.doesNotMatch(dispatcherSource, /\.message\.create\s*\(/);
   assert.doesNotMatch(dispatcherSource, /config\?\.enabled/);
 
-  const graphControllerSource = fs.readFileSync(
-    'src/api/compat/meta-cloud/meta-cloud-graph.controller.ts',
-    'utf8',
-  );
+  const graphControllerSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-graph.controller.ts', 'utf8');
   assert.doesNotMatch(graphControllerSource, /assertEnabled|compatibility is not enabled/);
 
   const adapterSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-message.adapter.ts', 'utf8');
   assert.doesNotMatch(adapterSource, /makeWASocket|\.sendMessage\s*\(/);
 
   const integrationTypes = fs.readFileSync('src/api/types/wa.types.ts', 'utf8');
-  assert.doesNotMatch(
-    integrationTypes,
-    /META-COMPATIBLE|META-CLOUD-COMPATIBLE|WHATSAPP-META-COMPAT|GRAPH-API/,
-  );
+  assert.doesNotMatch(integrationTypes, /META-COMPATIBLE|META-CLOUD-COMPATIBLE|WHATSAPP-META-COMPAT|GRAPH-API/);
 
-  const officialBusiness = fs.readFileSync(
-    'src/api/integrations/channel/meta/whatsapp.business.service.ts',
-    'utf8',
-  );
+  const officialBusiness = fs.readFileSync('src/api/integrations/channel/meta/whatsapp.business.service.ts', 'utf8');
   assert.doesNotMatch(officialBusiness, /message\.from === received\.metadata\.phone_number_id/);
 
   const officialRouter = fs.readFileSync('src/api/integrations/channel/meta/meta.router.ts', 'utf8');
