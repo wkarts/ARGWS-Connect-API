@@ -69,6 +69,7 @@ export class MetaCloudWebhookSerializer {
             remote_jid_alt: key?.remoteJidAlt || null,
             participant: key?.participant || null,
             participant_alt: key?.participantAlt || null,
+            source: String(record?.source || raw?.source || '').trim().toLowerCase() || null,
           },
         },
       ],
