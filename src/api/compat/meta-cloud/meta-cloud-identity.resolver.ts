@@ -49,6 +49,32 @@ export class MetaCloudIdentityResolver {
     };
   }
 
+  public async resolveContactProfile(instanceId: string, jidCandidates: string[]) {
+    const candidates = [...new Set((jidCandidates || []).map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!candidates.length) return null;
+
+    const contacts = await this.prisma.contact.findMany({
+      where: {
+        instanceId,
+        remoteJid: { in: candidates },
+      },
+      select: {
+        remoteJid: true,
+        pushName: true,
+        profilePicUrl: true,
+        updatedAt: true,
+      },
+    });
+    if (!contacts.length) return null;
+
+    return contacts.sort((left: any, right: any) => {
+      const leftScore = Number(Boolean(left.pushName)) + Number(Boolean(left.profilePicUrl));
+      const rightScore = Number(Boolean(right.pushName)) + Number(Boolean(right.profilePicUrl));
+      if (leftScore !== rightScore) return rightScore - leftScore;
+      return new Date(right.updatedAt || 0).getTime() - new Date(left.updatedAt || 0).getTime();
+    })[0];
+  }
+
   public async resolveByInstanceName(instanceName: string): Promise<MetaCloudIdentity> {
     const instance = await this.prisma.instance.findUnique({ where: { name: instanceName } });
     if (!instance) throw new MetaCloudGraphError(404, `Instance ${instanceName} was not found.`);
