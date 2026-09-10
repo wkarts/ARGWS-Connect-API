@@ -6,11 +6,16 @@ import PageHeader from '@/components/PageHeader.vue'
 import PanelCard from '@/components/PanelCard.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import AppModal from '@/components/AppModal.vue'
+import TestMessageModal from '@/components/TestMessageModal.vue'
+import { featureEnabled } from '@/config/runtime'
+import { useSessionStore } from '@/stores/session'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import type { ProviderMigrationResult, WhatsAppProvider } from '@/types/domain'
 
+const testOpen = ref(false)
+const session = useSessionStore()
 const route = useRoute()
 const router = useRouter()
 const data = ref<any>(null)
@@ -178,12 +183,15 @@ onBeforeUnmount(stopWatch)
 <template>
   <AppShell>
     <PageHeader :title="data?.name || data?.instanceName || 'Instância'" description="Conexão, recursos, integrações e configurações desta instância.">
+      <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" class="btn primary" :disabled="busy || !connected || !capabilities.messaging" @click="testOpen = true">Enviar teste</button>
       <button class="btn ghost" :disabled="busy" @click="load"><AppIcon name="refresh" :size="16"/>Atualizar</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)">Integrações</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracao`)">Configurações</button>
       <button class="btn ghost" :disabled="busy" @click="restart">Reiniciar</button>
       <button class="btn danger" :disabled="busy || !connected" @click="disconnect">Desconectar</button>
     </PageHeader>
+
+    <TestMessageModal v-if="testOpen" :key="id" :instance-id="id" :instance-name="data?.name || data?.instanceName || id" :provider="provider" :connected="connected" @close="testOpen = false" />
 
     <div v-if="error" class="alert error">{{ error }}</div>
     <div v-if="feedback" class="alert success">{{ feedback }}</div>

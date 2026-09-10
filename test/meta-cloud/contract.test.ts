@@ -2,6 +2,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
+import { MetaCloudIdentityResolver } from '../../src/api/compat/meta-cloud/meta-cloud-identity.resolver';
+import { runWebhookIdentityRegression } from './webhook-identity.test';
+
 import { MetaCloudMessageAdapter } from '../../src/api/compat/meta-cloud/meta-cloud-message.adapter';
 import { MetaCloudResponseSerializer } from '../../src/api/compat/meta-cloud/meta-cloud-response.serializer';
 import { MetaCloudStatusMapper } from '../../src/api/compat/meta-cloud/meta-cloud-status.mapper';
@@ -145,8 +148,8 @@ async function main() {
   }
 
   const statusMapper = new MetaCloudStatusMapper();
-  const serializer = new MetaCloudWebhookSerializer({} as any, statusMapper);
-  const incoming = serializer.serializeIncoming(identity, {
+  const serializer = new MetaCloudWebhookSerializer(new MetaCloudIdentityResolver({ contact: { findMany: async () => [] } } as any), statusMapper);
+  const incoming = await serializer.serializeIncoming(identity, {
     key: { id: 'ABC123', remoteJid: '5511888888888@s.whatsapp.net' },
     pushName: 'Cliente',
     messageTimestamp: 1788230000,
@@ -155,7 +158,7 @@ async function main() {
   assert.equal(incoming?.entry[0].changes[0].value.messages[0].id, 'ABC123');
   assert.equal(incoming?.entry[0].changes[0].value.messages[0].text.body, 'Olá');
 
-  const mediaWebhook = serializer.serializeIncoming(identity, {
+  const mediaWebhook = await serializer.serializeIncoming(identity, {
     key: { id: 'MEDIA123', remoteJid: '5511888888888@s.whatsapp.net' },
     messageTimestamp: 1788230000,
     message: { imageMessage: { mimetype: 'image/jpeg' } },
@@ -210,6 +213,7 @@ async function main() {
   const officialRouter = fs.readFileSync('src/api/integrations/channel/meta/meta.router.ts', 'utf8');
   assert.match(officialRouter, /mode !== 'subscribe'/);
 
+  await runWebhookIdentityRegression();
   console.log('meta-cloud contract compatibility: ok');
 }
 

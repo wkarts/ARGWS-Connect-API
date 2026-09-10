@@ -7,6 +7,9 @@ import AppIcon from '@/components/AppIcon.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppModal from '@/components/AppModal.vue'
+import TestMessageModal from '@/components/TestMessageModal.vue'
+import { featureEnabled } from '@/config/runtime'
+import { useSessionStore } from '@/stores/session'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import type { ConnectionItem } from '@/types/domain'
@@ -19,6 +22,8 @@ const loading = ref(true)
 const creating = ref(false)
 const createOpen = ref(false)
 const router = useRouter()
+const session = useSessionStore()
+const testInstance = ref<ConnectionItem | null>(null)
 
 const form = ref({ name: '', mode: 'WHATSAPP-BAILEYS', number: '', businessId: '' })
 
@@ -102,9 +107,12 @@ onMounted(load)
           <div><b>{{ item.counts.conversations.toLocaleString('pt-BR') }}</b><span>Conversas</span></div>
           <div><b>{{ item.counts.messages.toLocaleString('pt-BR') }}</b><span>Mensagens</span></div>
         </div>
+        <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" class="btn ghost compact" :disabled="item.status !== 'connected' || !item.capabilities.messaging" @click.stop="testInstance = item">Enviar teste</button>
         <div class="card-link">Abrir <AppIcon name="arrow" :size="15"/></div>
       </article>
     </div>
+
+    <TestMessageModal v-if="testInstance" :key="testInstance.id" :instance-id="testInstance.id" :instance-name="testInstance.name" :provider="testInstance.provider" :connected="testInstance.status === 'connected'" @close="testInstance = null" />
 
     <AppModal :open="createOpen" title="Nova instância" subtitle="Escolha o provider e configure uma nova conexão." @close="createOpen=false">
       <form class="form-stack" @submit.prevent="create">

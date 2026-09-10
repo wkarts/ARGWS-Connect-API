@@ -22,8 +22,12 @@
     features: Object.freeze({
       voice: true,
       studio: true,
-      contacts: true,
-      messages: true,
+      // Fail closed when no API runtime configuration is available.
+      conversations: false,
+      contacts: false,
+      messages: false,
+      instanceTestMessage: true,
+      testMessageContacts: false,
       users: false,
       permissions: false,
       audit: false,

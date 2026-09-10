@@ -11,7 +11,8 @@
     "check:sfc": "node scripts/check-sfc-structure.mjs",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test:operations-auth": "node --test scripts/operations-auth.test.mjs",
-    "test": "npm run test:operations-auth && npm run check:language && npm run check:sfc && npm run build"
+    "test": "npm run test:operations-auth && npm run test:communication-privacy && npm run check:language && npm run check:sfc && npm run build",
+    "test:communication-privacy": "node --test scripts/privacy-test-message.test.mjs"
   },
   "dependencies": {
     "pinia": "3.0.3",

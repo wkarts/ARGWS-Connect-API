@@ -1,4 +1,5 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
+import { managerFeatures } from '@config/manager-features.config';
 import express, { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -16,22 +17,7 @@ function managerRuntimeConfig() {
     serviceBasePath: '/manager-api/v1',
     requestTimeoutMs: Number.parseInt(process.env.MANAGER_REQUEST_TIMEOUT_MS || '30000', 10) || 30000,
     authMode: process.env.MANAGER_AUTH_MODE === 'account' ? 'account' : 'access-code',
-    features: {
-      voice: envBoolean('MANAGER_FEATURE_VOICE', true),
-      voiceExtensions: envBoolean('MANAGER_FEATURE_VOICE_EXTENSIONS', false),
-      voiceQueues: envBoolean('MANAGER_FEATURE_VOICE_QUEUES', false),
-      flows: envBoolean('MANAGER_FEATURE_FLOWS', false),
-      automations: envBoolean('MANAGER_FEATURE_AUTOMATIONS', false),
-      docs: envBoolean('MANAGER_FEATURE_DOCS', true),
-      contacts: envBoolean('MANAGER_FEATURE_CONTACTS', true),
-      messages: envBoolean('MANAGER_FEATURE_MESSAGES', true),
-      users: envBoolean('MANAGER_FEATURE_USERS', false),
-      permissions: envBoolean('MANAGER_FEATURE_PERMISSIONS', false),
-      audit: envBoolean('MANAGER_FEATURE_AUDIT', false),
-      security: envBoolean('MANAGER_FEATURE_SECURITY', false),
-      updates: envBoolean('MANAGER_FEATURE_UPDATES', true),
-      settings: envBoolean('MANAGER_FEATURE_SETTINGS', true),
-    },
+    features: managerFeatures(),
   };
 }
 
