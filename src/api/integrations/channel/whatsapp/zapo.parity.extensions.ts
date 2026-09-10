@@ -1,5 +1,5 @@
 import * as s3Service from '@api/integrations/storage/s3/libs/minio.server';
-import { Events, Integration } from '@api/types/wa.types';
+import { Events } from '@api/types/wa.types';
 import { Chatwoot, Database, S3 } from '@config/env.config';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import mimeTypes from 'mime-types';
@@ -166,10 +166,13 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
       });
 
     this.mediaDownloads.set(messageId, download);
-    const timer = setTimeout(() => {
-      this.mediaDownloads.delete(messageId);
-      this.mediaCleanupTimers.delete(messageId);
-    }, 2 * 60 * 1000);
+    const timer = setTimeout(
+      () => {
+        this.mediaDownloads.delete(messageId);
+        this.mediaCleanupTimers.delete(messageId);
+      },
+      2 * 60 * 1000,
+    );
     timer.unref?.();
     this.mediaCleanupTimers.set(messageId, timer);
   }
@@ -210,7 +213,9 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
         fileName: String(result.fileName || descriptor.fileName),
       } satisfies ZapoMediaSnapshot;
     } catch (error) {
-      this.logger.warn(`Stored Zapo media fallback failed for ${payload?.key?.id}: ${(error as Error)?.message || error}`);
+      this.logger.warn(
+        `Stored Zapo media fallback failed for ${payload?.key?.id}: ${(error as Error)?.message || error}`,
+      );
       return null;
     }
   }
@@ -223,7 +228,7 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
     const messageId = String(payload?.key?.id || '').trim();
     if (!messageId) return;
 
-    const stored = await this.findStoredMessageWithRetry(messageId);
+    const stored = await this.findParityStoredMessageWithRetry(messageId);
     if (!stored?.id) {
       this.logger.warn(`Zapo media ${messageId} could not be linked to the persisted Message row`);
       return;
@@ -238,12 +243,7 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
 
     const safeFileName = this.safeFileName(media.fileName || `${messageId}.bin`);
     const remoteJid = String(payload?.key?.remoteJid || 'unknown');
-    const fullName = join(
-      `${this.instance.id}`,
-      remoteJid,
-      media.mediaType,
-      `${Date.now()}_${safeFileName}`,
-    );
+    const fullName = join(`${this.instance.id}`, remoteJid, media.mediaType, `${Date.now()}_${safeFileName}`);
     const mimetype = String(media.mimetype || 'application/octet-stream').slice(0, 100);
 
     const uploaded = await s3Service.uploadFile(fullName, media.buffer, media.buffer.length, {
@@ -280,16 +280,16 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
     }
   }
 
-  private async findStoredMessageWithRetry(messageId: string): Promise<any | null> {
+  private async findParityStoredMessageWithRetry(messageId: string): Promise<any | null> {
     for (const delayMs of [0, 40, 120, 300]) {
       if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
-      const message = await this.findStoredMessage(messageId);
+      const message = await this.findParityStoredMessage(messageId);
       if (message) return message;
     }
     return null;
   }
 
-  private async findStoredMessage(messageId: string): Promise<any | null> {
+  private async findParityStoredMessage(messageId: string): Promise<any | null> {
     return this.prismaRepository.message.findFirst({
       where: {
         instanceId: this.instanceId,
@@ -302,12 +302,12 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
     const status = RECEIPT_STATUS[String(event?.status || '').toLowerCase()];
     if (!status) return;
 
-    const ids = Array.isArray(event?.messageIds)
-      ? [...new Set(event.messageIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))]
+    const ids: string[] = Array.isArray(event?.messageIds)
+      ? [...new Set<string>(event.messageIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))]
       : [];
 
     for (const messageId of ids) {
-      const stored = await this.findStoredMessage(messageId);
+      const stored = await this.findParityStoredMessage(messageId);
       const storedKey = this.record(stored?.key);
       const remoteJid = this.normalizeReceiptJid(
         storedKey.remoteJid || event?.chatJid || event?.recipientJid || event?.participantJid,
@@ -315,13 +315,18 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
       const fromMe = typeof storedKey.fromMe === 'boolean' ? storedKey.fromMe : event?.fromSelfDevice !== true;
       const participant = this.normalizeReceiptJid(storedKey.participant || event?.participantJid) || undefined;
 
-      await this.publishMessageStatus(messageId, status, {
-        remoteJid,
-        remoteJidAlt: storedKey.remoteJidAlt,
-        fromMe,
-        participant,
-        participantAlt: storedKey.participantAlt,
-      }, stored);
+      await this.publishMessageStatus(
+        messageId,
+        status,
+        {
+          remoteJid,
+          remoteJidAlt: storedKey.remoteJidAlt,
+          fromMe,
+          participant,
+          participantAlt: storedKey.participantAlt,
+        },
+        stored,
+      );
     }
   }
 
@@ -342,7 +347,7 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
     if (rank <= memoryRank) return;
     this.emittedStatusRank.set(messageId, rank);
 
-    const stored = knownStored ?? (await this.findStoredMessageWithRetry(messageId));
+    const stored = knownStored ?? (await this.findParityStoredMessageWithRetry(messageId));
     const storedStatus = String(stored?.status || '').toUpperCase() as ZapoParityStatus;
     const storedRank = STATUS_RANK[storedStatus] ?? -1;
 
@@ -411,7 +416,9 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
         return { mediaType, mimetype, fileName };
       }
 
-      const wrapper = MEDIA_WRAPPERS.find((key) => current?.[key]?.message && typeof current[key].message === 'object');
+      const wrapper = MEDIA_WRAPPERS.find(
+        (key) => current?.[key]?.message && typeof current[key].message === 'object',
+      );
       if (!wrapper) break;
       current = current[wrapper].message;
     }
