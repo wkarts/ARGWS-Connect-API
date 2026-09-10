@@ -10,7 +10,8 @@
     "check:language": "node scripts/check-visible-language.mjs",
     "check:sfc": "node scripts/check-sfc-structure.mjs",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "test": "npm run check:language && npm run check:sfc && npm run build"
+    "test:operations-auth": "node --test scripts/operations-auth.test.mjs",
+    "test": "npm run test:operations-auth && npm run check:language && npm run check:sfc && npm run build"
   },
   "dependencies": {
     "pinia": "3.0.3",
