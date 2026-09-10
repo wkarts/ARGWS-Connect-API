@@ -1,5 +1,7 @@
 import { timingSafeEqual } from 'crypto';
 
+import { Auth, configService } from '@config/env.config';
+
 import { invalidOAuthToken } from './meta-cloud.error';
 import { MetaCloudIdentity } from './types/meta-response.types';
 
@@ -13,8 +15,14 @@ export class MetaCloudAuthService {
 
   public assertAuthorized(identity: MetaCloudIdentity, authorization?: string | string[]): void {
     const provided = this.extractBearer(authorization);
-    const expected = identity.token;
-    if (!provided || !expected || !this.safeEqual(provided, expected)) throw invalidOAuthToken();
+    if (!provided) throw invalidOAuthToken();
+
+    const instanceToken = identity.token;
+    const globalToken = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
+    const matchesInstance = Boolean(instanceToken && this.safeEqual(provided, instanceToken));
+    const matchesGlobal = Boolean(globalToken && this.safeEqual(provided, globalToken));
+
+    if (!matchesInstance && !matchesGlobal) throw invalidOAuthToken();
   }
 
   private safeEqual(left: string, right: string): boolean {
