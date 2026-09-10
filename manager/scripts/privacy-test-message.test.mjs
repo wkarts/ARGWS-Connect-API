@@ -10,7 +10,9 @@ import { execFileSync } from 'node:child_process';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// Standalone Docker builds receive only manager/. Repository/API parity lives
+// in test/manager-feature-contract.test.cjs, executed by the root CI suite.
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
 function load(name, deps = {}, globals = {}) {
   const source = read(name);
@@ -20,25 +22,19 @@ function load(name, deps = {}, globals = {}) {
     require: key => { if (!(key in deps)) throw Error('Unexpected dependency: ' + key); return deps[key]; }, ...globals };
   vm.runInNewContext(code, context, { filename: name }); return module.exports;
 }
-const { managerFeatures, MANAGER_FEATURE_DEFAULTS } = load('src/config/manager-features.config.ts', {}, { process: { env: {} } });
-const input = load('manager/src/services/test-message-input.ts');
+const MANAGER_FEATURE_DEFAULTS = JSON.parse(read('public/assets/feature-defaults.json'));
+const defaultFeatures = Object.fromEntries(Object.entries(MANAGER_FEATURE_DEFAULTS).map(([key, [, fallback]]) => [key, fallback]));
+const input = load('src/services/test-message-input.ts');
 
 test('production defaults hide all communication screens; test send does not expose contacts', () => {
-  const features = managerFeatures({ AUTHENTICATION_API_KEY: 'secret', OPERATIONS_INTERNAL_TOKEN: 'another-secret' });
+  const features = defaultFeatures;
   for (const key of ['conversations', 'messages', 'contacts', 'testMessageContacts']) assert.equal(features[key], false);
   assert.equal(features.instanceTestMessage, true);
   assert.ok(!JSON.stringify(features).includes('secret'));
 });
-test('ENV parsing is explicit and all registered features accept overrides', () => {
-  for (const [key, [env, fallback]] of Object.entries(MANAGER_FEATURE_DEFAULTS)) {
-    for (const value of ['true', '1', 'yes', 'on', ' TRUE ']) assert.equal(managerFeatures({ [env]: value })[key], true);
-    for (const value of ['false', '0', 'no', 'off', 't rue', 'invalid']) assert.equal(managerFeatures({ [env]: value })[key], false);
-    for (const value of ['', ' ']) assert.equal(managerFeatures({ [env]: value })[key], fallback);
-  }
-});
 function router(features) {
   let config, guard, restored = 0;
-  load('manager/src/router/index.ts', {
+  load('src/router/index.ts', {
     'vue-router': { createWebHistory: () => ({}), createRouter: value => { config = value; return { beforeEach: handler => { guard = handler; } }; } },
     '@/config/runtime': { appBasePath: () => '/manager/', runtime: { authMode: 'access-code' }, featureEnabled: (name, fallback) => features[name] ?? fallback },
     '@/stores/session': { useSessionStore: () => ({ restore: async () => { restored++; return true; }, security: {}, hasPermission: () => true }) },
@@ -46,17 +42,17 @@ function router(features) {
   return { config, check: async path => { const route = config.routes.find(r => r.path === path); assert.ok(route); return guard({ ...route, meta: route.meta || {} }); }, restored: () => restored };
 }
 test('hidden deep links redirect before loading session or view data', async () => {
-  const r = router(managerFeatures({}));
+  const r = router(defaultFeatures);
   for (const path of ['/conversas', '/mensagens', '/contatos']) assert.equal(await r.check(path), '/');
   assert.equal(r.restored(), 0);
 });
 test('explicit true restores all three views without an environment hard lock', async () => {
-  const r = router(managerFeatures({ MANAGER_FEATURE_CONVERSATIONS: 'true', MANAGER_FEATURE_MESSAGES: 'true', MANAGER_FEATURE_CONTACTS: 'true' }));
+  const r = router({ ...defaultFeatures, conversations: true, messages: true, contacts: true });
   for (const path of ['/conversas', '/mensagens', '/contatos']) assert.notEqual(await r.check(path), '/');
   assert.equal(r.restored(), 3);
 });
 test('navigation and route feature identifiers agree', () => {
-  const shell = read('manager/src/layouts/AppShell.vue'); const r = router(managerFeatures({}));
+  const shell = read('src/layouts/AppShell.vue'); const r = router(defaultFeatures);
   for (const [path, feature] of [['/conversas', 'conversations'], ['/mensagens', 'messages'], ['/contatos', 'contacts']]) {
     assert.equal(r.config.routes.find(r => r.path === path).meta.feature, feature);
     assert.ok(shell.split('\n').some(line => line.includes(`to:'${path}'`) && line.includes(`feature:'${feature}'`)));
@@ -77,10 +73,10 @@ test('test text is bounded and blank messages are rejected', () => {
 });
 function currentSession(features) {
   const requests = [];
-  const normalizers = load('manager/src/services/normalizers.ts');
-  const { current } = load('manager/src/services/current.ts', {
+  const normalizers = load('src/services/normalizers.ts');
+  const { current } = load('src/services/current.ts', {
     '@/config/runtime': { runtime: { apiBaseUrl: 'https://fixture.invalid', requestTimeoutMs: 30000 }, featureEnabled: (key, fallback) => features[key] ?? fallback },
-    './normalizers': normalizers, './whatsapp-destination': load('manager/src/services/whatsapp-destination.ts'), './integration-definitions': {}, './voice-media': {},
+    './normalizers': normalizers, './whatsapp-destination': load('src/services/whatsapp-destination.ts'), './integration-definitions': {}, './voice-media': {},
   }, {
     sessionStorage: { removeItem() {} }, localStorage: { removeItem() {} }, window: { setTimeout }, clearTimeout,
     fetch: async (url, init) => {
@@ -118,30 +114,30 @@ test('test sending reuses the native text endpoint, scoped to the chosen instanc
   assert.equal(requests.at(-1).init.headers.apikey, 'fixture-instance-token');
 });
 test('modal is on-demand, keeps no history and has no background polling/storage', () => {
-  const modal = read('manager/src/components/TestMessageModal.vue');
+  const modal = read('src/components/TestMessageModal.vue');
   assert.doesNotMatch(modal, /connect\.(messages|conversations|contacts)\(/);
   assert.doesNotMatch(modal, /setInterval|localStorage|sessionStorage/);
   assert.match(modal, /generation !== sequence/); assert.match(modal, /:dismissible="!busy"/);
   assert.match(modal, /@click="loadContacts\(1\)"/); assert.match(modal, /await connect\.sendText/);
-  for (const view of ['InstancesView.vue', 'InstanceView.vue']) assert.match(read('manager/src/views/' + view), /TestMessageModal v-if=/);
+  for (const view of ['InstancesView.vue', 'InstanceView.vue']) assert.match(read('src/views/' + view), /TestMessageModal v-if=/);
 });
-test('standalone container ENV flags equal API runtime; regeneration does not append old values', () => {
+test('standalone container honors explicit ENV flags without secrets or accumulated old values', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'connect-flags-'));
   try {
     const output = path.join(directory, 'runtime.js');
     const env = { PATH: process.env.PATH, MANAGER_FEATURE_CONVERSATIONS: 'true', MANAGER_FEATURE_MESSAGES: 'false', MANAGER_FEATURE_CONTACTS: 'true', MANAGER_FEATURE_TEST_MESSAGE_CONTACTS: 'off', MANAGER_FEATURE_DOCS: ' ', AUTHENTICATION_API_KEY: 'do-not-export' };
-    const script = path.join(root, 'manager/docker-entrypoint.d/40-manager-features.sh');
-    const template = path.join(root, 'manager/public/assets/runtime-config.js');
+    const script = path.join(root, 'docker-entrypoint.d/40-manager-features.sh');
+    const template = path.join(root, 'public/assets/runtime-config.js');
     const render = () => execFileSync('sh', [script, template, output], { env });
     render(); const before = fs.readFileSync(output, 'utf8'); render(); assert.equal(fs.readFileSync(output, 'utf8'), before);
     const window = { location: { hostname: 'fixture.invalid', protocol: 'https:', port: '' } };
     vm.runInNewContext(before, { window });
-    assert.deepEqual(JSON.parse(JSON.stringify(window.__CONNECT_WEB__.features)), { studio: true, ...managerFeatures(env) });
+    assert.deepEqual(JSON.parse(JSON.stringify(window.__CONNECT_WEB__.features)), { studio: true, ...defaultFeatures, conversations: true, messages: false, contacts: true, testMessageContacts: false });
     assert.ok(!before.includes('do-not-export'));
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('standalone development defaults stay synchronized without imports outside its Docker context', () => {
-  assert.deepEqual(JSON.parse(read('manager/public/assets/feature-defaults.json')), JSON.parse(JSON.stringify(MANAGER_FEATURE_DEFAULTS)));
-  assert.doesNotMatch(read('manager/vite.config.ts'), /from ['"]\.\.\//);
+test('standalone development reads its local defaults without imports outside its Docker context', () => {
+  assert.match(read('vite.config.ts'), /public\/assets\/feature-defaults\.json/);
+  assert.doesNotMatch(read('vite.config.ts'), /from ['"]\.\.\//);
 });
