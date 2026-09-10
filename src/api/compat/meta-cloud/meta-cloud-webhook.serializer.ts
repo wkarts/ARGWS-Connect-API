@@ -20,20 +20,58 @@ export class MetaCloudWebhookSerializer {
     return null;
   }
 
-  public serializeIncoming(identity: MetaCloudIdentity, raw: any, dateTime?: string) {
+  public async serializeIncoming(identity: MetaCloudIdentity, raw: any, dateTime?: string) {
     const record = raw?.data ?? raw;
     const key = record?.key || raw?.key || {};
     const message = record?.message || raw?.message || {};
     const id = String(key?.id || record?.id || '');
     if (!id) return null;
-    const from = this.phoneFromJid(key?.remoteJid || record?.sender || raw?.sender);
+
+    const peerJids = this.peerJidCandidates(key, record, raw);
+    const peer = this.preferredPeerPhone(peerJids);
+    if (!peer) return null;
+
+    const fromMe = Boolean(key?.fromMe ?? record?.fromMe ?? raw?.fromMe);
+    const from = fromMe ? this.onlyDigits(identity.displayPhoneNumber) : peer;
     if (!from) return null;
+
+    const savedProfile = await this.resolver.resolveContactProfile(identity.instanceId, peerJids);
+    const profileName =
+      this.meaningfulName(record?.pushName, peer) ||
+      this.meaningfulName(raw?.pushName, peer) ||
+      this.meaningfulName(savedProfile?.pushName, peer) ||
+      peer;
+    const profilePicture = record?.profilePicUrl || raw?.profilePicUrl || savedProfile?.profilePicUrl || undefined;
+
     const mapped = this.mapMessageContent(id, message, record?.messageType);
     if (!mapped) return null;
     const timestamp = this.timestamp(record?.messageTimestamp || raw?.messageTimestamp, dateTime);
+
     return this.wrap(identity, {
-      contacts: [{ profile: { name: record?.pushName || raw?.pushName || from }, wa_id: from }],
-      messages: [{ from, id, timestamp, ...mapped }],
+      contacts: [
+        {
+          profile: {
+            name: profileName,
+            ...(profilePicture ? { picture: profilePicture } : {}),
+          },
+          wa_id: peer,
+        },
+      ],
+      messages: [
+        {
+          from,
+          id,
+          timestamp,
+          ...mapped,
+          connect_api: {
+            from_me: fromMe,
+            remote_jid: key?.remoteJid || null,
+            remote_jid_alt: key?.remoteJidAlt || null,
+            participant: key?.participant || null,
+            participant_alt: key?.participantAlt || null,
+          },
+        },
+      ],
     });
   }
 
@@ -45,7 +83,7 @@ export class MetaCloudWebhookSerializer {
     if (!status) return null;
     const id = String(key?.id || record?.keyId || record?.id || '');
     if (!id) return null;
-    const recipient = this.phoneFromJid(key?.remoteJid || record?.remoteJid || raw?.sender) || '';
+    const recipient = this.preferredPeerPhone(this.peerJidCandidates(key, record, raw)) || '';
     return this.wrap(identity, {
       statuses: [
         {
@@ -80,6 +118,50 @@ export class MetaCloudWebhookSerializer {
         },
       ],
     };
+  }
+
+  private peerJidCandidates(key: any, record: any, raw: any): string[] {
+    return [
+      key?.remoteJidAlt,
+      record?.remoteJidAlt,
+      key?.remoteJid,
+      record?.remoteJid,
+      record?.senderPn,
+      key?.participantAlt,
+      record?.participantAlt,
+      key?.participant,
+      record?.participant,
+      record?.sender,
+      raw?.sender,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index);
+  }
+
+  private preferredPeerPhone(candidates: string[]): string | null {
+    const phoneJid = candidates.find((value) => /@(s\.whatsapp\.net|c\.us)$/i.test(value));
+    if (phoneJid) return this.phoneFromJid(phoneJid);
+
+    const nonLid = candidates.find((value) => !/@(lid|g\.us|broadcast)$/i.test(value));
+    if (nonLid) return this.phoneFromJid(nonLid);
+
+    return this.phoneFromJid(candidates[0]);
+  }
+
+  private meaningfulName(value: unknown, fallbackPhone: string): string | null {
+    const name = String(value || '').trim();
+    if (!name) return null;
+    const digits = name.replace(/\D/g, '');
+    if (digits && digits === fallbackPhone) return null;
+    if (/^\d{8,}$/.test(name)) return null;
+    return name;
+  }
+
+  private onlyDigits(value?: string | null): string | null {
+    if (!value) return null;
+    const digits = String(value).replace(/\D/g, '');
+    return digits || null;
   }
 
   private mapMessageContent(id: string, message: any, declaredType?: string) {
