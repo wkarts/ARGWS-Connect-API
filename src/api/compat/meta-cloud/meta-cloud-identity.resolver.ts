@@ -13,6 +13,54 @@ export class MetaCloudIdentityResolver {
     return digits.length >= 8 ? digits : null;
   }
 
+  /** Webhook identities are not Graph object IDs: a LID is never a phone. */
+  public normalizeContactJid(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const text = value.trim();
+    if (text.length > 100) return null;
+    const jid = /^(\d+)(?::\d+)?@(s\.whatsapp\.net|c\.us|lid)$/.exec(text);
+    if (jid) {
+      if (jid[2] === 'lid') return `${jid[1]}@lid`;
+      return /^\d{8,15}$/.test(jid[1]) ? `${jid[1]}@s.whatsapp.net` : null;
+    }
+    if (text.includes('@') || !/^\+?[\d\s().-]+$/.test(text)) return null;
+    const digits = text.replace(/\D/g, '');
+    return /^\d{8,15}$/.test(digits) ? `${digits}@s.whatsapp.net` : null;
+  }
+
+  public contactPhone(value: unknown): string | null {
+    const jid = this.normalizeContactJid(value);
+    return jid?.endsWith('@s.whatsapp.net') ? jid.split('@')[0] : null;
+  }
+
+  public async resolveContactProfile(instanceId: string, jidCandidates: string[]) {
+    // Exact, instance-scoped lookup only. No history scans, provider requests,
+    // persistent name changes or phone guesses from opaque identifiers.
+    const candidates = new Set<string>();
+    for (const value of (jidCandidates || []).slice(0, 24)) {
+      const jid = this.normalizeContactJid(value);
+      if (!jid) continue;
+      candidates.add(String(value).trim());
+      candidates.add(jid);
+      if (jid.endsWith('@s.whatsapp.net')) candidates.add(jid.replace('@s.whatsapp.net', '@c.us'));
+    }
+    if (!instanceId || !candidates.size) return null;
+    const contacts = await this.prisma.contact.findMany({
+      where: { instanceId, remoteJid: { in: [...candidates] } },
+      select: { remoteJid: true, pushName: true, profilePicUrl: true, updatedAt: true },
+      take: candidates.size,
+    });
+    const score = (contact: (typeof contacts)[number]) =>
+      Number(Boolean(contact.pushName?.trim())) + Number(Boolean(contact.profilePicUrl?.trim()));
+    return (
+      contacts.sort((left, right) => {
+        const completeness = score(right) - score(left);
+        if (completeness) return completeness;
+        return new Date(right.updatedAt || 0).getTime() - new Date(left.updatedAt || 0).getTime();
+      })[0] || null
+    );
+  }
+
   public identityFromInstance(instance: any): MetaCloudIdentity {
     const provider = String(instance?.integration || '');
     let phoneNumberId: string | null = null;

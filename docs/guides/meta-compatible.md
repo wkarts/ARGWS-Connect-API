@@ -134,3 +134,108 @@ ERROR         → failed
 DELETED       → deleted
 PENDING       → não antecipar status sent
 ```
+
+## Direção, contato e origem nos webhooks
+
+A serialização é genérica para qualquer consumidor. Não muda autenticação Graph,
+endpoints nativos, persistência de conversas ou regras de apresentação de clientes.
+O dispatcher continua aguardando a serialização antes de enfileirar o webhook.
+
+Em mensagens individuais, `contacts[].wa_id` identifica o interlocutor. `messages[].from`
+identifica o remetente: interlocutor na entrada, número da própria instância na saída.
+`key.fromMe`, `record.fromMe` e `raw.fromMe` são considerados nessa ordem; um `false`
+explícito não é substituído por um fallback `true`. Sem esse metadado, mantém-se a
+interpretação legada de entrada. O serializer não deduz direção pelo nome do contato.
+
+Para localizar o interlocutor, os candidatos são `remoteJidAlt`, `remoteJid`, `senderPn`,
+`participantAlt`, `participant` e `sender`. JIDs telefônicos `@s.whatsapp.net` / `@c.us`
+têm preferência sobre `@lid`; sufixos de dispositivo são removidos sem anexar seus
+dígitos ao telefone. O remetente da instância não vira interlocutor apenas por aparecer
+no envelope, e candidatos com outro PN não fornecem o perfil do contato selecionado.
+
+### Extensão opcional `connect_api`
+
+Localização: `entry[].changes[].value.messages[].connect_api`. É uma extensão do
+Connect|API, não um campo anunciado como parte do contrato oficial da Meta. Pode ser
+ignorada por consumidores que não precisam de metadados adicionais. `profile.picture`
+é igualmente opcional e adicional ao perfil padrão.
+
+Exemplo de mensagem enviada pela conta conectada; telefone da instância usado no exemplo:
+`5575988449231`. Os identificadores abaixo são dados de teste.
+
+```json
+{
+  "contacts": [{
+    "wa_id": "557596236940",
+    "profile": { "name": "Contato conhecido", "picture": "https://example.invalid/contact.jpg" }
+  }],
+  "messages": [{
+    "from": "5575988449231",
+    "id": "PHONE-OUT-1",
+    "timestamp": "1789052400",
+    "type": "text",
+    "text": { "body": "Enviado pelo smartphone" },
+    "connect_api": {
+      "from_me": true,
+      "remote_jid": "22654721644999@lid",
+      "remote_jid_alt": "557596236940@s.whatsapp.net",
+      "participant": null,
+      "participant_alt": null,
+      "phone_resolved": true,
+      "source": "android"
+    }
+  }]
+}
+```
+
+No evento de entrada equivalente, `from_me` é `false` e `messages[].from` é
+`557596236940`; `contacts[].wa_id` continua `557596236940`.
+
+`source` só é incluído quando já existe como string não vazia no registro/evento;
+é propagado, não calculado. O serializer não transforma `web` em `api`, nem inventa
+Android, iPhone, dispositivo ou bot quando não há evidência. Alguns registros ZAPO
+atuais já chegam com `source: "web"`, inclusive envios locais. Esse valor é preservado;
+a nova extensão não promete distinguir bot de dispositivo além dos dados da origem.
+
+### Perfil conhecido e ausência de PN
+
+O perfil é consultado somente nos contatos persistidos, com filtro obrigatório por
+`instanceId` e pelos JIDs candidatos exatos/normalizados. A consulta tem limite de
+candidatos e seleciona apenas JID, nome, foto e data de atualização. Entre aliases
+conhecidos do mesmo interlocutor, prefere mais campos preenchidos e depois maior
+atualização. Não há chamadas externas ao WhatsApp, varreduras de mensagens, escrita de
+contatos ou reconciliador em segundo plano.
+
+Na entrada, nome e foto presentes no evento têm precedência sobre o perfil persistido.
+Sem nome, usa o telefone real; sem foto, omite `picture`. Na saída, `pushName` e foto
+de remetente não identificam o destinatário: usa o perfil persistido do interlocutor,
+evita atribuir o nome/foto da própria conta ao cliente e não altera nomes locais de
+nenhum sistema consumidor.
+
+Sem PN legítimo entre os candidatos, os dígitos de um LID não são convertidos em
+telefone. O evento é preservado com `wa_id: ""`, `from: ""` na entrada e
+`phone_resolved: false`; os JIDs opacos continuam na extensão. Na saída, `from` ainda é
+o número conhecido da instância. A consulta de contatos não descobre um vínculo
+PN/LID ausente: o provider precisa fornecer o PN ou alias nos metadados. Este caso é
+uma extensão de compatibilidade e exige que o consumidor use a identidade opaca ou
+aguarde uma associação legítima; não deve tratar string vazia como chave de contato.
+
+Nos grupos, `remote_jid` preserva `@g.us` e identifica a conversa. O remetente de entrada
+e o contato do evento são o participante identificado por `senderPn` / `participantAlt`
+/ `participant` / `sender`, nunca os dígitos do grupo. Consumidores de eventos de grupo
+precisam manter o JID do grupo como identidade da conversa, sem agrupá-la pelo autor.
+Status de grupo não fabricam um destinatário telefônico. Broadcast e newsletter sem
+identidade de pessoa suportada não são transformados em mensagens individuais.
+
+Os status mantêm ID, timestamp e mapeamento anterior. `recipient_id` prefere PN legítimo
+nos mesmos campos e fica vazio quando não há telefone conhecido. Fotos e perfis não
+são consultados para status. A autenticação permanece `Bearer <INSTANCE_TOKEN>`;
+credencial inadequada continua recebendo OAuth `190`, sem exceções por consumidor.
+
+### Validação
+
+`npm run test:compat` executa os testes de contrato existentes e as regressões de
+`test/meta-cloud/webhook-identity.test.ts`. Inclui entrada, eco de smartphone, API/bot,
+PN, LID+PN, aliases, perfil persistido, isolamento entre instâncias, ausência de dados,
+mídia, status, grupos e autenticação Graph. Os testes usam registros e banco simulados;
+a homologação deve conferir os webhooks reais da instância, sem modificar a produção.
