@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { MetaCloudMediaService } from '../../src/api/compat/meta-cloud/meta-cloud-media.service';
+import { materializeProviderMedia } from '../../src/api/compat/meta-cloud/meta-cloud-media.materializer';
 
 export async function runProviderNeutralMediaRegression() {
   const providerCalls: any[] = [];
@@ -21,54 +21,25 @@ export async function runProviderNeutralMediaRegression() {
         fileName: 'contrato.pdf',
       },
     },
-    messageType: 'documentMessage',
-    Media: null,
     Instance: {
       id: 'instance-1',
       name: 'cliente01',
-      integration: 'WHATSAPP-ZAPO',
-      token: 'instance-token',
     },
   };
 
-  const prisma: any = {
-    message: {
-      findFirst: async () => message,
-    },
-    instance: {
-      findUnique: async () => message.Instance,
-    },
-    media: {
-      upsert: async ({ create }: any) => {
-        const record = { id: 'media-row-1', ...create };
-        mediaWrites.push(record);
-        return record;
-      },
+  const provider = {
+    getBase64FromMediaMessage: async (input: any, getBuffer: boolean) => {
+      providerCalls.push({ input, getBuffer });
+      return {
+        buffer: Buffer.from('%PDF-provider-neutral%'),
+        mediaType: 'document',
+        mimetype: 'application/pdf',
+        fileName: 'contrato.pdf',
+      };
     },
   };
 
-  const cache: any = {
-    get: async () => null,
-    set: async () => undefined,
-  };
-
-  const monitor: any = {
-    waInstances: {
-      cliente01: {
-        getBase64FromMediaMessage: async (input: any, getBuffer: boolean) => {
-          providerCalls.push({ input, getBuffer });
-          return {
-            buffer: Buffer.from('%PDF-provider-neutral%'),
-            mediaType: 'document',
-            mimetype: 'application/pdf',
-            fileName: 'contrato.pdf',
-          };
-        },
-      },
-    },
-  };
-
-  const storage: any = {
+  const storage = {
     uploadFile: async (fileName: string, buffer: Buffer, size: number, metadata: Record<string, string>) => {
       uploads.push({ fileName, buffer, size, metadata });
       return { fileName };
@@ -76,17 +47,17 @@ export async function runProviderNeutralMediaRegression() {
     getObjectUrl: async (fileName: string) => `https://storage.example/${fileName}`,
   };
 
-  const service = new MetaCloudMediaService(prisma, cache, monitor, storage);
-  const located = await service.locate('MEDIA-CANONICAL-1');
-
-  // locate() happens before Graph authentication and therefore must remain
-  // read-only. Provider download/storage is deferred until describe().
-  assert.equal(providerCalls.length, 0);
-  assert.equal(uploads.length, 0);
-  assert.equal(located.id, 'MEDIA-CANONICAL-1');
-  assert.equal(located.instance.name, 'cliente01');
-
-  const described = await service.describe(located);
+  const materialized = await materializeProviderMedia({
+    mediaId: 'MEDIA-CANONICAL-1',
+    message,
+    provider,
+    storage,
+    persist: async (record) => {
+      const persisted = { id: 'media-row-1', messageId: message.id, ...record };
+      mediaWrites.push(persisted);
+      return persisted;
+    },
+  });
 
   assert.equal(providerCalls.length, 1);
   assert.equal(providerCalls[0].getBuffer, true);
@@ -97,11 +68,20 @@ export async function runProviderNeutralMediaRegression() {
   assert.equal(mediaWrites[0].instanceId, 'instance-1');
   assert.equal(mediaWrites[0].type, 'document');
   assert.equal(mediaWrites[0].mimetype, 'application/pdf');
-  assert.equal(described.id, 'MEDIA-CANONICAL-1');
-  assert.equal(described.mime_type, 'application/pdf');
-  assert.match(described.url, /^https:\/\/storage\.example\/meta-compat\/inbound\//);
+  assert.equal(materialized.fileName, mediaWrites[0].fileName);
+  assert.match(materialized.fileName, /^meta-compat\/inbound\/instance-1\/MEDIA-CANONICAL-1\//);
 
-  const source = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-media.service.ts', 'utf8');
-  assert.match(source, /getBase64FromMediaMessage/);
-  assert.doesNotMatch(source, /WHATSAPP-ZAPO|WHATSAPP-BAILEYS/);
+  const serviceSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-media.service.ts', 'utf8');
+  const materializerSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-media.materializer.ts', 'utf8');
+  assert.match(serviceSource, /materializeProviderMedia/);
+  assert.doesNotMatch(serviceSource, /WHATSAPP-ZAPO|WHATSAPP-BAILEYS/);
+  assert.doesNotMatch(materializerSource, /WHATSAPP-ZAPO|WHATSAPP-BAILEYS/);
+
+  // locate() is executed before Graph authorization. It may identify the
+  // Message/Instance, but the actual provider download must remain in describe().
+  const locateBody = serviceSource.slice(
+    serviceSource.indexOf('public async locate'),
+    serviceSource.indexOf('public async describe'),
+  );
+  assert.doesNotMatch(locateBody, /materializeProviderMedia|getBase64FromMediaMessage|uploadFile/);
 }
