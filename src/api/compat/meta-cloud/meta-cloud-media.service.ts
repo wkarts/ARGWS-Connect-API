@@ -1,8 +1,4 @@
-import {
-  getObjectStream,
-  getObjectUrl,
-  uploadFile,
-} from '@api/integrations/storage/s3/libs/minio.server';
+import { getObjectStream, getObjectUrl, uploadFile } from '@api/integrations/storage/s3/libs/minio.server';
 import type { PrismaRepository } from '@api/repository/repository.service';
 import type { CacheService } from '@api/services/cache.service';
 import { ConfigService, HttpServer } from '@config/env.config';
