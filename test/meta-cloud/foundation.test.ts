@@ -35,9 +35,11 @@ const business = resolver.identityFromInstance({
 assert.equal(business.phoneNumberId, '123456789');
 assert.equal(business.businessAccountId, 'waba-1');
 
-const auth = new MetaCloudAuthService();
+const auth = new MetaCloudAuthService(() => 'global-secret');
 auth.assertAuthorized(baileys, 'Bearer secret');
+auth.assertAuthorized(baileys, 'Bearer global-secret');
 assert.throws(() => auth.assertAuthorized(baileys, 'Bearer wrong'));
+assert.throws(() => auth.assertAuthorized(baileys));
 
 const mapper = new MetaCloudStatusMapper();
 assert.equal(mapper.map('SERVER_ACK'), 'sent');
