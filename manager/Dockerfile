@@ -21,6 +21,9 @@ LABEL org.opencontainers.image.version="${APP_VERSION}" \
 
 COPY --from=builder /app/dist/ /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY public/assets/runtime-config.js /etc/connect/runtime-config.base.js
+COPY docker-entrypoint.d/40-manager-features.sh /docker-entrypoint.d/40-manager-features.sh
+RUN chmod +x /docker-entrypoint.d/40-manager-features.sh
 
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=5 \

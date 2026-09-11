@@ -46,3 +46,10 @@ lerna-debug.log*
 .tool-versions
 
 /prisma/migrations/*
+
+# Keep the reviewed generic Meta webhook regression visible to GitHub Desktop.
+!/test/
+/test/*
+!/test/meta-cloud/
+/test/meta-cloud/*
+!/test/meta-cloud/webhook-identity.test.ts

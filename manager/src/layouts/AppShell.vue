@@ -14,7 +14,7 @@ const groups = [
   { title: 'COMUNICAÇÃO', items: [
     { label:'Instâncias', to:'/instancias', icon:'radio', permission:'instances.read' },
     { label:'Canais', to:'/canais', icon:'channels', permission:'instances.read' },
-    { label:'Conversas', to:'/conversas', icon:'chat', permission:'messages.read' },
+    { label:'Conversas', to:'/conversas', icon:'chat', permission:'messages.read', feature:'conversations' },
     { label:'Mensagens', to:'/mensagens', icon:'mail', permission:'messages.read', feature:'messages' },
     { label:'Contatos', to:'/contatos', icon:'users', permission:'messages.read', feature:'contacts' },
   ]},

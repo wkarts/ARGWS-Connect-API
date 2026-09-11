@@ -1,4 +1,4 @@
-import { runtime } from '@/config/runtime'
+import { featureEnabled, runtime } from '@/config/runtime'
 import { whatsappDestination } from './whatsapp-destination'
 import * as normalize from './normalizers'
 import { integrationDefinitions } from './integration-definitions'
@@ -351,6 +351,18 @@ export const current = {
     return withInstance(id, async (_item, name, token) => api(`/message/sendText/${encodeURIComponent(name)}`, {
       method: 'POST', token, data: { number: whatsappDestination(number), text },
     }))
+  },
+
+  async testMessageContacts(id: string, page = 1): Promise<{ items: ContactItem[]; hasMore: boolean }> {
+    if (!featureEnabled('testMessageContacts', false)) throw new CurrentApiError('Seleção de contatos desabilitada.', 403)
+    if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new CurrentApiError('Página inválida.', 400)
+    return withInstance(id, async (_item, name, token) => {
+      const result = await api<any>(`/chat/findContacts/${encodeURIComponent(name)}`, {
+        method: 'POST', token, data: { where: {}, page, offset: 50 },
+      })
+      const rows = Array.isArray(result) ? result : Array.isArray(result?.records) ? result.records : []
+      return { items: normalize.contacts(rows), hasMore: rows.length === 50 }
+    })
   },
 
   async contacts(id: string): Promise<ContactItem[]> {

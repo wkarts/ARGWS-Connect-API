@@ -356,12 +356,39 @@ export const metaCompatibleSchemas = {
     required: ['data'],
     additionalProperties: true,
   },
+  MetaWebhookConnectExtension: {
+    type: 'object',
+    description: 'Extensão opcional Connect|API por mensagem, não um campo oficial da Meta. Origem é propagada somente quando disponível.',
+    properties: {
+      from_me: { type: 'boolean', description: 'Saída da própria conta conectada. Não identifica por si só bot ou dispositivo.' },
+      remote_jid: { type: ['string', 'null'] },
+      remote_jid_alt: { type: ['string', 'null'] },
+      participant: { type: ['string', 'null'] },
+      participant_alt: { type: ['string', 'null'] },
+      phone_resolved: { type: 'boolean', description: 'PN conhecido do interlocutor/participante. LID não é convertido em telefone.' },
+      source: string('Origem presente no evento, sem inferência ou valor padrão.'),
+    },
+    required: ['from_me', 'remote_jid', 'remote_jid_alt', 'participant', 'participant_alt', 'phone_resolved'],
+    additionalProperties: true,
+  },
+  MetaWebhookContact: {
+    type: 'object',
+    properties: {
+      wa_id: string('PN do interlocutor quando conhecido; omitido para identidade LID ainda não resolvida.'),
+      profile: { type: 'object', properties: {
+        name: string('Nome remoto conhecido ou PN. Nome próprio do remetente não é atribuído ao destinatário.'),
+        picture: string('Foto conhecida do contato, extensão opcional; omitida quando ausente.'),
+      }, additionalProperties: true },
+    },
+    additionalProperties: true,
+  },
   MetaWebhookMessage: {
     type: 'object',
     description: 'Mensagem serializada no formato Meta Compatible. O conteúdo específico depende do tipo recebido.',
     properties: {
       id: string('ID real da mensagem/provider.'),
-      from: string('Remetente normalizado.'),
+      from: string('PN do remetente: interlocutor na entrada, conta conectada na saída. Omitido quando desconhecido.'),
+      connect_api: ref('MetaWebhookConnectExtension'),
       timestamp: string('Timestamp Meta-compatible.'),
       type: string('Tipo da mensagem.'),
       text: ref('MetaTextContent'),
@@ -389,7 +416,7 @@ export const metaCompatibleSchemas = {
     properties: {
       messaging_product: { type: 'string', const: 'whatsapp' },
       metadata: { type: 'object', additionalProperties: true },
-      contacts: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      contacts: { type: 'array', items: ref('MetaWebhookContact') },
       messages: { type: 'array', items: ref('MetaWebhookMessage') },
       statuses: { type: 'array', items: ref('MetaWebhookStatus') },
     },

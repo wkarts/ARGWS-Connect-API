@@ -71,6 +71,7 @@ export const connect = {
   messages: (id: string, ref = ''): Promise<Message[]> => invoke('messages', id, ref),
   groupInfo: (id: string, groupJid: string): Promise<any> => invoke('groupInfo', id, groupJid),
   sendText: (id: string, number: string, text: string): Promise<any> => invoke('sendText', id, number, text),
+  testMessageContacts: (id: string, page = 1): Promise<{ items: ContactItem[]; hasMore: boolean }> => invoke('testMessageContacts', id, page),
   contacts: (id: string): Promise<ContactItem[]> => typeof adapter.contacts === 'function' ? invoke('contacts', id) : Promise.resolve([]),
   calls: async (id: string): Promise<WhatsAppCall[]> => {
     const result = await invoke<WhatsAppCall[]>('calls', id)

@@ -65,6 +65,15 @@ def compose_text(text, api, agent, network, image, full):
         'OPERATIONS_AGENT_URL': '${OPERATIONS_AGENT_URL:-http://operations:8092}',
         'OPERATIONS_INTERNAL_TOKEN': '${OPERATIONS_INTERNAL_TOKEN:-}',
     })
+    # These flags control Manager navigation/routes, not native API permissions.
+    communication = 'true' if image == 'develop' else 'false'
+    api_block = environment(api_block, {
+        'MANAGER_FEATURE_CONVERSATIONS': '${MANAGER_FEATURE_CONVERSATIONS:-' + communication + '}',
+        'MANAGER_FEATURE_MESSAGES': '${MANAGER_FEATURE_MESSAGES:-' + communication + '}',
+        'MANAGER_FEATURE_CONTACTS': '${MANAGER_FEATURE_CONTACTS:-' + communication + '}',
+        'MANAGER_FEATURE_INSTANCE_TEST_MESSAGE': '${MANAGER_FEATURE_INSTANCE_TEST_MESSAGE:-true}',
+        'MANAGER_FEATURE_TEST_MESSAGE_CONTACTS': '${MANAGER_FEATURE_TEST_MESSAGE_CONTACTS:-' + communication + '}',
+    })
     text = replace_service(text, api, api_block)
     suffix = api[4:] if api.startswith('api-') else ''
     service = lambda name: name + ('-' + suffix if suffix else '')
@@ -153,7 +162,20 @@ def generate(root):
         if (root / directory / '.env.example').exists():
             envs.append(directory + '/.env.example')
     for path in envs:
-        outputs[path] = env_text((root / path).read_text())
+        template = env_text((root / path).read_text())
+        visible = 'true' if path.startswith(('deploy/develop/', 'deploy/homologation/')) else 'false'
+        settings = {
+            'MANAGER_FEATURE_CONVERSATIONS': visible, 'MANAGER_FEATURE_MESSAGES': visible,
+            'MANAGER_FEATURE_CONTACTS': visible, 'MANAGER_FEATURE_INSTANCE_TEST_MESSAGE': 'true',
+            'MANAGER_FEATURE_TEST_MESSAGE_CONTACTS': visible,
+        }
+        for key, value in settings.items():
+            line = key + '=' + value
+            if re.search(r'^' + key + '=', template, re.M):
+                template = re.sub(r'^' + key + r'=[^\n]*', lambda _: line, template, flags=re.M)
+            else:
+                template = template.rstrip() + '\n' + line + '\n'
+        outputs[path] = template
     for directory in ['.'] + directories:
         prefix = '' if directory == '.' else directory + '/'
         outputs[prefix + 'prepare-operations-env.py'] = helper

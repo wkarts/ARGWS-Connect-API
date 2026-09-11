@@ -7,6 +7,7 @@ import PanelCard from '@/components/PanelCard.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { connect } from '@/services/connect'
+import { featureEnabled } from '@/config/runtime'
 import { friendlyError } from '@/services/errors'
 import type { ConnectionItem, ContactItem, WhatsAppCall } from '@/types/domain'
 import type { VoiceMediaSession, VoiceMediaState } from '@/services/voice-media'
@@ -173,7 +174,7 @@ async function loadBehavior() {
 }
 
 async function loadContacts(force = false) {
-  if (!selected.value) {
+  if (!featureEnabled('contacts', false) || !selected.value) {
     contacts.value = []
     return
   }

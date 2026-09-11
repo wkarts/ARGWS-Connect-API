@@ -7,6 +7,9 @@ import AppIcon from '@/components/AppIcon.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppModal from '@/components/AppModal.vue'
+import TestMessageModal from '@/components/TestMessageModal.vue'
+import { featureEnabled } from '@/config/runtime'
+import { useSessionStore } from '@/stores/session'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import type { ConnectionItem } from '@/types/domain'
@@ -19,6 +22,8 @@ const loading = ref(true)
 const creating = ref(false)
 const createOpen = ref(false)
 const router = useRouter()
+const session = useSessionStore()
+const testInstance = ref<ConnectionItem | null>(null)
 
 const form = ref({ name: '', mode: 'WHATSAPP-BAILEYS', number: '', businessId: '' })
 
@@ -102,9 +107,14 @@ onMounted(load)
           <div><b>{{ item.counts.conversations.toLocaleString('pt-BR') }}</b><span>Conversas</span></div>
           <div><b>{{ item.counts.messages.toLocaleString('pt-BR') }}</b><span>Mensagens</span></div>
         </div>
-        <div class="card-link">Abrir <AppIcon name="arrow" :size="15"/></div>
+        <footer class="instance-card-actions" @click.stop>
+          <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" type="button" class="card-link instance-card-action" :disabled="item.status !== 'connected' || !item.capabilities.messaging" aria-haspopup="dialog" @click.stop="testInstance = item">Enviar teste</button>
+          <button type="button" class="card-link instance-card-action instance-card-open" @click.stop="router.push(`/instancias/${encodeURIComponent(item.id)}`)">Abrir <AppIcon name="arrow" :size="15"/></button>
+        </footer>
       </article>
     </div>
+
+    <TestMessageModal v-if="testInstance" :key="testInstance.id" :instance-id="testInstance.id" :instance-name="testInstance.name" :provider="testInstance.provider" :connected="testInstance.status === 'connected'" @close="testInstance = null" />
 
     <AppModal :open="createOpen" title="Nova instância" subtitle="Escolha o provider e configure uma nova conexão." @close="createOpen=false">
       <form class="form-stack" @submit.prevent="create">
@@ -130,3 +140,50 @@ onMounted(load)
     </AppModal>
   </AppShell>
 </template>
+
+<style scoped>
+.instance-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.instance-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 13px;
+}
+
+.instance-card-action {
+  margin-top: 0;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.instance-card-open {
+  margin-left: auto;
+}
+
+.instance-card-action:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.instance-card-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+
+.instance-card-action:disabled {
+  color: var(--muted);
+  opacity: .65;
+  cursor: not-allowed;
+}
+</style>
