@@ -416,9 +416,7 @@ export class ZapoParityStartupService extends ZapoIdentityStartupService {
         return { mediaType, mimetype, fileName };
       }
 
-      const wrapper = MEDIA_WRAPPERS.find(
-        (key) => current?.[key]?.message && typeof current[key].message === 'object',
-      );
+      const wrapper = MEDIA_WRAPPERS.find((key) => current?.[key]?.message && typeof current[key].message === 'object');
       if (!wrapper) break;
       current = current[wrapper].message;
     }
