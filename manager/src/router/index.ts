@@ -11,6 +11,7 @@ const routes = [
   { path: '/instancias/:id', component: () => import('@/views/InstanceView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes', component: () => import('@/views/IntegrationsView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes/:key', component: () => import('@/views/IntegrationDetailView.vue'), meta: { permission: 'instances.read' } },
+  { path: '/instancias/:id/modelos', component: () => import('@/views/LocalTemplatesView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/configuracao', component: () => import('@/views/InstanceConfigView.vue'), meta: { permission: 'instances.read' } },
   { path: '/integracoes', component: () => import('@/views/IntegrationsView.vue'), meta: { permission: 'instances.read' } },
   { path: '/canais', component: () => import('@/views/ChannelsView.vue'), meta: { permission: 'instances.read' } },

@@ -29,3 +29,12 @@ Erros de autenticação Graph são retornados no formato Meta/Graph, com código
 ## Métricas
 
 Quando `METRICS_AUTH_REQUIRED` estiver habilitado, `/metrics` usa Basic Authentication e pode ainda ser limitado por whitelist de IP.
+
+## Modelos locais por instância
+
+As novas operações de modelos usam a credencial exclusiva da instância: `apikey`
+na API nativa e `Authorization: Bearer` no Graph. O código de autenticação atual
+também aceita a chave global administrativa, inclusive como Bearer Graph, por
+compatibilidade. Isso não a torna a credencial recomendada para as caixas: o HUB
+e a tela operacional de modelos não a usam como alternativa ao token individual.
+A política global existente não é revogada por esta entrega.

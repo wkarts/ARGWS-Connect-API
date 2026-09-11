@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 
+import { runLocalTemplateRegression } from '../local-templates.test';
+
 import { MetaCloudAuthService } from '../../src/api/compat/meta-cloud/meta-cloud-auth.service';
 import { MetaCloudIdentityResolver } from '../../src/api/compat/meta-cloud/meta-cloud-identity.resolver';
 import { MetaCloudStatusMapper } from '../../src/api/compat/meta-cloud/meta-cloud-status.mapper';
@@ -55,6 +57,7 @@ async function main() {
 
   await runProviderNeutralMediaRegression();
   await runGraphIdentityRoutingRegression();
+  await runLocalTemplateRegression();
   console.log('meta-cloud foundation compatibility: ok');
 }
 

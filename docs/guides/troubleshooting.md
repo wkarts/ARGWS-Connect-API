@@ -85,12 +85,12 @@ preservada. Para integrações por caixa de entrada, utilize o token exclusivo d
 instância e a identidade retornada por `/compat/meta/{instanceName}`.
 
 A rota de templates é `GET /graph/{version}/{businessAccountId}/message_templates`.
-Um `200` com `data: []` é uma consulta bem-sucedida sem templates disponíveis,
-não uma falha de autenticação. No adaptador atual, `WHATSAPP-BAILEYS` e
-`WHATSAPP-ZAPO` retornam essa lista vazia; `WHATSAPP-BUSINESS` delega ao serviço
-real de templates. A correção não cria `hello`, não converte templates em texto
-livre e não muda esse catálogo. O HUB deve preservar o catálogo anterior em caso
-de falha e reconciliá-lo somente após uma resposta válida.
+Um `200` com `data: []` é uma consulta bem-sucedida sem modelos visíveis, não uma falha de autenticação.
+Após a migration `20260911200000_local_templates`, ZAPO/Baileys possuem catálogo local real.
+O `hello` em `pt_BR` é cadastrado para instâncias existentes pela migration e para novas instâncias na mesma gravação de criação.
+A leitura não cria nem reabilita registros. Modelos arquivados não reaparecem. O HUB deve ser atualizado para reconhecer
+`source=connectapi_local` e `status=LOCAL_READY`, e depois a caixa deve ser reconciliada.
+Templates Business continuam no serviço oficial e na tabela anterior. Consulte `local-templates.md`.
 
 Regressão automatizada: `test/meta-cloud/graph-identity-routing.test.ts`,
 executada pela suíte existente `npm run test:compat`. Os testes usam banco e

@@ -13,6 +13,7 @@ import { rmSync } from 'fs';
 import { join } from 'path';
 
 import { CacheService } from './cache.service';
+import { defaultLocalTemplateRecord, isLocalTemplateProvider } from './local-template.definition';
 
 export class WAMonitoringService {
   constructor(
@@ -262,6 +263,9 @@ export class WAMonitoringService {
           token: data.hash,
           clientName: clientName,
           businessId: data.businessId,
+          LocalTemplate: isLocalTemplateProvider(data.integration || Integration.WHATSAPP_BAILEYS)
+            ? { create: defaultLocalTemplateRecord() }
+            : undefined,
         },
       });
     } catch (error) {

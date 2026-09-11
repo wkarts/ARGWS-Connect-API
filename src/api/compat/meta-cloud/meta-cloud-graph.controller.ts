@@ -46,14 +46,19 @@ export class MetaCloudGraphController {
     return this.media.openPublicDownload(mediaId, token);
   }
 
-  public async listTemplates(version: string, businessAccountId: string, authorization: any) {
+  public async listTemplates(
+    version: string,
+    businessAccountId: string,
+    authorization: any,
+    query: { after?: unknown; limit?: unknown } = {},
+  ) {
     const identity = await this.resolver.resolveByBusinessAccountId(
       businessAccountId,
       this.auth.extractBearer(authorization),
     );
     this.auth.assertAuthorized(identity, authorization);
     this.log(identity, version, 'templates-list');
-    return this.templates.list(identity);
+    return this.templates.list(identity, query);
   }
 
   private async resolvePhone(phoneNumberId: string, authorization: any) {
