@@ -1,4 +1,5 @@
 import { PrismaRepository } from '@api/repository/repository.service';
+import { timingSafeEqual } from 'crypto';
 
 import { MetaCloudGraphError } from './meta-cloud.error';
 import { MetaCloudIdentity } from './types/meta-response.types';
@@ -100,7 +101,10 @@ export class MetaCloudIdentityResolver {
     return this.identityFromInstance(instance);
   }
 
-  public async resolveByPhoneNumberId(phoneNumberId: string): Promise<MetaCloudIdentity> {
+  public async resolveByPhoneNumberId(
+    phoneNumberId: string,
+    instanceToken?: string | null,
+  ): Promise<MetaCloudIdentity> {
     const target = this.normalizePhone(phoneNumberId);
     if (!target) throw new MetaCloudGraphError(404, 'phoneNumberId was not found.');
 
@@ -108,30 +112,52 @@ export class MetaCloudIdentityResolver {
       where: { integration: { in: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] } },
     });
 
+    const matches: MetaCloudIdentity[] = [];
     for (const instance of instances) {
       try {
         const identity = this.identityFromInstance(instance);
         if (identity.phoneNumberId === target || String(identity.phoneNumberId) === String(phoneNumberId))
-          return identity;
+          matches.push(identity);
       } catch {
         // Instances without a stable identity are not Graph-addressable.
       }
     }
+    if (matches.length) return this.selectByInstanceToken(matches, instanceToken);
     throw new MetaCloudGraphError(404, `phoneNumberId ${phoneNumberId} was not found.`);
   }
 
-  public async resolveByBusinessAccountId(businessAccountId: string): Promise<MetaCloudIdentity> {
+  public async resolveByBusinessAccountId(
+    businessAccountId: string,
+    instanceToken?: string | null,
+  ): Promise<MetaCloudIdentity> {
     const instances = await this.prisma.instance.findMany({
       where: { integration: { in: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] } },
     });
+    const matches: MetaCloudIdentity[] = [];
     for (const instance of instances) {
       try {
         const identity = this.identityFromInstance(instance);
-        if (identity.businessAccountId === businessAccountId) return identity;
+        if (identity.businessAccountId === businessAccountId) matches.push(identity);
       } catch {
         // Ignore non-addressable instances.
       }
     }
+    if (matches.length) return this.selectByInstanceToken(matches, instanceToken);
     throw new MetaCloudGraphError(404, `businessAccountId ${businessAccountId} was not found.`);
+  }
+
+  private selectByInstanceToken(identities: MetaCloudIdentity[], instanceToken?: string | null): MetaCloudIdentity {
+    // A phone/WABA may belong to multiple persisted instances. Prefer the exact
+    // credential only among matches for that object; authorization still runs
+    // in the controller. Preserve the legacy fallback for administrative tokens.
+    if (!instanceToken) return identities[0];
+    const provided = Buffer.from(instanceToken);
+    return (
+      identities.find((identity) => {
+        if (typeof identity.token !== 'string' || !identity.token) return false;
+        const expected = Buffer.from(identity.token);
+        return expected.length === provided.length && timingSafeEqual(expected, provided);
+      }) || identities[0]
+    );
   }
 }

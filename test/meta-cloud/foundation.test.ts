@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { MetaCloudAuthService } from '../../src/api/compat/meta-cloud/meta-cloud-auth.service';
 import { MetaCloudIdentityResolver } from '../../src/api/compat/meta-cloud/meta-cloud-identity.resolver';
 import { MetaCloudStatusMapper } from '../../src/api/compat/meta-cloud/meta-cloud-status.mapper';
+import { runGraphIdentityRoutingRegression } from './graph-identity-routing.test';
 import { runProviderNeutralMediaRegression } from './provider-neutral-media.test';
 
 async function main() {
@@ -53,6 +54,7 @@ async function main() {
   assert.equal(mapper.map('PENDING'), null);
 
   await runProviderNeutralMediaRegression();
+  await runGraphIdentityRoutingRegression();
   console.log('meta-cloud foundation compatibility: ok');
 }
 
