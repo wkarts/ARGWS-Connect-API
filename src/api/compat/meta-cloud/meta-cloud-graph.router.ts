@@ -1,6 +1,7 @@
 import { metaCloudGraphController } from '@api/server.module';
 import { NextFunction, Request, Response, Router } from 'express';
 import multer from 'multer';
+import { pipeline } from 'stream/promises';
 
 import { MetaCloudGraphError } from './meta-cloud.error';
 import { metaCloudMetrics } from './meta-cloud.metrics';
@@ -64,6 +65,23 @@ export class MetaCloudGraphRouter {
             req.headers.authorization,
           ),
         );
+      }),
+    );
+
+    // Meta-compatible descriptors return a short-lived public Connect|API URL.
+    // The object itself remains on the private MinIO endpoint and is streamed by
+    // this route, so Docker-only S3 hostnames never escape to API consumers.
+    this.router.get(
+      '/:version/:mediaId/content',
+      this.wrap(async (req, res) => {
+        const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+        const media = await metaCloudGraphController.downloadMedia(req.params.mediaId, token);
+        const safeName = String(media.fileName || 'media.bin').replace(/["\r\n]/g, '_');
+
+        res.setHeader('Content-Type', media.mimetype || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        await pipeline(media.stream, res);
       }),
     );
 
