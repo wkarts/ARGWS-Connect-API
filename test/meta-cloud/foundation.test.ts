@@ -1,4 +1,13 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+
+import {
+  BadRequestException,
+  ForbiddenException,
+  InternalServerErrorException,
+  NotFoundException,
+  UnauthorizedException,
+} from '../../src/exceptions';
 
 import { runLocalTemplateRegression } from '../local-templates.test';
 
@@ -9,6 +18,34 @@ import { runGraphIdentityRoutingRegression } from './graph-identity-routing.test
 import { runProviderNeutralMediaRegression } from './provider-neutral-media.test';
 
 async function main() {
+  // Exercise real exceptions without mocking the router or requiring a generated
+  // Prisma client. Loading a controller must not start application infrastructure.
+  const loaded = Object.keys(createRequire(__filename).cache);
+  assert.deepEqual(
+    loaded.filter((file) => /[\\/]src[\\/]api[\\/](?:server\.module|routes[\\/]index\.router)\.[cm]?[jt]s$/.test(file)),
+    [],
+    'HTTP exceptions must not bootstrap the server or the root router',
+  );
+  for (const [Exception, status, error] of [
+    [BadRequestException, 400, 'Bad Request'],
+    [UnauthorizedException, 401, 'Unauthorized'],
+    [ForbiddenException, 403, 'Forbidden'],
+    [NotFoundException, 404, 'Not Found'],
+    [InternalServerErrorException, 500, 'Internal Server Error'],
+  ] as const) {
+    for (const messages of [[], ['fixture', { field: 'number' }]]) {
+      assert.throws(() => new Exception(...messages), (thrown: any) => {
+        assert.deepEqual(thrown, {
+          status,
+          error,
+          message: messages.length ? messages : status === 401 ? 'Unauthorized' : undefined,
+        });
+        return true;
+      });
+    }
+  }
+  console.log('HTTP exception isolation: 10 unchanged response contracts, no server bootstrap');
+
   const resolver = new MetaCloudIdentityResolver({} as any);
   const baileys = resolver.identityFromInstance({
     id: 'i1',
