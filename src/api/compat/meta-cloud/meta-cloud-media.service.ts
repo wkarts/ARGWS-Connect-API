@@ -6,6 +6,11 @@ import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { randomUUID } from 'crypto';
 
 import { MetaCloudGraphError } from './meta-cloud.error';
+import {
+  CanonicalMediaStorage,
+  materializeProviderMedia,
+  ProviderMediaRegistryEntry,
+} from './meta-cloud-media.materializer';
 import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudIdentity } from './types/meta-response.types';
 
@@ -25,40 +30,11 @@ interface LocatedMedia {
   message?: any;
 }
 
-interface MediaDescriptor {
-  type: string;
-  mimetype: string;
-  fileName: string;
-}
-
 interface ProviderRegistry {
-  waInstances: Record<string, any>;
+  waInstances: Record<string, ProviderMediaRegistryEntry>;
 }
 
-interface MediaStorage {
-  uploadFile(fileName: string, buffer: Buffer, size: number, metadata: Record<string, string>): Promise<any>;
-  getObjectUrl(fileName: string, expires?: number): Promise<string | null>;
-}
-
-const DEFAULT_MEDIA_STORAGE: MediaStorage = { getObjectUrl, uploadFile };
-
-const MEDIA_TYPES = [
-  ['imageMessage', 'image', 'image/jpeg'],
-  ['videoMessage', 'video', 'video/mp4'],
-  ['ptvMessage', 'video', 'video/mp4'],
-  ['audioMessage', 'audio', 'audio/ogg'],
-  ['documentMessage', 'document', 'application/octet-stream'],
-  ['stickerMessage', 'sticker', 'image/webp'],
-] as const;
-
-const MEDIA_WRAPPERS = [
-  'ephemeralMessage',
-  'viewOnceMessage',
-  'viewOnceMessageV2',
-  'viewOnceMessageV2Extension',
-  'documentWithCaptionMessage',
-  'editedMessage',
-] as const;
+const DEFAULT_MEDIA_STORAGE: CanonicalMediaStorage = { getObjectUrl, uploadFile };
 
 export class MetaCloudMediaService {
   private readonly memoryUploads = new Map<string, UploadedMediaRef>();
@@ -68,7 +44,7 @@ export class MetaCloudMediaService {
     private readonly prisma: PrismaRepository,
     private readonly cache: CacheService,
     private readonly monitor?: ProviderRegistry,
-    private readonly storage: MediaStorage = DEFAULT_MEDIA_STORAGE,
+    private readonly storage: CanonicalMediaStorage = DEFAULT_MEDIA_STORAGE,
   ) {}
 
   public async upload(identity: MetaCloudIdentity, file: any, declaredType?: string) {
@@ -102,9 +78,6 @@ export class MetaCloudMediaService {
     let message = await this.findMessage(mediaId);
     if (message?.Instance) return this.locateMessage(mediaId, message);
 
-    // Uploaded media IDs never become WhatsApp message IDs. Resolve these
-    // before waiting for an inbound Message row so the outbound Meta contract
-    // remains as fast as it was before provider-neutral recovery was added.
     const ref = await this.getUploadRef(mediaId);
     if (ref) {
       const instance = await this.prisma.instance.findUnique({ where: { id: ref.instanceId } });
@@ -112,8 +85,8 @@ export class MetaCloudMediaService {
     }
 
     // A Meta webhook can reach its consumer before the normal persistence path
-    // commits Message. Identification is read-only: binary download/storage is
-    // intentionally deferred to describe(), which runs only after authorization.
+    // commits Message. Identification stays read-only here because Graph calls
+    // locate() before authorization. Binary materialization happens in describe().
     message = await this.findMessageWithRetry(mediaId);
     if (message?.Instance) return this.locateMessage(mediaId, message);
 
@@ -157,52 +130,26 @@ export class MetaCloudMediaService {
   private async materializeFromProvider(mediaId: string, message: any): Promise<any | null> {
     const instanceName = String(message?.Instance?.name || '').trim();
     const provider = instanceName ? this.monitor?.waInstances?.[instanceName] : null;
-    if (!provider || typeof provider.getBase64FromMediaMessage !== 'function') return null;
 
-    try {
-      const downloaded = await provider.getBase64FromMediaMessage(
-        {
-          message: {
-            key: message.key,
-            message: message.message,
+    return materializeProviderMedia({
+      mediaId,
+      message,
+      provider,
+      storage: this.storage,
+      persist: (record) =>
+        this.prisma.media.upsert({
+          where: { messageId: message.id },
+          update: record,
+          create: {
+            messageId: message.id,
+            ...record,
           },
-        },
-        true,
-      );
-      const buffer = this.mediaBuffer(downloaded);
-      if (!buffer?.length) return null;
-
-      const descriptor = this.mediaDescriptor(message.message);
-      const type = String(downloaded?.mediaType || descriptor?.type || 'document').slice(0, 100);
-      const mimetype = String(downloaded?.mimetype || descriptor?.mimetype || 'application/octet-stream').slice(0, 100);
-      const safeName = this.safeFileName(downloaded?.fileName || descriptor?.fileName || `${mediaId}.bin`);
-      const fileName = `meta-compat/inbound/${message.Instance.id}/${mediaId}/${Date.now()}_${safeName}`;
-
-      const uploaded = await this.storage.uploadFile(fileName, buffer, buffer.length, { 'Content-Type': mimetype });
-      if (!uploaded) return null;
-
-      return this.prisma.media.upsert({
-        where: { messageId: message.id },
-        update: {
-          type,
-          fileName,
-          mimetype,
-          instanceId: message.Instance.id,
-        },
-        create: {
-          messageId: message.id,
-          instanceId: message.Instance.id,
-          type,
-          fileName,
-          mimetype,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Unable to materialize provider-neutral media ${mediaId}: ${(error as Error)?.message || error}`,
-      );
-      return null;
-    }
+        }),
+      onError: (error) =>
+        this.logger.warn(
+          `Unable to materialize provider-neutral media ${mediaId}: ${(error as Error)?.message || error}`,
+        ),
+    });
   }
 
   private async findMessage(mediaId: string): Promise<any | null> {
@@ -221,44 +168,6 @@ export class MetaCloudMediaService {
       if (message) return message;
     }
     return null;
-  }
-
-  private mediaBuffer(downloaded: any): Buffer | null {
-    if (Buffer.isBuffer(downloaded?.buffer)) return downloaded.buffer;
-    if (downloaded?.buffer instanceof Uint8Array) return Buffer.from(downloaded.buffer);
-    if (typeof downloaded?.base64 === 'string' && downloaded.base64.trim()) {
-      return Buffer.from(downloaded.base64, 'base64');
-    }
-    return null;
-  }
-
-  private mediaDescriptor(message: any): MediaDescriptor | null {
-    if (!message || typeof message !== 'object') return null;
-
-    for (const [key, type, fallbackMimetype] of MEDIA_TYPES) {
-      const media = message[key];
-      if (!media || typeof media !== 'object') continue;
-      return {
-        type,
-        mimetype: String(media.mimetype || media.mimeType || fallbackMimetype),
-        fileName: String(media.fileName || media.filename || `${type}.bin`),
-      };
-    }
-
-    for (const wrapper of MEDIA_WRAPPERS) {
-      const nested = message?.[wrapper]?.message;
-      const descriptor = this.mediaDescriptor(nested);
-      if (descriptor) return descriptor;
-    }
-
-    return null;
-  }
-
-  private safeFileName(value: string): string {
-    const safe = String(value || 'media.bin')
-      .replace(/[^A-Za-z0-9._-]/g, '_')
-      .replace(/_+/g, '_');
-    return safe || 'media.bin';
   }
 
   private async getUploadRef(id: string): Promise<UploadedMediaRef | null> {
