@@ -97,7 +97,7 @@ export async function runProviderNeutralMediaRegression() {
   assert.match(describeBody, /issuePublicDownloadUrl/);
   assert.doesNotMatch(describeBody, /getObjectUrl/);
   assert.match(serviceSource, /openPublicDownload/);
-  assert.match(routerSource, /\/:version\/:mediaId\/content/);
+  assert.match(routerSource, /mediaContentPath\s*=\s*['"]\/:version\/:mediaId\/content['"]/);
   assert.match(routerSource, /pipeline\(media\.stream, res\)/);
   assert.match(storageSource, /getObjectStream/);
 }
