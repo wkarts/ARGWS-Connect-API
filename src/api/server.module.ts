@@ -122,7 +122,7 @@ export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
 export const labelController = new LabelController(waMonitor);
 
-export const metaCloudMediaService = new MetaCloudMediaService(prismaRepository, cache);
+export const metaCloudMediaService = new MetaCloudMediaService(prismaRepository, cache, waMonitor);
 export const metaCloudResponseSerializer = new MetaCloudResponseSerializer();
 export const metaCloudStatusMapper = new MetaCloudStatusMapper();
 export const metaCloudMessageAdapter = new MetaCloudMessageAdapter(
