@@ -1,10 +1,10 @@
 import { Logger } from '@config/logger.config';
 
-import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudAuthService } from './meta-cloud-auth.service';
 import { MetaCloudIdentityResolver } from './meta-cloud-identity.resolver';
 import { MetaCloudMediaService } from './meta-cloud-media.service';
 import { MetaCloudMessageAdapter } from './meta-cloud-message.adapter';
+import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudTemplateService } from './meta-cloud-template.service';
 import { MetaCloudMessageRequest } from './types/meta-message.types';
 import { MetaCloudIdentity } from './types/meta-response.types';
@@ -39,7 +39,11 @@ export class MetaCloudGraphController {
     const identity = this.resolver.identityFromInstance(located.instance);
     this.auth.assertAuthorized(identity, authorization);
     this.log(identity, version, 'media-get', mediaId);
-    return this.media.describe(located);
+    return this.media.describe(located, version);
+  }
+
+  public async downloadMedia(mediaId: string, token?: string) {
+    return this.media.openPublicDownload(mediaId, token);
   }
 
   public async listTemplates(version: string, businessAccountId: string, authorization: any) {
