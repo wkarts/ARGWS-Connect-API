@@ -1,6 +1,11 @@
-import { getObjectUrl, uploadFile } from '@api/integrations/storage/s3/libs/minio.server';
+import {
+  getObjectStream,
+  getObjectUrl,
+  uploadFile,
+} from '@api/integrations/storage/s3/libs/minio.server';
 import type { PrismaRepository } from '@api/repository/repository.service';
 import type { CacheService } from '@api/services/cache.service';
+import { ConfigService, HttpServer } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { randomUUID } from 'crypto';
@@ -34,17 +39,35 @@ interface ProviderRegistry {
   waInstances: Record<string, ProviderMediaRegistryEntry>;
 }
 
-const DEFAULT_MEDIA_STORAGE: CanonicalMediaStorage = { getObjectUrl, uploadFile };
+interface PublicMediaStorage extends CanonicalMediaStorage {
+  getObjectStream?: (fileName: string) => Promise<any | null>;
+}
+
+interface MediaDownloadTicket {
+  mediaId: string;
+  fileName: string;
+  mimetype: string;
+  expiresAt: number;
+}
+
+const MEDIA_DOWNLOAD_TTL_SECONDS = 300;
+const DEFAULT_MEDIA_STORAGE: PublicMediaStorage = { getObjectStream, getObjectUrl, uploadFile };
+
+function defaultPublicBaseUrl(): string {
+  return String(new ConfigService().get<HttpServer>('SERVER')?.URL || '').replace(/\/+$/u, '');
+}
 
 export class MetaCloudMediaService {
   private readonly memoryUploads = new Map<string, UploadedMediaRef>();
+  private readonly memoryDownloads = new Map<string, MediaDownloadTicket>();
   private readonly logger = new Logger('MetaCloudMediaService');
 
   constructor(
     private readonly prisma: PrismaRepository,
     private readonly cache: CacheService,
     private readonly monitor?: ProviderRegistry,
-    private readonly storage: CanonicalMediaStorage = DEFAULT_MEDIA_STORAGE,
+    private readonly storage: PublicMediaStorage = DEFAULT_MEDIA_STORAGE,
+    private readonly publicBaseUrl: string = defaultPublicBaseUrl(),
   ) {}
 
   public async upload(identity: MetaCloudIdentity, file: any, declaredType?: string) {
@@ -93,7 +116,7 @@ export class MetaCloudMediaService {
     throw new MetaCloudGraphError(404, `Media ${mediaId} was not found.`);
   }
 
-  public async describe(located: LocatedMedia) {
+  public async describe(located: LocatedMedia, graphVersion = 'v20.0') {
     let fileName = located.fileName;
     let mimetype = located.mimetype;
 
@@ -104,10 +127,56 @@ export class MetaCloudMediaService {
     }
 
     if (!fileName) throw new MetaCloudGraphError(404, `Media ${located.id} was not found.`);
-    const url = await this.storage.getObjectUrl(fileName, 300);
-    if (!url) throw new MetaCloudGraphError(500, 'Unable to create a temporary media URL.');
+    const resolvedMimetype = mimetype || 'application/octet-stream';
+    const url = this.issuePublicDownloadUrl(located.id, fileName, resolvedMimetype, graphVersion);
     metaCloudMetrics.increment('connect_meta_compat_media_requests_total');
-    return { id: located.id, mime_type: mimetype || 'application/octet-stream', url };
+    return { id: located.id, mime_type: resolvedMimetype, url };
+  }
+
+  public async openPublicDownload(mediaId: string, token: string | undefined) {
+    this.cleanupExpiredDownloadTickets();
+    const ticket = token ? this.memoryDownloads.get(token) : null;
+    if (!ticket || ticket.mediaId !== mediaId || ticket.expiresAt <= Date.now()) {
+      throw new MetaCloudGraphError(404, `Media ${mediaId} was not found or the temporary URL has expired.`);
+    }
+
+    if (typeof this.storage.getObjectStream !== 'function') {
+      throw new MetaCloudGraphError(500, 'Media storage streaming is not available.');
+    }
+
+    const stream = await this.storage.getObjectStream(ticket.fileName);
+    if (!stream) throw new MetaCloudGraphError(500, 'Unable to read media from storage.');
+
+    return {
+      stream,
+      mimetype: ticket.mimetype,
+      fileName: ticket.fileName.split('/').pop() || 'media.bin',
+      expiresAt: ticket.expiresAt,
+    };
+  }
+
+  private issuePublicDownloadUrl(mediaId: string, fileName: string, mimetype: string, graphVersion: string): string {
+    if (!this.publicBaseUrl) {
+      throw new MetaCloudGraphError(500, 'SERVER_URL is required to expose temporary media downloads.');
+    }
+
+    this.cleanupExpiredDownloadTickets();
+    const token = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
+    this.memoryDownloads.set(token, {
+      mediaId,
+      fileName,
+      mimetype,
+      expiresAt: Date.now() + MEDIA_DOWNLOAD_TTL_SECONDS * 1000,
+    });
+
+    return `${this.publicBaseUrl}/graph/${encodeURIComponent(graphVersion)}/${encodeURIComponent(mediaId)}/content?token=${encodeURIComponent(token)}`;
+  }
+
+  private cleanupExpiredDownloadTickets() {
+    const now = Date.now();
+    for (const [token, ticket] of this.memoryDownloads.entries()) {
+      if (ticket.expiresAt <= now) this.memoryDownloads.delete(token);
+    }
   }
 
   private locateMessage(mediaId: string, message: any): LocatedMedia {
