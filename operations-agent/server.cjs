@@ -9,7 +9,10 @@ const { OperationalStore, publicEvent, SERVICES, validDay } = require('./store.c
 const { createStatistics } = require('./statistics.cjs');
 
 function equalSecret(left, right) {
-  return crypto.timingSafeEqual(crypto.createHash('sha256').update(left).digest(), crypto.createHash('sha256').update(right).digest());
+  if (typeof left !== 'string' || typeof right !== 'string' || !left || !right) return false;
+  const supplied = Buffer.from(left, 'utf8');
+  const expected = Buffer.from(right, 'utf8');
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 }
 function probe(check) {
   const start = Date.now();
@@ -152,4 +155,4 @@ if (require.main === module) {
     process.once('SIGINT', () => void close());
   }).catch(() => { console.error('Operations agent startup failed; verify configuration and data volume.'); process.exitCode = 1; });
 }
-module.exports = { createAgent };
+module.exports = { createAgent, equalSecret };
