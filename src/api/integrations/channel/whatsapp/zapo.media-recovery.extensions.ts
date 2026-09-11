@@ -1,8 +1,8 @@
 import { getBase64FromMediaMessageDto } from '@api/dto/chat.dto';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 
-import { ZapoParityStartupService } from './zapo.parity.extensions';
 import { isZapoMediaMessage, restorePersistedZapoMedia } from './zapo.media-recovery.helpers';
+import { ZapoParityStartupService } from './zapo.parity.extensions';
 
 /**
  * Final ZAPO media compatibility layer.
