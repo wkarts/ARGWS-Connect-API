@@ -81,6 +81,8 @@ test('persisted Zapo media restores Base64 key material before the native downlo
   assert.equal(sdk.resolveMediaPayload(persisted), null);
 
   const restored = mediaRecovery.restorePersistedZapoMedia(persisted);
+  assert.equal(typeof restored.documentMessage.fileLength.toNumber, 'function');
+  assert.equal(restored.documentMessage.fileLength.toNumber(), 1234);
   const resolved = sdk.resolveMediaPayload(restored);
 
   assert.ok(resolved);
@@ -89,6 +91,19 @@ test('persisted Zapo media restores Base64 key material before the native downlo
   assert.deepEqual(Buffer.from(resolved.mediaKey), key);
   assert.deepEqual(Buffer.from(resolved.fileSha256), sha);
   assert.deepEqual(Buffer.from(resolved.fileEncSha256), encSha);
+});
+
+test('persisted Zapo fileLength remains compatible when JSON already contains a number', () => {
+  const restored = mediaRecovery.restorePersistedZapoMedia({
+    audioMessage: {
+      directPath: '/audio',
+      mediaKey: Buffer.alloc(32, 7).toString('base64'),
+      fileLength: 4321,
+    },
+  });
+
+  assert.equal(typeof restored.audioMessage.fileLength.toNumber, 'function');
+  assert.equal(restored.audioMessage.fileLength.toNumber(), 4321);
 });
 
 test('persisted media recovery is recursive and does not decode unrelated application strings', () => {
