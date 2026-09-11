@@ -31,6 +31,7 @@ function loadTs(relativePath) {
 }
 
 const mediaRecovery = loadTs('src/api/integrations/channel/whatsapp/zapo.media-recovery.helpers.ts');
+const callContract = loadTs('src/api/integrations/channel/whatsapp/zapo.call-contract.helpers.ts');
 
 test('Zapo parity remains additive while persisted media recovery is the active final provider layer', () => {
   assert.match(channel, /ZapoMediaRecoveryStartupService/);
@@ -144,6 +145,61 @@ test('Zapo receipt events map to the same Connect API status vocabulary used by 
   assert.match(metaStatus, /case 'SERVER_ACK':[\s\S]*return 'sent'/);
   assert.match(metaStatus, /case 'DELIVERY_ACK':[\s\S]*return 'delivered'/);
   assert.match(metaStatus, /case 'READ':[\s\S]*return 'read'/);
+});
+
+test('Zapo native receipt alias produces delivery without fabricating read progression', () => {
+  assert.equal(callContract.normalizeZapoReceiptStatusForParity('receipt'), 'delivered');
+  assert.equal(callContract.normalizeZapoReceiptStatusForParity('RECEIPT'), 'delivered');
+  assert.equal(callContract.normalizeZapoReceiptStatusForParity('read'), 'read');
+  assert.equal(callContract.normalizeZapoReceiptStatusForParity('played'), 'played');
+});
+
+test('Zapo call lifecycle exposes provider-independent states while preserving raw fields', () => {
+  assert.equal(callContract.canonicalizeZapoCallStatus('state', { state: 'CALLING' }), 'ringing');
+  assert.equal(callContract.canonicalizeZapoCallStatus('state', { state: 'OFFER_RECEIVED' }), 'ringing');
+  assert.equal(callContract.canonicalizeZapoCallStatus('state', { state: 'CONNECTED' }), 'answered');
+  assert.equal(callContract.canonicalizeZapoCallStatus('state', { state: 'REJECTED' }), 'rejected');
+  assert.equal(callContract.canonicalizeZapoCallStatus('state', { state: 'FAILED' }), 'failed');
+
+  assert.equal(
+    callContract.canonicalizeZapoCallStatus('ended', {
+      direction: 'incoming',
+      stateData: { state: 'ENDED', reason: 'TIMEOUT' },
+    }),
+    'missed',
+  );
+  assert.equal(
+    callContract.canonicalizeZapoCallStatus('ended', {
+      direction: 'outgoing',
+      stateData: { state: 'ENDED', reason: 'TIMEOUT' },
+    }),
+    'unanswered',
+  );
+  assert.equal(
+    callContract.canonicalizeZapoCallStatus('ended', {
+      stateData: { state: 'ENDED', reason: 'ANSWERED_ON_OTHER_DEVICE' },
+    }),
+    'answered_elsewhere',
+  );
+
+  const payload = callContract.normalizeZapoCallWebhook({
+    action: 'state',
+    provider: 'WHATSAPP-ZAPO',
+    call: {
+      callId: 'call-1',
+      direction: 'incoming',
+      state: 'CONNECTED',
+      stateData: { state: 'CONNECTED' },
+    },
+  });
+
+  assert.equal(payload.action, 'state');
+  assert.equal(payload.provider, 'WHATSAPP-ZAPO');
+  assert.equal(payload.call.callId, 'call-1');
+  assert.equal(payload.call.state, 'CONNECTED');
+  assert.equal(payload.call.status, 'answered');
+  assert.equal(payload.call.providerState, 'CONNECTED');
+  assert.equal(payload.call.terminal, false);
 });
 
 test('Zapo live message/status ordering is serialized so receipts cannot overtake media messages', () => {
