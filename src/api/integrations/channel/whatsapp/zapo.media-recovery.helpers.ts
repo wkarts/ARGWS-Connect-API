@@ -22,11 +22,24 @@ const MEDIA_WRAPPER_KEYS = [
   'editedMessage',
 ] as const;
 
+type LongCompatible = {
+  low: number;
+  high: number;
+  unsigned: boolean;
+  toNumber: () => number;
+  toString: () => string;
+};
+
 /**
  * ZAPO media descriptors use Uint8Array for encryption/hash material.
  * Connect|API intentionally serializes Uint8Array values to Base64 before
  * persisting/emitting JSON. Rehydrate only the known binary media fields when
  * a persisted/webhook copy is handed back to the native ZAPO downloader.
+ *
+ * Zapo 1.6.x also expects protobuf int64 values such as fileLength to retain a
+ * Long-like toNumber() method. JSON persistence removes that prototype, so the
+ * recovery layer restores a minimal Long-compatible value without changing the
+ * canonical JSON representation stored by Connect|API.
  */
 export function restorePersistedZapoMedia<T>(value: T): T {
   if (value === null || value === undefined) return value;
@@ -46,9 +59,8 @@ export function restorePersistedZapoMedia<T>(value: T): T {
       continue;
     }
 
-    if (key === 'fileLength' && typeof current === 'string' && /^\d+$/.test(current)) {
-      const numeric = Number(current);
-      restored[key] = Number.isSafeInteger(numeric) ? numeric : current;
+    if (key === 'fileLength') {
+      restored[key] = restoreLongCompatibleField(current);
       continue;
     }
 
@@ -89,4 +101,38 @@ function restoreBase64Field(value: string, expectedLength: number): Uint8Array |
   } catch {
     return value;
   }
+}
+
+function restoreLongCompatibleField(value: unknown): unknown {
+  if (value && typeof value === 'object' && typeof (value as { toNumber?: unknown }).toNumber === 'function') {
+    return value;
+  }
+
+  let numeric: number | null = null;
+
+  if (typeof value === 'number') {
+    numeric = value;
+  } else if (typeof value === 'string' && /^\d+$/u.test(value.trim())) {
+    numeric = Number(value);
+  } else if (value && typeof value === 'object') {
+    const raw = value as { low?: unknown; high?: unknown; unsigned?: unknown };
+    if (typeof raw.low === 'number' && typeof raw.high === 'number') {
+      const low = raw.low >>> 0;
+      const high = raw.high >>> 0;
+      numeric = high * 0x100000000 + low;
+    }
+  }
+
+  if (numeric === null || !Number.isSafeInteger(numeric) || numeric < 0) return value;
+
+  const low = numeric >>> 0;
+  const high = Math.floor(numeric / 0x100000000) >>> 0;
+  const compatible: LongCompatible = {
+    low,
+    high,
+    unsigned: true,
+    toNumber: () => numeric,
+    toString: () => String(numeric),
+  };
+  return compatible;
 }
