@@ -18,8 +18,6 @@ import {
 } from '../src/api/services/local-template.definition';
 import { LocalTemplateService } from '../src/api/services/local-template.service';
 
-// Stateful repository double. It actually retains mutations and enforces the
-// scoped unique key; no provider, HTTP or production database is contacted.
 function repository() {
   const instances = [
     { id: 'a', name: 'local-a', integration: 'WHATSAPP-ZAPO', number: '5511999999999', token: 'a-token' },
@@ -86,7 +84,7 @@ export async function runLocalTemplateRegression() {
     assert.deepEqual((await local.list('local-a')).data, []);
     assert.equal(rows.length, 0);
   });
-  await check('real persisted hello for each local instance', async () => {
+  await check('real persisted hello for each local instance is approved opening template', async () => {
     for (const instanceId of ['a', 'b']) await db.localTemplate.create({ data: { ...defaultLocalTemplateRecord(), instanceId } });
     const a = (await local.list('local-a')).data[0];
     const b = (await local.list('local-b')).data[0];
@@ -94,8 +92,9 @@ export async function runLocalTemplateRegression() {
     assert.equal(a.components[0].text, DEFAULT_HELLO_TEXT);
     assert.equal(a.source, 'connectapi_local');
     assert.equal(a.execution, 'rendered_text');
-    assert.equal(a.status, 'LOCAL_READY');
-    assert.equal(a.meta_approved, false);
+    assert.equal(a.status, 'APPROVED');
+    assert.equal(a.approved, true);
+    assert.equal(a.category, 'OPENING');
     assert.equal((await local.render('local-a', args())).text, DEFAULT_HELLO_TEXT);
   });
   await check('same name in different instances and languages, no global unique collision', async () => {
@@ -157,9 +156,13 @@ export async function runLocalTemplateRegression() {
     assert.equal(rendered.text, 'Olá do cadastro A');
     assert.equal((await local.render('local-b', args())).text, DEFAULT_HELLO_TEXT);
   });
-  await check('disabled models cannot execute; reads do not enable them', async () => {
+  await check('disabled templates remain approved but cannot execute', async () => {
     await local.edit('local-a', { name: 'hello', language: 'pt_BR', version: 2, enabled: false });
-    assert.equal((await local.list('local-a')).data.find((item) => item.name === 'hello')?.status, 'LOCAL_DISABLED');
+    const disabled = (await local.list('local-a')).data.find((item) => item.name === 'hello');
+    assert.equal(disabled?.status, 'APPROVED');
+    assert.equal(disabled?.approved, true);
+    assert.equal(disabled?.enabled, false);
+    assert.equal(disabled?.available, false);
     await assert.rejects(local.render('local-a', args()), errorStatus(409));
     await local.edit('local-a', { name: 'hello', language: 'pt_BR', version: 3, enabled: true });
   });
@@ -184,7 +187,10 @@ export async function runLocalTemplateRegression() {
   const controller = new MetaCloudGraphController(resolver, new MetaCloudAuthService(() => 'admin-test'), adapter, {} as any, templates);
   await check('Graph listing matches second instance token for same phone (PR94)', async () => {
     const page = await controller.listTemplates('v14.0', instances[1].number!, 'Bearer b-token');
-    assert.ok(page.data.some((item: any) => item.name === 'hello'));
+    const hello = page.data.find((item: any) => item.name === 'hello');
+    assert.equal(hello?.status, 'APPROVED');
+    assert.equal(hello?.approved, true);
+    assert.equal(hello?.category, 'OPENING');
     await assert.rejects(controller.listTemplates('v14.0', instances[1].number!, 'Bearer invalid'), (e: any) => e.httpStatus === 401);
   });
   await check('Graph executes persisted Baileys hello once with no parameters, real ID and explicit provenance', async () => {
@@ -193,7 +199,8 @@ export async function runLocalTemplateRegression() {
     });
     assert.equal(result.messages[0].id, 'REAL_BAILEYS_ID');
     assert.equal(result.connect_api.template.source, 'connectapi_local');
-    assert.equal(result.connect_api.template.meta_approved, false);
+    assert.equal(result.connect_api.template.status, 'APPROVED');
+    assert.equal(result.connect_api.template.approved, true);
     assert.equal(sends.length, 1);
     assert.equal(sends[0].text, DEFAULT_HELLO_TEXT);
   });
