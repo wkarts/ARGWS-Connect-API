@@ -9,7 +9,8 @@ export interface LocalTemplate {
   components: Array<{ type: 'HEADER' | 'BODY' | 'FOOTER'; text: string; format?: 'TEXT' }>
   enabled: boolean
   available: boolean
-  status: 'LOCAL_READY' | 'LOCAL_DISABLED'
+  status: 'APPROVED'
+  approved: true
   source: 'connectapi_local'
   execution: 'rendered_text'
   version: number
