@@ -12,6 +12,7 @@ export class MetaCloudGraphRouter {
   public readonly router = Router();
   private readonly upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
   private readonly limiter = new MetaCloudRateLimiter();
+  private readonly mediaContentPath = '/:version/:mediaId/content';
 
   constructor() {
     this.router.use('/:version', (req, res, next) => {
@@ -68,11 +69,11 @@ export class MetaCloudGraphRouter {
       }),
     );
 
-    // Meta-compatible descriptors return a short-lived public Connect|API URL.
-    // The object itself remains on the private MinIO endpoint and is streamed by
-    // this route, so Docker-only S3 hostnames never escape to API consumers.
+    // Internal transport for the temporary URL returned by the documented
+    // media descriptor. Keep it out of generated OpenAPI: consumers still use
+    // GET /:mediaId and follow its opaque temporary `url`, as in Meta Cloud.
     this.router.get(
-      '/:version/:mediaId/content',
+      this.mediaContentPath,
       this.wrap(async (req, res) => {
         const token = typeof req.query.token === 'string' ? req.query.token : undefined;
         const media = await metaCloudGraphController.downloadMedia(req.params.mediaId, token);
