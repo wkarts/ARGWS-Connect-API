@@ -50,6 +50,10 @@
       "description": "Templates oficiais quando suportados."
     },
     {
+      "name": "Local Templates",
+      "description": "Modelos locais persistidos por instância ZAPO/Baileys; não são aprovação Meta."
+    },
+    {
       "name": "Settings",
       "description": "Configurações por instância."
     },
@@ -8044,6 +8048,272 @@
         }
       }
     },
+    "/localTemplate/create/{instanceName}": {
+      "post": {
+        "tags": [
+          "Local Templates"
+        ],
+        "summary": "Cadastrar modelo local",
+        "operationId": "post_localtemplate_create_instancename",
+        "description": "Nome e idioma únicos por instância, sem interação com o serviço Business oficial.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Operação concluída.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalTemplate"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Conflito de versão, nome reservado ou modelo indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/local-template.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalTemplateCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/localTemplate/delete/{instanceName}": {
+      "delete": {
+        "tags": [
+          "Local Templates"
+        ],
+        "summary": "Arquivar modelo local",
+        "operationId": "delete_localtemplate_delete_instancename",
+        "description": "Arquivamento lógico; bloqueia envios e mantém o nome reservado. A sincronização não recria hello.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo arquivado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Conflito de versão, nome reservado ou modelo indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/local-template.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalTemplateDelete"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/localTemplate/edit/{instanceName}": {
+      "post": {
+        "tags": [
+          "Local Templates"
+        ],
+        "summary": "Editar ou habilitar modelo local",
+        "operationId": "post_localtemplate_edit_instancename",
+        "description": "Nome/idioma imutáveis. version obrigatório evita sobrescrever uma edição concorrente.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalTemplate"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Conflito de versão, nome reservado ou modelo indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/local-template.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalTemplateEdit"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/localTemplate/find/{instanceName}": {
+      "get": {
+        "tags": [
+          "Local Templates"
+        ],
+        "summary": "Listar modelos locais da instância",
+        "operationId": "get_localtemplate_find_instancename",
+        "description": "Somente ZAPO/Baileys. Leitura paginada sem criar modelos e sem alterar habilitações. Token da instância no header apikey.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^lt_[a-f0-9-]{32,36}$"
+            },
+            "description": "Cursor retornado na página anterior; somente catálogo local."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            },
+            "description": "Até 100 modelos locais por página."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalTemplateList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Conflito de versão, nome reservado ou modelo indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/local-template.router.ts"
+      }
+    },
     "/message/sendButtons/{instanceName}": {
       "post": {
         "tags": [
@@ -8784,9 +9054,9 @@
         "tags": [
           "Messages"
         ],
-        "summary": "Send Template",
+        "summary": "Enviar template oficial ou modelo local",
         "operationId": "post_message_sendtemplate_instancename",
-        "description": "Endpoint descoberto do código em `src/api/routes/sendMessage.router.ts`.",
+        "description": "Business: preserva o encaminhamento oficial. ZAPO/Baileys: busca cadastro da instância, valida situação/versão/parâmetros, renderiza texto e usa o envio nativo. Sem fallback livre. IDs de mensagem são reais; resposta local inclui connect_api.template com origem e versão.",
         "parameters": [
           {
             "name": "instanceName",
@@ -8805,25 +9075,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
           "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
+            "description": "Resposta real do provider; em modelos locais inclui connect_api.template."
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -8833,16 +9086,18 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Conflito de versão, nome reservado ou modelo indisponível."
           }
         },
         "x-source-file": "src/api/routes/sendMessage.router.ts",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/SendTemplateRequest"
               }
             }
           }
@@ -13605,6 +13860,354 @@
           }
         },
         "additionalProperties": false
+      },
+      "LocalTemplateComponent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "BODY"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "HEADER"
+              },
+              "format": {
+                "const": "TEXT"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "FOOTER"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "LocalTemplateCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "components": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplateComponent"
+            },
+            "description": "BODY obrigatório; HEADER/FOOTER opcionais e fixos. Somente BODY aceita variáveis consecutivas {{1}} a {{20}}. Total renderizado: até 4096 caracteres."
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "name",
+          "language",
+          "components"
+        ],
+        "additionalProperties": false
+      },
+      "LocalTemplateEdit": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          },
+          "components": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplateComponent"
+            },
+            "description": "BODY obrigatório; HEADER/FOOTER opcionais e fixos. Somente BODY aceita variáveis consecutivas {{1}} a {{20}}. Total renderizado: até 4096 caracteres."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "language",
+          "version"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "components"
+            ]
+          },
+          {
+            "required": [
+              "enabled"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "LocalTemplateDelete": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          }
+        },
+        "required": [
+          "name",
+          "language",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "LocalTemplate": {
+        "type": "object",
+        "description": "Modelo persistido da Connect|API. Não possui aprovação Meta e é executado explicitamente como texto renderizado do cadastro.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          },
+          "components": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplateComponent"
+            },
+            "description": "BODY obrigatório; HEADER/FOOTER opcionais e fixos. Somente BODY aceita variáveis consecutivas {{1}} a {{20}}. Total renderizado: até 4096 caracteres."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "LOCAL_READY",
+              "LOCAL_DISABLED"
+            ]
+          },
+          "source": {
+            "const": "connectapi_local"
+          },
+          "execution": {
+            "const": "rendered_text"
+          },
+          "meta_approved": {
+            "const": false
+          },
+          "category": {
+            "const": "UTILITY"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "language",
+          "components",
+          "version",
+          "enabled",
+          "available",
+          "status",
+          "source",
+          "execution",
+          "meta_approved"
+        ]
+      },
+      "LocalTemplateList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplate"
+            }
+          },
+          "paging": {
+            "type": "object",
+            "properties": {
+              "cursors": {
+                "type": "object",
+                "properties": {
+                  "after": {
+                    "type": "string"
+                  }
+                }
+              },
+              "next": {
+                "type": "string",
+                "description": "Referência relativa para a próxima página no mesmo recurso."
+              }
+            }
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "const": "connectapi_local"
+              },
+              "execution": {
+                "const": "rendered_text"
+              },
+              "meta_approved": {
+                "const": false
+              }
+            }
+          }
+        },
+        "required": [
+          "data",
+          "connect_api"
+        ]
+      },
+      "SendTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "description": "Telefone internacional do destinatário."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          },
+          "components": {
+            "type": "array",
+            "description": "Parâmetros do envio, não a definição do modelo. Local: body/parameters com type=text; nenhuma mensagem livre de fallback.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "parameters"
+              ]
+            }
+          }
+        },
+        "required": [
+          "number",
+          "name",
+          "language"
+        ],
+        "additionalProperties": true
       },
       "GenericResponse": {
         "type": "object",

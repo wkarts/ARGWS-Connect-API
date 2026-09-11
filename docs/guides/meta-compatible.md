@@ -84,6 +84,7 @@ contacts
 reaction
 interactive button
 interactive list
+template
 mark-read
 ```
 
@@ -112,8 +113,11 @@ GET /graph/{version}/{businessAccountId}/message_templates
 ```
 
 - `WHATSAPP-BUSINESS`: delega ao serviço real de templates;
-- `WHATSAPP-BAILEYS`: lista vazia (`data: []`);
-- `WHATSAPP-ZAPO`: lista vazia (`data: []`) enquanto templates nativos não forem expostos pelo adapter.
+- `WHATSAPP-BAILEYS` e `WHATSAPP-ZAPO`: catálogo local persistido por instância, com `source=connectapi_local`, `execution=rendered_text`, `meta_approved=false` e estados `LOCAL_READY`/`LOCAL_DISABLED`;
+- resultados locais paginados com `after`/`limit` (até 100) e `paging.next` relativo ao mesmo recurso;
+- `type: template` agora é aceito em `/messages`: Business preserva o envio oficial; conexões locais validam e executam exclusivamente um cadastro disponível. Modelo inexistente/desabilitado, versão divergente ou parâmetros inválidos impedem o envio.
+
+Consulte [Modelos locais e integração com o HUB](local-templates.md).
 
 ## Webhooks
 

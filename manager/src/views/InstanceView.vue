@@ -11,6 +11,7 @@ import { featureEnabled } from '@/config/runtime'
 import { useSessionStore } from '@/stores/session'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
+import { instanceTokenSupported } from '@/services/instance-token'
 import { friendlyError } from '@/services/errors'
 import type { ProviderMigrationResult, WhatsAppProvider } from '@/types/domain'
 
@@ -187,6 +188,7 @@ onBeforeUnmount(stopWatch)
       <button class="btn ghost" :disabled="busy" @click="load"><AppIcon name="refresh" :size="16"/>Atualizar</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)">Integrações</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracao`)">Configurações</button>
+      <button v-if="canMigrate && instanceTokenSupported()" class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/modelos`)">Modelos de mensagem</button>
       <button class="btn ghost" :disabled="busy" @click="restart">Reiniciar</button>
       <button class="btn danger" :disabled="busy || !connected" @click="disconnect">Desconectar</button>
     </PageHeader>

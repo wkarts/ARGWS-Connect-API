@@ -12,6 +12,7 @@ import { waMonitor } from '@api/server.module';
 import { observeOperations } from '@api/services/operations.service';
 import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
+import { HttpStatus } from '@utils/http-status';
 import express, { NextFunction, Request, Response, Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -22,22 +23,13 @@ import { ChatRouter } from './chat.router';
 import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
+import { LocalTemplateRouter } from './local-template.router';
 import { OperationsRouter } from './operations.router';
 import { ProxyRouter } from './proxy.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
 import { TemplateRouter } from './template.router';
 import { ViewsRouter } from './view.router';
-
-enum HttpStatus {
-  OK = 200,
-  CREATED = 201,
-  NOT_FOUND = 404,
-  FORBIDDEN = 403,
-  BAD_REQUEST = 400,
-  UNAUTHORIZED = 401,
-  INTERNAL_SERVER_ERROR = 500,
-}
 
 const router: Router = Router();
 router.use(observeOperations);
@@ -217,6 +209,7 @@ router
   .use('/chat', new ChatRouter(...guards).router)
   .use('/business', new BusinessRouter(...guards).router)
   .use('/group', new GroupRouter(...guards).router)
+  .use('/localTemplate', new LocalTemplateRouter(...guards).router)
   .use('/template', new TemplateRouter(configService, ...guards).router)
   .use('/settings', new SettingsRouter(...guards).router)
   .use('/proxy', new ProxyRouter(...guards).router)

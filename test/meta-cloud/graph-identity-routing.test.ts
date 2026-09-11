@@ -42,7 +42,7 @@ function setup(records: any[] = [oldInstance, hubInstance, otherInstance]) {
       calls.push({ operation: 'templates', instanceName: identity.instanceName });
       return { data: [{ name: 'actual-template', language: 'pt_BR', components: [] }] };
     },
-  } as any);
+  } as any, { list: async () => ({ data: [] }) } as any);
   const controller = new MetaCloudGraphController(
     resolver,
     auth,
@@ -84,7 +84,7 @@ export async function runGraphIdentityRoutingRegression() {
   await check('HUB template sync accepts the second instance token for a shared number', async () => {
     const { controller, calls } = setup();
     assert.deepEqual(await controller.listTemplates('v14.0', phone, 'Bearer hub-instance-token'), { data: [] });
-    assert.deepEqual(calls, []); // Zapo has no fabricated catalog or official-provider delegation.
+    assert.deepEqual(calls, []); // Authorization-only fixture: local list is mocked empty; template feature has separate coverage.
   });
 
   await check('phone and business IDs prefer the matching instance token', async () => {

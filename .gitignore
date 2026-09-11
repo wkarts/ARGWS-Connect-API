@@ -53,3 +53,7 @@ lerna-debug.log*
 !/test/meta-cloud/
 /test/meta-cloud/*
 !/test/meta-cloud/webhook-identity.test.ts
+
+# Local-template regression suites are part of the reviewed feature.
+!/test/local-templates.test.ts
+!/test/local-template.database.test.ts

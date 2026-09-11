@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { localTemplateSchemas, localTemplateOperations, localTemplatePagination } from './local-template-schemas.mjs';
 import { operationsStatisticsOperation } from './operations-statistics-schema.mjs';
 import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
 
@@ -59,7 +60,7 @@ function tagFromPath(apiPath, sourceFile) {
   const segment = apiPath.split('/').filter(Boolean)[0];
   const map = {
     instance: 'Instances', message: 'Messages', chat: 'Chats & Contacts', group: 'Groups', business: 'Business',
-    call: 'Calls', template: 'Templates', settings: 'Settings', proxy: 'Proxy', label: 'Labels', webhook: 'Webhooks',
+    call: 'Calls', localTemplate: 'Local Templates', template: 'Templates', settings: 'Settings', proxy: 'Proxy', label: 'Labels', webhook: 'Webhooks',
     websocket: 'WebSocket', rabbitmq: 'RabbitMQ', nats: 'NATS', pusher: 'Pusher', sqs: 'SQS', kafka: 'Kafka',
     s3: 'Storage', storage: 'Storage', minio: 'Storage', chatbot: 'Chatbots', typebot: 'Chatbots', openai: 'Chatbots',
     dify: 'Chatbots', flowise: 'Chatbots', n8n: 'Chatbots', evoai: 'Chatbots', connectai: 'Chatbots',
@@ -192,6 +193,7 @@ function discoverRoutes() {
 }
 
 const requestOverrides = {
+  ...localTemplateOperations,
   'GET /operations/statistics': operationsStatisticsOperation,
   "GET /operations/snapshot": {"summary": "Resumo operacional privado", "description": "Exige a API key global. Somente verificações técnicas, sem canais ou conteúdo de mensagens. Retorna 503 quando o monitoramento está desabilitado ou indisponível."},
   "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
@@ -352,7 +354,7 @@ function nativeSpec(routes, version) {
       { name: 'Core', description: 'Healthcheck, descoberta e utilidades globais.' }, { name: 'Instances', description: 'Criação, conexão, estado, logout, restart e exclusão.' },
       { name: 'Messages', description: 'Texto, mídia, áudio, PTV, sticker, localização, contatos, reações, enquetes, listas e botões.' },
       { name: 'Chats & Contacts', description: 'Chats, contatos, mensagens persistidas, perfil, presença e privacidade.' }, { name: 'Groups', description: 'Criação e administração de grupos.' },
-      { name: 'Business', description: 'Recursos business suportados pelo provider.' }, { name: 'Calls', description: 'Recursos de chamadas.' }, { name: 'Templates', description: 'Templates oficiais quando suportados.' },
+      { name: 'Business', description: 'Recursos business suportados pelo provider.' }, { name: 'Calls', description: 'Recursos de chamadas.' }, { name: 'Templates', description: 'Templates oficiais quando suportados.' }, { name: 'Local Templates', description: 'Modelos locais persistidos por instância ZAPO/Baileys; não são aprovação Meta.' },
       { name: 'Settings', description: 'Configurações por instância.' }, { name: 'Proxy', description: 'Proxy por instância.' }, { name: 'Labels', description: 'Labels e associações.' },
       { name: 'Webhooks', description: 'Configuração e recebimento de webhooks.' }, { name: 'WebSocket', description: 'Eventos via WebSocket.' }, { name: 'RabbitMQ', description: 'Eventos via RabbitMQ.' },
       { name: 'NATS', description: 'NATS opcional.' }, { name: 'Pusher', description: 'Pusher opcional.' }, { name: 'SQS', description: 'AWS SQS opcional.' }, { name: 'Kafka', description: 'Kafka opcional.' },
@@ -364,6 +366,7 @@ function nativeSpec(routes, version) {
       securitySchemes: { apiKey: { type: 'apiKey', in: 'header', name: 'apikey', description: 'Chave global da API ou token autorizado da instância.' } },
       schemas: {
         ...metaCompatibilityAdminSchemas,
+        ...localTemplateSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
@@ -398,7 +401,7 @@ function graphSpec(version) {
         post: {
           tags: ['Messages'], summary: 'Enviar mensagem compatível com Meta', operationId: 'meta_send_message', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
-          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMessageRequest' }, examples: { text: { value: { messaging_product: 'whatsapp', recipient_type: 'individual', to: '5575999999999', type: 'text', text: { body: 'Olá pelo /graph' } } }, reaction: { value: { messaging_product: 'whatsapp', to: '5575999999999', type: 'reaction', reaction: { message_id: 'REAL_PROVIDER_ID', emoji: '👍' } } }, read: { value: { messaging_product: 'whatsapp', status: 'read', message_id: 'REAL_PROVIDER_ID' } } } } } },
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMessageRequest' }, examples: { template: { value: { messaging_product: 'whatsapp', to: '5575999999999', type: 'template', template: { name: 'hello', language: { code: 'pt_BR' }, components: [] } } }, text: { value: { messaging_product: 'whatsapp', recipient_type: 'individual', to: '5575999999999', type: 'text', text: { body: 'Olá pelo /graph' } } }, reaction: { value: { messaging_product: 'whatsapp', to: '5575999999999', type: 'reaction', reaction: { message_id: 'REAL_PROVIDER_ID', emoji: '👍' } } }, read: { value: { messaging_product: 'whatsapp', status: 'read', message_id: 'REAL_PROVIDER_ID' } } } } } },
           responses: { '200': { description: 'Mensagem enviada ou leitura confirmada.', content: { 'application/json': { schema: { oneOf: [{ $ref: '#/components/schemas/MetaMessageResponse' }, { $ref: '#/components/schemas/MetaReadReceiptResponse' }] } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
         },
       },
@@ -413,8 +416,8 @@ function graphSpec(version) {
       '/{version}/{businessAccountId}/message_templates': {
         get: {
           tags: ['Templates'], summary: 'Listar templates', operationId: 'meta_list_templates', security: [{ bearerAuth: [] }],
-          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'businessAccountId', in: 'path', required: true, schema: { type: 'string' } }, ...localTemplatePagination],
+          responses: { '200': { description: 'Business: catálogo oficial. ZAPO/Baileys: catálogo local persistido, paginado, source=connectapi_local e status LOCAL_READY/LOCAL_DISABLED. Não representa aprovação Meta.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTemplateListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{mediaId}': {

@@ -1,3 +1,5 @@
+import { localTemplateSchemas } from './local-template-schemas.mjs';
+
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
 
 const string = (description, extra = {}) => ({ type: 'string', ...(description ? { description } : {}), ...extra });
@@ -29,6 +31,21 @@ export const metaCompatibilityAdminSchemas = {
 };
 
 export const metaCompatibleSchemas = {
+  ...localTemplateSchemas,
+  MetaTemplateMessageRequest: {
+    allOf: [ref('MetaMessageBase'), {
+      type: 'object', properties: {
+        type: { const: 'template' },
+        template: { type: 'object', properties: {
+          name: { type: 'string', minLength: 1 },
+          language: { type: 'object', properties: { code: { type: 'string', minLength: 1 }, policy: { const: 'deterministic' } }, required: ['code'] },
+          components: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Parâmetros do envio. Modelos locais aceitam somente parâmetros BODY de texto, não definições arbitrárias.' },
+          connect_api_version: { type: 'integer', minimum: 1, description: 'Versão opcional do modelo local. Divergência retorna 409.' },
+        }, required: ['name', 'language'] },
+      }, required: ['type', 'template'],
+    }],
+    description: 'Business mantém o envio oficial. ZAPO/Baileys executam modelo local persistido como texto; sem aprovação Meta e sem fallback de conteúdo.',
+  },
   MetaTextContent: {
     type: 'object',
     properties: { body: string('Texto da mensagem.') },
@@ -277,7 +294,7 @@ export const metaCompatibleSchemas = {
   },
   MetaMessageRequest: {
     oneOf: [
-      ref('MetaTextMessageRequest'), ref('MetaImageMessageRequest'), ref('MetaVideoMessageRequest'),
+      ref('MetaTemplateMessageRequest'), ref('MetaTextMessageRequest'), ref('MetaImageMessageRequest'), ref('MetaVideoMessageRequest'),
       ref('MetaDocumentMessageRequest'), ref('MetaAudioMessageRequest'), ref('MetaLocationMessageRequest'),
       ref('MetaContactsMessageRequest'), ref('MetaReactionMessageRequest'), ref('MetaInteractiveMessageRequest'),
       ref('MetaReadReceiptRequest'),
@@ -302,6 +319,7 @@ export const metaCompatibleSchemas = {
       messaging_product: { type: 'string', const: 'whatsapp' },
       contacts: { type: 'array', items: ref('MetaMessageContact') },
       messages: { type: 'array', items: ref('MetaMessageId') },
+      connect_api: { type: 'object', properties: { template: { type: 'object', description: 'Origem, id e versão do modelo local efetivamente executado.', additionalProperties: true } } },
     },
     required: ['messaging_product', 'contacts', 'messages'],
     additionalProperties: false,
@@ -339,7 +357,7 @@ export const metaCompatibleSchemas = {
   },
   MetaTemplate: {
     type: 'object',
-    description: 'Template retornado pelo provider oficial. A estrutura adicional é preservada porque varia conforme o provider/versão.',
+    description: 'Template oficial ou modelo local. A origem local é explicitada por source=connectapi_local, execution=rendered_text e meta_approved=false; status local não é APPROVED.',
     properties: {
       id: string('Identificador do template.'),
       name: string('Nome do template.'),
@@ -352,7 +370,7 @@ export const metaCompatibleSchemas = {
   },
   MetaTemplateListResponse: {
     type: 'object',
-    properties: { data: { type: 'array', items: ref('MetaTemplate') } },
+    properties: { data: { type: 'array', items: { anyOf: [ref('MetaTemplate'), ref('LocalTemplate')] } }, paging: { type: 'object', additionalProperties: true }, connect_api: { type: 'object', additionalProperties: true } },
     required: ['data'],
     additionalProperties: true,
   },

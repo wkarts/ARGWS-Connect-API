@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-11T18:33:28.740Z",
+  "generatedAt": "2026-09-11T22:02:42.319Z",
   "version": "1.0.26",
-  "sourceDigest": "e010482a4b428563c846cc23e916cca991fa3081d1639b413aa2520e439d2423",
+  "sourceDigest": "76554669549f2e661389ade7136341e6273c296a5f8f22ad74d7b6a0fda7ffaf",
   "operations": [
     {
       "method": "GET",
@@ -587,6 +587,26 @@
       "method": "POST",
       "path": "/label/handleLabel/{instanceName}",
       "source": "src/api/routes/label.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/localTemplate/create/{instanceName}",
+      "source": "src/api/routes/local-template.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/localTemplate/delete/{instanceName}",
+      "source": "src/api/routes/local-template.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/localTemplate/edit/{instanceName}",
+      "source": "src/api/routes/local-template.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/localTemplate/find/{instanceName}",
+      "source": "src/api/routes/local-template.router.ts"
     },
     {
       "method": "POST",

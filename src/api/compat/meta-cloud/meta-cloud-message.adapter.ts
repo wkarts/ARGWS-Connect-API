@@ -32,6 +32,28 @@ export class MetaCloudMessageAdapter {
     let result: any;
 
     switch (payload.type) {
+      case 'template': {
+        const template = payload.template;
+        if (
+          !template?.name ||
+          !template.language?.code ||
+          (template.components !== undefined && !Array.isArray(template.components))
+        ) {
+          throw new MetaCloudGraphError(
+            400,
+            'template.name, template.language.code and valid components are required.',
+          );
+        }
+        result = await this.sendController.sendTemplate(instance, {
+          number: to,
+          name: template.name,
+          // Official Business needs the Graph language object; local rendering also accepts it.
+          language: template.language as any,
+          components: template.components || [],
+          version: template.connect_api_version,
+        });
+        break;
+      }
       case 'text':
         if (!payload.text?.body) throw new MetaCloudGraphError(400, 'text.body is required.');
         result = await this.sendController.sendText(instance, { number: to, text: payload.text.body });
@@ -101,7 +123,10 @@ export class MetaCloudMessageAdapter {
       default:
         throw new MetaCloudGraphError(400, `Message type ${String(payload.type)} is not supported by this provider.`);
     }
-    return this.responseSerializer.messageResponse(to, result);
+    const response = this.responseSerializer.messageResponse(to, result);
+    return payload.type === 'template' && result?.connect_api?.template?.source === 'connectapi_local'
+      ? { ...response, connect_api: result.connect_api }
+      : response;
   }
 
   private async sendInteractive(instance: any, to: string, interactive: any) {

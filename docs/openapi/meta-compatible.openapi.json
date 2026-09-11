@@ -68,6 +68,20 @@
                 "$ref": "#/components/schemas/MetaMessageRequest"
               },
               "examples": {
+                "template": {
+                  "value": {
+                    "messaging_product": "whatsapp",
+                    "to": "5575999999999",
+                    "type": "template",
+                    "template": {
+                      "name": "hello",
+                      "language": {
+                        "code": "pt_BR"
+                      },
+                      "components": []
+                    }
+                  }
+                },
                 "text": {
                   "value": {
                     "messaging_product": "whatsapp",
@@ -226,11 +240,31 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^lt_[a-f0-9-]{32,36}$"
+            },
+            "description": "Cursor retornado na página anterior; somente catálogo local."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            },
+            "description": "Até 100 modelos locais por página."
           }
         ],
         "responses": {
           "200": {
-            "description": "Lista Meta-shaped. WHATSAPP-BAILEYS e WHATSAPP-ZAPO retornam `data: []`.",
+            "description": "Business: catálogo oficial. ZAPO/Baileys: catálogo local persistido, paginado, source=connectapi_local e status LOCAL_READY/LOCAL_DISABLED. Não representa aprovação Meta.",
             "content": {
               "application/json": {
                 "schema": {
@@ -309,6 +343,415 @@
       }
     },
     "schemas": {
+      "LocalTemplateComponent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "BODY"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "HEADER"
+              },
+              "format": {
+                "const": "TEXT"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "FOOTER"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "LocalTemplateCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "components": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplateComponent"
+            },
+            "description": "BODY obrigatório; HEADER/FOOTER opcionais e fixos. Somente BODY aceita variáveis consecutivas {{1}} a {{20}}. Total renderizado: até 4096 caracteres."
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "name",
+          "language",
+          "components"
+        ],
+        "additionalProperties": false
+      },
+      "LocalTemplateEdit": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          },
+          "components": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplateComponent"
+            },
+            "description": "BODY obrigatório; HEADER/FOOTER opcionais e fixos. Somente BODY aceita variáveis consecutivas {{1}} a {{20}}. Total renderizado: até 4096 caracteres."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "language",
+          "version"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "components"
+            ]
+          },
+          {
+            "required": [
+              "enabled"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "LocalTemplateDelete": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          }
+        },
+        "required": [
+          "name",
+          "language",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "LocalTemplate": {
+        "type": "object",
+        "description": "Modelo persistido da Connect|API. Não possui aprovação Meta e é executado explicitamente como texto renderizado do cadastro.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          },
+          "components": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplateComponent"
+            },
+            "description": "BODY obrigatório; HEADER/FOOTER opcionais e fixos. Somente BODY aceita variáveis consecutivas {{1}} a {{20}}. Total renderizado: até 4096 caracteres."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "LOCAL_READY",
+              "LOCAL_DISABLED"
+            ]
+          },
+          "source": {
+            "const": "connectapi_local"
+          },
+          "execution": {
+            "const": "rendered_text"
+          },
+          "meta_approved": {
+            "const": false
+          },
+          "category": {
+            "const": "UTILITY"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "language",
+          "components",
+          "version",
+          "enabled",
+          "available",
+          "status",
+          "source",
+          "execution",
+          "meta_approved"
+        ]
+      },
+      "LocalTemplateList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LocalTemplate"
+            }
+          },
+          "paging": {
+            "type": "object",
+            "properties": {
+              "cursors": {
+                "type": "object",
+                "properties": {
+                  "after": {
+                    "type": "string"
+                  }
+                }
+              },
+              "next": {
+                "type": "string",
+                "description": "Referência relativa para a próxima página no mesmo recurso."
+              }
+            }
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "const": "connectapi_local"
+              },
+              "execution": {
+                "const": "rendered_text"
+              },
+              "meta_approved": {
+                "const": false
+              }
+            }
+          }
+        },
+        "required": [
+          "data",
+          "connect_api"
+        ]
+      },
+      "SendTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "description": "Telefone internacional do destinatário."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "example": "hello"
+          },
+          "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(?:_[A-Z]{2})?$",
+            "example": "pt_BR"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Versão do cadastro. Alterações concorrentes retornam 409."
+          },
+          "components": {
+            "type": "array",
+            "description": "Parâmetros do envio, não a definição do modelo. Local: body/parameters com type=text; nenhuma mensagem livre de fallback.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "parameters"
+              ]
+            }
+          }
+        },
+        "required": [
+          "number",
+          "name",
+          "language"
+        ],
+        "additionalProperties": true
+      },
+      "MetaTemplateMessageRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MetaMessageBase"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "template"
+              },
+              "template": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "language": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "policy": {
+                        "const": "deterministic"
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ]
+                  },
+                  "components": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "description": "Parâmetros do envio. Modelos locais aceitam somente parâmetros BODY de texto, não definições arbitrárias."
+                  },
+                  "connect_api_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Versão opcional do modelo local. Divergência retorna 409."
+                  }
+                },
+                "required": [
+                  "name",
+                  "language"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "template"
+            ]
+          }
+        ],
+        "description": "Business mantém o envio oficial. ZAPO/Baileys executam modelo local persistido como texto; sem aprovação Meta e sem fallback de conteúdo."
+      },
       "MetaTextContent": {
         "type": "object",
         "properties": {
@@ -1082,6 +1525,9 @@
       "MetaMessageRequest": {
         "oneOf": [
           {
+            "$ref": "#/components/schemas/MetaTemplateMessageRequest"
+          },
+          {
             "$ref": "#/components/schemas/MetaTextMessageRequest"
           },
           {
@@ -1162,6 +1608,16 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MetaMessageId"
+            }
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "template": {
+                "type": "object",
+                "description": "Origem, id e versão do modelo local efetivamente executado.",
+                "additionalProperties": true
+              }
             }
           }
         },
@@ -1244,7 +1700,7 @@
       },
       "MetaTemplate": {
         "type": "object",
-        "description": "Template retornado pelo provider oficial. A estrutura adicional é preservada porque varia conforme o provider/versão.",
+        "description": "Template oficial ou modelo local. A origem local é explicitada por source=connectapi_local, execution=rendered_text e meta_approved=false; status local não é APPROVED.",
         "properties": {
           "id": {
             "type": "string",
@@ -1282,8 +1738,23 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/MetaTemplate"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MetaTemplate"
+                },
+                {
+                  "$ref": "#/components/schemas/LocalTemplate"
+                }
+              ]
             }
+          },
+          "paging": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "connect_api": {
+            "type": "object",
+            "additionalProperties": true
           }
         },
         "required": [
