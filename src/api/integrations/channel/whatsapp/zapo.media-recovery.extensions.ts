@@ -1,18 +1,19 @@
 import { getBase64FromMediaMessageDto } from '@api/dto/chat.dto';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 
+import { ZapoCallContractStartupService } from './zapo.call-contract.extensions';
 import { isZapoMediaMessage, restorePersistedZapoMedia } from './zapo.media-recovery.helpers';
-import { ZapoParityStartupService } from './zapo.parity.extensions';
 
 /**
  * Final ZAPO media compatibility layer.
  *
- * ZapoParityStartupService already owns live raw-event media hydration, S3 and
- * receipt parity. This class only fixes the later/fallback path used by generic
- * Connect|API consumers (HUB included): persisted/webhook JSON has binary ZAPO
- * key material encoded as Base64, while zapo-js requires Uint8Array.
+ * ZapoCallContractStartupService owns receipt/call compatibility above the
+ * existing ZapoParityStartupService media pipeline. This class only fixes the
+ * later/fallback path used by generic Connect|API consumers (HUB included):
+ * persisted/webhook JSON has binary ZAPO key material encoded as Base64, while
+ * zapo-js requires Uint8Array.
  */
-export class ZapoMediaRecoveryStartupService extends ZapoParityStartupService {
+export class ZapoMediaRecoveryStartupService extends ZapoCallContractStartupService {
   private async findPersistedMessage(messageId: string) {
     if (!messageId) return null;
 
