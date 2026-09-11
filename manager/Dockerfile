@@ -14,6 +14,7 @@ RUN npm run test
 
 FROM ${NGINX_IMAGE}
 ARG APP_VERSION
+ENV CONNECT_API_VERSION="${APP_VERSION}"
 LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.title="Connect|API Web" \
       org.opencontainers.image.description="Connect|API interface" \

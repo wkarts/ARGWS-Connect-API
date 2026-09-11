@@ -8,6 +8,7 @@ declare interface Window {
     requestTimeoutMs?: number
     compatibility?: 'current' | 'service'
     authMode?: 'access-code' | 'account'
+    appVersion?: string
     features?: Record<string, boolean>
   }
 }

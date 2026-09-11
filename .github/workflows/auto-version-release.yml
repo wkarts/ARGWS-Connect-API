@@ -418,3 +418,29 @@ jobs:
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
             "${notes_args[@]}"
+      - name: Fast-forward develop to the released main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha="${{ needs.version-source.outputs.release_sha }}"
+          git fetch origin main develop --prune
+          main_sha="$(git rev-parse origin/main)"
+          develop_sha="$(git rev-parse origin/develop)"
+
+          if [[ "$main_sha" != "$release_sha" ]]; then
+            echo "main moved after release publication ($main_sha != $release_sha); develop was not changed." >&2
+            exit 1
+          fi
+
+          if [[ "$develop_sha" == "$release_sha" ]]; then
+            echo "develop already points to the released commit."
+            exit 0
+          fi
+
+          if ! git merge-base --is-ancestor "$develop_sha" "$release_sha"; then
+            echo "develop diverged during the release; refusing to overwrite it. Reconcile main -> develop normally." >&2
+            exit 1
+          fi
+
+          git push origin "$release_sha:refs/heads/develop"
+          echo "develop fast-forwarded to $release_sha."

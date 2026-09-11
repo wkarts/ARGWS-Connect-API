@@ -11,6 +11,20 @@ function envBoolean(name: string, fallback: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
+function readApplicationVersion(): string {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')) as {
+      version?: unknown;
+    };
+    const version = String(packageJson.version || '').trim();
+    return version || 'develop';
+  } catch {
+    return 'develop';
+  }
+}
+
+const applicationVersion = readApplicationVersion();
+
 function managerRuntimeConfig() {
   return {
     compatibility: 'current',
@@ -18,6 +32,7 @@ function managerRuntimeConfig() {
     serviceBasePath: '/manager-api/v1',
     requestTimeoutMs: Number.parseInt(process.env.MANAGER_REQUEST_TIMEOUT_MS || '30000', 10) || 30000,
     authMode: process.env.MANAGER_AUTH_MODE === 'account' ? 'account' : 'access-code',
+    appVersion: applicationVersion,
     features: managerFeatures(),
   };
 }

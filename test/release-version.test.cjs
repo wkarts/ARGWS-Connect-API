@@ -88,3 +88,12 @@ test('release workflow retains main-only publication, three components and scope
   assert.ok(source.includes('Release metadata must never modify workflows.'));
   assert.doesNotMatch(source, /git push[^\n]*(?:--force|\s-f(?:\s|$))/);
 });
+
+test('release workflow synchronizes develop only by safe fast-forward after publication', () => {
+  const source = fs.readFileSync(path.join(root, '.github/workflows/auto-version-release.yml'), 'utf8');
+  assert.ok(source.includes('Fast-forward develop to the released main commit'));
+  assert.ok(source.includes('git merge-base --is-ancestor "$develop_sha" "$release_sha"'));
+  assert.ok(source.includes('git push origin "$release_sha:refs/heads/develop"'));
+  assert.ok(source.includes('develop diverged during the release; refusing to overwrite it.'));
+  assert.doesNotMatch(source, /git push[^\n]*(?:--force|\s-f(?:\s|$))/);
+});

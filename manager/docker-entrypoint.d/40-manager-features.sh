@@ -7,12 +7,17 @@ boolean() {
   [ -n "$value" ] || value=$2
   case "$value" in 1|true|yes|on) printf true ;; *) printf false ;; esac
 }
+version_value=${CONNECT_API_VERSION:-develop}
+case "$version_value" in
+  ''|*[!0-9A-Za-z.+_-]*) version_value=develop ;;
+esac
+
 template=${1:-/etc/connect/runtime-config.base.js}
 output=${2:-/usr/share/nginx/html/assets/runtime-config.js}
 tmp="${output}.tmp"
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 cat "$template" > "$tmp"
-printf '\nwindow.__CONNECT_WEB__ = Object.freeze({...window.__CONNECT_WEB__, features: Object.freeze({...window.__CONNECT_WEB__.features' >> "$tmp"
+printf '\nwindow.__CONNECT_WEB__ = Object.freeze({...window.__CONNECT_WEB__, appVersion:"%s", features: Object.freeze({...window.__CONNECT_WEB__.features' "$version_value" >> "$tmp"
 printf ',voice:%s' "$(boolean "${MANAGER_FEATURE_VOICE-}" "true")" >> "$tmp"
 printf ',voiceExtensions:%s' "$(boolean "${MANAGER_FEATURE_VOICE_EXTENSIONS-}" "false")" >> "$tmp"
 printf ',voiceQueues:%s' "$(boolean "${MANAGER_FEATURE_VOICE_QUEUES-}" "false")" >> "$tmp"
