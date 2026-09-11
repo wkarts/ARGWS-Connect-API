@@ -128,14 +128,14 @@ export class MetaCloudMediaService {
 
     if (!fileName) throw new MetaCloudGraphError(404, `Media ${located.id} was not found.`);
     const resolvedMimetype = mimetype || 'application/octet-stream';
-    const url = this.issuePublicDownloadUrl(located.id, fileName, resolvedMimetype, graphVersion);
+    const url = await this.issuePublicDownloadUrl(located.id, fileName, resolvedMimetype, graphVersion);
     metaCloudMetrics.increment('connect_meta_compat_media_requests_total');
     return { id: located.id, mime_type: resolvedMimetype, url };
   }
 
   public async openPublicDownload(mediaId: string, token: string | undefined) {
     this.cleanupExpiredDownloadTickets();
-    const ticket = token ? this.memoryDownloads.get(token) : null;
+    const ticket = token ? await this.getDownloadTicket(token) : null;
     if (!ticket || ticket.mediaId !== mediaId || ticket.expiresAt <= Date.now()) {
       throw new MetaCloudGraphError(404, `Media ${mediaId} was not found or the temporary URL has expired.`);
     }
@@ -155,19 +155,26 @@ export class MetaCloudMediaService {
     };
   }
 
-  private issuePublicDownloadUrl(mediaId: string, fileName: string, mimetype: string, graphVersion: string): string {
+  private async issuePublicDownloadUrl(
+    mediaId: string,
+    fileName: string,
+    mimetype: string,
+    graphVersion: string,
+  ): Promise<string> {
     if (!this.publicBaseUrl) {
       throw new MetaCloudGraphError(500, 'SERVER_URL is required to expose temporary media downloads.');
     }
 
     this.cleanupExpiredDownloadTickets();
     const token = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
-    this.memoryDownloads.set(token, {
+    const ticket: MediaDownloadTicket = {
       mediaId,
       fileName,
       mimetype,
       expiresAt: Date.now() + MEDIA_DOWNLOAD_TTL_SECONDS * 1000,
-    });
+    };
+    this.memoryDownloads.set(token, ticket);
+    await this.cache.set(this.downloadCacheKey(token), JSON.stringify(ticket), MEDIA_DOWNLOAD_TTL_SECONDS);
 
     return `${this.publicBaseUrl}/graph/${encodeURIComponent(graphVersion)}/${encodeURIComponent(mediaId)}/content?token=${encodeURIComponent(token)}`;
   }
@@ -176,6 +183,23 @@ export class MetaCloudMediaService {
     const now = Date.now();
     for (const [token, ticket] of this.memoryDownloads.entries()) {
       if (ticket.expiresAt <= now) this.memoryDownloads.delete(token);
+    }
+  }
+
+  private async getDownloadTicket(token: string): Promise<MediaDownloadTicket | null> {
+    const local = this.memoryDownloads.get(token);
+    if (local?.expiresAt && local.expiresAt > Date.now()) return local;
+
+    const cached = await this.cache.get(this.downloadCacheKey(token));
+    if (!cached) return null;
+
+    try {
+      const ticket = (typeof cached === 'string' ? JSON.parse(cached) : cached) as MediaDownloadTicket;
+      if (!ticket?.mediaId || !ticket?.fileName || !ticket?.expiresAt || ticket.expiresAt <= Date.now()) return null;
+      this.memoryDownloads.set(token, ticket);
+      return ticket;
+    } catch {
+      return null;
     }
   }
 
@@ -258,5 +282,9 @@ export class MetaCloudMediaService {
 
   private cacheKey(id: string) {
     return `meta-cloud:media:${id}`;
+  }
+
+  private downloadCacheKey(token: string) {
+    return `meta-cloud:download:${token}`;
   }
 }
