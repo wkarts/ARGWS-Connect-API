@@ -33,7 +33,11 @@ function renderFeatures(env) {
     const script = fs.readFileSync(output, 'utf8');
     const window = { location: { hostname: 'fixture.invalid', protocol: 'https:', port: '' } };
     vm.runInNewContext(script, { window });
-    return { features: plain(window.__CONNECT_WEB__.features), script };
+    return {
+      features: plain(window.__CONNECT_WEB__.features),
+      appVersion: window.__CONNECT_WEB__.appVersion,
+      script,
+    };
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
@@ -62,6 +66,15 @@ test('standalone runtime follows the real API parser for every registered featur
     assert.ok(!rendered.script.includes(env.AUTHENTICATION_API_KEY));
     assert.ok(!rendered.script.includes(env.OPERATIONS_INTERNAL_TOKEN));
   }
+});
+
+test('standalone Manager exposes a sanitized application version', () => {
+  const rendered = renderFeatures({ CONNECT_API_VERSION: '1.0.24' });
+  assert.equal(rendered.appVersion, '1.0.24');
+
+  const malicious = renderFeatures({ CONNECT_API_VERSION: '1.0.24";alert(1)//' });
+  assert.equal(malicious.appVersion, 'develop');
+  assert.doesNotMatch(malicious.script, /alert\(1\)/);
 });
 
 test('mixed standalone flags preserve independent overrides and match API output', () => {

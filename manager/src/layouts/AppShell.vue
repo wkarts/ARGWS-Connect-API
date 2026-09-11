@@ -5,7 +5,7 @@ import BrandMark from '@/components/BrandMark.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useSessionStore } from '@/stores/session'
 import { useUiStore } from '@/stores/ui'
-import { featureEnabled } from '@/config/runtime'
+import { applicationVersionLabel, featureEnabled } from '@/config/runtime'
 
 const route = useRoute(), router = useRouter(), session = useSessionStore(), ui = useUiStore()
 onMounted(() => ui.applyTheme())
@@ -56,6 +56,7 @@ async function logout(){ await session.logout(); router.push('/login') }
           <RouterLink v-for="item in group.items" :key="item.to" :to="item.to" class="nav-link" @click="ui.closeSidebar"><AppIcon :name="item.icon" :size="18"/><span>{{ item.label }}</span></RouterLink>
         </section>
       </nav>
+      <div class="sidebar-version" aria-label="Versão instalada">Connect|API <strong>{{ applicationVersionLabel() }}</strong></div>
     </aside>
     <button class="sidebar-scrim" aria-label="Fechar menu" @click="ui.closeSidebar"></button>
     <div class="workspace">
@@ -73,3 +74,9 @@ async function logout(){ await session.logout(); router.push('/login') }
     </div>
   </div>
 </template>
+<style scoped>
+.sidebar{display:flex;flex-direction:column;overflow:hidden}
+.sidebar-nav{flex:1;overflow:auto}
+.sidebar-version{flex:0 0 auto;padding:12px 16px 14px;border-top:1px solid rgba(255,255,255,.08);background:var(--sidebar-2);color:#89a2bf;text-align:center;font-size:11px;letter-spacing:.01em}
+.sidebar-version strong{color:#c8d7e8;font-weight:700}
+</style>

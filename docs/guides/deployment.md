@@ -82,6 +82,14 @@ O workflow `Docs Integrity` repete a validação no CI.
 
 Os contratos carregam a versão do `package.json` no momento da geração. Em `develop`, a documentação acompanha o canal de desenvolvimento. Na promoção/release, o snapshot pode ser preservado junto da versão final sem alterar o mecanismo de SemVer existente.
 
+### Versão exibida no Manager
+
+O Manager exibe a versão instalada de forma informativa na tela de login e no rodapé da barra lateral.
+
+Quando o Manager é servido pela própria API em `/manager/`, o campo público `appVersion` de `/manager/assets/runtime-config.js` é obtido da versão materializada no `package.json` da aplicação. Na imagem standalone do Manager, o pipeline fornece `APP_VERSION` no build e o container a publica no runtime como `CONNECT_API_VERSION`.
+
+O valor é sanitizado antes de ser exposto ao navegador e não altera os contratos REST, OpenAPI ou AsyncAPI. Após uma release concluída na `main`, o workflow tenta alinhar `develop` ao commit liberado somente por fast-forward; se houver divergência de desenvolvimento, a sincronização é recusada e nunca usa `force-push`.
+
 ## Segurança
 
 A documentação contém exemplos e schemas, nunca credenciais reais. O botão de autenticação do Scalar deve receber tokens somente no navegador do usuário; chaves não devem ser versionadas no repositório nem embutidas nos documentos.
