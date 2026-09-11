@@ -8,6 +8,7 @@ import StatusPill from '@/components/StatusPill.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppModal from '@/components/AppModal.vue'
 import TestMessageModal from '@/components/TestMessageModal.vue'
+import InstanceToken from '@/components/InstanceToken.vue'
 import { featureEnabled } from '@/config/runtime'
 import { useSessionStore } from '@/stores/session'
 import { connect } from '@/services/connect'
@@ -102,6 +103,7 @@ onMounted(load)
         </div>
         <div class="provider-row"><span>Provider</span><strong>{{ item.providerLabel }}</strong></div>
         <div class="instance-number">{{ item.number || 'Número não informado' }}</div>
+        <InstanceToken :instance-id="item.id" :instance-name="item.name" />
         <div class="instance-stats">
           <div><b>{{ item.counts.contacts.toLocaleString('pt-BR') }}</b><span>Contatos</span></div>
           <div><b>{{ item.counts.conversations.toLocaleString('pt-BR') }}</b><span>Conversas</span></div>
