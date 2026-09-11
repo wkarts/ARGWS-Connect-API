@@ -79,7 +79,7 @@ async function save() {
       ...(selected.value ? { version: selected.value.version } : {}),
     }, Boolean(selected.value))
     editor.value = false
-    feedback.value = 'Modelo salvo. Reconcilie a caixa no HUB para atualizar o catálogo.'
+    feedback.value = 'Modelo aprovado e salvo. Reconcilie a caixa no HUB para atualizar o catálogo.'
     await refresh()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
@@ -91,7 +91,7 @@ async function toggle(item: LocalTemplate) {
     await saveLocalTemplate(instanceId.value, instanceName.value, {
       name: item.name, language: item.language, version: item.version, enabled: !item.enabled,
     }, true)
-    feedback.value = item.enabled ? 'Modelo desabilitado. Novos envios serão bloqueados.' : 'Modelo habilitado. Reconcilie a caixa no HUB.'
+    feedback.value = item.enabled ? 'Modelo desabilitado para envio. O status de aprovação permanece APPROVED.' : 'Modelo habilitado e aprovado. Reconcilie a caixa no HUB.'
     await refresh()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
@@ -126,7 +126,7 @@ watch(id, () => {
     </PageHeader>
     <div v-if="error && !editor && !archive" class="alert error" role="alert">{{ error }}</div>
     <div v-if="feedback" class="alert success" role="status">{{ feedback }}</div>
-    <PanelCard v-if="available" title="Catálogo desta instância" description="Modelos locais da Connect|API. São enviados como texto a partir do conteúdo cadastrado; não são templates aprovados pela Meta.">
+    <PanelCard v-if="available" title="Catálogo desta instância" description="Templates aprovados da Connect|API. Todos os registros ativos são expostos com status APPROVED; disponibilidade de envio é controlada separadamente.">
       <div class="catalog-tools"><input v-model="search" type="search" placeholder="Buscar por nome ou idioma" aria-label="Buscar modelos" /></div>
       <div class="catalog-scroll">
         <table class="catalog-table">
@@ -134,7 +134,7 @@ watch(id, () => {
           <tbody>
             <tr v-for="item in filtered" :key="item.id">
               <td><strong>{{ item.name }}</strong><p>{{ item.components.find(c => c.type === 'BODY')?.text }}</p></td>
-              <td>{{ item.language }}</td><td>{{ item.enabled ? 'Disponível' : 'Desabilitado' }}</td>
+              <td>{{ item.language }}</td><td><strong>{{ item.status }}</strong><div>{{ item.enabled ? 'Disponível' : 'Desabilitado para envio' }}</div></td>
               <td><div class="catalog-actions"><button class="btn ghost" :disabled="busy" @click="edit(item)">Editar</button><button class="btn ghost" :disabled="busy" @click="toggle(item)">{{ item.enabled ? 'Desabilitar' : 'Habilitar' }}</button><button class="btn danger" :disabled="busy" @click="archive = item; error = ''">Arquivar</button></div></td>
             </tr>
             <tr v-if="!filtered.length"><td colspan="4">{{ busy ? 'Carregando modelos…' : 'Nenhum modelo encontrado.' }}</td></tr>
@@ -142,7 +142,7 @@ watch(id, () => {
         </table>
       </div>
     </PanelCard>
-    <div v-else-if="instance" class="alert">Modelos locais estão disponíveis para conexões ZAPO e Baileys no acesso direto à Connect|API. O catálogo oficial da Meta permanece separado.</div>
+    <div v-else-if="instance" class="alert">Templates desta funcionalidade estão disponíveis para conexões ZAPO e Baileys no acesso direto à Connect|API. O catálogo Business oficial permanece no fluxo próprio.</div>
 
     <AppModal :open="editor" :title="selected ? 'Editar modelo' : 'Novo modelo'" :dismissible="!busy" wide @close="editor = false">
       <form class="template-form" @submit.prevent="save">
@@ -155,7 +155,7 @@ watch(id, () => {
         <label>Rodapé opcional<input v-model="footer" maxlength="60" :disabled="busy" /></label>
         <label class="enabled-field"><input v-model="enabled" type="checkbox" :disabled="busy" /> Disponível para envio</label>
         <div><strong>Prévia</strong><pre class="template-preview">{{ preview || 'Escreva a mensagem para visualizar.' }}</pre></div>
-        <p>Até 4096 caracteres no conjunto. A seleção de modelos para abrir conversas continua sendo administrada em cada caixa do HUB.</p>
+        <p>Todos os modelos cadastrados nesta funcionalidade são tratados como APPROVED. A habilitação apenas controla se o modelo pode ser enviado.</p>
         <button class="btn primary" :disabled="busy || !body.trim() || preview.length > 4096" type="submit">{{ busy ? 'Salvando…' : 'Salvar modelo' }}</button>
       </form>
     </AppModal>
