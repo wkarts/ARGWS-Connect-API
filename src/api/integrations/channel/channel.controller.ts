@@ -11,7 +11,7 @@ import EventEmitter2 from 'eventemitter2';
 import { ConnectStartupService } from './connect/connect.channel.service';
 import { BusinessStartupService } from './meta/whatsapp.business.service';
 import { BaileysStartupService } from './whatsapp/whatsapp.baileys.service';
-import { ZapoIdentityStartupService } from './whatsapp/zapo.identity.extensions';
+import { ZapoMediaStartupService } from './whatsapp/zapo.media.extensions';
 
 type ChannelDataType = {
   configService: ConfigService;
@@ -70,7 +70,7 @@ export class ChannelController {
     }
 
     if (instanceData.integration === Integration.WHATSAPP_ZAPO) {
-      return new ZapoIdentityStartupService(
+      return new ZapoMediaStartupService(
         data.configService,
         data.eventEmitter,
         data.prismaRepository,
