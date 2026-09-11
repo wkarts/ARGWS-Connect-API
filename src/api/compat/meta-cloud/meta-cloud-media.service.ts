@@ -171,9 +171,7 @@ export class MetaCloudMediaService {
 
       const descriptor = this.mediaDescriptor(message.message);
       const type = String(downloaded?.mediaType || descriptor?.type || 'document').slice(0, 100);
-      const mimetype = String(
-        downloaded?.mimetype || descriptor?.mimetype || 'application/octet-stream',
-      ).slice(0, 100);
+      const mimetype = String(downloaded?.mimetype || descriptor?.mimetype || 'application/octet-stream').slice(0, 100);
       const safeName = this.safeFileName(downloaded?.fileName || descriptor?.fileName || `${mediaId}.bin`);
       const fileName = `meta-compat/inbound/${message.Instance.id}/${mediaId}/${Date.now()}_${safeName}`;
 
