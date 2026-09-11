@@ -1,9 +1,17 @@
+import { Auth, configService } from '@config/env.config';
 import { timingSafeEqual } from 'crypto';
 
 import { invalidOAuthToken } from './meta-cloud.error';
 import { MetaCloudIdentity } from './types/meta-response.types';
 
+type GlobalApiKeyResolver = () => string | null | undefined;
+
 export class MetaCloudAuthService {
+  constructor(
+    private readonly resolveGlobalApiKey: GlobalApiKeyResolver = () =>
+      configService.get<Auth>('AUTHENTICATION')?.API_KEY?.KEY,
+  ) {}
+
   public extractBearer(authorization?: string | string[]): string | null {
     const value = Array.isArray(authorization) ? authorization[0] : authorization;
     if (!value || !/^Bearer\s+/i.test(value)) return null;
@@ -13,8 +21,13 @@ export class MetaCloudAuthService {
 
   public assertAuthorized(identity: MetaCloudIdentity, authorization?: string | string[]): void {
     const provided = this.extractBearer(authorization);
-    const expected = identity.token;
-    if (!provided || !expected || !this.safeEqual(provided, expected)) throw invalidOAuthToken();
+    if (!provided) throw invalidOAuthToken();
+
+    const accepted = [identity.token, this.resolveGlobalApiKey()]
+      .filter((token): token is string => typeof token === 'string' && token.length > 0)
+      .some((token) => this.safeEqual(provided, token));
+
+    if (!accepted) throw invalidOAuthToken();
   }
 
   private safeEqual(left: string, right: string): boolean {
