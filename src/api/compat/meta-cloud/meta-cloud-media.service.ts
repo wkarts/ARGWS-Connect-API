@@ -1,7 +1,6 @@
 import { getObjectUrl, uploadFile } from '@api/integrations/storage/s3/libs/minio.server';
-import { PrismaRepository } from '@api/repository/repository.service';
-import { CacheService } from '@api/services/cache.service';
-import type { WAMonitoringService } from '@api/services/monitor.service';
+import type { PrismaRepository } from '@api/repository/repository.service';
+import type { CacheService } from '@api/services/cache.service';
 import { Logger } from '@config/logger.config';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { randomUUID } from 'crypto';
@@ -30,6 +29,10 @@ interface MediaDescriptor {
   type: string;
   mimetype: string;
   fileName: string;
+}
+
+interface ProviderRegistry {
+  waInstances: Record<string, any>;
 }
 
 interface MediaStorage {
@@ -64,7 +67,7 @@ export class MetaCloudMediaService {
   constructor(
     private readonly prisma: PrismaRepository,
     private readonly cache: CacheService,
-    private readonly monitor?: Pick<WAMonitoringService, 'waInstances'>,
+    private readonly monitor?: ProviderRegistry,
     private readonly storage: MediaStorage = DEFAULT_MEDIA_STORAGE,
   ) {}
 
