@@ -32,6 +32,13 @@ interface MediaDescriptor {
   fileName: string;
 }
 
+interface MediaStorage {
+  uploadFile(fileName: string, buffer: Buffer, size: number, metadata: Record<string, string>): Promise<any>;
+  getObjectUrl(fileName: string, expires?: number): Promise<string | null>;
+}
+
+const DEFAULT_MEDIA_STORAGE: MediaStorage = { getObjectUrl, uploadFile };
+
 const MEDIA_TYPES = [
   ['imageMessage', 'image', 'image/jpeg'],
   ['videoMessage', 'video', 'video/mp4'],
@@ -58,6 +65,7 @@ export class MetaCloudMediaService {
     private readonly prisma: PrismaRepository,
     private readonly cache: CacheService,
     private readonly monitor?: Pick<WAMonitoringService, 'waInstances'>,
+    private readonly storage: MediaStorage = DEFAULT_MEDIA_STORAGE,
   ) {}
 
   public async upload(identity: MetaCloudIdentity, file: any, declaredType?: string) {
@@ -66,7 +74,7 @@ export class MetaCloudMediaService {
     const safeName = String(file.originalname || 'media.bin').replace(/[^A-Za-z0-9._-]/g, '_');
     const fileName = `meta-compat/${identity.instanceId}/${id}/${safeName}`;
     const mimetype = String(declaredType || file.mimetype || 'application/octet-stream');
-    const result = await uploadFile(fileName, file.buffer, file.size, { 'Content-Type': mimetype } as any);
+    const result = await this.storage.uploadFile(fileName, file.buffer, file.size, { 'Content-Type': mimetype });
     if (!result) throw new MetaCloudGraphError(500, 'Media storage is not available.');
 
     const ref: UploadedMediaRef = { id, instanceId: identity.instanceId, fileName, mimetype, createdAt: Date.now() };
@@ -82,7 +90,7 @@ export class MetaCloudMediaService {
     const ref = await this.getUploadRef(media.id);
     if (!ref || ref.instanceId !== identity.instanceId)
       throw new MetaCloudGraphError(404, `Media ${media.id} was not found.`);
-    const url = await getObjectUrl(ref.fileName, 300);
+    const url = await this.storage.getObjectUrl(ref.fileName, 300);
     if (!url) throw new MetaCloudGraphError(500, 'Unable to create a temporary media URL.');
     return url;
   }
@@ -120,7 +128,7 @@ export class MetaCloudMediaService {
     }
 
     if (!fileName) throw new MetaCloudGraphError(404, `Media ${located.id} was not found.`);
-    const url = await getObjectUrl(fileName, 300);
+    const url = await this.storage.getObjectUrl(fileName, 300);
     if (!url) throw new MetaCloudGraphError(500, 'Unable to create a temporary media URL.');
     metaCloudMetrics.increment('connect_meta_compat_media_requests_total');
     return { id: located.id, mime_type: mimetype || 'application/octet-stream', url };
@@ -169,7 +177,7 @@ export class MetaCloudMediaService {
       const safeName = this.safeFileName(downloaded?.fileName || descriptor?.fileName || `${mediaId}.bin`);
       const fileName = `meta-compat/inbound/${message.Instance.id}/${mediaId}/${Date.now()}_${safeName}`;
 
-      const uploaded = await uploadFile(fileName, buffer, buffer.length, { 'Content-Type': mimetype } as any);
+      const uploaded = await this.storage.uploadFile(fileName, buffer, buffer.length, { 'Content-Type': mimetype });
       if (!uploaded) return null;
 
       return this.prisma.media.upsert({
