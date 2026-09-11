@@ -89,7 +89,7 @@ Um `200` com `data: []` é uma consulta bem-sucedida sem modelos visíveis, não
 Após a migration `20260911200000_local_templates`, ZAPO/Baileys possuem catálogo local real.
 O `hello` em `pt_BR` é cadastrado para instâncias existentes pela migration e para novas instâncias na mesma gravação de criação.
 A leitura não cria nem reabilita registros. Modelos arquivados não reaparecem. O HUB deve ser atualizado para reconhecer
-`source=connectapi_local` e `status=LOCAL_READY`, e depois a caixa deve ser reconciliada.
+`source=connectapi_local`, `status=APPROVED`, `approved=true` e categoria `OPENING`; depois a caixa deve ser reconciliada.
 Templates Business continuam no serviço oficial e na tabela anterior. Consulte `local-templates.md`.
 
 Regressão automatizada: `test/meta-cloud/graph-identity-routing.test.ts`,

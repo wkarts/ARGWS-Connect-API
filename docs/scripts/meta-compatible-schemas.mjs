@@ -44,7 +44,7 @@ export const metaCompatibleSchemas = {
         }, required: ['name', 'language'] },
       }, required: ['type', 'template'],
     }],
-    description: 'Business mantém o envio oficial. ZAPO/Baileys executam modelo local persistido como texto; sem aprovação Meta e sem fallback de conteúdo.',
+    description: 'Business mantém o envio oficial. ZAPO/Baileys executam o template persistido da instância com status APPROVED e sem fallback de conteúdo.',
   },
   MetaTextContent: {
     type: 'object',

@@ -50,7 +50,7 @@ export class LocalTemplateService {
       ...(cursor
         ? { paging: { cursors: { after: cursor }, next: `?after=${encodeURIComponent(cursor)}&limit=${limit}` } }
         : {}),
-      connect_api: { source: LOCAL_TEMPLATE_SOURCE, execution: 'rendered_text', meta_approved: false },
+      connect_api: { source: LOCAL_TEMPLATE_SOURCE, execution: 'rendered_text', status: 'APPROVED', approved: true },
     };
   }
 
@@ -132,7 +132,8 @@ export class LocalTemplateService {
         version: row.version,
         source: LOCAL_TEMPLATE_SOURCE,
         execution: 'rendered_text',
-        meta_approved: false,
+        status: 'APPROVED',
+        approved: true,
       },
     };
   }
@@ -142,12 +143,12 @@ export class LocalTemplateService {
       id: row.id,
       name: row.name,
       language: row.language,
-      category: 'UTILITY',
+      category: 'OPENING',
       components: row.components,
-      status: row.enabled && !row.deletedAt ? 'LOCAL_READY' : 'LOCAL_DISABLED',
+      status: 'APPROVED',
+      approved: true,
       source: LOCAL_TEMPLATE_SOURCE,
       execution: 'rendered_text',
-      meta_approved: false,
       enabled: row.enabled && !row.deletedAt,
       available: row.enabled && !row.deletedAt,
       version: row.version,

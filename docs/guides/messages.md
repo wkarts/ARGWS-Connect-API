@@ -50,10 +50,10 @@ DELETED
 PLAYED
 ```
 
-## Modelos locais e templates oficiais
+## Templates por instância e templates Business
 
-`sendTemplate` agora distingue a integração: Business continua no método oficial;
-ZAPO/Baileys usam o catálogo persistido por instância `LocalTemplate`, renderizado
-explicitamente como texto. Não são templates aprovados pela Meta. A listagem e o
-envio Graph também expõem esse contrato. Veja [Modelos locais](local-templates.md)
-para migrations, administração, parâmetros, revisão e limitações de formato.
+`sendTemplate` distingue a integração: Business continua no método oficial;
+ZAPO/Baileys usam o catálogo persistido por instância `LocalTemplate`. Esses registros
+são expostos como `APPROVED`; `enabled`/`available` controlam a disponibilidade.
+A categoria é `OPENING` (Abertura de conversa no HUB). A listagem e o envio Graph
+expõem o mesmo contrato. Veja [Templates por instância](local-templates.md).

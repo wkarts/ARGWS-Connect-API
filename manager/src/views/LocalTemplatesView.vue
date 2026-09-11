@@ -91,7 +91,7 @@ async function toggle(item: LocalTemplate) {
     await saveLocalTemplate(instanceId.value, instanceName.value, {
       name: item.name, language: item.language, version: item.version, enabled: !item.enabled,
     }, true)
-    feedback.value = item.enabled ? 'Modelo desabilitado. Novos envios serão bloqueados.' : 'Modelo habilitado. Reconcilie a caixa no HUB.'
+    feedback.value = item.enabled ? 'Modelo desabilitado para envio.' : 'Modelo habilitado. Reconcilie a caixa no HUB.'
     await refresh()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
@@ -126,7 +126,7 @@ watch(id, () => {
     </PageHeader>
     <div v-if="error && !editor && !archive" class="alert error" role="alert">{{ error }}</div>
     <div v-if="feedback" class="alert success" role="status">{{ feedback }}</div>
-    <PanelCard v-if="available" title="Catálogo desta instância" description="Modelos locais da Connect|API. São enviados como texto a partir do conteúdo cadastrado; não são templates aprovados pela Meta.">
+    <PanelCard v-if="available" title="Catálogo desta instância" description="Templates da Connect|API disponíveis para esta instância.">
       <div class="catalog-tools"><input v-model="search" type="search" placeholder="Buscar por nome ou idioma" aria-label="Buscar modelos" /></div>
       <div class="catalog-scroll">
         <table class="catalog-table">
@@ -142,7 +142,7 @@ watch(id, () => {
         </table>
       </div>
     </PanelCard>
-    <div v-else-if="instance" class="alert">Modelos locais estão disponíveis para conexões ZAPO e Baileys no acesso direto à Connect|API. O catálogo oficial da Meta permanece separado.</div>
+    <div v-else-if="instance" class="alert">Templates desta funcionalidade estão disponíveis para conexões ZAPO e Baileys.</div>
 
     <AppModal :open="editor" :title="selected ? 'Editar modelo' : 'Novo modelo'" :dismissible="!busy" wide @close="editor = false">
       <form class="template-form" @submit.prevent="save">
@@ -155,7 +155,6 @@ watch(id, () => {
         <label>Rodapé opcional<input v-model="footer" maxlength="60" :disabled="busy" /></label>
         <label class="enabled-field"><input v-model="enabled" type="checkbox" :disabled="busy" /> Disponível para envio</label>
         <div><strong>Prévia</strong><pre class="template-preview">{{ preview || 'Escreva a mensagem para visualizar.' }}</pre></div>
-        <p>Até 4096 caracteres no conjunto. A seleção de modelos para abrir conversas continua sendo administrada em cada caixa do HUB.</p>
         <button class="btn primary" :disabled="busy || !body.trim() || preview.length > 4096" type="submit">{{ busy ? 'Salvando…' : 'Salvar modelo' }}</button>
       </form>
     </AppModal>
