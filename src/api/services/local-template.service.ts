@@ -143,7 +143,7 @@ export class LocalTemplateService {
       id: row.id,
       name: row.name,
       language: row.language,
-      category: 'UTILITY',
+      category: 'OPENING',
       components: row.components,
       status: 'APPROVED',
       approved: true,
