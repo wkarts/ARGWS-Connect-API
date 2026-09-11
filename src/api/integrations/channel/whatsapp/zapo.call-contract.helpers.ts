@@ -64,7 +64,11 @@ export const canonicalizeZapoCallStatus = (action: unknown, call: any): Canonica
     }
 
     if (providerReason === 'REJECTED' || providerReason === 'USER_BUSY') return 'rejected';
-    if (providerReason === 'NETWORK_ERROR' || providerReason === 'MEDIA_ERROR' || providerReason === 'SIGNALING_ERROR') {
+    if (
+      providerReason === 'NETWORK_ERROR' ||
+      providerReason === 'MEDIA_ERROR' ||
+      providerReason === 'SIGNALING_ERROR'
+    ) {
       return 'failed';
     }
 
