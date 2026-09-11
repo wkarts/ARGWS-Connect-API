@@ -248,7 +248,7 @@
               "type": "string",
               "pattern": "^lt_[a-f0-9-]{32,36}$"
             },
-            "description": "Cursor retornado na página anterior; somente catálogo local."
+            "description": "Cursor retornado na página anterior; somente catálogo da Connect|API."
           },
           {
             "name": "limit",
@@ -259,7 +259,7 @@
               "maximum": 100,
               "default": 100
             },
-            "description": "Até 100 modelos locais por página."
+            "description": "Até 100 templates por página."
           }
         ],
         "responses": {
@@ -516,7 +516,7 @@
       },
       "LocalTemplate": {
         "type": "object",
-        "description": "Modelo persistido da Connect|API. Não possui aprovação Meta e é executado explicitamente como texto renderizado do cadastro.",
+        "description": "Template persistido da Connect|API. O status é APPROVED e enabled/available controlam separadamente a disponibilidade para envio.",
         "properties": {
           "id": {
             "type": "string"
@@ -552,10 +552,10 @@
             "type": "boolean"
           },
           "status": {
-            "enum": [
-              "LOCAL_READY",
-              "LOCAL_DISABLED"
-            ]
+            "const": "APPROVED"
+          },
+          "approved": {
+            "const": true
           },
           "source": {
             "const": "connectapi_local"
@@ -563,11 +563,8 @@
           "execution": {
             "const": "rendered_text"
           },
-          "meta_approved": {
-            "const": false
-          },
           "category": {
-            "const": "UTILITY"
+            "const": "OPENING"
           },
           "created_at": {
             "type": "string",
@@ -587,9 +584,9 @@
           "enabled",
           "available",
           "status",
+          "approved",
           "source",
-          "execution",
-          "meta_approved"
+          "execution"
         ]
       },
       "LocalTemplateList": {
@@ -627,8 +624,11 @@
               "execution": {
                 "const": "rendered_text"
               },
-              "meta_approved": {
-                "const": false
+              "status": {
+                "const": "APPROVED"
+              },
+              "approved": {
+                "const": true
               }
             }
           }
@@ -662,7 +662,7 @@
           },
           "components": {
             "type": "array",
-            "description": "Parâmetros do envio, não a definição do modelo. Local: body/parameters com type=text; nenhuma mensagem livre de fallback.",
+            "description": "Parâmetros do envio, não a definição do modelo. Templates Connect|API aceitam somente parâmetros BODY de texto, não definições arbitrárias.",
             "items": {
               "type": "object",
               "properties": {
@@ -750,7 +750,7 @@
             ]
           }
         ],
-        "description": "Business mantém o envio oficial. ZAPO/Baileys executam modelo local persistido como texto; sem aprovação Meta e sem fallback de conteúdo."
+        "description": "Business mantém o envio oficial. ZAPO/Baileys executam o template persistido da instância com status APPROVED e sem fallback de conteúdo."
       },
       "MetaTextContent": {
         "type": "object",

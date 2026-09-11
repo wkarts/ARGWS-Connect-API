@@ -8053,9 +8053,9 @@
         "tags": [
           "Local Templates"
         ],
-        "summary": "Cadastrar modelo local",
+        "summary": "Cadastrar template",
         "operationId": "post_localtemplate_create_instancename",
-        "description": "Nome e idioma únicos por instância, sem interação com o serviço Business oficial.",
+        "description": "Nome e idioma únicos por instância. O template é tratado como APPROVED no contrato Connect|API.",
         "parameters": [
           {
             "name": "instanceName",
@@ -8115,7 +8115,7 @@
         "tags": [
           "Local Templates"
         ],
-        "summary": "Arquivar modelo local",
+        "summary": "Arquivar template",
         "operationId": "delete_localtemplate_delete_instancename",
         "description": "Arquivamento lógico; bloqueia envios e mantém o nome reservado. A sincronização não recria hello.",
         "parameters": [
@@ -8137,7 +8137,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Modelo arquivado.",
+            "description": "Template arquivado.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8185,9 +8185,9 @@
         "tags": [
           "Local Templates"
         ],
-        "summary": "Editar ou habilitar modelo local",
+        "summary": "Editar ou habilitar template",
         "operationId": "post_localtemplate_edit_instancename",
-        "description": "Nome/idioma imutáveis. version obrigatório evita sobrescrever uma edição concorrente.",
+        "description": "Nome/idioma imutáveis. version obrigatório evita sobrescrever uma edição concorrente. O status permanece APPROVED; enabled controla disponibilidade.",
         "parameters": [
           {
             "name": "instanceName",
@@ -8247,9 +8247,9 @@
         "tags": [
           "Local Templates"
         ],
-        "summary": "Listar modelos locais da instância",
+        "summary": "Listar templates da instância",
         "operationId": "get_localtemplate_find_instancename",
-        "description": "Somente ZAPO/Baileys. Leitura paginada sem criar modelos e sem alterar habilitações. Token da instância no header apikey.",
+        "description": "Somente ZAPO/Baileys. Leitura paginada sem criar modelos e sem alterar habilitações. Os templates são expostos como APPROVED; token da instância no header apikey.",
         "parameters": [
           {
             "name": "instanceName",
@@ -8268,7 +8268,7 @@
               "type": "string",
               "pattern": "^lt_[a-f0-9-]{32,36}$"
             },
-            "description": "Cursor retornado na página anterior; somente catálogo local."
+            "description": "Cursor retornado na página anterior; somente catálogo da Connect|API."
           },
           {
             "name": "limit",
@@ -8279,7 +8279,7 @@
               "maximum": 100,
               "default": 100
             },
-            "description": "Até 100 modelos locais por página."
+            "description": "Até 100 templates por página."
           }
         ],
         "security": [
@@ -9054,9 +9054,9 @@
         "tags": [
           "Messages"
         ],
-        "summary": "Enviar template oficial ou modelo local",
+        "summary": "Enviar template",
         "operationId": "post_message_sendtemplate_instancename",
-        "description": "Business: preserva o encaminhamento oficial. ZAPO/Baileys: busca cadastro da instância, valida situação/versão/parâmetros, renderiza texto e usa o envio nativo. Sem fallback livre. IDs de mensagem são reais; resposta local inclui connect_api.template com origem e versão.",
+        "description": "Business preserva o encaminhamento oficial. ZAPO/Baileys usam o template persistido da instância, validam versão/parâmetros, renderizam o conteúdo cadastrado e usam o envio nativo. Sem fallback livre. IDs de mensagem são reais; a resposta inclui origem e versão.",
         "parameters": [
           {
             "name": "instanceName",
@@ -9076,7 +9076,7 @@
         ],
         "responses": {
           "201": {
-            "description": "Resposta real do provider; em modelos locais inclui connect_api.template."
+            "description": "Resposta real do provider; em templates Connect|API inclui connect_api.template."
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -14034,7 +14034,7 @@
       },
       "LocalTemplate": {
         "type": "object",
-        "description": "Modelo persistido da Connect|API. Não possui aprovação Meta e é executado explicitamente como texto renderizado do cadastro.",
+        "description": "Template persistido da Connect|API. O status é APPROVED e enabled/available controlam separadamente a disponibilidade para envio.",
         "properties": {
           "id": {
             "type": "string"
@@ -14070,10 +14070,10 @@
             "type": "boolean"
           },
           "status": {
-            "enum": [
-              "LOCAL_READY",
-              "LOCAL_DISABLED"
-            ]
+            "const": "APPROVED"
+          },
+          "approved": {
+            "const": true
           },
           "source": {
             "const": "connectapi_local"
@@ -14081,11 +14081,8 @@
           "execution": {
             "const": "rendered_text"
           },
-          "meta_approved": {
-            "const": false
-          },
           "category": {
-            "const": "UTILITY"
+            "const": "OPENING"
           },
           "created_at": {
             "type": "string",
@@ -14105,9 +14102,9 @@
           "enabled",
           "available",
           "status",
+          "approved",
           "source",
-          "execution",
-          "meta_approved"
+          "execution"
         ]
       },
       "LocalTemplateList": {
@@ -14145,8 +14142,11 @@
               "execution": {
                 "const": "rendered_text"
               },
-              "meta_approved": {
-                "const": false
+              "status": {
+                "const": "APPROVED"
+              },
+              "approved": {
+                "const": true
               }
             }
           }
@@ -14180,7 +14180,7 @@
           },
           "components": {
             "type": "array",
-            "description": "Parâmetros do envio, não a definição do modelo. Local: body/parameters com type=text; nenhuma mensagem livre de fallback.",
+            "description": "Parâmetros do envio, não a definição do modelo. Templates Connect|API aceitam somente parâmetros BODY de texto, não definições arbitrárias.",
             "items": {
               "type": "object",
               "properties": {
