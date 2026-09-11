@@ -1,6 +1,7 @@
 import { metaCloudGraphController } from '@api/server.module';
 import { NextFunction, Request, Response, Router } from 'express';
 import multer from 'multer';
+import { pipeline } from 'stream/promises';
 
 import { MetaCloudGraphError } from './meta-cloud.error';
 import { metaCloudMetrics } from './meta-cloud.metrics';
@@ -11,6 +12,7 @@ export class MetaCloudGraphRouter {
   public readonly router = Router();
   private readonly upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
   private readonly limiter = new MetaCloudRateLimiter();
+  private readonly mediaContentPath = '/:version/:mediaId/content';
 
   constructor() {
     this.router.use('/:version', (req, res, next) => {
@@ -64,6 +66,23 @@ export class MetaCloudGraphRouter {
             req.headers.authorization,
           ),
         );
+      }),
+    );
+
+    // Internal transport for the temporary URL returned by the documented
+    // media descriptor. Keep it out of generated OpenAPI: consumers still use
+    // GET /:mediaId and follow its opaque temporary `url`, as in Meta Cloud.
+    this.router.get(
+      this.mediaContentPath,
+      this.wrap(async (req, res) => {
+        const token = typeof req.query.token === 'string' ? req.query.token : undefined;
+        const media = await metaCloudGraphController.downloadMedia(req.params.mediaId, token);
+        const safeName = String(media.fileName || 'media.bin').replace(/["\r\n]/g, '_');
+
+        res.setHeader('Content-Type', media.mimetype || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        await pipeline(media.stream, res);
       }),
     );
 

@@ -39,7 +39,11 @@ export class MetaCloudGraphController {
     const identity = this.resolver.identityFromInstance(located.instance);
     this.auth.assertAuthorized(identity, authorization);
     this.log(identity, version, 'media-get', mediaId);
-    return this.media.describe(located);
+    return this.media.describe(located, version);
+  }
+
+  public async downloadMedia(mediaId: string, token?: string) {
+    return this.media.openPublicDownload(mediaId, token);
   }
 
   public async listTemplates(version: string, businessAccountId: string, authorization: any) {

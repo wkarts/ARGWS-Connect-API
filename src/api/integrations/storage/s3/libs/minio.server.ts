@@ -6,7 +6,6 @@ import { join } from 'path';
 import { Readable, Transform } from 'stream';
 
 const logger = new Logger('S3 Service');
-
 const BUCKET = new ConfigService().get<S3>('S3');
 
 interface Metadata extends MinIo.ItemBucketMetadata {
@@ -105,6 +104,24 @@ const getObjectUrl = async (fileName: string, expiry?: number) => {
   }
 };
 
+/**
+ * Open a stored object through the server-side MinIO client.
+ *
+ * This deliberately keeps the internal S3 endpoint private. Public consumers
+ * must receive a Connect|API URL and the API streams the object from MinIO,
+ * instead of leaking an internal Docker hostname in a presigned URL.
+ */
+const getObjectStream = async (fileName: string) => {
+  if (!minioClient) return null;
+
+  try {
+    const objectName = join('argws-connect-api', fileName);
+    return await minioClient.getObject(bucketName, objectName);
+  } catch (error) {
+    throw new BadRequestException(error?.message);
+  }
+};
+
 const uploadTempFile = async (
   folder: string,
   fileName: string,
@@ -136,4 +153,4 @@ const deleteFile = async (folder: string, fileName: string) => {
   }
 };
 
-export { BUCKET, deleteFile, getObjectUrl, uploadFile, uploadTempFile };
+export { BUCKET, deleteFile, getObjectStream, getObjectUrl, uploadFile, uploadTempFile };

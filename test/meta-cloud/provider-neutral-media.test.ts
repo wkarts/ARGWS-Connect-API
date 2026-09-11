@@ -73,6 +73,8 @@ export async function runProviderNeutralMediaRegression() {
 
   const serviceSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-media.service.ts', 'utf8');
   const materializerSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-media.materializer.ts', 'utf8');
+  const routerSource = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-graph.router.ts', 'utf8');
+  const storageSource = fs.readFileSync('src/api/integrations/storage/s3/libs/minio.server.ts', 'utf8');
   assert.match(serviceSource, /materializeProviderMedia/);
   assert.doesNotMatch(serviceSource, /WHATSAPP-ZAPO|WHATSAPP-BAILEYS/);
   assert.doesNotMatch(materializerSource, /WHATSAPP-ZAPO|WHATSAPP-BAILEYS/);
@@ -84,4 +86,18 @@ export async function runProviderNeutralMediaRegression() {
     serviceSource.indexOf('public async describe'),
   );
   assert.doesNotMatch(locateBody, /materializeProviderMedia|getBase64FromMediaMessage|uploadFile/);
+
+  // Inbound Meta media descriptors must never expose the MinIO presigned URL.
+  // They return a temporary Connect|API content URL and the API streams the
+  // object server-side from the private storage network.
+  const describeBody = serviceSource.slice(
+    serviceSource.indexOf('public async describe'),
+    serviceSource.indexOf('public async openPublicDownload'),
+  );
+  assert.match(describeBody, /issuePublicDownloadUrl/);
+  assert.doesNotMatch(describeBody, /getObjectUrl/);
+  assert.match(serviceSource, /openPublicDownload/);
+  assert.match(routerSource, /mediaContentPath\s*=\s*['"]\/:version\/:mediaId\/content['"]/);
+  assert.match(routerSource, /pipeline\(media\.stream, res\)/);
+  assert.match(storageSource, /getObjectStream/);
 }
