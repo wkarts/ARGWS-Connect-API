@@ -1,10 +1,10 @@
 import { Logger } from '@config/logger.config';
 
+import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudAuthService } from './meta-cloud-auth.service';
 import { MetaCloudIdentityResolver } from './meta-cloud-identity.resolver';
 import { MetaCloudMediaService } from './meta-cloud-media.service';
 import { MetaCloudMessageAdapter } from './meta-cloud-message.adapter';
-import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudTemplateService } from './meta-cloud-template.service';
 import { MetaCloudMessageRequest } from './types/meta-message.types';
 import { MetaCloudIdentity } from './types/meta-response.types';
