@@ -28,7 +28,7 @@ export function restoreZapoMediaPayload<T>(value: T): T {
   if (value instanceof Uint8Array || Buffer.isBuffer(value)) return value;
 
   if (Array.isArray(value)) {
-    return value.map((entry) => restoreZapoMediaPayload(entry)) as T;
+    return value.map((entry) => restoreZapoMediaPayload(entry)) as unknown as T;
   }
 
   if (typeof value !== 'object') return value;
@@ -50,7 +50,7 @@ export function restoreZapoMediaPayload<T>(value: T): T {
     restored[key] = restoreZapoMediaPayload(current);
   }
 
-  return restored as T;
+  return restored as unknown as T;
 }
 
 export function containsZapoDownloadableMedia(value: unknown): boolean {
