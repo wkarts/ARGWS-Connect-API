@@ -21,8 +21,9 @@ interface UploadedMediaRef {
 interface LocatedMedia {
   instance: any;
   id: string;
-  fileName: string;
-  mimetype: string;
+  fileName?: string;
+  mimetype?: string;
+  message?: any;
 }
 
 interface MediaDescriptor {
@@ -88,8 +89,7 @@ export class MetaCloudMediaService {
 
   public async locate(mediaId: string): Promise<LocatedMedia> {
     let message = await this.findMessage(mediaId);
-    const located = await this.locateFromMessage(mediaId, message);
-    if (located) return located;
+    if (message?.Instance) return this.locateMessage(mediaId, message);
 
     // Uploaded media IDs never become WhatsApp message IDs. Resolve these
     // before waiting for an inbound Message row so the outbound Meta contract
@@ -100,29 +100,33 @@ export class MetaCloudMediaService {
       if (instance) return { instance, id: mediaId, fileName: ref.fileName, mimetype: ref.mimetype };
     }
 
-    // Incoming webhooks can reach a consumer a few milliseconds before the
-    // existing persistence pipeline commits Message. Wait only on this cold
-    // path, then materialize the binary through the active provider's common
-    // media operation. No provider enum or provider-specific API is used here.
-    if (!message) {
-      message = await this.findMessageWithRetry(mediaId);
-      const recovered = await this.locateFromMessage(mediaId, message);
-      if (recovered) return recovered;
-    }
+    // A Meta webhook can reach its consumer before the normal persistence path
+    // commits Message. Identification is read-only: binary download/storage is
+    // intentionally deferred to describe(), which runs only after authorization.
+    message = await this.findMessageWithRetry(mediaId);
+    if (message?.Instance) return this.locateMessage(mediaId, message);
 
     throw new MetaCloudGraphError(404, `Media ${mediaId} was not found.`);
   }
 
-  public async describe(located: { id: string; fileName: string; mimetype: string }) {
-    const url = await getObjectUrl(located.fileName, 300);
+  public async describe(located: LocatedMedia) {
+    let fileName = located.fileName;
+    let mimetype = located.mimetype;
+
+    if (!fileName && located.message) {
+      const materialized = await this.materializeFromProvider(located.id, located.message);
+      fileName = materialized?.fileName;
+      mimetype = materialized?.mimetype;
+    }
+
+    if (!fileName) throw new MetaCloudGraphError(404, `Media ${located.id} was not found.`);
+    const url = await getObjectUrl(fileName, 300);
     if (!url) throw new MetaCloudGraphError(500, 'Unable to create a temporary media URL.');
     metaCloudMetrics.increment('connect_meta_compat_media_requests_total');
-    return { id: located.id, mime_type: located.mimetype, url };
+    return { id: located.id, mime_type: mimetype || 'application/octet-stream', url };
   }
 
-  private async locateFromMessage(mediaId: string, message: any): Promise<LocatedMedia | null> {
-    if (!message?.Instance) return null;
-
+  private locateMessage(mediaId: string, message: any): LocatedMedia {
     if (message.Media) {
       return {
         instance: message.Instance,
@@ -132,14 +136,10 @@ export class MetaCloudMediaService {
       };
     }
 
-    const materialized = await this.materializeFromProvider(mediaId, message);
-    if (!materialized) return null;
-
     return {
       instance: message.Instance,
       id: mediaId,
-      fileName: materialized.fileName,
-      mimetype: materialized.mimetype,
+      message,
     };
   }
 
