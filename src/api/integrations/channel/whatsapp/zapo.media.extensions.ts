@@ -123,10 +123,7 @@ export class ZapoMediaStartupService extends ZapoIdentityStartupService {
       }
     }
 
-    const media = await this.getBase64FromMediaMessage(
-      { message: messageRaw } as getBase64FromMediaMessageDto,
-      true,
-    );
+    const media = await this.getBase64FromMediaMessage({ message: messageRaw } as getBase64FromMediaMessageDto, true);
     const buffer = media?.buffer;
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) return;
 
