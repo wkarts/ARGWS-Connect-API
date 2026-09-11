@@ -101,7 +101,10 @@ export class MetaCloudIdentityResolver {
     return this.identityFromInstance(instance);
   }
 
-  public async resolveByPhoneNumberId(phoneNumberId: string, instanceToken?: string | null): Promise<MetaCloudIdentity> {
+  public async resolveByPhoneNumberId(
+    phoneNumberId: string,
+    instanceToken?: string | null,
+  ): Promise<MetaCloudIdentity> {
     const target = this.normalizePhone(phoneNumberId);
     if (!target) throw new MetaCloudGraphError(404, 'phoneNumberId was not found.');
 
