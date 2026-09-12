@@ -23,7 +23,7 @@ export class LocalTemplateService {
     });
     if (!instance) throw new LocalTemplateError('Instância não encontrada.', 404);
     if (!isLocalTemplateProvider(instance.integration)) {
-      throw new LocalTemplateError('Modelos locais estão disponíveis somente para conexões ZAPO e Baileys.');
+      throw new LocalTemplateError('O catálogo persistido de templates está disponível para conexões ZAPO e Baileys.');
     }
     return instance;
   }
@@ -65,7 +65,7 @@ export class LocalTemplateService {
     } catch (error) {
       if (error?.code === 'P2002') {
         throw new LocalTemplateError(
-          'Já existe um modelo com esse nome e idioma nesta instância, inclusive se arquivado.',
+          'Já existe um template com esse nome e idioma nesta instância, inclusive se arquivado.',
           409,
         );
       }
@@ -82,7 +82,7 @@ export class LocalTemplateService {
         data: { ...data, version: { increment: 1 } },
       });
       if (!changed.count) {
-        throw new LocalTemplateError('Modelo alterado, arquivado ou não encontrado. Atualize a lista.', 409);
+        throw new LocalTemplateError('Template alterado, arquivado ou não encontrado. Atualize a lista.', 409);
       }
       const row = await tx.localTemplate.findUnique({
         where: { instanceId_name_language: { instanceId: instance.id, name, language } },
@@ -99,7 +99,7 @@ export class LocalTemplateService {
       data: { deletedAt: new Date(), enabled: false, version: { increment: 1 } },
     });
     if (!changed.count) {
-      throw new LocalTemplateError('Modelo alterado, arquivado ou não encontrado. Atualize a lista.', 409);
+      throw new LocalTemplateError('Template alterado, arquivado ou não encontrado. Atualize a lista.', 409);
     }
     return { success: true };
   }
@@ -117,10 +117,10 @@ export class LocalTemplateService {
     const row = await this.prisma.localTemplate.findUnique({
       where: { instanceId_name_language: { instanceId: instance.id, ...identity } },
     });
-    if (!row || row.deletedAt) throw new LocalTemplateError('Modelo não encontrado nesta instância.', 404);
-    if (!row.enabled) throw new LocalTemplateError('Modelo desabilitado nesta instância.', 409);
+    if (!row || row.deletedAt) throw new LocalTemplateError('Template não encontrado nesta instância.', 404);
+    if (!row.enabled) throw new LocalTemplateError('Template desabilitado nesta instância.', 409);
     if (payload.version !== undefined && payload.version !== row.version) {
-      throw new LocalTemplateError('O modelo foi atualizado. Reconcilie os templates antes de enviar.', 409);
+      throw new LocalTemplateError('O template foi atualizado. Atualize o catálogo antes de enviar.', 409);
     }
     const text = renderLocalTemplate(row.components, payload.components ?? []);
     return {
@@ -130,6 +130,7 @@ export class LocalTemplateService {
         name: row.name,
         language: row.language,
         version: row.version,
+        category: 'UTILITY',
         source: LOCAL_TEMPLATE_SOURCE,
         execution: 'rendered_text',
         status: 'APPROVED',
@@ -143,7 +144,7 @@ export class LocalTemplateService {
       id: row.id,
       name: row.name,
       language: row.language,
-      category: 'OPENING',
+      category: 'UTILITY',
       components: row.components,
       status: 'APPROVED',
       approved: true,
