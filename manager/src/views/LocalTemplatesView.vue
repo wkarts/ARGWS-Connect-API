@@ -79,7 +79,7 @@ async function save() {
       ...(selected.value ? { version: selected.value.version } : {}),
     }, Boolean(selected.value))
     editor.value = false
-    feedback.value = 'Modelo salvo. Reconcilie a caixa no HUB para atualizar o catálogo.'
+    feedback.value = 'Template salvo com sucesso.'
     await refresh()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
@@ -91,7 +91,7 @@ async function toggle(item: LocalTemplate) {
     await saveLocalTemplate(instanceId.value, instanceName.value, {
       name: item.name, language: item.language, version: item.version, enabled: !item.enabled,
     }, true)
-    feedback.value = item.enabled ? 'Modelo desabilitado para envio.' : 'Modelo habilitado. Reconcilie a caixa no HUB.'
+    feedback.value = item.enabled ? 'Template desabilitado para envio.' : 'Template habilitado para envio.'
     await refresh()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
@@ -103,7 +103,7 @@ async function confirmArchive() {
   try {
     await archiveLocalTemplate(instanceId.value, instanceName.value, archive.value)
     archive.value = null
-    feedback.value = 'Modelo arquivado. Ele não será recriado pela sincronização.'
+    feedback.value = 'Template arquivado. Ele não será recriado automaticamente.'
     await refresh()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
@@ -119,32 +119,32 @@ watch(id, () => {
 
 <template>
   <AppShell>
-    <PageHeader title="Modelos de mensagem" :description="instanceName || 'Modelos vinculados a esta instância.'">
+    <PageHeader title="Templates de mensagem" :description="instanceName || 'Templates vinculados a esta instância.'">
       <button class="btn ghost" @click="router.push(`/instancias/${encodeURIComponent(id)}`)">Voltar à instância</button>
       <button class="btn ghost" :disabled="busy" @click="refresh">Atualizar</button>
-      <button v-if="available" class="btn primary" :disabled="busy" @click="edit()">Novo modelo</button>
+      <button v-if="available" class="btn primary" :disabled="busy" @click="edit()">Novo template</button>
     </PageHeader>
     <div v-if="error && !editor && !archive" class="alert error" role="alert">{{ error }}</div>
     <div v-if="feedback" class="alert success" role="status">{{ feedback }}</div>
-    <PanelCard v-if="available" title="Catálogo desta instância" description="Templates da Connect|API disponíveis para esta instância.">
-      <div class="catalog-tools"><input v-model="search" type="search" placeholder="Buscar por nome ou idioma" aria-label="Buscar modelos" /></div>
+    <PanelCard v-if="available" title="Catálogo da instância" description="Templates reutilizáveis da Connect|API para esta instância.">
+      <div class="catalog-tools"><input v-model="search" type="search" placeholder="Buscar por nome ou idioma" aria-label="Buscar templates" /></div>
       <div class="catalog-scroll">
         <table class="catalog-table">
-          <thead><tr><th>Modelo</th><th>Idioma</th><th>Situação</th><th>Ações</th></tr></thead>
+          <thead><tr><th>Template</th><th>Idioma</th><th>Situação</th><th>Ações</th></tr></thead>
           <tbody>
             <tr v-for="item in filtered" :key="item.id">
               <td><strong>{{ item.name }}</strong><p>{{ item.components.find(c => c.type === 'BODY')?.text }}</p></td>
               <td>{{ item.language }}</td><td>{{ item.enabled ? 'Disponível' : 'Desabilitado' }}</td>
               <td><div class="catalog-actions"><button class="btn ghost" :disabled="busy" @click="edit(item)">Editar</button><button class="btn ghost" :disabled="busy" @click="toggle(item)">{{ item.enabled ? 'Desabilitar' : 'Habilitar' }}</button><button class="btn danger" :disabled="busy" @click="archive = item; error = ''">Arquivar</button></div></td>
             </tr>
-            <tr v-if="!filtered.length"><td colspan="4">{{ busy ? 'Carregando modelos…' : 'Nenhum modelo encontrado.' }}</td></tr>
+            <tr v-if="!filtered.length"><td colspan="4">{{ busy ? 'Carregando templates…' : 'Nenhum template encontrado.' }}</td></tr>
           </tbody>
         </table>
       </div>
     </PanelCard>
-    <div v-else-if="instance" class="alert">Templates desta funcionalidade estão disponíveis para conexões ZAPO e Baileys.</div>
+    <div v-else-if="instance" class="alert">O catálogo persistido está disponível para conexões ZAPO e Baileys. Outros providers utilizam seus adaptadores específicos quando disponíveis.</div>
 
-    <AppModal :open="editor" :title="selected ? 'Editar modelo' : 'Novo modelo'" :dismissible="!busy" wide @close="editor = false">
+    <AppModal :open="editor" :title="selected ? 'Editar template' : 'Novo template'" :dismissible="!busy" wide @close="editor = false">
       <form class="template-form" @submit.prevent="save">
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
         <label>Nome<input v-model="name" required pattern="[a-z][a-z0-9_]{0,63}" maxlength="64" :disabled="Boolean(selected) || busy" placeholder="confirmacao_atendimento" /></label>
@@ -155,12 +155,13 @@ watch(id, () => {
         <label>Rodapé opcional<input v-model="footer" maxlength="60" :disabled="busy" /></label>
         <label class="enabled-field"><input v-model="enabled" type="checkbox" :disabled="busy" /> Disponível para envio</label>
         <div><strong>Prévia</strong><pre class="template-preview">{{ preview || 'Escreva a mensagem para visualizar.' }}</pre></div>
-        <button class="btn primary" :disabled="busy || !body.trim() || preview.length > 4096" type="submit">{{ busy ? 'Salvando…' : 'Salvar modelo' }}</button>
+        <p>Até 4096 caracteres no conteúdo completo.</p>
+        <button class="btn primary" :disabled="busy || !body.trim() || preview.length > 4096" type="submit">{{ busy ? 'Salvando…' : 'Salvar template' }}</button>
       </form>
     </AppModal>
-    <AppModal :open="Boolean(archive)" title="Arquivar modelo" :dismissible="!busy" @close="archive = null">
+    <AppModal :open="Boolean(archive)" title="Arquivar template" :dismissible="!busy" @close="archive = null">
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>
-      <p>Arquivar <strong>{{ archive?.name }}</strong>? Novos envios serão bloqueados e o modelo sairá do catálogo. O nome e o idioma ficam reservados; a sincronização não recria o cadastro.</p>
+      <p>Arquivar <strong>{{ archive?.name }}</strong>? Novos envios serão bloqueados e o template sairá do catálogo. O nome e o idioma ficam reservados.</p>
       <template #footer><button class="btn ghost" :disabled="busy" @click="archive = null">Cancelar</button><button class="btn danger" :disabled="busy" @click="confirmArchive">Arquivar</button></template>
     </AppModal>
   </AppShell>
