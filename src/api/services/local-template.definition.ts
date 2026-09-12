@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 
 export const LOCAL_TEMPLATE_SOURCE = 'connectapi_local';
 export const LOCAL_TEMPLATE_PROVIDERS = ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'];
+export const TEMPLATE_CATEGORIES = ['UTILITY', 'MARKETING', 'AUTHENTICATION'] as const;
+export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 export const DEFAULT_HELLO_TEXT = 'Olá! Como podemos ajudar?';
 const NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const LANGUAGE = /^[a-z]{2,3}(?:_[A-Z]{2})?$/;
@@ -30,7 +32,7 @@ function object(value: unknown): value is Record<string, unknown> {
 
 function exactKeys(value: Record<string, unknown>, allowed: string[]) {
   if (Object.keys(value).some((key) => !allowed.includes(key))) {
-    throw new LocalTemplateError('Campo não suportado neste modelo local.');
+    throw new LocalTemplateError('Campo não suportado neste template.');
   }
 }
 
@@ -42,6 +44,14 @@ export function templateIdentity(name: unknown, language: unknown) {
     throw new LocalTemplateError('Idioma inválido. Exemplo: pt_BR.');
   }
   return { name, language };
+}
+
+export function templateCategory(value: unknown, fallback: TemplateCategory = 'UTILITY'): TemplateCategory {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string' || !TEMPLATE_CATEGORIES.includes(value.toUpperCase() as TemplateCategory)) {
+    throw new LocalTemplateError(`Categoria inválida. Use ${TEMPLATE_CATEGORIES.join(', ')}.`);
+  }
+  return value.toUpperCase() as TemplateCategory;
 }
 
 export function placeholderCount(text: string): number {
@@ -89,37 +99,43 @@ export function validateTemplateComponents(value: unknown): LocalTemplateCompone
   if (!seen.has('BODY')) throw new LocalTemplateError('O componente BODY é obrigatório.');
   result.sort((a, b) => ['HEADER', 'BODY', 'FOOTER'].indexOf(a.type) - ['HEADER', 'BODY', 'FOOTER'].indexOf(b.type));
   if (result.map((item) => item.text).join('\n\n').length > MAX_TEXT) {
-    throw new LocalTemplateError(`O modelo completo deve ter no máximo ${MAX_TEXT} caracteres.`);
+    throw new LocalTemplateError(`O template completo deve ter no máximo ${MAX_TEXT} caracteres.`);
   }
   return result;
 }
 
 export function validateTemplateCreate(value: unknown) {
-  if (!object(value)) throw new LocalTemplateError('Dados do modelo inválidos.');
-  exactKeys(value, ['name', 'language', 'components', 'enabled']);
+  if (!object(value)) throw new LocalTemplateError('Dados do template inválidos.');
+  exactKeys(value, ['name', 'language', 'category', 'components', 'enabled']);
   const identity = templateIdentity(value.name, value.language);
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
     throw new LocalTemplateError('enabled deve ser true ou false.');
   }
-  return { ...identity, components: validateTemplateComponents(value.components), enabled: value.enabled ?? true };
+  return {
+    ...identity,
+    category: templateCategory(value.category),
+    components: validateTemplateComponents(value.components),
+    enabled: value.enabled ?? true,
+  };
 }
 
 export function validateTemplateEdit(value: unknown) {
   if (!object(value)) throw new LocalTemplateError('Dados de alteração inválidos.');
-  exactKeys(value, ['name', 'language', 'version', 'components', 'enabled']);
+  exactKeys(value, ['name', 'language', 'version', 'category', 'components', 'enabled']);
   const identity = templateIdentity(value.name, value.language);
   if (!Number.isSafeInteger(value.version) || Number(value.version) < 1) {
-    throw new LocalTemplateError('Informe a versão atual do modelo.');
+    throw new LocalTemplateError('Informe a versão atual do template.');
   }
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
     throw new LocalTemplateError('enabled deve ser true ou false.');
   }
-  if (value.components === undefined && value.enabled === undefined) {
-    throw new LocalTemplateError('Informe componentes ou situação para alterar.');
+  if (value.components === undefined && value.enabled === undefined && value.category === undefined) {
+    throw new LocalTemplateError('Informe categoria, componentes ou situação para alterar.');
   }
   return {
     ...identity,
     version: Number(value.version),
+    ...(value.category !== undefined ? { category: templateCategory(value.category) } : {}),
     ...(value.components !== undefined ? { components: validateTemplateComponents(value.components) } : {}),
     ...(value.enabled !== undefined ? { enabled: value.enabled as boolean } : {}),
   };
@@ -130,17 +146,17 @@ export function validateTemplateDelete(value: unknown) {
   exactKeys(value, ['name', 'language', 'version']);
   const identity = templateIdentity(value.name, value.language);
   if (!Number.isSafeInteger(value.version) || Number(value.version) < 1) {
-    throw new LocalTemplateError('Informe a versão atual do modelo.');
+    throw new LocalTemplateError('Informe a versão atual do template.');
   }
   return { ...identity, version: Number(value.version) };
 }
 
-// A real persisted record, not a response-time synthetic template.
 export function defaultLocalTemplateRecord() {
   return {
     id: `lt_${randomUUID()}`,
     name: 'hello',
     language: 'pt_BR',
+    category: 'UTILITY' as TemplateCategory,
     components: [{ type: 'BODY', text: DEFAULT_HELLO_TEXT }],
     enabled: true,
     version: 1,
@@ -158,7 +174,7 @@ export function renderLocalTemplate(definition: unknown, parameters: unknown): s
     exactKeys(item, ['type', 'parameters']);
     const type = typeof item.type === 'string' ? item.type.toUpperCase() : '';
     if (!['HEADER', 'BODY'].includes(type) || supplied.has(type) || !components.some((c) => c.type === type)) {
-      throw new LocalTemplateError('Componente de parâmetros duplicado ou inexistente no modelo.');
+      throw new LocalTemplateError('Componente de parâmetros duplicado ou inexistente no template.');
     }
     if (!Array.isArray(item.parameters) || item.parameters.length > 20) {
       throw new LocalTemplateError('Lista de parâmetros inválida.');
@@ -185,7 +201,6 @@ export function renderLocalTemplate(definition: unknown, parameters: unknown): s
       if (values.length !== placeholderCount(component.text)) {
         throw new LocalTemplateError(`Quantidade de parâmetros incorreta para ${component.type}.`);
       }
-      // Single substitution pass. Parameter values never become executable syntax.
       return component.text.replace(PLACEHOLDER, (_, position: string) => values[Number(position) - 1]);
     })
     .join('\n\n');
