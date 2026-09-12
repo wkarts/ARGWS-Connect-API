@@ -32,6 +32,7 @@ export const templateMessageSchema: JSONSchema7 = {
     number: { ...numberDefinition },
     name: { type: 'string' },
     language: { type: 'string' },
+    version: { type: 'integer', minimum: 1 },
     components: { type: 'array' },
     webhookUrl: { type: 'string' },
   },

@@ -14,6 +14,8 @@ import {
   SendTemplateDto,
   SendTextDto,
 } from '@api/dto/sendMessage.dto';
+import { isLocalTemplateProvider, LocalTemplateError } from '@api/services/local-template.definition';
+import { LocalTemplateService } from '@api/services/local-template.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { BadRequestException } from '@exceptions';
 import { isBase64, isURL } from 'class-validator';
@@ -29,10 +31,34 @@ function isEmoji(str: string) {
 }
 
 export class SendMessageController {
-  constructor(private readonly waMonitor: WAMonitoringService) {}
+  constructor(
+    private readonly waMonitor: WAMonitoringService,
+    private readonly localTemplates?: LocalTemplateService,
+  ) {}
 
   public async sendTemplate({ instanceName }: InstanceDto, data: SendTemplateDto) {
-    return await this.waMonitor.waInstances[instanceName].templateMessage(data);
+    const runtime = this.waMonitor.waInstances[instanceName];
+    if (!runtime) throw new LocalTemplateError('Instância desconectada.', 409);
+    if (!isLocalTemplateProvider(runtime.integration)) return await runtime.templateMessage(data);
+    if (runtime.connectionStatus?.state !== 'open') throw new LocalTemplateError('Instância desconectada.', 409);
+    if (!this.localTemplates) throw new LocalTemplateError('Serviço de modelos locais indisponível.', 500);
+    if (typeof data?.number !== 'string' || !/^\+?\d{8,15}$/.test(data.number)) {
+      throw new LocalTemplateError('Informe o telefone internacional do destinatário.');
+    }
+    const rendered = await this.localTemplates.render(instanceName, data);
+    // Explicit local-template execution, not a fallback from a failed Meta send.
+    // Body always comes from the persisted catalog, never from arbitrary caller text.
+    const result = await runtime.textMessage({
+      number: data.number,
+      text: rendered.text,
+      delay: data.delay,
+      quoted: data.quoted,
+    });
+    const messageId = result?.key?.id || result?.message?.key?.id || result?.messages?.[0]?.id || result?.id;
+    if (!messageId) {
+      throw new LocalTemplateError('Envio sem identificador confirmado. Verifique a entrega antes de reenviar.', 500);
+    }
+    return { ...result, connect_api: { template: rendered.metadata } };
   }
 
   public async sendText({ instanceName }: InstanceDto, data: SendTextDto) {

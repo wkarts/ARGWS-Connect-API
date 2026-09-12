@@ -47,12 +47,13 @@ export class MessageRouter extends RouterBroker {
     super();
     this.router
       .post(this.routerPath('sendTemplate'), ...guards, async (req, res) => {
+        const instanceName = req.params.instanceName;
         normalizeRequestBody(req);
         const response = await this.dataValidate<SendTemplateDto>({
           request: req,
           schema: templateMessageSchema,
           ClassRef: SendTemplateDto,
-          execute: (instance, data) => sendMessageController.sendTemplate(instance, data),
+          execute: (_instance, data) => sendMessageController.sendTemplate({ instanceName }, data),
         });
 
         return res.status(HttpStatus.CREATED).json(response);

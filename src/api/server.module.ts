@@ -50,6 +50,7 @@ import { S3Service } from './integrations/storage/s3/services/s3.service';
 import { ProviderFiles } from './provider/sessions';
 import { PrismaRepository } from './repository/repository.service';
 import { CacheService } from './services/cache.service';
+import { LocalTemplateService } from './services/local-template.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
@@ -72,6 +73,7 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 }
 
 export const prismaRepository = new PrismaRepository(configService);
+export const localTemplateService = new LocalTemplateService(prismaRepository);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
 export const metaCloudAuthService = new MetaCloudAuthService();
 export const metaCloudController = new MetaCloudController(prismaRepository, metaCloudIdentityResolver);
@@ -115,7 +117,7 @@ export const instanceController = new InstanceController(
   baileysCache,
   providerFiles,
 );
-export const sendMessageController = new SendMessageController(waMonitor);
+export const sendMessageController = new SendMessageController(waMonitor, localTemplateService);
 export const callController = new CallController(waMonitor, voiceMediaService);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
@@ -133,7 +135,7 @@ export const metaCloudMessageAdapter = new MetaCloudMessageAdapter(
   metaCloudMediaService,
   metaCloudResponseSerializer,
 );
-export const metaCloudTemplateService = new MetaCloudTemplateService(templateController);
+export const metaCloudTemplateService = new MetaCloudTemplateService(templateController, localTemplateService);
 export const metaCloudGraphController = new MetaCloudGraphController(
   metaCloudIdentityResolver,
   metaCloudAuthService,

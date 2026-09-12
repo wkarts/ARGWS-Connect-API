@@ -49,3 +49,11 @@ READ
 DELETED
 PLAYED
 ```
+
+## Templates por instância e templates Business
+
+`sendTemplate` distingue a integração: Business continua no método oficial;
+ZAPO/Baileys usam o catálogo persistido por instância `LocalTemplate`. Esses registros
+são expostos como `APPROVED`; `enabled`/`available` controlam a disponibilidade.
+A categoria é `OPENING` (Abertura de conversa no HUB). A listagem e o envio Graph
+expõem o mesmo contrato. Veja [Templates por instância](local-templates.md).

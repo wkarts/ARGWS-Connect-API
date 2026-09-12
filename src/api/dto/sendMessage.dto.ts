@@ -154,6 +154,7 @@ export class ContactMessage {
 }
 
 export class SendTemplateDto extends Metadata {
+  version?: number;
   name: string;
   language: string;
   components: any;

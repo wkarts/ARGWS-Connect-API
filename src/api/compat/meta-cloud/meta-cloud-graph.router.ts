@@ -59,11 +59,13 @@ export class MetaCloudGraphRouter {
     this.router.get(
       '/:version/:businessAccountId/message_templates',
       this.wrap(async (req, res) => {
+        res.set('Cache-Control', 'no-store');
         res.json(
           await metaCloudGraphController.listTemplates(
             req.params.version,
             req.params.businessAccountId,
             req.headers.authorization,
+            req.query,
           ),
         );
       }),

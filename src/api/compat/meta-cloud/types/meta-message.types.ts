@@ -1,4 +1,5 @@
 export type MetaCloudMessageType =
+  | 'template'
   | 'text'
   | 'image'
   | 'video'
@@ -14,6 +15,7 @@ export interface MetaCloudMessageRequest {
   recipient_type?: string;
   to?: string;
   type?: MetaCloudMessageType;
+  template?: { name?: string; language?: { code?: string }; components?: any[]; connect_api_version?: number };
   text?: { body?: string };
   image?: { link?: string; id?: string; caption?: string; mime_type?: string };
   video?: { link?: string; id?: string; caption?: string; mime_type?: string };
