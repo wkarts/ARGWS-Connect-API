@@ -4,9 +4,15 @@
 
 A Connect|API mantém templates persistidos por instância para `WHATSAPP-ZAPO` e
 `WHATSAPP-BAILEYS`. Esses templates são tratados pelo produto como **APPROVED em
-todas as camadas**: API nativa, Meta Compatible, Manager, HUB e testes de contrato.
+todas as camadas**: API nativa, Meta Compatible, Manager e testes de contrato.
 A origem técnica `connectapi_local` é preservada apenas para rastreabilidade e não
 altera o status de aprovação.
+
+O catálogo pertence à Connect|API e não a uma aplicação consumidora específica.
+HUB, Scheduler PRO, ERP, automações, bots e integrações externas podem consumir o
+mesmo contrato diretamente da Connect|API, respeitando autenticação e escopo da
+instância. Cada consumidor decide como classificar ou apresentar o uso do template
+na sua própria interface.
 
 A integração `WHATSAPP-BUSINESS` continua usando seu serviço oficial. O primeiro
 formato desta implementação suporta BODY de texto, HEADER TEXT fixo opcional e
@@ -31,7 +37,8 @@ O contrato de catálogo usa:
 enviado naquele momento. Desabilitar um template não o transforma em rejeitado;
 apenas bloqueia novos envios até a reativação.
 
-A categoria padrão é `UTILITY`.
+A categoria padrão atual é `UTILITY`. A categoria pertence ao template e não deve
+ser usada para codificar regras particulares de uma aplicação consumidora.
 
 ## Persistência e implantação
 
@@ -64,7 +71,7 @@ Nenhuma variável de ambiente nova é necessária.
 
 ## Administração no Manager
 
-No Manager: **Instâncias → abrir instância → Modelos de mensagem**.
+No Manager: **Instâncias → abrir instância → Templates de mensagem**.
 
 A tela permite listar, cadastrar, editar, habilitar/desabilitar e arquivar. Todos
 os registros ativos são apresentados com status `APPROVED`. A habilitação é um
@@ -72,7 +79,7 @@ controle operacional independente da aprovação.
 
 A operação usa o token específico da instância no cabeçalho `apikey`. A chave
 global administrativa permanece compatível na API, mas não é usada como fallback
-na operação da caixa.
+nas operações de template por instância.
 
 | Método e rota | Efeito |
 | --- | --- |
@@ -111,7 +118,7 @@ Somente BODY aceita variáveis, numeradas consecutivamente de `{{1}}` até `{{20
 HEADER e FOOTER são textos fixos. O conteúdo completo tem até 4096 caracteres e
 cada parâmetro aceita até 1024 caracteres.
 
-## Integração Meta Compatible e HUB
+## Integração Meta Compatible e API nativa
 
 A listagem Graph retorna o mesmo catálogo aprovado da instância:
 
@@ -124,16 +131,11 @@ Cada item retorna `status: "APPROVED"` e `approved: true`, além de `id`, `name`
 `language`, `components`, `version`, `enabled`, `available`, `category`, `source` e
 `execution`.
 
-A origem técnica não altera o tratamento do consumidor: HUB e demais clientes
-devem considerar o template aprovado e usar `enabled`/`available` para decidir se
-o envio está liberado.
+A origem técnica não altera o tratamento do consumidor. Qualquer cliente da
+Connect|API deve usar `enabled`/`available` para decidir se o envio está liberado e
+pode manter regras de uso próprias fora do catálogo central.
 
-No HUB, **Reconciliar agora** importa os templates reais. O nome exato `hello` é
-habilitado automaticamente para abertura na primeira descoberta; os demais podem
-ser liberados pelo administrador da caixa. As escolhas sobrevivem às próximas
-reconciliações.
-
-### Enviar um template
+### Enviar um template pelo Graph
 
 ```http
 POST /graph/v20.0/{phoneNumberId}/messages
@@ -164,12 +166,26 @@ Content-Type: application/json
 Para `hello` sem variáveis, BODY com `parameters: []` é válido. A versão permite
 bloquear envios feitos com uma definição antiga após edição do template.
 
-A rota nativa `/message/sendTemplate/{instanceName}` também usa o cadastro
-persistido. O ID da resposta é o ID real retornado pela integração. A resposta
-inclui metadados de origem e versão, mantendo `status: APPROVED` e `approved: true`.
+### Enviar um template pela API nativa
+
+A rota `/message/sendTemplate/{instanceName}` usa o mesmo cadastro persistido e o
+token da instância no cabeçalho `apikey`.
+
+O ID da resposta é o ID real retornado pela integração. A resposta inclui metadados
+de origem e versão, mantendo `status: APPROVED` e `approved: true`.
 
 Template inexistente, arquivado, desabilitado, com versão divergente ou parâmetros
 inválidos não é enviado. Não há fallback para texto arbitrário após uma falha.
+
+## Compartilhamento da instância entre consumidores
+
+Mais de uma aplicação pode consumir a mesma instância da Connect|API quando a
+intenção for compartilhar a mesma identidade WhatsApp. Isso significa compartilhar
+também o mesmo número, catálogo de templates e fluxo de mensagens daquela instância.
+
+Quando uma aplicação precisa de identidade, lifecycle, credenciais ou isolamento
+operacional independentes, use outra instância. Essa decisão pertence à arquitetura
+do consumidor e não altera o contrato de templates.
 
 ## Verificação
 
@@ -181,6 +197,5 @@ npm run build
 npm --prefix manager run test
 ```
 
-Database Integrity cobre PostgreSQL/MySQL e paridade PgBouncer. No HUB, o workflow
-HUB Quality executa os contratos de catálogo, UI e envio correspondentes. A
-homologação com uma instância WhatsApp real continua necessária antes de produção.
+Database Integrity cobre PostgreSQL/MySQL e paridade PgBouncer. A homologação com
+uma instância WhatsApp real continua necessária antes de produção.
