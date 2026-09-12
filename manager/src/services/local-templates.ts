@@ -6,6 +6,7 @@ export interface LocalTemplate {
   id: string
   name: string
   language: string
+  category: 'UTILITY'
   components: Array<{ type: 'HEADER' | 'BODY' | 'FOOTER'; text: string; format?: 'TEXT' }>
   enabled: boolean
   available: boolean
@@ -32,11 +33,11 @@ async function request(instanceId: string, instanceName: string, action: string,
     if (session !== getCurrentAccessCode()) throw new Error('Sessão alterada. Entre novamente.')
     if (response.status === 401 || response.status === 403) throw new Error('Acesso negado a esta instância. Entre novamente.')
     if (response.status === 404) throw new Error('Recurso não encontrado. Confirme que a API foi atualizada.')
-    if (response.status === 409) throw new Error('O modelo já existe, foi alterado ou arquivado. Atualize a lista antes de continuar.')
+    if (response.status === 409) throw new Error('O template já existe, foi alterado ou arquivado. Atualize a lista antes de continuar.')
     const result = await response.json()
     if (!response.ok) {
       const message = response.status === 400 && typeof result?.response?.message === 'string' ? result.response.message : ''
-      throw new Error(message || 'Não foi possível concluir a operação com o modelo.')
+      throw new Error(message || 'Não foi possível concluir a operação com o template.')
     }
     return result
   } finally {
@@ -50,10 +51,10 @@ export async function listLocalTemplates(instanceId: string, instanceName: strin
   let after: string | undefined
   do {
     const page = await request(instanceId, instanceName, 'find', 'GET', undefined, after)
-    if (!Array.isArray(page.data)) throw new Error('Resposta de modelos inválida.')
+    if (!Array.isArray(page.data)) throw new Error('Resposta de templates inválida.')
     result.push(...page.data)
     after = page.paging?.cursors?.after
-    if (after && (typeof after !== 'string' || visited.has(after) || visited.size >= 100)) throw new Error('Paginação de modelos inválida.')
+    if (after && (typeof after !== 'string' || visited.has(after) || visited.size >= 100)) throw new Error('Paginação de templates inválida.')
     if (after) visited.add(after)
   } while (after)
   return result.sort((a, b) => a.name.localeCompare(b.name) || a.language.localeCompare(b.language))
