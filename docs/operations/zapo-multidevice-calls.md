@@ -17,7 +17,7 @@ A oferta existente já consulta os dispositivos e distribui a chave cifrada para
 
 `patches/zapo-voip-1.0.0.json` contém substituições exatas para os módulos CJS e ESM da dependência instalada. `scripts/apply-zapo-voip-patch.cjs` verifica versão e SHA-256 de cada arquivo antes de qualquer escrita. Uma compilação desconhecida provoca erro explícito; o script não tenta adaptar automaticamente outra versão.
 
-O `postinstall` aplica o patch. `npm run runtime:deps:check` exige que os seis arquivos tenham o hash corrigido. O Docker copia manifesto e script antes de `npm ci` e conserva ambos na imagem final. Instalações com `--ignore-scripts` precisam executar `npm run patch:zapo-voip` antes do build.
+O `postinstall` aplica o patch. `npm run runtime:deps:check` exige que os oito arquivos tenham o hash corrigido. O Docker copia manifesto e script antes de `npm ci` e conserva ambos na imagem final. Instalações com `--ignore-scripts` precisam executar `npm run patch:zapo-voip` antes do build.
 
 A resolução PN/LID usa `signalDeviceSync.resolveUserJidPair`, método existente no Zapo 1.6.3, com cache por sessão e timeout de 5 segundos. Credenciais PN e LID reconhecem a própria conta. O número do device só é comparado depois de comprovada a identidade da conta; ausência de `:device` equivale ao device zero. Relação PN/LID desconhecida não autoriza desligar um possível vencedor.
 
@@ -26,6 +26,14 @@ Os aliases servem para comparar identidades. O JID original do `accept` permanec
 O primeiro atendimento permanece vencedor. Quando o celular da própria conta atende uma chamada recebida, a sessão companion é encerrada localmente com `accepted_elsewhere`, sem enviar hangup ao interlocutor. Um ACK atrasado não substitui a mídia do vencedor. Uma recusa de device ocupado não encerra os demais enquanto ainda puderem atender.
 
 Antes do atendimento, o encerramento é enviado ao endereço original e aos dispositivos da oferta/relay, excluindo a própria conta. Depois do atendimento, é enviado ao vencedor. Erros de envio são propagados, preservando o estado para nova tentativa. Sucesso nessa operação comprova envio pelo transporte Zapo; não substitui a confirmação remota nem um teste com aparelhos reais.
+
+## Atendimento pela Connect API ou HUB
+
+O aceite local responde ao `peerJid` completo do remetente da oferta, preservando o segmento `:device` tanto no destino quanto na sessão Signal usada para cifrar a resposta. `call-creator` permanece inalterado como correlação da chamada; não é usado como substituto do endereço do device originador.
+
+A chamada só passa de `incoming_ringing` para `connecting` depois de preparar e enviar a stanza `accept`. Chave de chamada ausente/inválida, falha ao obter sessão, cifrar ou enviar o aceite produzem erro; não publicam atendimento local. O estado é revalidado após operações assíncronas para preservar término remoto ou atendimento concorrente no smartphone. Requisições locais simultâneas compartilham o mesmo envio.
+
+A validação automatizada desse fluxo começa pela oferta criada por uma instância A, entrega-a a B e executa `acceptCall` de B; o `accept` gerado pelo próprio pacote é então entregue à instância A. A rede/Signal são simulados nesses testes. Validação com contas WhatsApp reais permanece necessária.
 
 ## Estados publicados
 
