@@ -447,13 +447,18 @@ export function calls(raw: any): WhatsAppCall[] {
       '',
     )
     const number = firstPhone(item.number, item.callerPnJid, item.callerPn, item.displayPeerJid, item.remoteJid, item.peerJid, item.peerJidAlt, item.peerJidRaw)
-    const rawDirection = str(item.direction || item.type || '').toLowerCase()
+    const rawDirection = str(item.direction || item.type || '').trim().toLowerCase()
     const canonicalStatus = str(item.status).trim().toLowerCase()
-    const direction: WhatsAppCall['direction'] = rawDirection.includes('in') || item.isIncoming === true
+    // Match complete values: "outgoing" also contains "in".
+    const direction: WhatsAppCall['direction'] = ['incoming', 'inbound', 'in'].includes(rawDirection)
       ? 'incoming'
-      : rawDirection.includes('out') || item.isIncoming === false
+      : ['outgoing', 'outbound', 'out'].includes(rawDirection)
         ? 'outgoing'
-        : 'unknown'
+        : item.isIncoming === true
+          ? 'incoming'
+          : item.isIncoming === false
+            ? 'outgoing'
+            : 'unknown'
     return {
       id: callId,
       callId,
