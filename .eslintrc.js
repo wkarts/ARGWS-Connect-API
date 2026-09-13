@@ -21,6 +21,16 @@ module.exports = {
   ignorePatterns: ['.eslintrc.js'],
   overrides: [
     {
+      // The owned engine is JavaScript with adjacent declaration files. Lint
+      // its source without requiring it to be a TypeScript project input.
+      files: ['src/api/integrations/channel/whatsapp/voip/engine/**/*.js'],
+      parserOptions: { project: null },
+      env: { es2021: true },
+      rules: {
+        '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      },
+    },
+    {
       files: ['src/config/env.config.ts'],
       rules: {
         'prettier/prettier': 'off',

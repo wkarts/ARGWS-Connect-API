@@ -3,6 +3,7 @@ import { whatsappDestination } from './whatsapp-destination'
 import * as normalize from './normalizers'
 import { integrationDefinitions } from './integration-definitions'
 import { VoiceMediaSession, type VoiceMediaCallbacks } from './voice-media'
+import type { CallCapabilities, VideoMediaCallbacks, VideoMediaPreparation } from './video-media'
 import type {
   AuditItem,
   ConnectionItem,
@@ -379,13 +380,17 @@ export const current = {
     })
   },
 
-  async offerCall(id: string, number: string, callDuration?: number) {
+  async callCapabilities(id: string): Promise<CallCapabilities> {
+    return withInstance(id, async (_item, name, token) => api<CallCapabilities>(`/call/capabilities/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async offerCall(id: string, number: string, callDuration?: number, isVideo = false) {
     return withInstance(id, async (item, name, token) => {
       const provider = normalize.normalizeProvider(item.integration)
       if (!normalize.providerCapabilities(provider).calls) throw new CurrentApiError('Este provider não oferece chamadas nesta versão.', 409)
       const duration = Number(callDuration || 0)
       return api(`/call/offer/${encodeURIComponent(name)}`, {
-        method: 'POST', token, data: { number: String(number).replace(/\D/g, ''), ...(duration > 0 ? { callDuration: duration } : {}) },
+        method: 'POST', token, data: { number: String(number).replace(/\D/g, ''), ...(duration > 0 ? { callDuration: duration } : {}), ...(isVideo ? { isVideo: true } : {}) },
       })
     })
   },
@@ -405,6 +410,18 @@ export const current = {
       const mediaToken = token || accessCode
       if (!mediaToken) throw new CurrentApiError('A sessão atual não possui autorização para o áudio da chamada.', 409)
       const session = new VoiceMediaSession({ apiBaseUrl: runtime.apiBaseUrl, instanceName: name, callId, token: mediaToken }, callbacks)
+      await session.start()
+      return session
+    }, true)
+  },
+
+  async videoMedia(id: string, callId: string, preparation: VideoMediaPreparation, canvas: HTMLCanvasElement, callbacks: VideoMediaCallbacks = {}) {
+    return withInstance(id, async (_item, name, token) => {
+      const mediaToken = token || accessCode
+      if (!mediaToken) throw new CurrentApiError('A sessão atual não possui autorização para o vídeo da chamada.', 409)
+      const { VideoMediaSession } = await import('./video-media')
+      const session = new VideoMediaSession({ apiBaseUrl: runtime.apiBaseUrl, instanceName: name, callId, token: mediaToken }, preparation, canvas, callbacks)
+      callbacks.onSession?.(session)
       await session.start()
       return session
     }, true)

@@ -104,6 +104,7 @@ const COMPONENTS = new Set([
   'native-webhook',
   'meta-webhook',
   'voice-media',
+  'video-media',
 ]);
 // Only source basenames known to this application are readable. Unknown names become a fingerprint;
 // full paths, function names, URLs and the first stack line are never included.

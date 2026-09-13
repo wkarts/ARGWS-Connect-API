@@ -1,6 +1,7 @@
 import { CallIdDto, MuteCallDto, OfferCallDto } from '@api/dto/call.dto';
 import { InstanceDto } from '@api/dto/instance.dto';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { VideoMediaService } from '@api/services/video-media.service';
 import { VoiceMediaService } from '@api/services/voice-media.service';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
@@ -10,6 +11,7 @@ export class CallController {
   constructor(
     private readonly waMonitor: WAMonitoringService,
     private readonly voiceMediaService: VoiceMediaService,
+    private readonly videoMediaService: VideoMediaService,
   ) {}
 
   private instance(instanceName: string): any {
@@ -84,6 +86,14 @@ export class CallController {
 
   public async mediaTicket({ instanceName }: InstanceDto, data: CallIdDto) {
     return this.voiceMediaService.createMediaTicket(instanceName, data.callId);
+  }
+
+  public async videoMediaTicket({ instanceName }: InstanceDto, data: CallIdDto) {
+    return this.videoMediaService.createMediaTicket(instanceName, data.callId);
+  }
+
+  public async capabilities({ instanceName }: InstanceDto) {
+    return this.videoMediaService.capabilities(instanceName);
   }
 
   public async listCalls({ instanceName }: InstanceDto) {

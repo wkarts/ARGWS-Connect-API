@@ -32,6 +32,7 @@ import sharp from 'sharp';
 import { PassThrough } from 'stream';
 
 import { diagnostics } from '../../../../diagnostics/diagnostics.service';
+import { getConnectVideoConfig, getConnectVoipEngine } from './voip/connect-voip.config';
 import { ZAPO_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
 import { bindZapoCallDiagnostics } from './zapo.call-diagnostics';
 import { connectCatalogPlugin } from './zapo.catalog.plugin';
@@ -75,8 +76,8 @@ function getSharedZapoPostgresBackend(connectionString: string) {
 /**
  * Native Zapo provider for Connect|API.
  *
- * Zapo owns the WhatsApp Web protocol session. The optional Zapo VOIP plugin
- * owns WhatsApp call signaling/media. No external call bridge is used here.
+ * Zapo owns the WhatsApp Web protocol session. Voice retains its validated
+ * plugin; the public call adapter delegates only video calls to Connect's engine.
  */
 export class ZapoStartupService extends ChannelStartupService {
   constructor(
@@ -94,7 +95,9 @@ export class ZapoStartupService extends ChannelStartupService {
   public stateConnection: wa.StateConnection = { state: 'close' };
   public phoneNumber?: string;
 
-  public readonly capabilities = ZAPO_WHATSAPP_CAPABILITIES;
+  public get capabilities() {
+    return { ...ZAPO_WHATSAPP_CAPABILITIES, videoCalls: this.getCallCapabilities().video };
+  }
 
   private readonly persistedGroups = new Map<string, GroupIdentity>();
   private readonly groupIdentities = new ZapoGroupIdentityCache(async (jid) => {
@@ -115,6 +118,7 @@ export class ZapoStartupService extends ChannelStartupService {
   private readonly contactProfileRefreshAt = new Map<string, number>();
   private readonly contactProfileRefreshTtlMs = 6 * 60 * 60 * 1000;
   private readonly audioEmitter = new EventEmitter2();
+  private readonly videoEmitter = new EventEmitter2();
   private reconnectTimer?: NodeJS.Timeout;
   private historyImportTimer?: NodeJS.Timeout;
   private historyImportPromise: Promise<void> = Promise.resolve();
@@ -600,13 +604,13 @@ export class ZapoStartupService extends ChannelStartupService {
       .filter((call: any) => !ended.has(String(call?.stateData?.state ?? call?.state ?? '').toLowerCase())).length;
   }
 
-  /** Place a WhatsApp call directly through Zapo VOIP. */
+  /** Place a WhatsApp call through the configured public VoIP plugin. */
   public async offerCall({ number, isVideo, callDuration }: OfferCallDto) {
     await this.ensureConnected();
     this.ensureVoip();
 
-    if (isVideo) {
-      throw new BadRequestException('The native Zapo provider currently supports audio calls only');
+    if (isVideo && !this.getCallCapabilities().video) {
+      throw new BadRequestException('Chamadas de vídeo estão indisponíveis no mecanismo de chamadas selecionado.');
     }
 
     const maxConcurrentCalls = this.effectiveMaxConcurrentCalls();
@@ -634,6 +638,9 @@ export class ZapoStartupService extends ChannelStartupService {
   public async acceptCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
+    if (this.client.voip.getCall(callId)?.isVideo && !this.getCallCapabilities().video) {
+      throw new BadRequestException('Chamadas de vídeo estão indisponíveis no mecanismo de chamadas selecionado.');
+    }
     await this.client.voip.acceptCall(callId);
     return this.normalizeCall(this.client.voip.getCall(callId));
   }
@@ -690,6 +697,47 @@ export class ZapoStartupService extends ChannelStartupService {
     return this.client.voip.feedLiveAudio(callId, pcm);
   }
 
+  public getCallCapabilities() {
+    const voip = this.client?.voip;
+    const audio = Boolean(voip && process.env.ZAPO_VOIP_ENABLED !== 'false');
+    const engine = voip?.engine === 'connect-video-adapter' ? 'connect' : voip ? 'zapo-native' : getConnectVoipEngine();
+    // Native video is not enabled by method detection alone: it needs a qualified implementation.
+    const video = audio && voip?.engine === 'connect-video-adapter' && voip.videoEnabled === true && getConnectVideoConfig().enabled &&
+      typeof voip.feedLiveVideo === 'function' && typeof voip.requestVideoKeyFrame === 'function';
+    return { audio, video, engine, ...(video ? { videoCodec: 'h264' as const } : {}) };
+  }
+
+  /** Encoded frames stay inside the media plane; never forward them to webhooks or logs. */
+  public onInboundVideo(handler: (event: {
+    call: any;
+    frame: { codec: 'h264'; timestampUs: number; keyFrame: boolean; data: Uint8Array };
+  }) => void) {
+    this.videoEmitter.on('video', handler);
+    return () => this.videoEmitter.off('video', handler);
+  }
+
+  public onVideoKeyFrameRequest(handler: (event: { callId: string }) => void) {
+    this.videoEmitter.on('keyframe', handler);
+    return () => this.videoEmitter.off('keyframe', handler);
+  }
+
+  public onCallEnded(handler: (callId: string) => void) {
+    this.videoEmitter.on('ended', handler);
+    return () => this.videoEmitter.off('ended', handler);
+  }
+
+  public feedLiveVideo(callId: string, data: Uint8Array, timestampUs: number): number {
+    this.ensureVoip();
+    if (!this.getCallCapabilities().video) throw new BadRequestException('Chamadas de vídeo estão desativadas.');
+    return this.client.voip.feedLiveVideo(callId, data, timestampUs);
+  }
+
+  public requestVideoKeyFrame(callId: string): void {
+    this.ensureVoip();
+    if (!this.getCallCapabilities().video) throw new BadRequestException('Chamadas de vídeo estão desativadas.');
+    this.client.voip.requestVideoKeyFrame(callId);
+  }
+
   private async loadRuntimeConfiguration() {
     await Promise.all([this.loadChatwoot(), this.loadSettings(), this.loadWebhook(), this.loadProxy()]);
   }
@@ -708,10 +756,8 @@ export class ZapoStartupService extends ChannelStartupService {
     }
 
     // Provider modules are loaded lazily so Baileys/Meta startup remains independent from Zapo/VoIP.
-    const [{ ConsoleLogger, createStore, WaClient }, { voipPlugin }] = await Promise.all([
-      import('@innovatorssoft/zapo-js'),
-      import('@innovatorssoft/voip'),
-    ]);
+    const { ConsoleLogger, createStore, WaClient } = await import('@innovatorssoft/zapo-js');
+    const engine = getConnectVoipEngine();
 
     this.storeBackend = getSharedZapoPostgresBackend(database.CONNECTION.URI);
 
@@ -740,10 +786,20 @@ export class ZapoStartupService extends ChannelStartupService {
     this.cleanupPoller = this.storeBackend.startCleanup(this.instanceId);
 
     const maxConcurrentCalls = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
-    const plugins = [
-      connectCatalogPlugin(),
-      ...(process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })]),
-    ];
+    const plugins: any[] = [connectCatalogPlugin()];
+    if (process.env.ZAPO_VOIP_ENABLED !== 'false') {
+      if (engine === 'connect') {
+        const { connectCallAdapterPlugin } = await import('./voip/connect-call-adapter.plugin');
+        const video = getConnectVideoConfig();
+        plugins.push(connectCallAdapterPlugin({
+          maxConcurrentCalls, logLevel: 'warn', videoEnabled: video.enabled,
+          maxVideoFrameBytes: video.maxFrameBytes, maxVideoFps: video.maxFps,
+        }));
+      } else {
+        const { voipPlugin } = await import('@innovatorssoft/voip');
+        plugins.push(voipPlugin({ maxConcurrentCalls, logLevel: 'warn' }));
+      }
+    }
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
     const configuredBrowser =
       process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || process.env.ZAPO_DEVICE_BROWSER || session.NAME || 'Chrome';
@@ -839,6 +895,7 @@ export class ZapoStartupService extends ChannelStartupService {
       if (call?.callId) {
         this.callMuteStates.delete(call.callId);
         this.outgoingCallPeers.delete(call.callId);
+        this.videoEmitter.emit('ended', call.callId);
       }
     });
 
@@ -854,6 +911,13 @@ export class ZapoStartupService extends ChannelStartupService {
     this.client.on('voip_call_inbound_audio', ({ call, pcm }: any) => {
       // PCM stays inside the media plane and is exposed only to internal consumers (PBX/bridge).
       this.audioEmitter.emit('audio', { call: this.normalizeCall(call), pcm });
+    });
+
+    this.client.on('voip_call_inbound_video', ({ call, frame }: any) => {
+      this.videoEmitter.emit('video', { call: this.normalizeCall(call), frame });
+    });
+    this.client.on('voip_call_video_keyframe_request', ({ callId }: { callId: string }) => {
+      this.videoEmitter.emit('keyframe', { callId });
     });
   }
 

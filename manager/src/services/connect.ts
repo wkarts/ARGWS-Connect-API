@@ -19,6 +19,7 @@ import type {
   WhatsAppProvider,
 } from '@/types/domain'
 import type { VoiceMediaCallbacks, VoiceMediaSession } from './voice-media'
+import type { CallCapabilities, VideoMediaCallbacks, VideoMediaPreparation, VideoMediaSession } from './video-media'
 
 const adapter: Record<string, any> = (runtime.compatibility === 'service' ? service : current) as Record<string, any>
 
@@ -77,9 +78,11 @@ export const connect = {
     const result = await invoke<WhatsAppCall[]>('calls', id)
     return result.map(sanitizeCallIdentity)
   },
-  offerCall: (id: string, number: string, duration?: number): Promise<any> => invoke('offerCall', id, number, duration),
+  callCapabilities: (id: string): Promise<CallCapabilities> => invoke('callCapabilities', id),
+  offerCall: (id: string, number: string, duration?: number, isVideo = false): Promise<any> => invoke('offerCall', id, number, duration, isVideo),
   callAction: (id: string, action: 'accept' | 'reject' | 'end' | 'mute', data: any = {}): Promise<any> => invoke('callAction', id, action, data),
   voiceMedia: (id: string, callId: string, callbacks: VoiceMediaCallbacks = {}): Promise<VoiceMediaSession> => invoke('voiceMedia', id, callId, callbacks),
+  videoMedia: (id: string, callId: string, preparation: VideoMediaPreparation, canvas: HTMLCanvasElement, callbacks: VideoMediaCallbacks = {}): Promise<VideoMediaSession> => invoke('videoMedia', id, callId, preparation, canvas, callbacks),
   integrationSummaries: (id: string): Promise<IntegrationSummary[]> => invoke('integrationSummaries', id),
   findIntegrations: (id: string, key: IntegrationKey): Promise<any[]> => invoke('findIntegrations', id, key),
   createIntegration: (id: string, key: IntegrationKey, data: any): Promise<any> => invoke('createIntegration', id, key, data),

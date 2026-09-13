@@ -27,6 +27,7 @@ export type WhatsAppProviderCapabilities = Readonly<{
   qrCode: boolean;
   pairingCode: boolean;
   video: boolean;
+  videoCalls: boolean;
 }>;
 
 /**
@@ -82,6 +83,7 @@ export const BAILEYS_WHATSAPP_CAPABILITIES: WhatsAppProviderCapabilities = Objec
   qrCode: true,
   pairingCode: true,
   video: false,
+  videoCalls: false,
 });
 
 export const ZAPO_WHATSAPP_CAPABILITIES: WhatsAppProviderCapabilities = Object.freeze({
@@ -114,6 +116,8 @@ export const ZAPO_WHATSAPP_CAPABILITIES: WhatsAppProviderCapabilities = Object.f
   qrCode: true,
   pairingCode: true,
   video: false,
+  // Effective call capability comes from the active Connect coordinator.
+  videoCalls: false,
 });
 
 export function assertRequiredWhatsAppCapabilities(capabilities: WhatsAppProviderCapabilities): void {

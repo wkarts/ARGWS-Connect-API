@@ -13,6 +13,7 @@
     "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && npm run test:manager-contract",
     "test:manager-contract": "node --test test/manager-feature-contract.test.cjs",
     "test:voip": "node --test test/zapo-voip-*.test.cjs test/zapo-call-lifecycle.test.cjs",
+    "test:video": "npm run build:connect-voip && node --test test/connect-video-*.test.cjs test/video-media.test.cjs test/connect-voip-*.test.cjs test/connect-call-adapter.test.cjs",
     "patch:zapo-voip": "node scripts/apply-zapo-voip-patch.cjs",
     "postinstall": "npm run patch:zapo-voip",
     "lint": "eslint --fix --ext .ts src",
@@ -31,7 +32,8 @@
     "test:zapo": "node ./test/zapo-provider.integration.test.mjs",
     "runtime:deps:check": "node ./scripts/check-zapo-runtime.cjs",
     "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs",
-    "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs"
+    "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs",
+    "build:connect-voip": "node scripts/build-connect-voip.cjs"
   },
   "repository": {
     "type": "git",
