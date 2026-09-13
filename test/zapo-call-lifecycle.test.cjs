@@ -143,6 +143,7 @@ test('VoIP terminal reasons remain distinct in API snapshots and disappear from 
     assert.equal(snapshot.terminal, true);
     const [call] = manager.calls([snapshot]);
     assert.equal(call.state, expected);
+    assert.equal(call.direction, direction);
     assert.equal(manager.isCallActive(call), false);
   }
 });
@@ -160,4 +161,71 @@ test('Manager respects explicit terminal snapshots and keeps older active respon
   assert.equal(calls[3].state, 'ringing');
   assert.equal(JSON.stringify(calls.filter(manager.isCallActive).map(call => call.callId)),
     JSON.stringify(['legacy-live', 'unknown-canonical']));
+});
+
+test('Manager loading an API snapshot of a HUB-originated call preserves outgoing direction without local dial state', () => {
+  const snapshot = contract.normalizeZapoCallSnapshot({
+    callId: 'hub-outgoing', direction: 'outgoing', peerJid: '5511999999999@s.whatsapp.net',
+    stateData: { state: 'ringing' },
+  });
+  const [call] = manager.calls({ data: [snapshot] });
+  assert.equal(call.callId, 'hub-outgoing');
+  assert.equal(call.direction, 'outgoing');
+  assert.equal(call.state, 'ringing');
+  assert.equal(manager.isCallActive(call), true);
+
+  const mixed = manager.calls([snapshot, contract.normalizeZapoCallSnapshot({
+    callId: 'incoming-call', direction: 'incoming', stateData: { state: 'ringing' },
+  })]);
+  assert.equal(mixed[0].direction, 'outgoing');
+  assert.equal(mixed[1].direction, 'incoming');
+  assert.equal(mixed.filter(manager.isCallActive).length, 2);
+});
+
+test('successive API refreshes preserve outgoing direction through ringing, answered and ended states', () => {
+  for (const [state, status] of [['initiating', 'ringing'], ['ringing', 'ringing'], ['connecting', 'answered'], ['active', 'answered'], ['ended', 'ended']]) {
+    const snapshot = contract.normalizeZapoCallSnapshot({
+      callId: 'same-outgoing-call', direction: 'outgoing', stateData: { state },
+    });
+    const [call] = manager.calls([snapshot]);
+    assert.equal(call.callId, 'same-outgoing-call');
+    assert.equal(call.direction, 'outgoing', state);
+    assert.equal(call.state, status, state);
+  }
+});
+
+test('explicit direction tokens are case-insensitive, trimmed and take precedence over conflicting legacy flags', () => {
+  for (const [tokens, direction, oppositeFlag] of [
+    [['incoming', 'INCOMING', ' inbound ', 'in'], 'incoming', false],
+    [['outgoing', 'OUTGOING', ' outbound ', 'out'], 'outgoing', true],
+  ]) {
+    for (const token of tokens) {
+      const [call] = manager.calls([{ callId: token, direction: token, isIncoming: oppositeFlag }]);
+      assert.equal(call.direction, direction, token);
+    }
+  }
+});
+
+test('legacy type direction is used when direction is absent', () => {
+  for (const [type, expected] of [['incoming', 'incoming'], ['inbound', 'incoming'], ['in', 'incoming'], ['outgoing', 'outgoing'], ['outbound', 'outgoing'], ['out', 'outgoing']]) {
+    for (const direction of [undefined, null, '']) {
+      const [call] = manager.calls([{ callId: type, direction, type }]);
+      assert.equal(call.direction, expected, type);
+    }
+  }
+});
+
+test('unknown direction uses boolean fallback without inferring direction from state-like text or unrelated substrings', () => {
+  for (const token of ['ringing', 'incoming_ringing', 'connecting', 'initiating', 'timeout', 'outage', 'not-incoming', 'without', 'unknown']) {
+    for (const key of ['direction', 'type']) {
+      const [call] = manager.calls([{ callId: token, [key]: token }]);
+      assert.equal(call.direction, 'unknown', `${key}=${token}`);
+    }
+  }
+  for (const token of ['ringing', 'connecting', 'unknown']) {
+    for (const [isIncoming, expected] of [[true, 'incoming'], [false, 'outgoing'], ['true', 'unknown'], ['false', 'unknown'], [0, 'unknown'], [1, 'unknown'], [undefined, 'unknown']]) {
+      const [call] = manager.calls([{ callId: token, direction: token, type: 'incoming', isIncoming }]);
+      assert.equal(call.direction, expected, `${token}/${isIncoming}`);
+    }
+  }
 });
