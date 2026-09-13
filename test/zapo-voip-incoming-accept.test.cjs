@@ -82,42 +82,47 @@ const tagOf = node => node.tag === 'call' ? node.content?.[0]?.tag : node.tag;
 // The answer acknowledges the media key delivered in the encrypted offer; it
 // does not deliver another key. Independent wire-format reference:
 // https://github.com/oxidezap/whatsapp-rust/blob/6502b871e35664ffb80044ba7c6317a6427754e2/wacore/src/stanza/call.rs
-// Keep the existing outer account route; these tests do not emulate the server.
+// The answering facade addresses incoming.from, preserving the caller device:
+// https://github.com/oxidezap/whatsapp-rust/blob/6502b871e35664ffb80044ba7c6317a6427754e2/src/voip/facade.rs
+// These tests verify address preservation, not delivery by the WhatsApp server.
 for (const format of ['cjs', 'esm']) {
   for (const mode of ['lid', 'pn']) {
     for (const video of [false, true]) {
-      test(`${format.toUpperCase()} ${mode.toUpperCase()} ${video ? 'video' : 'audio'} accept preserves offer media-key negotiation`, async () => {
-        const builder = format === 'cjs' ? buildAcceptStanza :
-          (await import(pathToFileURL(path.join(dist, 'esm/signaling/signaling.js')).href)).buildAcceptStanza;
-        const peerJid = device(A[mode], 18);
-        const callCreator = A[mode];
-        const callId = '0123456789ABCDEF0123456789ABCDEF';
-        const unexpectedKeyExchange = () => assert.fail('accept must not synchronize Signal or encrypt the offer key again');
-        const deps = {
-          authClient: { getCurrentCredentials: unexpectedKeyExchange },
-          messageDispatch: { syncSignalSession: unexpectedKeyExchange },
-          signalProtocol: { encryptMessage: unexpectedKeyExchange },
-        };
-        const callKey = new Uint8Array(32).fill(0x5a);
-        const built = await builder(deps, callId, callKey, peerJid, callCreator, video);
-        const decoded = await decodeBinaryNodeStanza(encodeBinaryNodeStanza(built));
+      for (const callerDevice of [null, 0, 18]) {
+        test(`${format.toUpperCase()} ${mode.toUpperCase()} ${video ? 'video' : 'audio'} accept preserves ${callerDevice ?? 'bare'} caller address and offer media-key negotiation`, async () => {
+          const builder = format === 'cjs' ? buildAcceptStanza :
+            (await import(pathToFileURL(path.join(dist, 'esm/signaling/signaling.js')).href)).buildAcceptStanza;
+          const peerJid = callerDevice === null ? A[mode] : device(A[mode], callerDevice);
+          const callCreator = A[mode];
+          const callId = '0123456789ABCDEF0123456789ABCDEF';
+          const unexpectedKeyExchange = () => assert.fail('accept must not synchronize Signal or encrypt the offer key again');
+          const deps = {
+            authClient: { getCurrentCredentials: unexpectedKeyExchange },
+            messageDispatch: { syncSignalSession: unexpectedKeyExchange },
+            signalProtocol: { encryptMessage: unexpectedKeyExchange },
+          };
+          const callKey = new Uint8Array(32).fill(0x5a);
+          const built = await builder(deps, callId, callKey, peerJid, callCreator, video);
+          const decoded = await decodeBinaryNodeStanza(encodeBinaryNodeStanza(built));
 
-        assert.equal(built.attrs.to, A[mode], 'preserve the existing outer account route');
-        assert.equal(decoded.attrs.to, A[mode], 'the account destination must survive binary serialization');
-        assert.match(decoded.attrs.id, /^[A-Fa-f0-9]+$/, 'the wrapper id correlates the server ACK');
-        const accept = decoded.content[0];
-        assert.equal(accept.tag, 'accept');
-        assert.equal(accept.attrs['call-id'], callId);
-        assert.equal(accept.attrs['call-creator'], callCreator, 'account metadata must not become a device address');
-        assert.deepEqual(accept.content.map(node => node.tag),
-          video ? ['audio', 'net', 'encopt', 'video'] : ['audio', 'net', 'encopt']);
-        assert.deepEqual(accept.content.find(node => node.tag === 'audio').attrs, { enc: 'opus', rate: '16000' });
-        assert.deepEqual(accept.content.find(node => node.tag === 'net').attrs, { medium: '2' });
-        assert.deepEqual(accept.content.find(node => node.tag === 'encopt').attrs, { keygen: '2' });
-        if (video) assert.deepEqual(accept.content.find(node => node.tag === 'video').attrs, { enc: 'vp8' });
-        assert.equal(accept.content.some(node => ['enc', 'device-identity'].includes(node.tag)), false);
-        assert.deepEqual(callKey, new Uint8Array(32).fill(0x5a), 'the offer key remains available for SRTP');
-      });
+          assert.equal(built.attrs.to, peerJid, 'accept must reply to the exact sender of the offer');
+          assert.deepEqual(parseSignalAddressFromJid(decoded.attrs.to), parseSignalAddressFromJid(peerJid),
+            'the caller device must survive binary serialization');
+          assert.match(decoded.attrs.id, /^[A-Fa-f0-9]+$/, 'the wrapper id correlates the server ACK');
+          const accept = decoded.content[0];
+          assert.equal(accept.tag, 'accept');
+          assert.equal(accept.attrs['call-id'], callId);
+          assert.equal(accept.attrs['call-creator'], callCreator, 'account metadata must not become a device address');
+          assert.deepEqual(accept.content.map(node => node.tag),
+            video ? ['audio', 'net', 'encopt', 'video'] : ['audio', 'net', 'encopt']);
+          assert.deepEqual(accept.content.find(node => node.tag === 'audio').attrs, { enc: 'opus', rate: '16000' });
+          assert.deepEqual(accept.content.find(node => node.tag === 'net').attrs, { medium: '2' });
+          assert.deepEqual(accept.content.find(node => node.tag === 'encopt').attrs, { keygen: '2' });
+          if (video) assert.deepEqual(accept.content.find(node => node.tag === 'video').attrs, { enc: 'vp8' });
+          assert.equal(accept.content.some(node => ['enc', 'device-identity'].includes(node.tag)), false);
+          assert.deepEqual(callKey, new Uint8Array(32).fill(0x5a), 'the offer key remains available for SRTP');
+        });
+      }
     }
   }
 }
@@ -134,7 +139,7 @@ function signalEnvelope(sender, recipient, plaintext) {
 }
 
 function makeEndpoint(account, index, mode, creatorIndex) {
-  const wireJid = device(account[mode], index);
+  const wireJid = index === null ? account[mode] : device(account[mode], index);
   const creator = creatorIndex === undefined ? account[mode] : device(account[mode], creatorIndex);
   const context = { wireJid, sent: [], states: [], ended: [], synced: [], encrypted: [], decrypted: [] };
   const logger = createNoopLogger();
@@ -143,7 +148,7 @@ function makeEndpoint(account, index, mode, creatorIndex) {
       getCurrentCredentials: () => ({
         // Account-level call-creator is valid metadata; the transport sender can
         // still be a companion. The encrypted offer must retain the sender device.
-        meJid: mode === 'pn' ? creator : device(account.pn, creatorIndex ?? index),
+        meJid: mode === 'pn' ? creator : device(account.pn, creatorIndex ?? index ?? 0),
         meLid: mode === 'lid' ? creator : undefined,
       }),
     },
@@ -198,11 +203,12 @@ function makeEndpoint(account, index, mode, creatorIndex) {
   return context;
 }
 
-async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) {
+async function setup(t, { mode = 'lid', callerDevice = 18, creatorDevice } = {}) {
   const caller = makeEndpoint(A, callerDevice, mode, creatorDevice);
   const receiver = makeEndpoint(B, 6, mode, 6);
   const phone = makeEndpoint(B, 0, mode, 0);
-  const endpoints = [caller, receiver, phone];
+  const callerPhone = callerDevice === 0 || callerDevice === null ? caller : makeEndpoint(A, 0, mode, 0);
+  const endpoints = [...new Set([caller, callerPhone, receiver, phone])];
   const pending = [];
   const deliveries = [];
   let draining = false;
@@ -214,7 +220,7 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
       while (pending.length) {
         assert.ok(count++ < 100, 'signaling queue must settle instead of reflecting control stanzas forever');
         const { target, incoming } = pending.shift();
-        deliveries.push({ target: target.wireJid, tag: tagOf(incoming) });
+        deliveries.push({ target: target.wireJid, tag: tagOf(incoming), id: incoming.attrs.id });
         await routeCallStanza(target.manager, target.deps, incoming, target.logger);
       }
     } finally {
@@ -226,18 +232,14 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
     endpoint.deps.lowLevelCoordinator.sendNode = async node => {
       endpoint.sent.push(node);
       const tag = tagOf(node);
-      // This in-memory fixture preserves the installed account envelope route.
-      // Only the offer transfers an encrypted media key; the answer negotiates it.
-      // It is not a simulation or verification of the WhatsApp server itself.
+      // Route answers by transport address, never by the target's call state.
+      // In this fixture bare/zero identifies the primary; it must not magically
+      // reach a companion because that companion happens to own the call.
+      // This remains a simulated device network, not a WhatsApp server test.
       const destinations = tag === 'offer' ? [receiver, phone]
         : ['accept', 'terminate', 'relaylatency', 'mute_v2'].includes(tag)
           ? endpoints.filter(target => {
             try {
-              if (tag === 'accept') {
-                // Correlate this fixture's known call at the destination account.
-                return node.attrs.to === toUserJid(target.wireJid) &&
-                  target.manager.getCall(node.content[0].attrs['call-id'])?.isInitiator;
-              }
               // Relay reports fan out to the remote account. Other controls
               // keep their device-addressed routing.
               if (tag === 'relaylatency') return toUserJid(node.attrs.to) === toUserJid(target.wireJid);
@@ -260,7 +262,7 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
   assert.equal(receiver.manager.getCall(callId).encryptionKey.length, 32);
   const session = receiver.manager.getSessionOrThrow(callId);
   receiver.sent.length = 0;
-  return { caller, receiver, phone, callId, session, pending, deliveries };
+  return { caller, callerPhone, receiver, phone, callId, session, pending, deliveries };
 }
 
 function terminal(from, callId) {
@@ -304,17 +306,43 @@ test('an external legacy encrypted accept remains supported by the receiver', as
 });
 
 for (const mode of ['lid', 'pn']) {
-  for (const creatorDevice of [undefined, 0]) {
-    test(`${mode.toUpperCase()} companion answer reaches caller device 3 with ${creatorDevice === 0 ? 'device-0' : 'bare'} call-creator`, async t => {
-      const { caller, receiver, phone, callId } = await setup(t, { mode, creatorDevice });
+  test(`${mode.toUpperCase()} account-only answer reaches the idle primary instead of the originating companion`, async t => {
+    const { caller, callerPhone, receiver, phone, callId, deliveries } = await setup(t, { mode });
+    const wrongId = `account-only-answer-${mode}`;
+    await receiver.deps.lowLevelCoordinator.sendNode({
+      tag: 'call', attrs: { to: A[mode], id: wrongId },
+      content: [{ tag: 'accept', attrs: { 'call-id': callId, 'call-creator': caller.wireJid } }],
+    });
+    assert.deepEqual(deliveries.filter(delivery => delivery.id === wrongId).map(delivery => delivery.target),
+      [callerPhone.wireJid], 'transport addresses determine the recipient independently of session ownership');
+    assert.ok(callerPhone.sent.some(node => node.tag === 'ack' && node.attrs.id === wrongId),
+      'an ACK from the primary is not confirmation that the companion received accept');
+    assert.equal(callerPhone.manager.getCall(callId), null, 'the primary did not originate this call');
+    assert.equal(caller.manager.getCall(callId).stateData.state, 'ringing');
+    assert.equal(phone.manager.getCall(callId).stateData.state, 'incoming_ringing');
+
+    await receiver.manager.acceptCall(callId);
+    const answer = messages(receiver, 'accept').at(-1);
+    assert.deepEqual(deliveries.filter(delivery => delivery.id === answer.attrs.id).map(delivery => delivery.target),
+      [caller.wireJid], 'the companion answer must target the original sender, without account fan-out');
+    assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
+    assert.equal(phone.manager.getCall(callId), null);
+  });
+
+  for (const creatorDevice of [undefined, 0, 18]) {
+    test(`${mode.toUpperCase()} companion answer reaches caller device 18 with ${creatorDevice ?? 'bare'} call-creator`, async t => {
+      const { caller, callerPhone, receiver, phone, callId, deliveries } = await setup(t, { mode, creatorDevice });
       const creator = receiver.manager.getCall(callId).callCreator;
       const offerKey = new Uint8Array(caller.manager.getCall(callId).encryptionKey);
-      assert.notEqual(creator, caller.wireJid);
+      assert.equal(creator, creatorDevice === undefined ? A[mode] : device(A[mode], creatorDevice));
       await receiver.manager.acceptCall(callId);
 
       const accepts = messages(receiver, 'accept');
       assert.equal(accepts.length, 1);
-      assert.equal(accepts[0].attrs.to, toUserJid(caller.wireJid), 'accept envelope must address the originating account');
+      assert.equal(accepts[0].attrs.to, caller.wireJid, 'accept envelope must address the originating device');
+      assert.deepEqual(deliveries.filter(delivery => delivery.id === accepts[0].attrs.id).map(delivery => delivery.target),
+        [caller.wireJid]);
+      assert.equal(callerPhone.manager.getCall(callId), null);
       assert.equal(accepts[0].content[0].attrs['call-creator'], creator, 'call metadata must be preserved');
       assert.deepEqual(receiver.synced, [], 'the answer does not establish another Signal session');
       assert.deepEqual(receiver.encrypted, [], 'the offer key is not re-encrypted in the answer');
@@ -331,15 +359,17 @@ for (const mode of ['lid', 'pn']) {
     });
   }
 
-  test(`${mode.toUpperCase()} device-0 mobile caller remains able to receive the companion answer`, async t => {
-    const { caller, receiver, phone, callId } = await setup(t, { mode, callerDevice: 0, creatorDevice: 0 });
-    await receiver.manager.acceptCall(callId);
-    assert.deepEqual(parseSignalAddressFromJid(messages(receiver, 'accept')[0].attrs.to),
-      parseSignalAddressFromJid(caller.wireJid));
-    assert.equal(caller.decrypted.length, 0);
-    assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
-    assert.equal(phone.manager.getCall(callId), null);
-  });
+  for (const callerDevice of [null, 0]) {
+    test(`${mode.toUpperCase()} ${callerDevice ?? 'bare'} mobile caller remains able to receive the companion answer`, async t => {
+      const { caller, receiver, phone, callId } = await setup(t, { mode, callerDevice, creatorDevice: 0 });
+      await receiver.manager.acceptCall(callId);
+      assert.deepEqual(parseSignalAddressFromJid(messages(receiver, 'accept')[0].attrs.to),
+        parseSignalAddressFromJid(caller.wireJid));
+      assert.equal(caller.decrypted.length, 0);
+      assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
+      assert.equal(phone.manager.getCall(callId), null);
+    });
+  }
 
   test(`${mode.toUpperCase()} relay and mute exchange settle before the real companion accept and phone cancellation`, async t => {
     const { caller, receiver, phone, callId, session, pending, deliveries } = await setup(t, { mode });
