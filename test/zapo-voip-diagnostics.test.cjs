@@ -24,6 +24,11 @@ const accept = (id = 'accept-stanza', callId = 'call-1') => ({
   tag: 'call', attrs: { id, to: '111:3@lid' },
   content: [{ tag: 'accept', attrs: { 'call-id': callId, 'call-creator': '111:3@lid' } }],
 });
+const relay = (id, callId = 'call-1') => ({
+  tag: 'call', attrs: { id, to: '111:3@lid', token: 'SECRET-TOKEN' },
+  content: [{ tag: 'relaylatency', attrs: { 'call-id': callId, key: 'SECRET-KEY' },
+    content: [{ tag: 'token', attrs: {}, content: Buffer.from('SECRET-RELAY-TOKEN') }] }],
+});
 const trace = () => {
   const client = new EventEmitter();
   const records = [];
@@ -179,7 +184,7 @@ test('child traversal and attribute lengths are bounded, including cyclic nodes'
   assert.ok(check(record.node) <= 48);
 });
 
-test('correlation cache keeps the newest 256 outgoing ids only', () => {
+test('priority correlation cache keeps the newest 256 ids only', () => {
   const { client, records, emit } = trace();
   for (let i = 0; i < 257; i++) client.emit('debug_transport_node_out', { node: accept(`stanza-${i}`, `call-${i}`) });
   emit({ tag: 'ack', attrs: { id: 'stanza-0', class: 'call', type: 'accept' } });
@@ -188,7 +193,98 @@ test('correlation cache keeps the newest 256 outgoing ids only', () => {
   assert.deepEqual(records.slice(-3).map(read).map(record => record.callId), [undefined, 'call-1', 'call-256']);
 });
 
-test('flood emits at most 300 records plus one suppression record per minute', () => {
+test('relay and ACK bursts retain a later accept, its ACK, state and ended records', () => {
+  const originalNow = Date.now;
+  const startedAt = originalNow();
+  let now = startedAt;
+  Date.now = () => now;
+  try {
+    const { client, records, emit } = trace();
+    const offer = accept('offer-stanza');
+    offer.content[0].tag = 'offer';
+    emit(offer);
+    client.emit('voip_call_incoming', { callId: 'call-1', state: 'ringing' });
+    // Repeated incoming/outgoing relaylatency plus ACKs exhaust the old shared budget in 2.5 seconds.
+    for (let i = 0; i < 80; i++) {
+      now = startedAt + Math.floor(i * 2500 / 80);
+      client.emit('debug_transport_node_out', { node: relay(`out-relay-${i}`) });
+      emit({ tag: 'ack', attrs: { class: 'call', id: `out-relay-${i}` } });
+      emit(relay(`in-relay-${i}`));
+      client.emit('debug_transport_node_out', { node: {
+        tag: 'ack', attrs: { class: 'call', id: `in-relay-${i}` },
+      } });
+    }
+    now = startedAt + 6000;
+    client.emit('debug_transport_node_out', { node: accept() });
+    emit({ tag: 'ack', attrs: { class: 'call', id: 'accept-stanza' } });
+    client.emit('voip_call_state', { callId: 'call-1', state: 'connecting', canAccept: false });
+    client.emit('voip_call_ended', { callId: 'call-1', state: 'ended', endReason: 'user_ended' });
+    const observed = records.map(read);
+    assert.deepEqual(observed.filter(record => record.kind === 'suppressed').map(record => ({
+      bucket: record.bucket, limitPerMinute: record.limitPerMinute,
+    })), [{ bucket: 'relaylatency', limitPerMinute: 100 }]);
+    assert.equal(observed.at(-4).node.children[0].tag, 'accept');
+    assert.equal(observed.at(-3).node.tag, 'ack');
+    assert.equal(observed.at(-3).callId, 'call-1');
+    assert.deepEqual(observed.slice(-2).map(record => record.kind), ['state', 'ended']);
+    assert.equal(observed.at(-4).timestamp, new Date(startedAt + 6000).toISOString());
+    assert.equal(observed.length, 107); // 100 noise records, one summary and six lifecycle records.
+    assert.ok(!records.join('').includes('SECRET'));
+    assert.ok(!records.join('').includes(Buffer.from('SECRET-RELAY-TOKEN').toString('base64')));
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('hundreds of relay ids cannot evict a delayed accept ACK and both caches remain bounded', () => {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    const { client, records, emit } = trace();
+    client.emit('debug_transport_node_out', { node: accept() });
+    for (let i = 0; i < 1000; i++) {
+      client.emit('debug_transport_node_out', { node: relay(`relay-${i}`, `relay-call-${i}`) });
+    }
+    // Most of these delayed, untyped ACKs outlive the noise cache; they must not consume the reserve.
+    for (let i = 0; i < 1000; i++) emit({ tag: 'ack', attrs: { class: 'call', id: `relay-${i}` } });
+    emit({ tag: 'ack', attrs: { class: 'call', id: 'accept-stanza' } });
+    assert.equal(read(records.at(-1)).callId, 'call-1');
+    assert.equal(read(records.at(-1)).node.attrs.id, 'accept-stanza');
+    now += 60_000;
+    for (const i of [0, 743, 744, 999]) {
+      emit({ tag: 'ack', attrs: { class: 'call', type: 'relaylatency', id: `relay-${i}` } });
+    }
+    assert.deepEqual(records.slice(-4).map(read).map(record => record.callId), [
+      undefined, undefined, 'relay-call-744', 'relay-call-999',
+    ]);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('relay suppression preserves errors and all explicit lifecycle signals', () => {
+  const { client, records, emit } = trace();
+  for (let i = 0; i < 120; i++) client.emit('debug_transport_node_out', { node: relay(`relay-${i}`) });
+  emit({ tag: 'ack', attrs: { class: 'call', id: 'relay-0', type: 'relaylatency', error: '403' } });
+  emit({ tag: 'ack', attrs: { class: 'call', id: 'relay-1', type: 'relaylatency' },
+    content: [{ tag: 'error', attrs: { code: '500' } }] });
+  for (const tag of ['offer', 'preaccept', 'accept', 'reject', 'terminate']) {
+    emit({ tag: 'ack', attrs: { class: 'call', id: 'relay-2', type: tag } });
+    const node = relay(`${tag}-stanza`);
+    node.content.push({ tag, attrs: { 'call-id': 'call-1' } });
+    emit(node);
+  }
+  const retained = records.slice(-12).map(read);
+  assert.equal(retained[0].node.attrs.error, '403');
+  assert.equal(retained[0].callId, 'call-1');
+  assert.equal(retained[1].node.children[0].tag, 'error');
+  assert.deepEqual(retained.slice(2).filter((_, i) => i % 2 === 0).map(record => record.node.attrs.type),
+    ['offer', 'preaccept', 'accept', 'reject', 'terminate']);
+  assert.ok(retained.every(record => record.kind === 'transport_in'));
+});
+
+test('lifecycle flood emits at most 300 records plus one bucket summary per minute', () => {
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
@@ -197,11 +293,41 @@ test('flood emits at most 300 records plus one suppression record per minute', (
     for (let i = 0; i < 1000; i++) emit(accept());
     assert.equal(records.length, 300); // The startup enabled record consumes one rate slot.
     assert.equal(read(records.at(-1)).kind, 'suppressed');
+    assert.equal(read(records.at(-1)).bucket, 'lifecycle');
     assert.equal(read(records.at(-1)).limitPerMinute, 300);
     now += 60_000;
     emit(accept());
     assert.equal(records.length, 301);
     assert.equal(read(records.at(-1)).kind, 'transport_in');
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('simultaneous floods remain bounded at 400 records and two summaries per minute', () => {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    const { records, emit } = trace();
+    for (let i = 0; i < 1000; i++) {
+      emit(accept());
+      emit(relay(`relay-${i}`));
+      emit({ tag: 'ack', attrs: { class: 'call', type: 'relaylatency', id: `relay-${i}` } });
+    }
+    assert.equal(records.length, 401); // Enabled already consumed one of the 400 slots.
+    assert.deepEqual(records.map(read).filter(record => record.kind === 'suppressed')
+      .map(record => record.bucket).sort(), ['lifecycle', 'relaylatency']);
+    now += 60_000;
+    emit(relay('new-window'));
+    emit(accept());
+    assert.deepEqual(records.slice(-2).map(read).map(record => record.node.children[0].tag),
+      ['relaylatency', 'accept']);
+    // A clock correction also starts a fresh finite window.
+    now -= 5000;
+    for (let i = 0; i < 1000; i++) emit(relay(`corrected-${i}`));
+    assert.equal(records.length, 504);
+    assert.equal(read(records.at(-1)).bucket, 'relaylatency');
   } finally {
     Date.now = originalNow;
   }

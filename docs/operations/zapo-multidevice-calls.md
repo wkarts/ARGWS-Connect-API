@@ -25,7 +25,7 @@ Os aliases servem para comparar identidades. O JID original do `accept` permanec
 
 O primeiro atendimento permanece vencedor. Quando o celular da própria conta atende uma chamada recebida, a sessão companion é encerrada localmente com `accepted_elsewhere`, sem enviar hangup ao interlocutor. Um ACK atrasado não substitui a mídia do vencedor. Uma recusa de device ocupado não encerra os demais enquanto ainda puderem atender.
 
-Antes do atendimento, o encerramento é enviado ao endereço original e aos dispositivos da oferta/relay, excluindo a própria conta. Depois do atendimento, é enviado ao vencedor. Erros de envio são propagados, preservando o estado para nova tentativa. Sucesso nessa operação comprova envio pelo transporte Zapo; não substitui a confirmação remota nem um teste com aparelhos reais.
+Antes do atendimento, o encerramento é enviado ao endereço original e aos dispositivos da oferta/relay, excluindo a própria conta. Depois do atendimento, é enviado ao vencedor. Erros de envio são propagados, preservando o estado para nova tentativa. Sucesso nessa operação comprova apenas o retorno local do método de envio do Zapo; não substitui a confirmação remota nem um teste com aparelhos reais.
 
 ## Atendimento pela Connect API ou HUB
 
@@ -34,6 +34,16 @@ O aceite local responde ao `peerJid` completo do remetente da oferta, preservand
 A chamada só passa de `incoming_ringing` para `connecting` depois de preparar e enviar a stanza `accept`. Chave de chamada ausente/inválida, falha ao obter sessão, cifrar ou enviar o aceite produzem erro; não publicam atendimento local. O estado é revalidado após operações assíncronas para preservar término remoto ou atendimento concorrente no smartphone. Requisições locais simultâneas compartilham o mesmo envio.
 
 A validação automatizada desse fluxo começa pela oferta criada por uma instância A, entrega-a a B e executa `acceptCall` de B; o `accept` gerado pelo próprio pacote é então entregue à instância A. A rede/Signal são simulados nesses testes. Validação com contas WhatsApp reais permanece necessária.
+
+## Respostas repetidas entre duas APIs
+
+Os diagnósticos de 13/09/2026 registraram centenas de eventos `relaylatency` e respectivos ACKs em aproximadamente 2,5 segundos, antes do atendimento. O handler do pacote encaminhava cada relatório recebido de volta ao remetente com um novo ID de stanza. Duas instâncias executando esse mesmo handler mantinham um ciclo sem fim. O handler de `mute_v2`, usado durante o aceite, também respondia incondicionalmente com outro `mute_v2`.
+
+As respostas desses dois handlers são deduplicadas por sessão e janela de 60 segundos: uma impressão SHA-256 considera o peer, o conteúdo recebido e os destinatários/conteúdo da resposta, excluindo o ID exterior que muda em cada retransmissão. O primeiro envio e informações novas continuam passando, respeitando o limite da janela. O ACK de cada stanza recebida permanece no roteador. Envios pendentes ficam separados do histórico e continuam reservados na troca de janela. Uma duplicata concorrente aguarda o mesmo envio e recebe a mesma falha, caso ocorra; após a falha, uma nova tentativa é permitida. Uma sessão encerrada não produz novas respostas.
+
+Cada tag (`relaylatency` e `mute_v2`) admite até 256 respostas automáticas por chamada em cada janela de 60 segundos. Ao atingir o limite, novas respostas automáticas dessa tag são omitidas até a próxima janela e um aviso técnico é registrado. O histórico é renovado a cada janela, preservando as reservas de envios ainda pendentes; o limite não é vitalício. Os comandos de atendimento/término, os ACKs e os relatórios locais de relay não usam essa guarda. Nenhum payload é acrescentado aos diagnósticos por essa deduplicação.
+
+Os testes reproduzem os ciclos com sessões, roteadores e builders reais do pacote e entrega de rede simulada. Os logs originais atingiram o antigo limite de coleta antes do aceite, portanto não comprovam se o `accept` chegou, foi rejeitado ou foi processado pelo outro lado. A correção remove o ciclo reproduzido; a confirmação do atendimento e áudio entre contas reais continua sendo um critério de homologação, não uma conclusão extraída de HTTP 200 ou dos testes simulados.
 
 ## Estados publicados
 
