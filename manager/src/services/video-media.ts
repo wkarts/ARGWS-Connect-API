@@ -55,7 +55,8 @@ export class VideoMediaSession {
     private readonly callbacks: VideoMediaCallbacks = {},
   ) { this.remoteDecoderConfig = { ...preparation.decoderConfig } }
 
-  static async prepare(settings: VideoMediaSettings = {}): Promise<VideoMediaPreparation> {
+  static async prepare(settings: VideoMediaSettings = {}, signal?: AbortSignal): Promise<VideoMediaPreparation> {
+    signal?.throwIfAborted()
     if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       throw new Error('A câmera exige HTTPS e um navegador com acesso à mídia.')
     }
@@ -80,10 +81,42 @@ export class VideoMediaSession {
     if (!encoder.supported || !decoder.supported) {
       throw new Error('Este navegador não consegue enviar e receber H.264. O atendimento por vídeo não foi iniciado.')
     }
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const constraints: MediaStreamConstraints = {
       video: { width: { ideal: resolved.width }, height: { ideal: resolved.height }, frameRate: { ideal: resolved.maxFps, max: resolved.maxFps } },
       audio: false,
-    })
+    }
+    let stream: MediaStream
+    for (let attempt = 0; ; attempt += 1) {
+      signal?.throwIfAborted()
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+        break
+      } catch (error) {
+        signal?.throwIfAborted()
+        const name = (error as { name?: string })?.name
+        const temporarilyUnavailable = name === 'NotReadableError' || name === 'TrackStartError'
+        if (temporarilyUnavailable && attempt === 0) {
+          // Give the driver one bounded opportunity to release a stopped capture.
+          await new Promise(resolve => window.setTimeout(resolve, 200))
+          continue
+        }
+        if (temporarilyUnavailable) {
+          throw new Error('Não foi possível abrir a câmera. Aguarde um instante e tente atender com vídeo novamente.')
+        }
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+          throw new Error('Permita o acesso à câmera no navegador para iniciar ou atender com vídeo.')
+        }
+        if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+          throw new Error('Nenhuma câmera disponível foi encontrada. Verifique a conexão da câmera.')
+        }
+        throw error
+      }
+    }
+    // getUserMedia itself cannot be aborted; release a late result immediately.
+    if (signal?.aborted) {
+      stream.getTracks().forEach(track => track.stop())
+      signal.throwIfAborted()
+    }
     if (!stream.getVideoTracks().some(track => track.readyState === 'live')) {
       stream.getTracks().forEach(track => track.stop())
       throw new Error('A câmera não disponibilizou uma faixa de vídeo.')
