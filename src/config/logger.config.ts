@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import fs from 'fs';
 
+import { diagnostics } from '../diagnostics/diagnostics.service';
 import { configService, Log } from './env.config';
 const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
 
@@ -159,9 +160,17 @@ export class Logger {
     this.console(value, Type.INFO);
   }
   public warn(value: unknown) {
+    diagnostics.record({
+      code: 'runtime.error',
+      level: 'warn',
+      component: this.context,
+      instanceId: this.instance,
+      error: value,
+    });
     this.console(value, Type.WARN);
   }
   public error(value: unknown) {
+    diagnostics.record({ code: 'runtime.error', component: this.context, instanceId: this.instance, error: value });
     this.console(value, Type.ERROR);
   }
   public verbose(value: unknown) {

@@ -30,7 +30,8 @@
     "docs:check": "node docs/scripts/generate-openapi.mjs --check",
     "test:zapo": "node ./test/zapo-provider.integration.test.mjs",
     "runtime:deps:check": "node ./scripts/check-zapo-runtime.cjs",
-    "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs"
+    "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs",
+    "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs"
   },
   "repository": {
     "type": "git",

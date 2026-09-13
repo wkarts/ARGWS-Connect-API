@@ -37,6 +37,7 @@ const groups = [
   { title: 'SISTEMA', items: [
     { label:'Documentação', to:'/documentacao', icon:'list', feature:'docs' },
     { label:'Saúde', to:'/saude', icon:'heart' },
+    { label:'Diagnóstico', to:'/diagnostico', icon:'audit', permission:'audit.read' },
     { label:'Atualizações', to:'/atualizacoes', icon:'refresh', feature:'updates' },
     { label:'Configurações', to:'/configuracoes', icon:'settings', feature:'settings' },
   ]},

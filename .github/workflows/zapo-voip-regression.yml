@@ -27,5 +27,7 @@ jobs:
         run: npm run runtime:deps:check
       - name: Test multi-device signaling and installer
         run: npm run test:voip
+      - name: Test private native diagnostics
+        run: npm run test:diagnostics
       - name: Verify documentation contracts
         run: npm run docs:check

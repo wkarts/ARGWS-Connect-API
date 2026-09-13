@@ -11,7 +11,11 @@ import axios from 'axios';
 import compression from 'compression';
 import cors from 'cors';
 import express, { json, NextFunction, Request, Response, urlencoded } from 'express';
+import { readFileSync } from 'fs';
 import { join } from 'path';
+
+import { observeDiagnostics } from './diagnostics/diagnostic-http';
+import { diagnostics } from './diagnostics/diagnostics.service';
 
 async function initWA() {
   await waMonitor.loadInstance();
@@ -20,6 +24,10 @@ async function initWA() {
 async function bootstrap() {
   const logger = new Logger('SERVER');
   const app = express();
+
+  await diagnostics.start(JSON.parse(readFileSync(join(ROOT_DIR, 'package.json'), 'utf8')).version);
+  onUnexpectedError();
+  app.use(observeDiagnostics);
 
   let providerFiles: ProviderFiles = null;
   if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
@@ -45,6 +53,7 @@ async function bootstrap() {
       },
       methods: [...configService.get<Cors>('CORS').METHODS],
       credentials: configService.get<Cors>('CORS').CREDENTIALS,
+      exposedHeaders: ['X-Request-Id'],
     }),
     urlencoded({ extended: true, limit: '136mb' }),
     json({ limit: '136mb' }),
@@ -62,6 +71,7 @@ async function bootstrap() {
   app.use(
     (err: Error, req: Request, res: Response, next: NextFunction) => {
       if (err) {
+        diagnostics.record({ code: 'runtime.error', component: 'http', error: err });
         const webhook = configService.get<Webhook>('WEBHOOK');
 
         if (webhook.EVENTS.ERRORS_WEBHOOK && webhook.EVENTS.ERRORS_WEBHOOK != '' && webhook.EVENTS.ERRORS) {
@@ -143,10 +153,12 @@ async function bootstrap() {
   server.listen(httpServer.PORT, () => logger.log(httpServer.TYPE.toUpperCase() + ' - ON: ' + httpServer.PORT));
 
   initWA().catch((error) => {
-    logger.error('Error loading instances: ' + error);
+    logger.error(error);
   });
-
-  onUnexpectedError();
 }
 
-bootstrap();
+bootstrap().catch(async (error) => {
+  diagnostics.record({ code: 'runtime.error', component: 'main', error });
+  await diagnostics.flush();
+  process.exitCode = 1;
+});
