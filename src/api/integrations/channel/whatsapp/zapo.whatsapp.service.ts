@@ -639,8 +639,9 @@ export class ZapoStartupService extends ChannelStartupService {
   public async rejectCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
-    const snapshot = this.normalizeCall(this.client.voip.getCall(callId));
+    const call = this.client.voip.getCall(callId);
     await this.client.voip.rejectCall(callId);
+    const snapshot = this.normalizeCall(call);
     this.callMuteStates.delete(callId);
     this.outgoingCallPeers.delete(callId);
     return snapshot;
@@ -649,8 +650,9 @@ export class ZapoStartupService extends ChannelStartupService {
   public async endCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
-    const snapshot = this.normalizeCall(this.client.voip.getCall(callId));
+    const call = this.client.voip.getCall(callId);
     await this.client.voip.endCall(callId);
+    const snapshot = this.normalizeCall(call);
     this.callMuteStates.delete(callId);
     this.outgoingCallPeers.delete(callId);
     return snapshot;

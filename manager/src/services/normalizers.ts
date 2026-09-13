@@ -421,6 +421,16 @@ export function messages(raw: any): Message[] {
   })
 }
 
+const terminalCallStates = new Set([
+  'ended', 'end', 'terminated', 'rejected', 'closed',
+  'failed', 'missed', 'unanswered', 'answered_elsewhere', 'accepted_elsewhere',
+])
+
+export function isCallActive(call: Pick<WhatsAppCall, 'state' | 'raw'>): boolean {
+  if (call.raw?.terminal === true) return false
+  return !terminalCallStates.has(str(call.state).trim().toLowerCase())
+}
+
 export function calls(raw: any): WhatsAppCall[] {
   return asArray(raw).map((item, index) => {
     const callId = str(item.callId || item.id || item.call?.id || index)
@@ -438,6 +448,7 @@ export function calls(raw: any): WhatsAppCall[] {
     )
     const number = firstPhone(item.number, item.callerPnJid, item.callerPn, item.displayPeerJid, item.remoteJid, item.peerJid, item.peerJidAlt, item.peerJidRaw)
     const rawDirection = str(item.direction || item.type || '').toLowerCase()
+    const canonicalStatus = str(item.status).trim().toLowerCase()
     const direction: WhatsAppCall['direction'] = rawDirection.includes('in') || item.isIncoming === true
       ? 'incoming'
       : rawDirection.includes('out') || item.isIncoming === false
@@ -451,7 +462,9 @@ export function calls(raw: any): WhatsAppCall[] {
       avatar: item.profilePicUrl || item.avatar || undefined,
       remoteJid: remote || undefined,
       direction,
-      state: str(item.state || item.status || item.callState || 'Em andamento'),
+      state: canonicalStatus && canonicalStatus !== 'unknown'
+        ? canonicalStatus
+        : str(item.state || item.callState || 'Em andamento'),
       isVideo: Boolean(item.isVideo || item.video),
       muted: item.muted === undefined ? undefined : Boolean(item.muted),
       startedAt: item.startedAt || item.timestamp || item.createdAt,

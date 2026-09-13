@@ -20,6 +20,8 @@ WORKDIR /argws-connect
 COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
+COPY ./scripts ./scripts
+COPY ./patches ./patches
 
 # A versão do package.json é materializada pelo pipeline antes do docker build.
 # O Dockerfile não tenta versionar novamente: apenas instala exatamente o lockfile.
@@ -29,7 +31,6 @@ COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
-COPY ./scripts ./scripts
 COPY ./operations-agent ./operations-agent
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
@@ -67,6 +68,7 @@ COPY --from=builder /argws-connect/prisma ./prisma
 COPY --from=builder /argws-connect/manager/dist ./manager/dist
 COPY --from=builder /argws-connect/public ./public
 COPY --from=builder /argws-connect/scripts ./scripts
+COPY --from=builder /argws-connect/patches ./patches
 COPY --from=builder /argws-connect/operations-agent ./operations-agent
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
