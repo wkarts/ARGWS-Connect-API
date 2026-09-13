@@ -9,6 +9,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import { connect } from '@/services/connect'
 import { featureEnabled } from '@/config/runtime'
 import { friendlyError } from '@/services/errors'
+import { isCallActive } from '@/services/normalizers'
 import type { ConnectionItem, ContactItem, WhatsAppCall } from '@/types/domain'
 import type { VoiceMediaSession, VoiceMediaState } from '@/services/voice-media'
 
@@ -36,8 +37,7 @@ let contactsLoadedAt = 0
 const selectedInstance = computed(() => instances.value.find((item) => item.id === selected.value))
 const supportsCalls = computed(() => Boolean(selectedInstance.value?.capabilities.calls))
 const supportsVoice = computed(() => Boolean(selectedInstance.value?.capabilities.voice))
-const endedStates = ['ended', 'end', 'terminated', 'rejected', 'closed']
-const activeCalls = computed(() => calls.value.filter((call) => !endedStates.includes(call.state.toLowerCase())))
+const activeCalls = computed(() => calls.value.filter(isCallActive))
 const rejectsIncoming = computed(() => Boolean(instanceSettings.value?.rejectCall))
 const mediaReady = computed(() => mediaState.value === 'ready')
 const mediaLabel = computed(() => {
@@ -134,10 +134,6 @@ function callAvatar(call: WhatsAppCall): string | undefined {
   const raw = call.raw || {}
   if (raw.identityResolved !== true) return undefined
   return callContact(call)?.avatar || call.avatar
-}
-
-function isCallActive(call: WhatsAppCall) {
-  return !endedStates.includes(String(call.state || '').toLowerCase())
 }
 
 function closeMedia() {
@@ -286,6 +282,10 @@ function callDirection(call: WhatsAppCall) {
 
 function stateLabel(state: string) {
   const s = String(state || '').toLowerCase()
+  if (s === 'answered') return 'Em andamento'
+  if (s === 'answered_elsewhere' || s === 'accepted_elsewhere') return 'Atendida em outro dispositivo'
+  if (s === 'failed') return 'Falha na chamada'
+  if (s === 'missed' || s === 'unanswered') return 'Não atendida'
   if (s.includes('ring')) return 'Chamando'
   if (s.includes('accept') || s.includes('active') || s.includes('connect')) return 'Em andamento'
   if (s.includes('reject')) return 'Recusada'

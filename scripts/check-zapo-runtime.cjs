@@ -1,5 +1,8 @@
 'use strict';
 
+// Fail the build/final image if an install skipped lifecycle scripts or the patch drifted.
+require('./apply-zapo-voip-patch.cjs').applyPatch({ check: true });
+
 const aliasUtil = require.resolve('zapo-js/util');
 const aliasPackage = require('zapo-js/package.json');
 const scopedPackage = require('@innovatorssoft/zapo-js/package.json');

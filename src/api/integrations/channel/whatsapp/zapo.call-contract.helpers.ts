@@ -20,6 +20,7 @@ const TERMINAL_CALL_STATUSES = new Set<CanonicalCallStatus>([
 
 const ANSWERED_ELSEWHERE_REASONS = new Set([
   'ANSWERED_ELSEWHERE',
+  'ACCEPTED_ELSEWHERE',
   'ANSWERED_ON_OTHER_DEVICE',
   'ACCEPTED_ON_OTHER_DEVICE',
   'ACCEPTED_BY_OTHER_DEVICE',
@@ -63,8 +64,17 @@ export const canonicalizeZapoCallStatus = (action: unknown, call: any): Canonica
       return direction === 'INCOMING' ? 'missed' : 'unanswered';
     }
 
-    if (providerReason === 'REJECTED' || providerReason === 'USER_BUSY') return 'rejected';
     if (
+      providerReason === 'REJECTED' ||
+      providerReason === 'USER_BUSY' ||
+      providerReason === 'DECLINED' ||
+      providerReason === 'BUSY' ||
+      providerReason === 'DO_NOT_DISTURB'
+    ) {
+      return 'rejected';
+    }
+    if (
+      providerReason === 'FAILED' ||
       providerReason === 'NETWORK_ERROR' ||
       providerReason === 'MEDIA_ERROR' ||
       providerReason === 'SIGNALING_ERROR'
@@ -75,10 +85,21 @@ export const canonicalizeZapoCallStatus = (action: unknown, call: any): Canonica
     return 'ended';
   }
 
-  if (providerState === 'ACCEPT_RECEIVED' || providerState === 'CONNECTED') return 'answered';
+  if (
+    providerState === 'ACCEPT_RECEIVED' ||
+    providerState === 'CONNECTED' ||
+    providerState === 'CONNECTING' ||
+    providerState === 'ACTIVE' ||
+    providerState === 'ON_HOLD'
+  ) {
+    return 'answered';
+  }
 
   if (
     providerState === 'CALLING' ||
+    providerState === 'INITIATING' ||
+    providerState === 'RINGING' ||
+    providerState === 'INCOMING_RINGING' ||
     providerState === 'OFFER_RECEIVED' ||
     providerState === 'PRE_ACCEPT_RECEIVED' ||
     normalizedAction === 'INCOMING'
