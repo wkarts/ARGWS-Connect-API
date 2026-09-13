@@ -145,6 +145,45 @@ test('binary bodies expose only byte lengths and never serialize secrets or arbi
   assert.ok(!records[0].includes(Buffer.from('SECRET-CIPHERTEXT').toString('base64')));
 });
 
+test('accept protocol metadata retains codec, rate, medium and keygen without bodies or private attributes', () => {
+  const { client, records } = trace();
+  const node = accept();
+  node.content[0].content = [
+    { tag: 'audio', attrs: { enc: 'opus', rate: 16000, medium: '3', keygen: '2', label: 'SECRET-LABEL' }, content: 'SECRET-AUDIO' },
+    { tag: 'net', attrs: { medium: '3', enc: 'opus', rate: '16000', keygen: '2', address: 'SECRET-IP' } },
+    { tag: 'encopt', attrs: { keygen: '2', enc: 'opus', rate: '16000', medium: '3', key: 'SECRET-KEY' }, content: Buffer.from('SECRET-BYTES') },
+    { tag: 'enc', attrs: { type: 'msg', keygen: '2' }, content: Buffer.from('SECRET-CIPHERTEXT') },
+  ];
+  client.emit('debug_transport_node_out', { node });
+  const children = read(records[0]).node.children[0].children;
+  assert.deepEqual(children.map(child => child.attrs), [
+    { enc: 'opus', rate: '16000' }, { medium: '3' }, { keygen: '2' }, { type: 'msg' },
+  ]);
+  assert.equal(children[0].content, undefined);
+  assert.equal(children[2].byteLength, Buffer.byteLength('SECRET-BYTES'));
+  assert.equal(children[3].byteLength, Buffer.byteLength('SECRET-CIPHERTEXT'));
+  assert.ok(!records[0].includes('SECRET'));
+  assert.ok(!records[0].includes(Buffer.from('SECRET-BYTES').toString('base64')));
+});
+
+test('new accept metadata rejects free text, unsupported values and coercible objects', () => {
+  const { emit, records } = trace();
+  const poison = { toString() { throw Error('must not coerce objects'); } };
+  for (const value of ['SECRET-CONVERSATION', -1, 1e9, NaN, true, poison, null]) {
+    const node = accept();
+    node.content[0].content = [
+      { tag: 'audio', attrs: { enc: value, rate: value } },
+      { tag: 'net', attrs: { medium: value } },
+      { tag: 'encopt', attrs: { keygen: value } },
+    ];
+    emit(node);
+    const children = read(records.at(-1)).node.children[0].children;
+    assert.deepEqual(children.map(child => child.attrs), [{}, {}, {}]);
+  }
+  assert.equal(records.length, 7);
+  assert.ok(!records.join('').includes('SECRET'));
+});
+
 test('ordinary messages, non-call ACKs and unrelated receipts produce no trace', () => {
   const { records, emit } = trace();
   emit({ tag: 'message', attrs: { id: 'm1' }, content: [{ tag: 'enc', content: Buffer.from('secret') }] });

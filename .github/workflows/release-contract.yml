@@ -3,6 +3,7 @@ name: Release Contract Integrity
 on:
   pull_request:
     branches: [main, develop]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
   push:
     branches: [main, develop]
 
@@ -16,9 +17,34 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 22.x
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: node --test test/release-version.test.cjs test/release-web-security.test.cjs
+      - name: Suggest version for develop promotion
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.base_ref == 'main' && github.head_ref == 'develop' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | awk '!found && /^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; found=1 }')"
+          plan="$(node .github/scripts/compute-next-version.mjs "$latest" "$PR_LABELS" "$PR_TITLE")"
+          version="$(jq -r '.version' <<<"$plan")"
+          bump="$(jq -r '.bump' <<<"$plan")"
+          {
+            echo "### Próxima versão sugerida: v${version}"
+            echo
+            echo "Incremento: **${bump}**, conforme labels e título da PR."
+            echo
+            echo 'A versão é confirmada no merge. Após a publicação, develop recebe a mesma versão de main e suas imagens são reconstruídas.'
+            echo 'A previsão não cria tags, não publica release e não altera o código da PR.'
+          } >> "$GITHUB_STEP_SUMMARY"

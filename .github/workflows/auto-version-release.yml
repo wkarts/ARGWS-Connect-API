@@ -106,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags
-          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | awk '!found && /^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; found=1 }')"
           labels="$LABELS"
           if [[ "$FORCE_BUMP" != "auto" && -n "$FORCE_BUMP" ]]; then
             labels="version:$FORCE_BUMP"
@@ -418,29 +418,37 @@ jobs:
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
             "${notes_args[@]}"
-      - name: Fast-forward develop to the released main commit
+
+  sync-develop:
+    name: Align develop version and refresh development images
+    needs: [plan-version, version-source, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.version-source.outputs.release_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Synchronize released version without overwriting develop work
+        id: sync
+        env:
+          RELEASE_SHA: ${{ needs.version-source.outputs.release_sha }}
+          RELEASE_VERSION: ${{ needs.plan-version.outputs.version }}
+        run: node .github/scripts/sync-release-version.mjs "$RELEASE_SHA" "$RELEASE_VERSION"
+      - name: Refresh API, Manager and DOCs development images
+        if: steps.sync.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          release_sha="${{ needs.version-source.outputs.release_sha }}"
-          git fetch origin main develop --prune
-          main_sha="$(git rev-parse origin/main)"
-          develop_sha="$(git rev-parse origin/develop)"
-
-          if [[ "$main_sha" != "$release_sha" ]]; then
-            echo "main moved after release publication ($main_sha != $release_sha); develop was not changed." >&2
-            exit 1
-          fi
-
-          if [[ "$develop_sha" == "$release_sha" ]]; then
-            echo "develop already points to the released commit."
-            exit 0
-          fi
-
-          if ! git merge-base --is-ancestor "$develop_sha" "$release_sha"; then
-            echo "develop diverged during the release; refusing to overwrite it. Reconcile main -> develop normally." >&2
-            exit 1
-          fi
-
-          git push origin "$release_sha:refs/heads/develop"
-          echo "develop fast-forwarded to $release_sha."
+          # GITHUB_TOKEN pushes do not trigger push workflows. Explicit dispatch
+          # refreshes only :develop and cannot start another stable release.
+          gh workflow run ghcr-publish-application.yml --ref develop
+          gh workflow run ghcr-publish-docs.yml --ref develop
