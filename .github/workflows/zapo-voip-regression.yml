@@ -1,0 +1,31 @@
+name: Zapo VOIP Multi-device Regression
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install pinned dependencies and apply VOIP correction
+        run: npm ci --no-audit --no-fund
+      - name: Verify installed patch
+        run: node scripts/apply-zapo-voip-patch.cjs --check
+      - name: Validate runtime dependencies
+        run: npm run runtime:deps:check
+      - name: Test multi-device signaling and installer
+        run: npm run test:voip
+      - name: Verify documentation contracts
+        run: npm run docs:check
