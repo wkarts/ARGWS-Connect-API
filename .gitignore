@@ -62,3 +62,4 @@ lerna-debug.log*
 !/test/zapo-voip-installer.test.cjs
 !/test/zapo-voip-signaling.test.cjs
 !/test/zapo-call-lifecycle.test.cjs
+!/test/zapo-voip-incoming-accept.test.cjs
