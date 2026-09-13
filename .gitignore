@@ -61,6 +61,7 @@ lerna-debug.log*
 # Multi-device voice regression suites must travel with the dependency correction.
 !/test/zapo-voip-installer.test.cjs
 !/test/zapo-voip-signaling.test.cjs
+!/test/zapo-voip-signal-loop.test.cjs
 !/test/zapo-call-lifecycle.test.cjs
 !/test/zapo-voip-incoming-accept.test.cjs
 !/test/zapo-voip-diagnostics.test.cjs
