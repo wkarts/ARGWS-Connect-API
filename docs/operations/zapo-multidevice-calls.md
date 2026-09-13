@@ -29,11 +29,15 @@ Antes do atendimento, o encerramento é enviado ao endereço original e aos disp
 
 ## Atendimento pela Connect API ou HUB
 
-O aceite local responde ao `peerJid` completo do remetente da oferta, preservando o segmento `:device` tanto no destino quanto na sessão Signal usada para cifrar a resposta. `call-creator` permanece inalterado como correlação da chamada; não é usado como substituto do endereço do device originador.
+O aceite local separa o endereço do envelope e o destinatário criptográfico. O envelope `call/accept` usa `toUserJid(peerJid)`, conforme o builder original do Zapo; a sincronização da sessão Signal e a cifra da resposta continuam usando o `peerJid` completo do remetente da oferta, incluindo `:device`. `call-creator` permanece inalterado como correlação da chamada. Remover o device do envelope não autoriza removê-lo do endereço usado na criptografia.
 
 A chamada só passa de `incoming_ringing` para `connecting` depois de preparar e enviar a stanza `accept`. Chave de chamada ausente/inválida, falha ao obter sessão, cifrar ou enviar o aceite produzem erro; não publicam atendimento local. O estado é revalidado após operações assíncronas para preservar término remoto ou atendimento concorrente no smartphone. Requisições locais simultâneas compartilham o mesmo envio.
 
 A validação automatizada desse fluxo começa pela oferta criada por uma instância A, entrega-a a B e executa `acceptCall` de B; o `accept` gerado pelo próprio pacote é então entregue à instância A. A rede/Signal são simulados nesses testes. Validação com contas WhatsApp reais permanece necessária.
+
+Os diagnósticos de 13/09/2026 às 09:41 (Bahia) preservaram essa etapa: o receptor registrou o envio de `accept` para um JID de dispositivo e avançou para `connecting`/`active`, mas não registrou ACK desse aceite. O originador recebeu os sinais adjacentes `mute_v2` e `transport`, sem entrada de `accept`, permanecendo em `ringing` até `timeout`. Não houve supressão de coleta nessa tentativa. Isso localiza a divergência antes do processamento remoto do aceite; não comprova falha de descriptografia nem o motivo de eventual descarte pelo servidor.
+
+O patch anterior havia mudado o endereço externo do aceite de conta para dispositivo, contrariando o [builder upstream inspecionado](https://github.com/innovatorssoft/zapo/blob/194fa04b1d49484546941c5589f9c60a13941dd7/packages/voip/src/signaling/signaling.ts). Essa mudança foi corrigida. O transporte simulado também foi corrigido: ele exigia, sem confirmação do protocolo real, que o envelope chegasse diretamente ao device. Agora testa separadamente envelope de conta e cifra para o device, inclusive serialização binária PN/LID com `msg`/`pkmsg`. O teste valida esse contrato do builder e continua sem reproduzir o servidor WhatsApp.
 
 ## Respostas repetidas entre duas APIs
 
