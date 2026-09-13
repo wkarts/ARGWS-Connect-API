@@ -99,18 +99,19 @@ jobs:
             image: argws-connect-manager
     runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout develop
+      - name: Checkout the development run commit
         uses: actions/checkout@v5
         with:
-          ref: develop
+          ref: ${{ github.sha }}
           submodules: recursive
           fetch-depth: 0
 
-      - name: Verify checked out branch
+      - name: Verify development channel and exact commit
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$(git branch --show-current)" == "develop" ]]
+          [[ "${GITHUB_REF}" == "refs/heads/develop" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
 
       - name: Resolve runtime base version
         id: metadata

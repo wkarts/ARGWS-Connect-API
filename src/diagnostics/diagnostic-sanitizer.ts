@@ -229,6 +229,7 @@ const CALL_TAGS = new Set([
   'relay_election',
   'mute_v2',
   'enc',
+  'encopt',
   'device-identity',
   'privacy',
   'audio',
@@ -248,6 +249,12 @@ const CALL_TAGS = new Set([
   'device',
   'relay_data',
 ]);
+// Keep the same bounded protocol metadata accepted by the transport observer.
+const MEDIA_ATTRIBUTES: Record<string, Record<string, readonly string[]>> = {
+  audio: { enc: ['opus', 'speex', 'amr', 'amr-wb'], rate: ['8000', '12000', '16000', '24000', '32000', '48000'] },
+  net: { medium: ['0', '1', '2', '3'] },
+  encopt: { keygen: ['1', '2'] },
+};
 const SIGNAL_TYPES = new Set([
   'call',
   'offer',
@@ -534,6 +541,12 @@ function signalNode(value: unknown, depth = 0, budget = { left: 48 }): Record<st
   for (const key of ['error', 'code']) {
     const safe = errorCode(read(attrs, key));
     if (safe !== undefined) safeAttrs[key] = safe;
+  }
+  for (const [key, allowed] of Object.entries(MEDIA_ATTRIBUTES[tag] || {})) {
+    const raw = read(attrs, key);
+    if ((typeof raw === 'string' || typeof raw === 'number') && allowed.includes(String(raw))) {
+      safeAttrs[key] = String(raw);
+    }
   }
   const result: Record<string, unknown> = { tag, attrs: safeAttrs };
   if (read(attrs, 'error') !== undefined) result.hasError = true;
