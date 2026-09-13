@@ -638,7 +638,7 @@ export class ZapoStartupService extends ChannelStartupService {
   public async acceptCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
-    if (this.client.voip.getCall(callId)?.isVideo && !this.getCallCapabilities().video) {
+    if (this.isVideoCall(this.client.voip.getCall(callId)) && !this.getCallCapabilities().video) {
       throw new BadRequestException('Chamadas de vídeo estão indisponíveis no mecanismo de chamadas selecionado.');
     }
     await this.client.voip.acceptCall(callId);
@@ -1640,6 +1640,11 @@ export class ZapoStartupService extends ChannelStartupService {
     });
   }
 
+  private isVideoCall(call: any): boolean {
+    // The Connect engine exposes mediaType; legacy providers may expose isVideo.
+    return typeof call?.isVideo === 'boolean' ? call.isVideo : call?.mediaType === 'video';
+  }
+
   private normalizeCall(call: any) {
     if (!call) return null;
     const rawPeerJid = call.peerJid;
@@ -1657,7 +1662,7 @@ export class ZapoStartupService extends ChannelStartupService {
       callerPnJid: call.callerPn,
       callCreator: call.callCreator,
       callCreatorJid: call.callCreator,
-      isVideo: call.isVideo,
+      isVideo: this.isVideoCall(call),
       direction: call.direction,
       state: call.stateData?.state ?? call.state,
       stateData: call.stateData,

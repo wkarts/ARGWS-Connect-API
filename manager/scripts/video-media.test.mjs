@@ -202,6 +202,23 @@ test('failed ticket and stalled WS release camera and reject start instead of fa
   assert.equal(stalled.states.includes('ready'), false)
 })
 
+test('404 video ticket releases camera and codecs without opening a socket or ending the call', async () => {
+  const h = harness({ ticketStatus: 404 })
+  const { session, credentials } = await h.begin()
+  await assert.rejects(session.start(), /autorizar o vídeo/)
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.encoders[0].state, 'closed')
+  assert.equal(h.decoders[0].state, 'closed')
+  assert.equal(h.sockets.length, 0)
+  assert.equal(h.requests.length, 1)
+  assert.equal(h.requests[0].url, 'https://api.example.test/call/videoMediaTicket/instance%20one')
+  assert.equal(credentials.token, '')
+  assert.equal(h.states.at(-1), 'error')
+  assert.equal(h.states.includes('ready'), false)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.listeners.size, 0)
+})
+
 test('Annex-B SPS extraction supports 3/4-byte start codes and rejects truncated or conflicting profiles', () => {
   assert.equal(codec.h264DecoderCodec(spsFrame(0x4d, 0x40, 0x1f)), 'avc1.4D401F')
   assert.equal(codec.h264DecoderCodec(spsFrame(0x64, 0, 0x28).slice(1)), 'avc1.640028')
@@ -246,7 +263,7 @@ test('pending codec checks retain one frame, drop deltas and cannot revive a sto
   assert.equal(h.states.at(-1), 'closed')
 })
 
-function viewHarness({ rejectCamera = false, videoSupported = true, offerDelay, actionDelay } = {}) {
+function viewHarness({ rejectCamera = false, videoSupported = true, offerDelay, actionDelay, videoStartError } = {}) {
   const requests = []
   const videoCallbacks = []
   const state = value => ({ value })
@@ -261,7 +278,11 @@ function viewHarness({ rejectCamera = false, videoSupported = true, offerDelay, 
       async offerCall(...args) { requests.push(['offer', ...args]); await offerDelay; return { callId: 'c1' } },
       async callAction(...args) { requests.push(['action', ...args]); await actionDelay },
       async voiceMedia(id, callId, callbacks) { requests.push(['audio']); callbacks.onState('ready'); return media },
-      async videoMedia(id, callId, preparation, canvas, callbacks) { requests.push(['video']); videoCallbacks.push(callbacks); callbacks.onState('ready'); return video },
+      async videoMedia(id, callId, preparation, canvas, callbacks) {
+        requests.push(['video']); videoCallbacks.push(callbacks)
+        if (videoStartError) throw videoStartError
+        callbacks.onState('ready'); return video
+      },
       async connection() { return {} }, async calls() { return [{ callId: 'c1', state: 'ringing' }] },
     } },
     '@/config/runtime': { featureEnabled: () => false },
@@ -270,7 +291,7 @@ function viewHarness({ rejectCamera = false, videoSupported = true, offerDelay, 
     '@/services/video-media': { VideoMediaSession: { async prepare() { requests.push(['camera']); if (rejectCamera) throw new Error('Câmera negada'); return { stream: { getTracks: () => [track] } } } } },
   }
   for (const item of ['@/layouts/AppShell.vue', '@/components/PageHeader.vue', '@/components/PanelCard.vue', '@/components/AppIcon.vue', '@/components/EmptyState.vue']) dependencies[item] = {}
-  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState };', {}, dependencies)
+  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, mediaError, busy };', {}, dependencies)
   api.instances.value = [{ id: 'i1', capabilities: { calls: true, voice: true } }]
   api.number.value = '5511999999999'
   api.remoteCanvas.value = {}
@@ -303,6 +324,21 @@ test('video permission precedes API offer and bidirectional video session attach
   assert.equal(h.requests[1][4], true)
   assert.ok(h.requests.some(([type]) => type === 'audio'))
   assert.ok(h.requests.some(([type]) => type === 'video'))
+})
+
+test('rejected video authorization exposes an error and releases busy while preserving the voice call', async () => {
+  const message = 'Não foi possível autorizar o vídeo desta chamada.'
+  const h = viewHarness({ videoStartError: new Error(message) })
+  await h.api.makeTestCall(true)
+  assert.equal(h.api.busy.value, false)
+  assert.equal(h.api.videoState.value, 'error')
+  assert.equal(h.api.mediaError.value, message)
+  assert.equal(h.track.stops, 1)
+  assert.equal(h.api.mediaState.value, 'ready')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.requests.filter(([type]) => type === 'offer').length, 1)
+  assert.equal(h.requests.some(([type]) => type === 'action'), false)
 })
 
 test('video error and reconnect preserve the exact voice session, microphone state and audio status', async () => {

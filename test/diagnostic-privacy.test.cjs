@@ -104,6 +104,16 @@ test('HTTP keeps a route template and timings without URL, params, query or body
   assert.equal(sanitizeDiagnostic({ code: 'http.request', status: 200, aborted: true }).level, 'warn');
 });
 
+test('video authorization routes remain identifiable without retaining instance names or ticket content', () => {
+  for (const operation of ['capabilities', 'videoMediaTicket']) {
+    const event = sanitizeDiagnostic({ code: 'http.request', method: 'POST',
+      route: `/call/${operation}/5511999887766`, status: 404,
+      body: { ticket: secret, camera: secret }, params: { instanceName: secret } });
+    assert.equal(event.details.route, `/call/${operation}/:value`);
+    assertPrivate(event);
+  }
+});
+
 test('errors retain safe classes, codes, status and source locations, never message/SQL/context', () => {
   const error = Object.assign(new Error(secret), {
     name: 'AxiosError', code: 'ETIMEDOUT', request: { data: secret },

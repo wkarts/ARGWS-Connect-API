@@ -96,6 +96,57 @@ async function authenticate(ctx, ws = ctx.ws) {
   return ticket;
 }
 
+// Exercise the real provider boundary with engine CallInfo objects. Hand-written
+// fixtures containing isVideo cannot catch a dropped mediaType during JSON output.
+function normalizedEngineProvider(call) {
+  const filename = path.resolve(__dirname, '../src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts');
+  const ast = ts.createSourceFile(filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true);
+  const klass = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'ZapoStartupService');
+  const names = new Set(['listCalls', 'normalizeCall', 'isVideoCall']);
+  const methods = klass.members.filter(node => ts.isMethodDeclaration(node) && names.has(node.name.getText(ast)));
+  assert.equal(methods.length, names.size);
+  const loaded = new Module(filename, module);
+  loaded._compile(ts.transpileModule(`export class Provider { ${methods.map(node => node.getText(ast)).join('\n')} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText, filename);
+  const provider = new loaded.exports.Provider();
+  provider.client = { voip: { getCalls: () => [call] } };
+  provider.ensureClient = async () => {};
+  provider.ensureVoip = () => {};
+  provider.outgoingCallPeers = new Map();
+  provider.callMuteStates = new Map();
+  provider.toJson = value => JSON.parse(JSON.stringify(value));
+  return provider;
+}
+
+test('real video CallInfo survives provider JSON and authorizes bidirectional media for incoming and outgoing calls', async () => {
+  const { CallInfo } = require('../.generated/connect-voip/dist/call/call-state.js');
+  for (const direction of ['incoming', 'outgoing']) {
+    const call = direction === 'incoming'
+      ? CallInfo.newIncoming(CALL, 'peer@lid', 'peer@lid', undefined, 'video')
+      : CallInfo.newOutgoing(CALL, 'peer@lid', 'self@lid', 'video');
+    if (direction === 'outgoing') call.applyTransition({ type: 'offer_sent' });
+    const provider = normalizedEngineProvider(call);
+    const ctx = setup({ listCalls: () => provider.listCalls() });
+    try {
+      await authenticate(ctx);
+      assert.equal(ctx.ws.controls()[0].type, 'ready');
+      await ctx.ws.message(encodeVideoFrame(frame()), true);
+      ctx.inbound(frame());
+      assert.equal(ctx.fed.length, 1);
+      assert.equal(ctx.ws.sent.filter(item => item.options?.binary).length, 1);
+      assert.deepEqual(ctx.events.map(item => item.phase), ['connected', 'authenticated']);
+      call.applyTransition({ type: 'terminated', reason: 'user_ended' });
+      await assert.rejects(ctx.service.createMediaTicket(INSTANCE, CALL), /Active video call not found/);
+    } finally { ctx.close(); }
+  }
+  const voice = normalizedEngineProvider(CallInfo.newOutgoing(CALL, 'peer@lid', 'self@lid', 'audio'));
+  const ctx = setup({ listCalls: () => voice.listCalls() });
+  try {
+    await assert.rejects(ctx.service.createMediaTicket(INSTANCE, CALL), /Active video call not found/);
+  } finally { ctx.close(); }
+});
+
 test('CV envelope preserves H.264 bytes, keyframe and microsecond timestamp across large safe integers', () => {
   for (const timestampUs of [0, 1000, 4294967297, Number.MAX_SAFE_INTEGER]) {
     for (const keyFrame of [true, false]) {

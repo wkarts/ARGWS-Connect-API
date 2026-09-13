@@ -32,6 +32,8 @@ O ticket é exclusivo da mídia de vídeo e vinculado à instância, chamada e o
 
 Uma chamada iniciada retorna o ID depois de enviar a oferta; isso não é confirmação de atendimento remoto nem de áudio/vídeo fluindo.
 
+O engine identifica o tipo da chamada por `mediaType`. O provider converte esse campo em `isVideo` nas respostas de listagem, atendimento e eventos `CALL`, preservando o booleano explícito de providers anteriores. Desligar a câmera não muda o tipo da chamada. Essa normalização também permite que o gateway reconheça a chamada de vídeo ao autorizar o ticket.
+
 ## Protocolo da mídia
 
 1. Abrir WebSocket TLS no mesmo host da API, caminho `/video/media`, sem credenciais na query.
@@ -71,21 +73,22 @@ O encoder local usa `avc1.42E01F`, saída Annex-B, 640×480, 800 kbit/s, até 30
 - Eventos de vídeo permanecem nos emitters internos da mídia. Não são enviados a EventManager, webhooks, RabbitMQ, storage ou diagnósticos.
 - Diagnóstico registra somente estados/códigos permitidos, com IDs pseudonimizados. Sem frames, áudio, chaves, tickets ou conteúdo de conversas.
 
-## Configuração opcional
+Para diagnosticar autorização de mídia, as rotas estáticas `capabilities` e `videoMediaTicket` permanecem identificáveis no log HTTP; o nome da instância e os dados do ticket continuam ocultos. Se a chamada aparecer como voz e o ticket de vídeo retornar `404`, conferir se a API está executando a correção de normalização `mediaType` → `isVideo`. Um aceite no signaling não comprova que o gateway de vídeo foi autenticado.
 
-O padrão habilita o adapter de vídeo; não requer novas variáveis obrigatórias.
+## Ativação na develop
 
-| Variável | Padrão | Efeito |
-|---|---|---|
-| `CONNECT_VOIP_ENGINE` | `connect` | Adapter voz existente + vídeo Connect; `zapo-native` usa diretamente o plugin de voz existente |
-| `CONNECT_VIDEO_ENABLED` | `true` | Desabilitar vídeo sem alterar a API de voz |
-| `CONNECT_VIDEO_MAX_FRAME_BYTES` | `8388608` | Limite de access unit, máximo 8 MiB |
-| `CONNECT_VIDEO_MAX_FPS` | `30` | Entre 1 e 30 |
-| `CONNECT_VIDEO_WIDTH` | `640` | Dimensão par entre 160 e 1280 |
-| `CONNECT_VIDEO_HEIGHT` | `480` | Dimensão par entre 120 e 720 |
-| `CONNECT_VIDEO_BITRATE` | `800000` | Entre 100000 e 4000000 bit/s |
+O recurso fica ativo na `develop`, com `enabled: true` e engine `connect`, sem configuração por variáveis de ambiente. A promoção para `main` e uma eventual configuração por ENV serão decididas separadamente; esta implementação não promove o recurso para `main`.
 
-`ZAPO_VOIP_ENABLED` e limites de concorrência existentes continuam válidos. Nenhuma seleção ocorre automaticamente com base apenas na versão do fornecedor.
+Os limites de mídia são fixos no código:
+
+| Parâmetro | Valor |
+|---|---|
+| Tamanho máximo de access unit | 8 MiB |
+| Quadros por segundo | Até 30 |
+| Resolução de envio | 640 × 480 |
+| Bitrate de envio | 800000 bit/s |
+
+As variáveis `CONNECT_VOIP_ENGINE` e `CONNECT_VIDEO_*` apresentadas anteriormente não são consultadas pelo adapter. `ZAPO_VOIP_ENABLED` e os limites de concorrência de voz existentes continuam válidos. A capability de vídeo ainda depende de uma instância conectada com o adapter disponível; a configuração fixa não simula suporte em outros providers.
 
 ## Build, testes e implantação
 
@@ -102,4 +105,4 @@ Após publicar a imagem em homologação:
 5. Testar câmera desativada/reativada, rejeição, término remoto, perda/reconexão de mídia e três chamadas sequenciais.
 6. Conferir que tickets reutilizados, outra instância e navegador sem codec não obtêm acesso a frames.
 
-Para retirar somente o recurso novo, configurar `CONNECT_VIDEO_ENABLED=false` ou `CONNECT_VOIP_ENGINE=zapo-native` e recriar a API. A voz continua no mesmo plugin validado. Reverter a imagem não exige restaurar banco ou sessões.
+O adapter de vídeo continua separado do plugin de voz homologado. O ciclo de homologação ocorre na `develop`, sem alteração de configuração de produção na `main`.
