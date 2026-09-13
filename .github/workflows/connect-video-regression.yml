@@ -29,3 +29,51 @@ jobs:
         run: npx --no-install eslint --ext .js src/api/integrations/channel/whatsapp/voip/engine
       - name: Verify documentation contracts
         run: npm run docs:check
+
+  api-container:
+    name: API container / ${{ matrix.arch }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=ghcr.io/${{ github.repository_owner }}/argws-connect-buildkit:buildx-stable-1
+      - name: Build the complete API image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          load: true
+          tags: argws-connect-api:pr-build
+      - name: Verify video attribution in the final image
+        run: |
+          docker run --rm --entrypoint node argws-connect-api:pr-build -e '
+            const fs = require("node:fs");
+            for (const name of ["LICENSE", "PROVENANCE.json", "README.md"]) {
+              const path = "dist/third-party/connect-voip/" + name;
+              if (!fs.statSync(path).isFile() || fs.statSync(path).size === 0) {
+                throw new Error("Missing video attribution: " + name);
+              }
+            }
+          '
