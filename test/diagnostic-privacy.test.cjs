@@ -181,6 +181,33 @@ test('nested ACK errors are errors, suppression is a warning and a generic numer
   assertPrivate(privateError);
 });
 
+test('suppression buckets accept only fixed signaling values and never leak arbitrary input', () => {
+  for (const bucket of ['lifecycle', 'relaylatency']) {
+    for (const wrapped of [false, true]) {
+      const record = { kind: 'suppressed', bucket, limitPerMinute: 300, payload: secret };
+      const event = sanitizeDiagnostic({ code: 'call.signaling', ...(wrapped ? { record } : record) });
+      assert.deepEqual(event.details, { kind: 'suppressed', limitPerMinute: 300, bucket });
+      assert.equal(event.level, 'warn');
+      assertPrivate(event);
+    }
+  }
+  for (const bucket of [secret, 'arbitrary', 'Lifecycle', { value: secret }, null]) {
+    const event = sanitizeDiagnostic({ code: 'call.signaling', record: {
+      kind: 'suppressed', bucket, limitPerMinute: 300,
+    } });
+    assert.deepEqual(event.details, { kind: 'suppressed', limitPerMinute: 300 });
+    assertPrivate(event);
+  }
+  for (const code of DIAGNOSTIC_CODES.filter((code) => code !== 'call.signaling')) {
+    for (const bucket of ['lifecycle', 'relaylatency', secret]) {
+      const event = sanitizeDiagnostic({ code, kind: 'suppressed', bucket,
+        record: { kind: 'suppressed', bucket } });
+      assert.equal(Object.hasOwn(event.details, 'bucket'), false, `${code} must reject bucket`);
+      assertPrivate(event);
+    }
+  }
+});
+
 test('the diagnostic taxonomy preserves every state, direction and end reason of the installed VOIP provider', () => {
   const { CallState, CallDirection, EndCallReason } = require('../node_modules/@innovatorssoft/voip/dist/types.js');
   for (const state of Object.values(CallState)) {

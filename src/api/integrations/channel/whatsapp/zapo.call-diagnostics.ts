@@ -31,7 +31,8 @@ const MAX_VALUE_LENGTH = 160;
 const MAX_NODES = 48;
 const MAX_CHILDREN = 12;
 const MAX_PENDING_IDS = 256;
-const MAX_RECORDS_PER_MINUTE = 300;
+const RECORD_LIMITS_PER_MINUTE = { lifecycle: 300, relaylatency: 100 } as const;
+type DiagnosticBucket = keyof typeof RECORD_LIMITS_PER_MINUTE;
 const JID_ATTRIBUTES = new Set(['from', 'to', 'jid', 'call-creator', 'participant']);
 const JID_DOMAINS = new Set(['s.whatsapp.net', 'lid', 'c.us', 'g.us', 'broadcast']);
 
@@ -99,6 +100,25 @@ function containsCallTag(node: any): boolean {
   return CALL_TAGS.has(node?.tag) || (node?.children || []).some(containsCallTag);
 }
 
+function containsPrioritySignal(node: any): boolean {
+  return (
+    node.tag === 'error' ||
+    node.attrs.error !== undefined ||
+    node.attrs.type === 'error' ||
+    (CALL_TAGS.has(node.tag) && node.tag !== 'relaylatency') ||
+    (CALL_TAGS.has(node.attrs.type) && node.attrs.type !== 'relaylatency') ||
+    (node.children || []).some(containsPrioritySignal)
+  );
+}
+
+function containsRelayLatency(node: any): boolean {
+  return (
+    node.tag === 'relaylatency' ||
+    node.attrs.type === 'relaylatency' ||
+    (node.children || []).some(containsRelayLatency)
+  );
+}
+
 /** Optional bounded diagnostics. Observes events only; never changes call signaling or state. */
 export function bindZapoCallDiagnostics(
   client: any,
@@ -111,28 +131,28 @@ export function bindZapoCallDiagnostics(
     if (typeof client.on !== 'function' || boundClients.has(client)) return;
     boundClients.add(client);
     const pendingIds = new Map<string, string>();
+    const pendingRelayIds = new Map<string, string>();
     let windowStart = Date.now();
-    let count = 0;
-    let suppressionWritten = false;
+    let counts = { lifecycle: 0, relaylatency: 0 };
+    const suppressionWritten = new Set<DiagnosticBucket>();
 
-    const emit = (kind: string, fields: Record<string, unknown>) => {
+    const emit = (kind: string, fields: Record<string, unknown>, bucket: DiagnosticBucket = 'lifecycle') => {
       const now = Date.now();
       if (now - windowStart >= 60_000 || now < windowStart) {
         windowStart = now;
-        count = 0;
-        suppressionWritten = false;
+        counts = { lifecycle: 0, relaylatency: 0 };
+        suppressionWritten.clear();
       }
       const common = { timestamp: new Date(now).toISOString(), instance: `instance-${fingerprint(instanceName)}` };
-      if (count >= MAX_RECORDS_PER_MINUTE) {
-        if (!suppressionWritten) {
-          suppressionWritten = true;
-          write(
-            `[ZapoCallTrace] ${JSON.stringify({ ...common, kind: 'suppressed', limitPerMinute: MAX_RECORDS_PER_MINUTE })}`,
-          );
+      const limitPerMinute = RECORD_LIMITS_PER_MINUTE[bucket];
+      if (counts[bucket] >= limitPerMinute) {
+        if (!suppressionWritten.has(bucket)) {
+          suppressionWritten.add(bucket);
+          write(`[ZapoCallTrace] ${JSON.stringify({ ...common, kind: 'suppressed', bucket, limitPerMinute })}`);
         }
         return;
       }
-      count++;
+      counts[bucket]++;
       write(`[ZapoCallTrace] ${JSON.stringify({ ...common, kind, ...fields })}`);
     };
 
@@ -144,15 +164,27 @@ export function bindZapoCallDiagnostics(
         const node = summarizeNode(raw);
         if (!node) return;
         const id = typeof node.attrs.id === 'string' ? node.attrs.id : undefined;
-        const correlatedCallId = id ? pendingIds.get(id) : undefined;
+        const priorityCallId = id ? pendingIds.get(id) : undefined;
+        const relayCallId = id ? pendingRelayIds.get(id) : undefined;
+        const correlatedCallId = priorityCallId || relayCallId;
         if (node.tag === 'receipt' && !containsCallTag(node) && !correlatedCallId) return;
         const callId = findCallId(node) || correlatedCallId;
-        if (kind === 'transport_out' && node.tag === 'call' && id && callId) {
-          pendingIds.delete(id);
-          pendingIds.set(id, callId);
-          if (pendingIds.size > MAX_PENDING_IDS) pendingIds.delete(pendingIds.keys().next().value);
+        const bucket: DiagnosticBucket =
+          !priorityCallId &&
+          !containsPrioritySignal(node) &&
+          (relayCallId || containsRelayLatency(node) || node.tag === 'ack')
+            ? 'relaylatency'
+            : 'lifecycle';
+        // Track both directions so ACKs without a type can inherit the signal's bucket.
+        // Unmatched routine ACKs stay in the noise bucket even after their ID was evicted.
+        // Noise has its own bounded cache and cannot evict delayed accept ACK correlation.
+        if (node.tag === 'call' && id && callId) {
+          const pending = bucket === 'relaylatency' ? pendingRelayIds : pendingIds;
+          pending.delete(id);
+          pending.set(id, callId);
+          if (pending.size > MAX_PENDING_IDS) pending.delete(pending.keys().next().value);
         }
-        emit(kind, { callId, node });
+        emit(kind, { callId, node }, bucket);
       } catch {
         // Logging, accessors and malformed debug payloads must not affect the protocol.
       }

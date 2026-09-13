@@ -670,6 +670,10 @@ export function sanitizeDiagnostic(input: unknown, now = Date.now()): Diagnostic
       case 'call.signaling':
       case 'call.state':
         details = callDetails(record);
+        if (code === 'call.signaling') {
+          const bucket = token(read(record, 'bucket'), new Set(['lifecycle', 'relaylatency']));
+          if (bucket) details.bucket = bucket;
+        }
         if (details.error || signalHasError(details.node)) level = 'error';
         else if (details.kind === 'suppressed') level = 'warn';
         break;

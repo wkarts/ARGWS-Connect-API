@@ -157,6 +157,24 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
   const receiver = makeEndpoint(B, 6, mode, 6);
   const phone = makeEndpoint(B, 0, mode, 0);
   const endpoints = [caller, receiver, phone];
+  const pending = [];
+  const deliveries = [];
+  let draining = false;
+  async function drain() {
+    if (draining) return;
+    draining = true;
+    let count = 0;
+    try {
+      while (pending.length) {
+        assert.ok(count++ < 100, 'signaling queue must settle instead of reflecting control stanzas forever');
+        const { target, incoming } = pending.shift();
+        deliveries.push({ target: target.wireJid, tag: tagOf(incoming) });
+        await routeCallStanza(target.manager, target.deps, incoming, target.logger);
+      }
+    } finally {
+      draining = false;
+    }
+  }
   t.after(() => endpoints.forEach(endpoint => endpoint.manager.destroy()));
   for (const endpoint of endpoints) {
     endpoint.deps.lowLevelCoordinator.sendNode = async node => {
@@ -165,17 +183,21 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
       // Simulate transport fan-out for the real offer and exact device routing
       // for accepts. An account-addressed accept is not delivered to companion 3.
       const destinations = tag === 'offer' ? [receiver, phone]
-        : ['accept', 'terminate'].includes(tag)
+        : ['accept', 'terminate', 'relaylatency', 'mute_v2'].includes(tag)
           ? endpoints.filter(target => {
             try {
+              // Relay forwards address the remote account. Deliver to its
+              // devices; accept and terminate still require the exact device.
+              if (tag === 'relaylatency') return toUserJid(node.attrs.to) === toUserJid(target.wireJid);
               return JSON.stringify(parseSignalAddressFromJid(node.attrs.to)) ===
                 JSON.stringify(parseSignalAddressFromJid(target.wireJid));
             } catch { return false; }
           }) : [];
       for (const target of destinations) {
         const incoming = { ...node, attrs: { ...node.attrs, from: endpoint.wireJid } };
-        await routeCallStanza(target.manager, target.deps, incoming, target.logger);
+        pending.push({ target, incoming });
       }
+      await drain();
     };
   }
   const callId = await caller.manager.startCall({ peerJid: B[mode] });
@@ -186,7 +208,7 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
   assert.equal(receiver.manager.getCall(callId).encryptionKey.length, 32);
   const session = receiver.manager.getSessionOrThrow(callId);
   receiver.sent.length = 0;
-  return { caller, receiver, phone, callId, session };
+  return { caller, receiver, phone, callId, session, pending, deliveries };
 }
 
 function terminal(from, callId) {
@@ -242,6 +264,35 @@ for (const mode of ['lid', 'pn']) {
     assert.equal(caller.decrypted.length, 1);
     assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
     assert.equal(phone.manager.getCall(callId), null);
+  });
+
+  test(`${mode.toUpperCase()} relay and mute exchange settle before the real companion accept and phone cancellation`, async t => {
+    const { caller, receiver, phone, callId, session, pending, deliveries } = await setup(t, { mode });
+    const participants = [caller.wireJid, receiver.wireJid, phone.wireJid];
+    const endpoints = [{
+      relayName: 'relay-a', c2rRtt: 12,
+      addressBytes: new Uint8Array([127, 0, 0, 1, 13, 150]),
+    }];
+    for (const endpoint of [caller, receiver, phone]) {
+      endpoint.manager.getCall(callId).relayData = { endpoints, participantJids: participants };
+    }
+    await session.sendIncomingRelayLatency();
+    assert.equal(pending.length, 0, 'relay exchange must settle while devices are still ringing');
+    assert.ok(deliveries.some(delivery => delivery.tag === 'relaylatency'));
+    assert.ok(deliveries.filter(delivery => delivery.tag === 'relaylatency').length < 20);
+    await receiver.manager.acceptCall(callId);
+    assert.equal(pending.length, 0);
+    assert.equal(caller.decrypted.length, 1, 'the caller must decrypt the actual accept payload');
+    assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
+    assert.equal(receiver.manager.getCall(callId).stateData.state, 'connecting');
+    assert.equal(phone.manager.getCall(callId), null);
+    assert.deepEqual(phone.ended, ['accepted_elsewhere']);
+    assert.ok(deliveries.some(delivery => delivery.tag === 'mute_v2'));
+    assert.ok(deliveries.filter(delivery => delivery.tag === 'mute_v2').length < 10);
+    session.sctpRelay.connect();
+    caller.manager.getSessionOrThrow(callId).sctpRelay.connect();
+    assert.equal(receiver.manager.getCall(callId).stateData.state, 'active');
+    assert.equal(caller.manager.getCall(callId).stateData.state, 'active');
   });
 }
 
