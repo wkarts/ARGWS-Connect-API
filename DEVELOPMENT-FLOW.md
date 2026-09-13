@@ -21,7 +21,7 @@ ghcr.io/wkarts/argws-connect-docs:develop
 ```
 
 - usa builds nativos `linux/amd64` e `linux/arm64`;
-- não altera `VERSION` para criar release;
+- mantém a versão da última release de `main` por sincronização automática de metadados;
 - não cria Git tag;
 - não cria GitHub Release;
 - não publica `:latest`;
@@ -38,14 +38,17 @@ Nenhum desenvolvimento cotidiano deve ser feito diretamente na `main`.
 
 Quando o estado de `develop` estiver aprovado em homologação:
 
-1. abrir PR `develop → main`;
+1. abrir PR `develop → main` e conferir a SemVer sugerida no resumo do check **Release Contract Integrity**;
 2. aguardar todos os gates obrigatórios;
 3. fazer merge;
 4. somente o push resultante em `main` dispara o workflow de release;
 5. o workflow calcula a próxima versão SemVer;
 6. constrói API, Manager e DOCs em `amd64` e `arm64`;
 7. publica imagens versionadas e `:latest`;
-8. cria Git tag e GitHub Release.
+8. cria Git tag e GitHub Release;
+9. alinha a versão em `develop`, preservando trabalho novo, e reconstrói API, Manager e DOCs `:develop`.
+
+O alinhamento usa fast-forward quando seguro. Se as branches divergirem, altera apenas os metadados de versão sobre o HEAD atual de `develop`, sem copiar código de `main` por cima nem reescrever histórico. O fluxo completo e as proteções estão em [RELEASE-AUTOMATION.md](RELEASE-AUTOMATION.md).
 
 ## Isolamento dos gatilhos
 
@@ -71,7 +74,7 @@ merge/push em main
 
 sincronização main → develop
         │
-        └── é um push em develop
+        └── push de metadados + workflow_dispatch em develop
              ├── atualiza somente API :develop
              ├── atualiza somente Manager :develop
              └── nunca dispara SemVer/:latest/Release

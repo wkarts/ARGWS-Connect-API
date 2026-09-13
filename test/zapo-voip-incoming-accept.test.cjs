@@ -5,6 +5,7 @@ const { EventEmitter } = require('node:events');
 const Module = require('node:module');
 const path = require('node:path');
 const { test } = require('node:test');
+const { pathToFileURL } = require('node:url');
 
 // Run the installed provider's actual managers, sessions, builders, protobuf
 // call-key encoding/parsing and SRTP setup. Network, native audio/relay and Signal
@@ -70,7 +71,7 @@ const { WaCallManager, routeCallStanza } = loadProvider();
 const { createNoopLogger } = require('zapo-js');
 const { parseSignalAddressFromJid, toUserJid } = require('zapo-js/protocol');
 const { decodeBinaryNodeStanza, encodeBinaryNodeStanza } = require('zapo-js/transport');
-const { buildAcceptStanza } = require(path.join(dist, 'signaling/signaling.js'));
+const { buildAcceptStanza, encodeWAMessage } = require(path.join(dist, 'signaling/signaling.js'));
 
 const A = { pn: '5511990000001@s.whatsapp.net', lid: '111111111111111@lid' };
 const B = { pn: '5511990000002@s.whatsapp.net', lid: '222222222222222@lid' };
@@ -78,52 +79,46 @@ const device = (jid, index) => jid.replace('@', `:${index}@`);
 const messages = (context, tag) => context.sent.filter(node => node.tag === 'call' && node.content?.[0]?.tag === tag);
 const tagOf = node => node.tag === 'call' ? node.content?.[0]?.tag : node.tag;
 
-// Verify the installed builder and binary codec without assuming that a fake
-// router proves server acceptance. A device-addressed outer accept must fail
-// this contract even when its Signal ciphertext targets the correct device.
-for (const mode of ['lid', 'pn']) {
-  for (const type of ['msg', 'pkmsg']) {
-    test(`${mode.toUpperCase()} ${type} accept serializes an account envelope with device-specific encryption`, async () => {
-      const peerJid = device(A[mode], 18);
-      const callCreator = A[mode];
-      const callId = '0123456789ABCDEF0123456789ABCDEF';
-      const synced = [];
-      const encrypted = [];
-      const ciphertext = new Uint8Array([7, 8, 9]);
-      const signedIdentity = {
-        details: new Uint8Array([1, 2]),
-        accountSignatureKey: new Uint8Array(32),
-        accountSignature: new Uint8Array(64),
-        deviceSignature: new Uint8Array(64),
-      };
-      const deps = {
-        authClient: { getCurrentCredentials: () => ({ signedIdentity }) },
-        messageDispatch: { async syncSignalSession(jid) { synced.push(jid); } },
-        signalProtocol: {
-          async encryptMessage(address) {
-            encrypted.push(address);
-            return { type, ciphertext };
-          },
-        },
-      };
-      const built = await buildAcceptStanza(deps, callId, new Uint8Array(32), peerJid, callCreator, false);
-      const decoded = await decodeBinaryNodeStanza(encodeBinaryNodeStanza(built));
+// The answer acknowledges the media key delivered in the encrypted offer; it
+// does not deliver another key. Independent wire-format reference:
+// https://github.com/oxidezap/whatsapp-rust/blob/6502b871e35664ffb80044ba7c6317a6427754e2/wacore/src/stanza/call.rs
+// Keep the existing outer account route; these tests do not emulate the server.
+for (const format of ['cjs', 'esm']) {
+  for (const mode of ['lid', 'pn']) {
+    for (const video of [false, true]) {
+      test(`${format.toUpperCase()} ${mode.toUpperCase()} ${video ? 'video' : 'audio'} accept preserves offer media-key negotiation`, async () => {
+        const builder = format === 'cjs' ? buildAcceptStanza :
+          (await import(pathToFileURL(path.join(dist, 'esm/signaling/signaling.js')).href)).buildAcceptStanza;
+        const peerJid = device(A[mode], 18);
+        const callCreator = A[mode];
+        const callId = '0123456789ABCDEF0123456789ABCDEF';
+        const unexpectedKeyExchange = () => assert.fail('accept must not synchronize Signal or encrypt the offer key again');
+        const deps = {
+          authClient: { getCurrentCredentials: unexpectedKeyExchange },
+          messageDispatch: { syncSignalSession: unexpectedKeyExchange },
+          signalProtocol: { encryptMessage: unexpectedKeyExchange },
+        };
+        const callKey = new Uint8Array(32).fill(0x5a);
+        const built = await builder(deps, callId, callKey, peerJid, callCreator, video);
+        const decoded = await decodeBinaryNodeStanza(encodeBinaryNodeStanza(built));
 
-      assert.equal(built.attrs.to, A[mode], 'outer accept must use the account JID prescribed by upstream');
-      assert.equal(decoded.attrs.to, A[mode], 'the account destination must survive binary serialization');
-      assert.deepEqual(synced, [peerJid], 'session synchronization must retain the originating device');
-      assert.deepEqual(encrypted, [parseSignalAddressFromJid(peerJid)], 'encryption must retain the originating device');
-      const accept = decoded.content[0];
-      assert.equal(accept.tag, 'accept');
-      assert.equal(accept.attrs['call-id'], callId);
-      assert.equal(accept.attrs['call-creator'], callCreator, 'account metadata must not become a device address');
-      assert.deepEqual(accept.content.find(node => node.tag === 'audio').attrs, { enc: 'opus', rate: '16000' });
-      const enc = accept.content.find(node => node.tag === 'enc');
-      assert.deepEqual(enc.attrs, { v: '2', type, count: '0' });
-      assert.deepEqual(new Uint8Array(enc.content), ciphertext);
-      assert.deepEqual(accept.content.find(node => node.tag === 'encopt').attrs, { keygen: '2' });
-      assert.equal(accept.content.filter(node => node.tag === 'device-identity').length, type === 'pkmsg' ? 1 : 0);
-    });
+        assert.equal(built.attrs.to, A[mode], 'preserve the existing outer account route');
+        assert.equal(decoded.attrs.to, A[mode], 'the account destination must survive binary serialization');
+        assert.match(decoded.attrs.id, /^[A-Fa-f0-9]+$/, 'the wrapper id correlates the server ACK');
+        const accept = decoded.content[0];
+        assert.equal(accept.tag, 'accept');
+        assert.equal(accept.attrs['call-id'], callId);
+        assert.equal(accept.attrs['call-creator'], callCreator, 'account metadata must not become a device address');
+        assert.deepEqual(accept.content.map(node => node.tag),
+          video ? ['audio', 'net', 'encopt', 'video'] : ['audio', 'net', 'encopt']);
+        assert.deepEqual(accept.content.find(node => node.tag === 'audio').attrs, { enc: 'opus', rate: '16000' });
+        assert.deepEqual(accept.content.find(node => node.tag === 'net').attrs, { medium: '2' });
+        assert.deepEqual(accept.content.find(node => node.tag === 'encopt').attrs, { keygen: '2' });
+        if (video) assert.deepEqual(accept.content.find(node => node.tag === 'video').attrs, { enc: 'vp8' });
+        assert.equal(accept.content.some(node => ['enc', 'device-identity'].includes(node.tag)), false);
+        assert.deepEqual(callKey, new Uint8Array(32).fill(0x5a), 'the offer key remains available for SRTP');
+      });
+    }
   }
 }
 
@@ -147,8 +142,7 @@ function makeEndpoint(account, index, mode, creatorIndex) {
     authClient: {
       getCurrentCredentials: () => ({
         // Account-level call-creator is valid metadata; the transport sender can
-        // still be a companion. Signal encryption must use wireJid's device;
-        // the outer acceptance envelope is independently addressed to the account.
+        // still be a companion. The encrypted offer must retain the sender device.
         meJid: mode === 'pn' ? creator : device(account.pn, creatorIndex ?? index),
         meLid: mode === 'lid' ? creator : undefined,
       }),
@@ -232,17 +226,15 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
     endpoint.deps.lowLevelCoordinator.sendNode = async node => {
       endpoint.sent.push(node);
       const tag = tagOf(node);
-      // This in-memory fixture follows the upstream accept envelope contract:
-      // https://github.com/innovatorssoft/zapo/blob/master/packages/voip/src/signaling/signaling.ts
-      // Account routing and Signal recipient/device selection are separate.
+      // This in-memory fixture preserves the installed account envelope route.
+      // Only the offer transfers an encrypted media key; the answer negotiates it.
       // It is not a simulation or verification of the WhatsApp server itself.
       const destinations = tag === 'offer' ? [receiver, phone]
         : ['accept', 'terminate', 'relaylatency', 'mute_v2'].includes(tag)
           ? endpoints.filter(target => {
             try {
               if (tag === 'accept') {
-                // Correlate this fixture's known call at the destination account;
-                // Signal decryption independently verifies the exact device.
+                // Correlate this fixture's known call at the destination account.
                 return node.attrs.to === toUserJid(target.wireJid) &&
                   target.manager.getCall(node.content[0].attrs['call-id'])?.isInitiator;
               }
@@ -291,11 +283,32 @@ function holdMethod(object, method, predicate = () => true) {
   return { entered, release };
 }
 
+test('an external legacy encrypted accept remains supported by the receiver', async t => {
+  const { caller, receiver, phone, callId } = await setup(t);
+  const call = receiver.manager.getCall(callId);
+  const offerKey = new Uint8Array(call.encryptionKey);
+  const envelope = signalEnvelope(parseSignalAddressFromJid(receiver.wireJid),
+    parseSignalAddressFromJid(caller.wireJid), await encodeWAMessage({ call: { callKey: offerKey } }));
+  await routeCallStanza(caller.manager, caller.deps, {
+    tag: 'call', attrs: { from: receiver.wireJid, id: 'external-legacy-accept' },
+    content: [{
+      tag: 'accept', attrs: { 'call-id': callId, 'call-creator': call.callCreator },
+      content: [{ tag: 'enc', attrs: { v: '2', type: envelope.type, count: '0' }, content: envelope.ciphertext }],
+    }],
+  }, caller.logger);
+  assert.equal(caller.decrypted.length, 1);
+  assert.deepEqual(caller.manager.getCall(callId).encryptionKey, offerKey);
+  assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
+  assert.equal(phone.manager.getCall(callId), null);
+  assert.equal(receiver.manager.getCall(callId).stateData.state, 'incoming_ringing');
+});
+
 for (const mode of ['lid', 'pn']) {
   for (const creatorDevice of [undefined, 0]) {
     test(`${mode.toUpperCase()} companion answer reaches caller device 3 with ${creatorDevice === 0 ? 'device-0' : 'bare'} call-creator`, async t => {
       const { caller, receiver, phone, callId } = await setup(t, { mode, creatorDevice });
       const creator = receiver.manager.getCall(callId).callCreator;
+      const offerKey = new Uint8Array(caller.manager.getCall(callId).encryptionKey);
       assert.notEqual(creator, caller.wireJid);
       await receiver.manager.acceptCall(callId);
 
@@ -303,9 +316,11 @@ for (const mode of ['lid', 'pn']) {
       assert.equal(accepts.length, 1);
       assert.equal(accepts[0].attrs.to, toUserJid(caller.wireJid), 'accept envelope must address the originating account');
       assert.equal(accepts[0].content[0].attrs['call-creator'], creator, 'call metadata must be preserved');
-      assert.deepEqual(receiver.synced, [caller.wireJid]);
-      assert.deepEqual(receiver.encrypted, [parseSignalAddressFromJid(caller.wireJid)]);
-      assert.equal(caller.decrypted.length, 1, 'caller must actually decrypt the real accept payload');
+      assert.deepEqual(receiver.synced, [], 'the answer does not establish another Signal session');
+      assert.deepEqual(receiver.encrypted, [], 'the offer key is not re-encrypted in the answer');
+      assert.equal(caller.decrypted.length, 0, 'the answer has no second key payload to decrypt');
+      assert.deepEqual(caller.manager.getCall(callId).encryptionKey, offerKey);
+      assert.deepEqual(receiver.manager.getCall(callId).encryptionKey, offerKey);
       assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
       assert.equal(receiver.manager.getCall(callId).stateData.state, 'connecting');
       assert.equal(phone.manager.getCall(callId), null, 'sibling phone must stop ringing');
@@ -321,7 +336,7 @@ for (const mode of ['lid', 'pn']) {
     await receiver.manager.acceptCall(callId);
     assert.deepEqual(parseSignalAddressFromJid(messages(receiver, 'accept')[0].attrs.to),
       parseSignalAddressFromJid(caller.wireJid));
-    assert.equal(caller.decrypted.length, 1);
+    assert.equal(caller.decrypted.length, 0);
     assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
     assert.equal(phone.manager.getCall(callId), null);
   });
@@ -342,7 +357,7 @@ for (const mode of ['lid', 'pn']) {
     assert.ok(deliveries.filter(delivery => delivery.tag === 'relaylatency').length < 20);
     await receiver.manager.acceptCall(callId);
     assert.equal(pending.length, 0);
-    assert.equal(caller.decrypted.length, 1, 'the caller must decrypt the actual accept payload');
+    assert.equal(caller.decrypted.length, 0, 'the caller retains its offer key without decrypting an answer');
     assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
     assert.equal(receiver.manager.getCall(callId).stateData.state, 'connecting');
     assert.equal(phone.manager.getCall(callId), null);
@@ -356,29 +371,26 @@ for (const mode of ['lid', 'pn']) {
   });
 }
 
-for (const stage of ['sync', 'encrypt', 'send']) {
-  test(`${stage} failure rejects local answer without publishing connecting and permits retry`, async t => {
-    const { caller, receiver, phone, callId } = await setup(t);
-    const object = stage === 'sync' ? receiver.deps.messageDispatch
-      : stage === 'encrypt' ? receiver.deps.signalProtocol : receiver.deps.lowLevelCoordinator;
-    const method = stage === 'sync' ? 'syncSignalSession' : stage === 'encrypt' ? 'encryptMessage' : 'sendNode';
-    const original = object[method];
-    object[method] = async (...args) => {
-      if (stage !== 'send' || tagOf(args[0]) === 'accept') throw new Error(`simulated ${stage} failure`);
-      return original.apply(object, args);
-    };
-    await assert.rejects(receiver.manager.acceptCall(callId), /failure/);
-    assert.equal(receiver.manager.getCall(callId).stateData.state, 'incoming_ringing');
-    assert.ok(!receiver.states.includes('connecting'));
-    assert.equal(receiver.manager.getCall(callId).stateData.acceptedAt, undefined);
-    assert.equal(caller.manager.getCall(callId).stateData.state, 'ringing');
-    assert.equal(phone.manager.getCall(callId).stateData.state, 'incoming_ringing');
-    object[method] = original;
-    await receiver.manager.acceptCall(callId);
-    assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
-    assert.equal(receiver.manager.getCall(callId).stateData.state, 'connecting');
-  });
-}
+test('accept send failure rejects local answer without publishing connecting and permits retry', async t => {
+  const { caller, receiver, phone, callId } = await setup(t);
+  const object = receiver.deps.lowLevelCoordinator;
+  const method = 'sendNode';
+  const original = object[method];
+  object[method] = async (...args) => {
+    if (tagOf(args[0]) === 'accept') throw new Error('simulated send failure');
+    return original.apply(object, args);
+  };
+  await assert.rejects(receiver.manager.acceptCall(callId), /failure/);
+  assert.equal(receiver.manager.getCall(callId).stateData.state, 'incoming_ringing');
+  assert.ok(!receiver.states.includes('connecting'));
+  assert.equal(receiver.manager.getCall(callId).stateData.acceptedAt, undefined);
+  assert.equal(caller.manager.getCall(callId).stateData.state, 'ringing');
+  assert.equal(phone.manager.getCall(callId).stateData.state, 'incoming_ringing');
+  object[method] = original;
+  await receiver.manager.acceptCall(callId);
+  assert.equal(caller.manager.getCall(callId).stateData.state, 'connecting');
+  assert.equal(receiver.manager.getCall(callId).stateData.state, 'connecting');
+});
 
 for (const size of [undefined, 0, 31, 33]) {
   test(`missing or invalid ${size ?? 'undefined'}-byte key cannot report an accepted call`, async t => {
@@ -394,7 +406,7 @@ for (const size of [undefined, 0, 31, 33]) {
 
 test('concurrent local answers share one pending accept and one state transition', { timeout: 2000 }, async t => {
   const { receiver, callId } = await setup(t);
-  const gate = holdMethod(receiver.deps.messageDispatch, 'syncSignalSession');
+  const gate = holdMethod(receiver.deps.lowLevelCoordinator, 'sendNode', node => tagOf(node) === 'accept');
   const first = receiver.manager.acceptCall(callId);
   await gate.entered;
   const second = receiver.manager.acceptCall(callId);
@@ -405,14 +417,11 @@ test('concurrent local answers share one pending accept and one state transition
   assert.equal(receiver.states.filter(state => state === 'connecting').length, 1);
 });
 
-for (const stage of ['sync', 'encrypt', 'send']) {
+for (const stage of ['mute_v2', 'transport', 'accept']) {
   for (const interrupter of ['remote end', 'own smartphone']) {
     test(`${interrupter} during ${stage} prevents a late local accept from resurrecting the session`, { timeout: 2000 }, async t => {
       const { caller, receiver, callId, session } = await setup(t);
-      const object = stage === 'sync' ? receiver.deps.messageDispatch
-        : stage === 'encrypt' ? receiver.deps.signalProtocol : receiver.deps.lowLevelCoordinator;
-      const method = stage === 'sync' ? 'syncSignalSession' : stage === 'encrypt' ? 'encryptMessage' : 'sendNode';
-      const gate = holdMethod(object, method, (...args) => stage !== 'send' || tagOf(args[0]) === 'accept');
+      const gate = holdMethod(receiver.deps.lowLevelCoordinator, 'sendNode', node => tagOf(node) === stage);
       const accepting = receiver.manager.acceptCall(callId);
       const outcome = Promise.allSettled([accepting]);
       await gate.entered;
@@ -435,11 +444,9 @@ for (const stage of ['sync', 'encrypt', 'send']) {
       assert.equal(receiver.states.at(-1), 'ended');
       assert.ok(!receiver.states.includes('connecting'));
       assert.equal(receiver.ended.length, 1);
-      // A send already in flight cannot be unsent, but later transport/media
-      // signaling must stop. During construction no accept may be sent at all.
+      // A send already in flight cannot be unsent, but subsequent signaling stops.
       const late = receiver.sent.slice(sentBeforeRelease);
-      assert.equal(late.filter(node => ['transport', 'mute_v2'].includes(tagOf(node))).length, 0);
-      if (stage !== 'send') assert.equal(late.filter(node => tagOf(node) === 'accept').length, 0);
+      assert.equal(late.filter(node => ['transport', 'mute_v2', 'accept'].includes(tagOf(node)) && tagOf(node) !== stage).length, 0);
       assert.equal(session.audioEngine.captureStarts, 0);
     });
   }

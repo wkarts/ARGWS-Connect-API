@@ -31,6 +31,41 @@ function assertPrivate(value) {
   return json;
 }
 
+test('persisted accept metadata preserves only tag-specific protocol enums and ciphertext length', () => {
+  const event = sanitizeDiagnostic({ code: 'call.signaling', node: {
+    tag: 'call', attrs: {}, children: [{ tag: 'accept', attrs: { 'call-id': callId }, children: [
+      { tag: 'audio', attrs: { enc: 'opus', rate: 16000, medium: '3', keygen: '2', text: secret }, content: secret },
+      { tag: 'net', attrs: { medium: 3, enc: 'opus', rate: '16000', keygen: '2', address: secret }, payload: secret },
+      { tag: 'encopt', attrs: { keygen: 2, enc: 'opus', rate: '16000', medium: '3', key: secret }, byteLength: 20, content: secret },
+      { tag: 'enc', attrs: { type: 'msg', keygen: '2', key: secret }, byteLength: 98, content: secret },
+      { tag: 'message', attrs: { enc: 'opus', rate: '16000' }, content: secret },
+    ] }],
+  } });
+  const children = event.details.node.children[0].children;
+  assert.deepEqual(children, [
+    { tag: 'audio', attrs: { enc: 'opus', rate: '16000' } },
+    { tag: 'net', attrs: { medium: '3' } },
+    { tag: 'encopt', attrs: { keygen: '2' }, byteLength: 20 },
+    { tag: 'enc', attrs: { type: 'msg' }, byteLength: 98 },
+  ]);
+  assertPrivate(event);
+});
+
+test('persisted accept metadata rejects free text, oversized numbers and user-defined coercion', () => {
+  const poison = { toString() { throw Error(secret); } };
+  for (const value of [secret, -1, 1e9, NaN, true, poison, null]) {
+    const event = sanitizeDiagnostic({ code: 'call.signaling', node: {
+      tag: 'call', attrs: {}, children: [{ tag: 'accept', attrs: {}, children: [
+        { tag: 'audio', attrs: { enc: value, rate: value } },
+        { tag: 'net', attrs: { medium: value } },
+        { tag: 'encopt', attrs: { keygen: value } },
+      ] }],
+    } });
+    assert.deepEqual(event.details.node.children[0].children.map(child => child.attrs), [{}, {}, {}]);
+    assertPrivate(event);
+  }
+});
+
 test('every persisted event is rebuilt from a fixed schema and rejects unknown codes', () => {
   const now = Date.parse('2026-09-13T10:00:00.000Z');
   for (const code of DIAGNOSTIC_CODES) {

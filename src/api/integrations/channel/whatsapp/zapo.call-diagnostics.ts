@@ -16,6 +16,12 @@ const ATTRIBUTES = [
   'code',
 ] as const;
 const ERROR_ATTRIBUTES = ['code', 'error', 'reason', 'type'] as const;
+// Only protocol enums are retained; these attributes must never become free-text fields.
+const MEDIA_ATTRIBUTES: Record<string, Record<string, readonly string[]>> = {
+  audio: { enc: ['opus', 'speex', 'amr', 'amr-wb'], rate: ['8000', '12000', '16000', '24000', '32000', '48000'] },
+  net: { medium: ['0', '1', '2', '3'] },
+  encopt: { keygen: ['1', '2'] },
+};
 const CALL_TAGS = new Set([
   'offer',
   'accept',
@@ -72,6 +78,12 @@ function summarizeNode(node: any, depth = 0, budget = { remaining: MAX_NODES }):
     tag: scalar(node.tag),
     attrs: attributes(node.attrs, node.tag === 'error' ? ERROR_ATTRIBUTES : ATTRIBUTES),
   };
+  for (const [name, allowed] of Object.entries(MEDIA_ATTRIBUTES[node.tag] || {})) {
+    const raw = node.attrs?.[name];
+    if ((typeof raw === 'string' || typeof raw === 'number') && allowed.includes(String(raw))) {
+      summary.attrs[name] = String(raw);
+    }
+  }
   // Never serialize raw payloads, frame bytes, ciphertext or a caller-owned object.
   if (ArrayBuffer.isView(node.content) || node.content instanceof ArrayBuffer) {
     summary.byteLength = node.content.byteLength;
