@@ -31,7 +31,9 @@ import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import sharp from 'sharp';
 import { PassThrough } from 'stream';
 
+import { diagnostics } from '../../../../diagnostics/diagnostics.service';
 import { ZAPO_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
+import { bindZapoCallDiagnostics } from './zapo.call-diagnostics';
 import { connectCatalogPlugin } from './zapo.catalog.plugin';
 import { GroupIdentity,ZapoGroupIdentityCache } from './zapo.group-identity';
 
@@ -779,6 +781,12 @@ export class ZapoStartupService extends ChannelStartupService {
       new ConsoleLogger(resolveZapoLogLevel(process.env.ZAPO_LOG_LEVEL)),
     );
 
+    bindZapoCallDiagnostics(
+      this.client,
+      this.instance.name,
+      (record) => diagnostics.callTrace(record),
+      true,
+    );
     this.bindClientEvents();
     return this.client;
   }
@@ -835,6 +843,7 @@ export class ZapoStartupService extends ChannelStartupService {
     });
 
     this.client.on('voip_call_error', (error: Error) => {
+      diagnostics.record({ code: 'runtime.error', component: 'voip', instanceId: this.instance.name, error });
       this.sendDataWebhook(Events.CALL, {
         action: 'error',
         provider: Integration.WHATSAPP_ZAPO,

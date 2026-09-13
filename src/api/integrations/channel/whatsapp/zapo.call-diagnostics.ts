@@ -1,0 +1,191 @@
+import { createHash } from 'crypto';
+
+const boundClients = new WeakSet<object>();
+const ATTRIBUTES = [
+  'id',
+  'class',
+  'type',
+  'from',
+  'to',
+  'jid',
+  'call-id',
+  'call-creator',
+  'participant',
+  'reason',
+  'error',
+  'code',
+] as const;
+const ERROR_ATTRIBUTES = ['code', 'error', 'reason', 'type'] as const;
+const CALL_TAGS = new Set([
+  'offer',
+  'accept',
+  'preaccept',
+  'terminate',
+  'reject',
+  'transport',
+  'relaylatency',
+  'relay_election',
+  'mute_v2',
+]);
+const MAX_VALUE_LENGTH = 160;
+const MAX_NODES = 48;
+const MAX_CHILDREN = 12;
+const MAX_PENDING_IDS = 256;
+const MAX_RECORDS_PER_MINUTE = 300;
+const JID_ATTRIBUTES = new Set(['from', 'to', 'jid', 'call-creator', 'participant']);
+const JID_DOMAINS = new Set(['s.whatsapp.net', 'lid', 'c.us', 'g.us', 'broadcast']);
+
+function fingerprint(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 12);
+}
+
+function pseudonymizeJid(value: string): string {
+  const match = /^([^@]+?)(:\d+)?@([^@]+)$/.exec(value);
+  if (!match || !JID_DOMAINS.has(match[3])) return `jid-${fingerprint(value)}`;
+  return `peer-${fingerprint(`${match[1]}@${match[3]}`)}${match[2] || ''}@${match[3]}`;
+}
+
+function scalar(value: unknown): string | number | boolean | undefined {
+  if (typeof value === 'string') return value.slice(0, MAX_VALUE_LENGTH);
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'boolean') return value;
+  return undefined;
+}
+
+function attributes(source: any, allowed: readonly string[]): Record<string, string | number | boolean> {
+  const result: Record<string, string | number | boolean> = {};
+  if (!source || typeof source !== 'object') return result;
+  for (const name of allowed) {
+    const raw = source[name];
+    const value = JID_ATTRIBUTES.has(name) && typeof raw === 'string' ? pseudonymizeJid(raw) : scalar(raw);
+    if (value !== undefined) result[name] = value;
+  }
+  return result;
+}
+
+function summarizeNode(node: any, depth = 0, budget = { remaining: MAX_NODES }): any {
+  if (!node || typeof node !== 'object' || typeof node.tag !== 'string' || budget.remaining-- <= 0) {
+    return undefined;
+  }
+  const summary: any = {
+    tag: scalar(node.tag),
+    attrs: attributes(node.attrs, node.tag === 'error' ? ERROR_ATTRIBUTES : ATTRIBUTES),
+  };
+  // Never serialize raw payloads, frame bytes, ciphertext or a caller-owned object.
+  if (ArrayBuffer.isView(node.content) || node.content instanceof ArrayBuffer) {
+    summary.byteLength = node.content.byteLength;
+  } else if (depth < 3 && Array.isArray(node.content)) {
+    const children = [];
+    for (let i = 0; i < Math.min(node.content.length, MAX_CHILDREN) && budget.remaining > 0; i++) {
+      const child = summarizeNode(node.content[i], depth + 1, budget);
+      if (child) children.push(child);
+    }
+    if (children.length) summary.children = children;
+  }
+  return summary;
+}
+
+function findCallId(node: any): string | undefined {
+  const value = node?.attrs?.['call-id'];
+  if (typeof value === 'string' && value) return value;
+  for (const child of node?.children || []) {
+    const found = findCallId(child);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function containsCallTag(node: any): boolean {
+  return CALL_TAGS.has(node?.tag) || (node?.children || []).some(containsCallTag);
+}
+
+/** Optional bounded diagnostics. Observes events only; never changes call signaling or state. */
+export function bindZapoCallDiagnostics(
+  client: any,
+  instanceName: string,
+  write: (record: string) => void,
+  enabled: boolean,
+): void {
+  if (!enabled || !client || (typeof client !== 'object' && typeof client !== 'function')) return;
+  try {
+    if (typeof client.on !== 'function' || boundClients.has(client)) return;
+    boundClients.add(client);
+    const pendingIds = new Map<string, string>();
+    let windowStart = Date.now();
+    let count = 0;
+    let suppressionWritten = false;
+
+    const emit = (kind: string, fields: Record<string, unknown>) => {
+      const now = Date.now();
+      if (now - windowStart >= 60_000 || now < windowStart) {
+        windowStart = now;
+        count = 0;
+        suppressionWritten = false;
+      }
+      const common = { timestamp: new Date(now).toISOString(), instance: `instance-${fingerprint(instanceName)}` };
+      if (count >= MAX_RECORDS_PER_MINUTE) {
+        if (!suppressionWritten) {
+          suppressionWritten = true;
+          write(
+            `[ZapoCallTrace] ${JSON.stringify({ ...common, kind: 'suppressed', limitPerMinute: MAX_RECORDS_PER_MINUTE })}`,
+          );
+        }
+        return;
+      }
+      count++;
+      write(`[ZapoCallTrace] ${JSON.stringify({ ...common, kind, ...fields })}`);
+    };
+
+    const transport = (kind: 'transport_in' | 'transport_out') => (event: any) => {
+      try {
+        const raw = event?.node;
+        if (!raw || !['call', 'ack', 'receipt'].includes(raw.tag)) return;
+        if (raw.tag === 'ack' && raw.attrs?.class !== 'call') return;
+        const node = summarizeNode(raw);
+        if (!node) return;
+        const id = typeof node.attrs.id === 'string' ? node.attrs.id : undefined;
+        const correlatedCallId = id ? pendingIds.get(id) : undefined;
+        if (node.tag === 'receipt' && !containsCallTag(node) && !correlatedCallId) return;
+        const callId = findCallId(node) || correlatedCallId;
+        if (kind === 'transport_out' && node.tag === 'call' && id && callId) {
+          pendingIds.delete(id);
+          pendingIds.set(id, callId);
+          if (pendingIds.size > MAX_PENDING_IDS) pendingIds.delete(pendingIds.keys().next().value);
+        }
+        emit(kind, { callId, node });
+      } catch {
+        // Logging, accessors and malformed debug payloads must not affect the protocol.
+      }
+    };
+
+    const state = (kind: string) => (call: any) => {
+      try {
+        if (!call || typeof call !== 'object') return;
+        const callId = scalar(call.callId);
+        if (typeof callId !== 'string' || !callId) return;
+        emit(kind, {
+          callId,
+          direction: scalar(call.direction),
+          state: scalar(call.stateData?.state ?? call.state),
+          endReason: scalar(call.stateData?.endReason ?? call.endReason),
+          canAccept: typeof call.canAccept === 'boolean' ? call.canAccept : undefined,
+        });
+      } catch {
+        // Diagnostics are best effort even when a provider getter or writer throws.
+      }
+    };
+
+    client.on('debug_transport_node_in', transport('transport_in'));
+    client.on('debug_transport_node_out', transport('transport_out'));
+    client.on('voip_call_state', state('state'));
+    client.on('voip_call_incoming', state('incoming'));
+    client.on('voip_call_ended', state('ended'));
+    try {
+      emit('enabled', {});
+    } catch {
+      // A failed startup record must not detach diagnostics or affect the client.
+    }
+  } catch {
+    // A client without compatible debug subscriptions remains usable.
+  }
+}

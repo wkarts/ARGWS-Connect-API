@@ -22,6 +22,8 @@ export interface MetaCloudWebhookEnvelope {
     phoneNumberId: string;
     graphVersion?: string;
     messageId?: string;
+    event?: string;
+    traceId?: string;
   };
   attempt: number;
 }

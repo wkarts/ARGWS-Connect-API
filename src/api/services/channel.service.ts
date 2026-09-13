@@ -19,6 +19,7 @@ import { isArray } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
 import { v4 } from 'uuid';
 
+import { diagnostics } from '../../diagnostics/diagnostics.service';
 import { CacheService } from './cache.service';
 
 export class ChannelStartupService {
@@ -450,6 +451,17 @@ export class ChannelStartupService {
     integration?: string[],
     extra?: Record<string, any>,
   ) {
+    if (event === Events.CONNECTION_UPDATE) {
+      const connection = data as Record<string, any>;
+      diagnostics.record({
+        code: 'connection.state',
+        instanceId: this.instance.name,
+        state: connection.state,
+        provider: connection.provider,
+        reason: connection.reason,
+        reasonCode: connection.code,
+      });
+    }
     const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
     const tzoffset = new Date().getTimezoneOffset() * 60000; //offset in milliseconds
     const localISOTime = new Date(Date.now() - tzoffset).toISOString();

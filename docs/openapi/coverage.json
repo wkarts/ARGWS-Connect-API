@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-13T02:45:03.644Z",
+  "generatedAt": "2026-09-13T03:22:18.758Z",
   "version": "1.0.30",
-  "sourceDigest": "76554669549f2e661389ade7136341e6273c296a5f8f22ad74d7b6a0fda7ffaf",
+  "sourceDigest": "79358e39111ea1d6091530d452e5466875ad9f593ac93304d814127201eb6b43",
   "operations": [
     {
       "method": "GET",
@@ -337,6 +337,31 @@
       "method": "PUT",
       "path": "/connectBot/update/{connectBotId}/{instanceName}",
       "source": "src/api/integrations/chatbot/connectBot/routes/connectBot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/diagnostics/client-events",
+      "source": "src/api/routes/diagnostics.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/events",
+      "source": "src/api/routes/diagnostics.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/export",
+      "source": "src/api/routes/diagnostics.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/diagnostics/settings",
+      "source": "src/api/routes/diagnostics.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/status",
+      "source": "src/api/routes/diagnostics.router.ts"
     },
     {
       "method": "POST",

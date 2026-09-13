@@ -1,9 +1,12 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import { RabbitmqController } from '@api/integrations/event/rabbitmq/rabbitmq.controller';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import { Channel, Message } from 'amqplib/callback_api';
 import axios from 'axios';
 
+import { diagnostics } from '../../../diagnostics/diagnostics.service';
 import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudIdentityResolver } from './meta-cloud-identity.resolver';
 import { MetaCloudWebhookSerializer } from './meta-cloud-webhook.serializer';
@@ -45,6 +48,8 @@ export class MetaCloudWebhookDispatcher {
           provider: identity.provider,
           phoneNumberId: identity.phoneNumberId,
           messageId: this.extractMessageId(payload),
+          event: eventData.event,
+          traceId: diagnostics.traceId() ?? randomUUID(),
         },
         attempt: 0,
       };
@@ -165,12 +170,41 @@ export class MetaCloudWebhookDispatcher {
   }
 
   private async deliver(envelope: MetaCloudWebhookEnvelope) {
-    await axios.post(envelope.webhookUrl, envelope.payload, {
-      timeout: 10_000,
-      headers: { 'content-type': 'application/json', 'user-agent': 'ARGWS-Connect-Meta-Compatibility/1' },
-      maxRedirects: 3,
-    });
-    metaCloudMetrics.increment('connect_meta_compat_webhooks_total');
+    const started = Date.now();
+    const delivery = {
+      code: 'webhook.delivery',
+      component: 'meta-webhook',
+      traceId: envelope.context.traceId ?? diagnostics.traceId() ?? randomUUID(),
+      instanceId: envelope.context.instanceName,
+      targetId: createHash('sha256').update(envelope.webhookUrl).digest('hex').slice(0, 12),
+      event: envelope.context.event,
+      attempt: envelope.attempt + 1,
+    };
+    diagnostics.record({ ...delivery, phase: 'started' });
+    try {
+      const response = await axios.post(envelope.webhookUrl, envelope.payload, {
+        timeout: 10_000,
+        headers: { 'content-type': 'application/json', 'user-agent': 'ARGWS-Connect-Meta-Compatibility/1' },
+        maxRedirects: 3,
+      });
+      diagnostics.record({
+        ...delivery,
+        phase: 'succeeded',
+        status: response.status,
+        durationMs: Date.now() - started,
+      });
+      metaCloudMetrics.increment('connect_meta_compat_webhooks_total');
+    } catch (error) {
+      diagnostics.record({
+        ...delivery,
+        level: 'error',
+        phase: 'failed',
+        status: error?.response?.status,
+        durationMs: Date.now() - started,
+        error,
+      });
+      throw error;
+    }
   }
 
   private extractMessageId(payload: any) {

@@ -29,6 +29,7 @@ const routes = [
   { path: '/seguranca', component: () => import('@/views/SecurityView.vue'), meta: { feature: 'security' } },
   { path: '/documentacao', component: () => import('@/views/DocumentationView.vue'), meta: { feature: 'docs' } },
   { path: '/saude', component: () => import('@/views/HealthView.vue') },
+  { path: '/diagnostico', component: () => import('@/views/DiagnosticsView.vue'), meta: { permission: 'audit.read' } },
   { path: '/atualizacoes', component: () => import('@/views/UpdatesView.vue'), meta: { feature: 'updates' } },
   { path: '/configuracoes', component: () => import('@/views/SettingsView.vue'), meta: { feature: 'settings' } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
