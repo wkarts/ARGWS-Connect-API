@@ -28,7 +28,7 @@ function loadCallActions() {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const service = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'ZapoStartupService');
   assert.ok(service, 'ZapoStartupService must exist');
-  const names = new Set(['endCall', 'rejectCall', 'normalizeCall']);
+  const names = new Set(['endCall', 'rejectCall', 'normalizeCall', 'isVideoCall']);
   const methods = service.members.filter(node => ts.isMethodDeclaration(node) && names.has(node.name.getText(ast)));
   assert.equal(methods.length, names.size, 'Load the actual service actions and normalizer');
   const output = ts.transpileModule(`export class CallActions { ${methods.map(node => node.getText(ast)).join('\n')} }`, {

@@ -150,6 +150,8 @@ const ROUTE_PARTS = new Set([
   'endCall',
   'muteCall',
   'mediaTicket',
+  'videoMediaTicket',
+  'capabilities',
   'list',
   'create',
   'connect',
