@@ -28,6 +28,7 @@ COPY ./patches ./patches
 RUN npm ci --silent
 
 COPY ./src ./src
+COPY ./third-party/connect-voip ./third-party/connect-voip
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
