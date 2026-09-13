@@ -33,8 +33,11 @@ const mediaError = ref('')
 const mediaCallId = ref('')
 let voiceSession: VoiceMediaSession | null = null
 let videoSession: VideoMediaSession | null = null
+let videoPreparationController: AbortController | null = null
+let pendingVideoPreparation: VideoMediaPreparation | undefined
 let mediaGeneration = 0
 let videoGeneration = 0
+let callsRequest = 0
 let disposed = false
 const callCapabilities = ref<CallCapabilities | null>(null)
 const videoState = ref<VideoMediaState>('idle')
@@ -159,6 +162,9 @@ function closeMedia() {
 
 function closeVideo() {
   videoGeneration += 1
+  videoPreparationController?.abort()
+  videoPreparationController = null
+  releaseVideoPreparation(pendingVideoPreparation)
   videoSession?.stop()
   videoSession = null
   videoStream.value?.getTracks().forEach(track => track.stop())
@@ -168,8 +174,15 @@ function closeVideo() {
   cameraEnabled.value = true
 }
 
+function releaseVideoPreparation(preparation?: VideoMediaPreparation) {
+  if (pendingVideoPreparation === preparation) pendingVideoPreparation = undefined
+  preparation?.stream.getTracks().forEach(track => track.stop())
+}
+
 async function attachMedia(callId: string, preparation?: VideoMediaPreparation) {
-  if (!callId || !supportsVoice.value) { preparation?.stream.getTracks().forEach(track => track.stop()); return }
+  if (!callId || !supportsVoice.value) { releaseVideoPreparation(preparation); return }
+  // Transfer the prepared camera before closing the previous media session.
+  if (pendingVideoPreparation === preparation) pendingVideoPreparation = undefined
   closeMedia()
   const generation = mediaGeneration
   const instanceId = selected.value
@@ -192,6 +205,7 @@ async function attachMedia(callId: string, preparation?: VideoMediaPreparation) 
 }
 
 async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
+  if (pendingVideoPreparation === preparation) pendingVideoPreparation = undefined
   closeVideo()
   const generation = videoGeneration
   const instanceId = selected.value
@@ -233,9 +247,28 @@ async function refreshCalls() {
 
 async function prepareVideo() {
   if (!supportsVideo.value) throw new Error('Vídeo indisponível nesta instância. Atualize as capacidades e tente novamente.')
+  // Some camera drivers allow only one capture, even within the same page.
+  closeVideo()
+  const generation = videoGeneration
+  const instanceId = selected.value
+  const controller = new AbortController()
+  videoPreparationController = controller
+  const current = () => generation === videoGeneration && selected.value === instanceId && !disposed
   videoState.value = 'requesting_camera'
-  try { return await VideoMediaSession.prepare(callCapabilities.value?.videoMedia) }
-  catch (error) { videoState.value = 'error'; throw error }
+  try {
+    const preparation = await VideoMediaSession.prepare(callCapabilities.value?.videoMedia, controller.signal)
+    if (!current()) {
+      releaseVideoPreparation(preparation)
+      throw new Error('A preparação de vídeo foi cancelada.')
+    }
+    pendingVideoPreparation = preparation
+    return preparation
+  } catch (error) {
+    if (current()) videoState.value = 'error'
+    throw error
+  } finally {
+    if (videoPreparationController === controller) videoPreparationController = null
+  }
 }
 
 function toggleCamera() {
@@ -246,16 +279,17 @@ function toggleCamera() {
 async function reconnectVideo() {
   const callId = mediaCallId.value
   const instanceId = selected.value
-  if (!callId || busy.value) return
+  if (!callId || busy.value || disposed) return
   busy.value = true
+  mediaError.value = ''
   let preparation: VideoMediaPreparation | undefined
   try {
     preparation = await prepareVideo()
     if (disposed || selected.value !== instanceId || mediaCallId.value !== callId) return
     await attachVideo(callId, preparation)
     preparation = undefined
-  } catch (e) { mediaError.value = friendlyError(e) }
-  finally { preparation?.stream.getTracks().forEach(track => track.stop()); busy.value = false }
+  } catch (e) { if (!disposed && selected.value === instanceId) mediaError.value = friendlyError(e) }
+  finally { releaseVideoPreparation(preparation); busy.value = false }
 }
 
 async function loadBehavior() {
@@ -283,33 +317,50 @@ async function loadContacts(force = false) {
 }
 
 async function loadCalls(silent = false) {
-  if (!selected.value) {
+  if (disposed) return
+  const request = ++callsRequest
+  const instanceId = selected.value
+  const generation = mediaGeneration
+  const current = () => !disposed && request === callsRequest && selected.value === instanceId && generation === mediaGeneration
+  if (!instanceId) {
     calls.value = []
     contacts.value = []
     instanceDetails.value = null
+    loading.value = false
     closeMedia()
     return
   }
-  instanceDetails.value = await connect.connection(selected.value).catch(() => instanceDetails.value)
   if (!silent) loading.value = true
   if (!silent) error.value = ''
   try {
-    calls.value = supportsCalls.value ? await connect.calls(selected.value) : []
+    const details = await connect.connection(instanceId).catch(() => instanceDetails.value)
+    if (!current()) return
+    const result = supportsCalls.value ? await connect.calls(instanceId) : []
+    // A snapshot requested before the current media was attached cannot end it.
+    if (!current()) return
+    instanceDetails.value = details
+    calls.value = result
     void loadContacts()
-    if (mediaCallId.value) {
+    if (mediaCallId.value && !busy.value) {
       const current = calls.value.find((call) => call.callId === mediaCallId.value)
       if (!current || !isCallActive(current)) closeMedia()
     }
   } catch (e) {
-    if (!silent) error.value = friendlyError(e)
+    if (!silent && current()) error.value = friendlyError(e)
   } finally {
-    if (!silent) loading.value = false
+    if (request === callsRequest) loading.value = false
   }
 }
 
 function startPolling() {
   stopPolling()
-  timer = window.setInterval(() => void loadCalls(true), 2000)
+  if (disposed) return
+  let pending = false
+  timer = window.setInterval(() => {
+    if (pending) return
+    pending = true
+    void loadCalls(true).finally(() => { pending = false })
+  }, 2000)
 }
 function stopPolling() {
   if (timer) window.clearInterval(timer)
@@ -317,6 +368,7 @@ function stopPolling() {
 }
 
 async function makeTestCall(isVideo = false) {
+  if (busy.value || disposed) return
   const normalized = number.value.replace(/\D/g, '')
   if (!normalized || !supportsCalls.value) return
   busy.value = true
@@ -327,7 +379,7 @@ async function makeTestCall(isVideo = false) {
   const instanceId = selected.value
   try {
     if (isVideo) preparation = await prepareVideo()
-    if (disposed || selected.value !== instanceId) return
+    if (disposed || selected.value !== instanceId || (preparation && pendingVideoPreparation !== preparation)) return
     const requestedDuration = Number(duration.value || 0)
     const result = await connect.offerCall(
       instanceId,
@@ -335,20 +387,21 @@ async function makeTestCall(isVideo = false) {
       requestedDuration > 0 ? requestedDuration : undefined,
       isVideo,
     )
-    if (disposed || selected.value !== instanceId) return
+    if (disposed || selected.value !== instanceId || (preparation && pendingVideoPreparation !== preparation)) return
     const callId = String(result?.callId || result?.id || '')
     feedback.value = 'Chamada de teste iniciada. A lista será atualizada automaticamente.'
     if (callId && supportsVoice.value) { await attachMedia(callId, preparation); preparation = undefined }
     await loadCalls(true)
   } catch (e) {
-    error.value = friendlyError(e)
+    if (!disposed && selected.value === instanceId) error.value = friendlyError(e)
   } finally {
-    preparation?.stream.getTracks().forEach(track => track.stop())
+    releaseVideoPreparation(preparation)
     busy.value = false
   }
 }
 
 async function action(call: WhatsAppCall, next: 'accept' | 'reject' | 'end' | 'mute') {
+  if (busy.value || disposed) return
   busy.value = true
   error.value = ''
   feedback.value = ''
@@ -356,13 +409,13 @@ async function action(call: WhatsAppCall, next: 'accept' | 'reject' | 'end' | 'm
   const instanceId = selected.value
   try {
     if (next === 'accept' && call.isVideo) preparation = await prepareVideo()
-    if (disposed || selected.value !== instanceId) return
+    if (disposed || selected.value !== instanceId || (preparation && pendingVideoPreparation !== preparation)) return
     const nextMuted = !Boolean(call.muted)
     const payload = next === 'mute'
       ? { callId: call.callId, muted: nextMuted }
       : { callId: call.callId }
     await connect.callAction(instanceId, next, payload)
-    if (disposed || selected.value !== instanceId) return
+    if (disposed || selected.value !== instanceId || (preparation && pendingVideoPreparation !== preparation)) return
 
     if (next === 'accept' && supportsVoice.value) {
       await attachMedia(call.callId, preparation)
@@ -381,9 +434,9 @@ async function action(call: WhatsAppCall, next: 'accept' | 'reject' | 'end' | 'm
     }
     await loadCalls(true)
   } catch (e) {
-    error.value = friendlyError(e)
+    if (!disposed && selected.value === instanceId) error.value = friendlyError(e)
   } finally {
-    preparation?.stream.getTracks().forEach(track => track.stop())
+    releaseVideoPreparation(preparation)
     busy.value = false
   }
 }

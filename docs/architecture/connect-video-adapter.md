@@ -63,6 +63,12 @@ A tela de chamadas consulta as capabilities da instância. Para vídeo, verifica
 
 O encoder local usa `avc1.42E01F`, saída Annex-B, 640×480, 800 kbit/s, até 30 fps. O decoder identifica o perfil remoto pelo SPS e verifica suporte antes de configurá-lo, inclusive para perfis Main/High. Falha ou reconexão de vídeo preserva a sessão de áudio. Não foi implementado transcoder para navegadores sem H.264. O HUB pode integrar o novo contrato de mídia; seu frontend não é alterado neste repositório.
 
+Para atender uma chamada recebida de vídeo, usar **Atender com vídeo** na lista de chamadas. O Manager libera sua captura de vídeo anterior antes de pedir outra, inclusive na reconexão. A câmera já adquirida fica sob controle da tela enquanto a API processa a oferta ou o atendimento. Trocar de instância ou sair da tela libera essa captura; uma permissão concedida depois do cancelamento também tem suas faixas interrompidas, sem iniciar o atendimento.
+
+Se o driver ainda responder `NotReadableError` ou `TrackStartError` após a liberação, há somente uma nova tentativa após 200 ms. Erro de permissão não provoca retentativa. Falhas de câmera são apresentadas em português e impedem o pedido de atendimento com vídeo. Essa preparação não fecha a sessão de áudio existente.
+
+A atualização periódica não sobrepõe consultas. Respostas de outra instância, de uma consulta substituída ou iniciada antes da sessão de mídia atual são descartadas. A lista não encerra a mídia durante uma ação em andamento; após a ação, a consulta seguinte reconcilia o estado remoto. Isso evita que uma lista antiga vazia feche a câmera recém-conectada.
+
 ## Limites e privacidade
 
 - Frames limitados a 8 MiB, com validação de cabeçalho, tamanho, flags, timestamps e Annex-B.
@@ -74,6 +80,8 @@ O encoder local usa `avc1.42E01F`, saída Annex-B, 640×480, 800 kbit/s, até 30
 - Diagnóstico registra somente estados/códigos permitidos, com IDs pseudonimizados. Sem frames, áudio, chaves, tickets ou conteúdo de conversas.
 
 Para diagnosticar autorização de mídia, as rotas estáticas `capabilities` e `videoMediaTicket` permanecem identificáveis no log HTTP; o nome da instância e os dados do ticket continuam ocultos. Se a chamada aparecer como voz e o ticket de vídeo retornar `404`, conferir se a API está executando a correção de normalização `mediaType` → `isVideo`. Um aceite no signaling não comprova que o gateway de vídeo foi autenticado.
+
+Se **Atender com vídeo** apresentar falha de câmera e não houver `POST /call/accept` correspondente, verificar a captura local do navegador: ela acontece antes da requisição. O diagnóstico do servidor não mede disponibilidade da câmera, FPS do navegador ou jitter de ponta a ponta; por si só, não identifica a causa de uma imagem instável. Estar na mesma rede Wi-Fi não elimina o percurso pelos gateways da API e pelo transporte WhatsApp.
 
 ## Ativação na develop
 
