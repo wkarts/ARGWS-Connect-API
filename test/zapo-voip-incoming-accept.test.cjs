@@ -69,12 +69,63 @@ function loadProvider() {
 const { WaCallManager, routeCallStanza } = loadProvider();
 const { createNoopLogger } = require('zapo-js');
 const { parseSignalAddressFromJid, toUserJid } = require('zapo-js/protocol');
+const { decodeBinaryNodeStanza, encodeBinaryNodeStanza } = require('zapo-js/transport');
+const { buildAcceptStanza } = require(path.join(dist, 'signaling/signaling.js'));
 
 const A = { pn: '5511990000001@s.whatsapp.net', lid: '111111111111111@lid' };
 const B = { pn: '5511990000002@s.whatsapp.net', lid: '222222222222222@lid' };
 const device = (jid, index) => jid.replace('@', `:${index}@`);
 const messages = (context, tag) => context.sent.filter(node => node.tag === 'call' && node.content?.[0]?.tag === tag);
 const tagOf = node => node.tag === 'call' ? node.content?.[0]?.tag : node.tag;
+
+// Verify the installed builder and binary codec without assuming that a fake
+// router proves server acceptance. A device-addressed outer accept must fail
+// this contract even when its Signal ciphertext targets the correct device.
+for (const mode of ['lid', 'pn']) {
+  for (const type of ['msg', 'pkmsg']) {
+    test(`${mode.toUpperCase()} ${type} accept serializes an account envelope with device-specific encryption`, async () => {
+      const peerJid = device(A[mode], 18);
+      const callCreator = A[mode];
+      const callId = '0123456789ABCDEF0123456789ABCDEF';
+      const synced = [];
+      const encrypted = [];
+      const ciphertext = new Uint8Array([7, 8, 9]);
+      const signedIdentity = {
+        details: new Uint8Array([1, 2]),
+        accountSignatureKey: new Uint8Array(32),
+        accountSignature: new Uint8Array(64),
+        deviceSignature: new Uint8Array(64),
+      };
+      const deps = {
+        authClient: { getCurrentCredentials: () => ({ signedIdentity }) },
+        messageDispatch: { async syncSignalSession(jid) { synced.push(jid); } },
+        signalProtocol: {
+          async encryptMessage(address) {
+            encrypted.push(address);
+            return { type, ciphertext };
+          },
+        },
+      };
+      const built = await buildAcceptStanza(deps, callId, new Uint8Array(32), peerJid, callCreator, false);
+      const decoded = await decodeBinaryNodeStanza(encodeBinaryNodeStanza(built));
+
+      assert.equal(built.attrs.to, A[mode], 'outer accept must use the account JID prescribed by upstream');
+      assert.equal(decoded.attrs.to, A[mode], 'the account destination must survive binary serialization');
+      assert.deepEqual(synced, [peerJid], 'session synchronization must retain the originating device');
+      assert.deepEqual(encrypted, [parseSignalAddressFromJid(peerJid)], 'encryption must retain the originating device');
+      const accept = decoded.content[0];
+      assert.equal(accept.tag, 'accept');
+      assert.equal(accept.attrs['call-id'], callId);
+      assert.equal(accept.attrs['call-creator'], callCreator, 'account metadata must not become a device address');
+      assert.deepEqual(accept.content.find(node => node.tag === 'audio').attrs, { enc: 'opus', rate: '16000' });
+      const enc = accept.content.find(node => node.tag === 'enc');
+      assert.deepEqual(enc.attrs, { v: '2', type, count: '0' });
+      assert.deepEqual(new Uint8Array(enc.content), ciphertext);
+      assert.deepEqual(accept.content.find(node => node.tag === 'encopt').attrs, { keygen: '2' });
+      assert.equal(accept.content.filter(node => node.tag === 'device-identity').length, type === 'pkmsg' ? 1 : 0);
+    });
+  }
+}
 
 function signalEnvelope(sender, recipient, plaintext) {
   // Deliberately NOT cryptography. Bind bytes to the exact sender and recipient
@@ -96,7 +147,8 @@ function makeEndpoint(account, index, mode, creatorIndex) {
     authClient: {
       getCurrentCredentials: () => ({
         // Account-level call-creator is valid metadata; the transport sender can
-        // still be a companion. The accept must use wireJid's device, not metadata.
+        // still be a companion. Signal encryption must use wireJid's device;
+        // the outer acceptance envelope is independently addressed to the account.
         meJid: mode === 'pn' ? creator : device(account.pn, creatorIndex ?? index),
         meLid: mode === 'lid' ? creator : undefined,
       }),
@@ -180,14 +232,22 @@ async function setup(t, { mode = 'lid', callerDevice = 3, creatorDevice } = {}) 
     endpoint.deps.lowLevelCoordinator.sendNode = async node => {
       endpoint.sent.push(node);
       const tag = tagOf(node);
-      // Simulate transport fan-out for the real offer and exact device routing
-      // for accepts. An account-addressed accept is not delivered to companion 3.
+      // This in-memory fixture follows the upstream accept envelope contract:
+      // https://github.com/innovatorssoft/zapo/blob/master/packages/voip/src/signaling/signaling.ts
+      // Account routing and Signal recipient/device selection are separate.
+      // It is not a simulation or verification of the WhatsApp server itself.
       const destinations = tag === 'offer' ? [receiver, phone]
         : ['accept', 'terminate', 'relaylatency', 'mute_v2'].includes(tag)
           ? endpoints.filter(target => {
             try {
-              // Relay forwards address the remote account. Deliver to its
-              // devices; accept and terminate still require the exact device.
+              if (tag === 'accept') {
+                // Correlate this fixture's known call at the destination account;
+                // Signal decryption independently verifies the exact device.
+                return node.attrs.to === toUserJid(target.wireJid) &&
+                  target.manager.getCall(node.content[0].attrs['call-id'])?.isInitiator;
+              }
+              // Relay reports fan out to the remote account. Other controls
+              // keep their device-addressed routing.
               if (tag === 'relaylatency') return toUserJid(node.attrs.to) === toUserJid(target.wireJid);
               return JSON.stringify(parseSignalAddressFromJid(node.attrs.to)) ===
                 JSON.stringify(parseSignalAddressFromJid(target.wireJid));
@@ -241,7 +301,7 @@ for (const mode of ['lid', 'pn']) {
 
       const accepts = messages(receiver, 'accept');
       assert.equal(accepts.length, 1);
-      assert.equal(accepts[0].attrs.to, caller.wireJid, 'answer must address the originating companion');
+      assert.equal(accepts[0].attrs.to, toUserJid(caller.wireJid), 'accept envelope must address the originating account');
       assert.equal(accepts[0].content[0].attrs['call-creator'], creator, 'call metadata must be preserved');
       assert.deepEqual(receiver.synced, [caller.wireJid]);
       assert.deepEqual(receiver.encrypted, [parseSignalAddressFromJid(caller.wireJid)]);
