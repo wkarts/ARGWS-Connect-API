@@ -65,7 +65,7 @@ O encoder local usa `avc1.42E01F`, saída Annex-B, 640×480, 800 kbit/s, até 30
 
 Para atender uma chamada recebida de vídeo, usar **Atender com vídeo** na lista de chamadas. O Manager libera sua captura de vídeo anterior antes de pedir outra, inclusive na reconexão. A câmera já adquirida fica sob controle da tela enquanto a API processa a oferta ou o atendimento. Trocar de instância ou sair da tela libera essa captura; uma permissão concedida depois do cancelamento também tem suas faixas interrompidas, sem iniciar o atendimento.
 
-Se o driver ainda responder `NotReadableError` ou `TrackStartError` após a liberação, há somente uma nova tentativa após 200 ms. Erro de permissão não provoca retentativa. Falhas de câmera são apresentadas em português e impedem o pedido de atendimento com vídeo. Essa preparação não fecha a sessão de áudio existente.
+Se o driver ainda responder `NotReadableError` ou `TrackStartError` após a liberação, há somente uma nova tentativa após 200 ms. Erro de permissão não provoca retentativa. Falhas de câmera são apresentadas em português e impedem o pedido de atendimento com vídeo. Essa preparação não fecha a sessão de áudio existente. Se a câmera falhar ao reconectar uma chamada já atendida, a linha dessa chamada oferece **Reconectar vídeo**, mesmo quando não há preview local.
 
 A atualização periódica não sobrepõe consultas. Respostas de outra instância, de uma consulta substituída ou iniciada antes da sessão de mídia atual são descartadas. A lista não encerra a mídia durante uma ação em andamento; após a ação, a consulta seguinte reconcilia o estado remoto. Isso evita que uma lista antiga vazia feche a câmera recém-conectada.
 

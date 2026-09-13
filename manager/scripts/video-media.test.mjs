@@ -397,7 +397,7 @@ function viewHarness({
     '@/services/normalizers': { isCallActive: call => !['ended', 'failed'].includes(call.state) },
     '@/services/video-media': { VideoMediaSession: { async prepare() {
       requests.push(['camera'])
-      if (rejectCamera) throw new Error('Câmera negada')
+      if (typeof rejectCamera === 'function' ? rejectCamera() : rejectCamera) throw new Error('Câmera negada')
       await cameraDelay
       if (exclusiveCamera && tracks.some(track => track.readyState === 'live')) throw new Error('Device in use')
       const track = { stops: 0, readyState: 'live', stop() { this.stops++; this.readyState = 'ended' } }
@@ -406,7 +406,7 @@ function viewHarness({
     } } },
   }
   for (const item of ['@/layouts/AppShell.vue', '@/components/PageHeader.vue', '@/components/PanelCard.vue', '@/components/AppIcon.vue', '@/components/EmptyState.vue']) dependencies[item] = {}
-  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, mediaError, error, busy, calls, instanceDetails };', {
+  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, videoStream, mediaError, error, busy, calls, instanceDetails };', {
     window: { setInterval(callback) { const id = ++intervalId; intervals.set(id, callback); return id }, clearInterval(id) { intervals.delete(id) } },
   }, dependencies)
   api.instances.value = ['i1', 'i2'].map(id => ({ id, capabilities: { calls: true, voice: true } }))
@@ -656,5 +656,38 @@ test('polling waits for a slow call snapshot before starting the next tick and s
   assert.equal(h.api.mediaCallId.value, '', 'A fresh empty snapshot still closes the ended call')
   assert.equal(h.tracks[0].readyState, 'ended')
   assert.equal(h.media.stops, 1)
+  h.unmount()
+})
+
+
+test('a failed camera reconnect remains retryable on the same call without replacing its audio session', async () => {
+  let cameraUnavailable = false
+  const h = viewHarness({ exclusiveCamera: true, rejectCamera: () => cameraUnavailable })
+  await h.api.makeTestCall(true)
+  h.media.setMicMuted(true)
+  cameraUnavailable = true
+  await h.api.reconnectVideo()
+  assert.equal(h.api.videoState.value, 'error')
+  assert.equal(h.api.videoStream.value, null)
+  assert.equal(h.api.busy.value, false)
+  assert.equal(h.tracks[0].readyState, 'ended')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.api.mediaState.value, 'ready')
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.media.muted, true)
+
+  cameraUnavailable = false
+  await h.api.reconnectVideo()
+  assert.equal(h.api.videoState.value, 'ready')
+  assert.equal(h.api.mediaError.value, '')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
+  assert.equal(h.tracks.length, 2)
+  assert.equal(h.requests.filter(([type]) => type === 'audio').length, 1)
+  assert.equal(h.requests.filter(([type]) => type === 'video').length, 2)
+  assert.equal(h.requests.filter(([type]) => type === 'offer').length, 1)
+  assert.equal(h.requests.some(([type]) => type === 'action'), false)
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.media.muted, true)
   h.unmount()
 })

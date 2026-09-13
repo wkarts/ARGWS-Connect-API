@@ -540,6 +540,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="call-actions">
                 <button v-if="call.direction==='incoming' && (!call.isVideo || call.state.toLowerCase().includes('ring'))" class="btn primary compact" :disabled="busy || (call.isVideo && !supportsVideo)" @click="action(call,'accept')">{{ call.isVideo ? 'Atender com vídeo' : 'Atender com áudio' }}</button>
+                <button v-if="call.isVideo && mediaCallId===call.callId && !videoStream && videoState==='error'" class="btn ghost compact" :disabled="busy || !supportsVideo" @click="reconnectVideo">Reconectar vídeo</button>
                 <button v-if="call.direction==='incoming'" class="btn danger compact" :disabled="busy" @click="action(call,'reject')">Recusar</button>
                 <button class="btn ghost compact" :disabled="busy" @click="action(call,'mute')">{{ call.muted ? 'Ativar microfone' : 'Silenciar' }}</button>
                 <button class="btn danger compact" :disabled="busy" @click="action(call,'end')">Encerrar</button>
