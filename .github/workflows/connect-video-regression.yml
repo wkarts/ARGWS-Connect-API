@@ -1,0 +1,31 @@
+name: Connect Video Adapter Regression
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install dependencies with existing voice correction
+        run: npm ci --no-audit --no-fund
+      - name: Verify original voice package remains homologated
+        run: node scripts/apply-zapo-voip-patch.cjs --check
+      - name: Test video engine, call isolation and private gateway
+        run: npm run test:video
+      - name: Lint owned JavaScript video engine
+        run: npx --no-install eslint --ext .js src/api/integrations/channel/whatsapp/voip/engine
+      - name: Verify documentation contracts
+        run: npm run docs:check

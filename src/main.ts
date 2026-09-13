@@ -1,7 +1,7 @@
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { HttpStatus, router } from '@api/routes/index.router';
-import { eventManager, voiceMediaService, waMonitor } from '@api/server.module';
+import { eventManager, videoMediaService, voiceMediaService, waMonitor } from '@api/server.module';
 import { Auth, configService, Cors, HttpServer, ProviderSession, Webhook } from '@config/env.config';
 import { onUnexpectedError } from '@config/error.config';
 import { Logger } from '@config/logger.config';
@@ -149,6 +149,7 @@ async function bootstrap() {
 
   eventManager.init(server);
   voiceMediaService.attach(server);
+  videoMediaService.attach(server);
 
   server.listen(httpServer.PORT, () => logger.log(httpServer.TYPE.toUpperCase() + ' - ON: ' + httpServer.PORT));
 

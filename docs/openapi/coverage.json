@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-13T15:24:58.235Z",
+  "generatedAt": "2026-09-13T16:04:19.872Z",
   "version": "1.1.3",
-  "sourceDigest": "79358e39111ea1d6091530d452e5466875ad9f593ac93304d814127201eb6b43",
+  "sourceDigest": "b3a2ee12472de2612fdb870da0ba6199df551f9bc7cbea2ada152e07d126b27c",
   "operations": [
     {
       "method": "GET",
@@ -69,6 +69,11 @@
       "source": "src/api/routes/call.router.ts"
     },
     {
+      "method": "GET",
+      "path": "/call/capabilities/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/call/end/{instanceName}",
       "source": "src/api/routes/call.router.ts"
@@ -96,6 +101,11 @@
     {
       "method": "POST",
       "path": "/call/reject/{instanceName}",
+      "source": "src/api/routes/call.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/call/videoMediaTicket/{instanceName}",
       "source": "src/api/routes/call.router.ts"
     },
     {

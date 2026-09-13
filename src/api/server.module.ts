@@ -55,6 +55,7 @@ import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
+import { VideoMediaService } from './services/video-media.service';
 import { VoiceMediaService } from './services/voice-media.service';
 
 const logger = new Logger('WA MODULE');
@@ -88,6 +89,7 @@ export const waMonitor = new WAMonitoringService(
   baileysCache,
 );
 export const voiceMediaService = new VoiceMediaService(waMonitor);
+export const videoMediaService = new VideoMediaService(waMonitor);
 
 const s3Service = new S3Service(prismaRepository);
 export const s3Controller = new S3Controller(s3Service);
@@ -118,7 +120,7 @@ export const instanceController = new InstanceController(
   providerFiles,
 );
 export const sendMessageController = new SendMessageController(waMonitor, localTemplateService);
-export const callController = new CallController(waMonitor, voiceMediaService);
+export const callController = new CallController(waMonitor, voiceMediaService, videoMediaService);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
