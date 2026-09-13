@@ -108,6 +108,10 @@
     {
       "name": "Meta Compatible Admin",
       "description": "Identidade e configuração opcional de webhook da fachada Meta Compatible."
+    },
+    {
+      "name": "Diagnostics",
+      "description": "Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração."
     }
   ],
   "paths": {
@@ -4688,6 +4692,1069 @@
             }
           }
         }
+      }
+    },
+    "/diagnostics/client-events": {
+      "post": {
+        "tags": [
+          "Diagnostics"
+        ],
+        "summary": "Registrar erro técnico do Manager sem conteúdo",
+        "operationId": "post_diagnostics_client_events",
+        "description": "Exige exclusivamente a API key global no header apikey; token de instância não autoriza este recurso. Coleta nativa já ativa, sem variável de ambiente adicional. Aceita somente categoria fixa do erro, área da tela e traceId opcional. Mensagem, stack, URL, corpo ou qualquer outra propriedade são rejeitados. Limite de 60 eventos por minuto por processo da API. Não aceita parâmetros de consulta.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Evento aceito pelo coletor técnico.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "accepted"
+                  ],
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro, corpo ou parâmetro desconhecido/inválido.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Exige a chave global de administração no header apikey. Chaves de instância não são aceitas.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de concorrência ou de coleta atingido; aguarde antes de repetir.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Espera sugerida em segundos."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Diagnóstico temporariamente indisponível. A resposta não inclui a exceção original.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/diagnostics.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticClientEventRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/diagnostics/events": {
+      "get": {
+        "tags": [
+          "Diagnostics"
+        ],
+        "summary": "Consultar eventos técnicos com rastreabilidade",
+        "operationId": "get_diagnostics_events",
+        "description": "Exige exclusivamente a API key global no header apikey; token de instância não autoriza este recurso. Coleta nativa já ativa, sem variável de ambiente adicional. Filtros combinados por igualdade e período inclusivo em UTC. Retorna os registros mais recentes primeiro. Sem filtros de data, consulta a retenção disponível. Máximo de quatro leituras simultâneas, incluindo exportações.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+              "description": "Início inclusivo. Quando from e to são informados, o intervalo máximo é 30 dias."
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+              "description": "Fim inclusivo, igual ou posterior a from."
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "info",
+                "warn",
+                "error"
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "http",
+                "error",
+                "connection",
+                "call",
+                "runtime",
+                "frontend",
+                "system"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "http.request",
+                "webhook.delivery",
+                "runtime.started",
+                "runtime.sample",
+                "runtime.error",
+                "connection.state",
+                "call.signaling",
+                "call.state",
+                "call.action",
+                "call.media",
+                "frontend.error",
+                "diagnostics.exported",
+                "diagnostics.settings"
+              ]
+            }
+          },
+          {
+            "name": "traceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+              "description": "Identificador técnico exato da requisição ou entrega."
+            }
+          },
+          {
+            "name": "callId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+              "description": "Identificador técnico exato da chamada; não é telefone ou contato."
+            }
+          },
+          {
+            "name": "instanceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+              "description": "Pseudônimo da instância retornado nos eventos, por exemplo instance-012345abcdef."
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "description": "Copie nextCursor da resposta anterior, mantendo os filtros. Não construa o cursor manualmente."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de eventos sanitizados.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro, corpo ou parâmetro desconhecido/inválido.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Exige a chave global de administração no header apikey. Chaves de instância não são aceitas.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de concorrência ou de coleta atingido; aguarde antes de repetir.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Espera sugerida em segundos."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Diagnóstico temporariamente indisponível. A resposta não inclui a exceção original.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/diagnostics.router.ts"
+      }
+    },
+    "/diagnostics/export": {
+      "get": {
+        "tags": [
+          "Diagnostics"
+        ],
+        "summary": "Baixar histórico técnico filtrado em JSONL ou GZIP",
+        "operationId": "get_diagnostics_export",
+        "description": "Exige exclusivamente a API key global no header apikey; token de instância não autoriza este recurso. Coleta nativa já ativa, sem variável de ambiente adicional. Exporta todos os registros retidos que correspondem aos filtros, sem paginação; cursor e limit são rejeitados. A primeira linha JSONL é DiagnosticExportManifest; cada linha seguinte é DiagnosticEvent. Com format=gzip, o mesmo fluxo é compactado. Máximo de duas exportações e quatro leituras simultâneas. Falha após o início da transmissão interrompe o download; não considere um arquivo interrompido como completo. Consulte storageError e dropped no manifesto para identificar perdas de coleta.",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+              "description": "Início inclusivo. Quando from e to são informados, o intervalo máximo é 30 dias."
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+              "description": "Fim inclusivo, igual ou posterior a from."
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "info",
+                "warn",
+                "error"
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "http",
+                "error",
+                "connection",
+                "call",
+                "runtime",
+                "frontend",
+                "system"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "http.request",
+                "webhook.delivery",
+                "runtime.started",
+                "runtime.sample",
+                "runtime.error",
+                "connection.state",
+                "call.signaling",
+                "call.state",
+                "call.action",
+                "call.media",
+                "frontend.error",
+                "diagnostics.exported",
+                "diagnostics.settings"
+              ]
+            }
+          },
+          {
+            "name": "traceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+              "description": "Identificador técnico exato da requisição ou entrega."
+            }
+          },
+          {
+            "name": "callId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+              "description": "Identificador técnico exato da chamada; não é telefone ou contato."
+            }
+          },
+          {
+            "name": "instanceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+              "description": "Pseudônimo da instância retornado nos eventos, por exemplo instance-012345abcdef."
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "jsonl",
+                "gzip"
+              ],
+              "default": "gzip"
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Download em streaming. Nome connect-diagnostics-YYYYMMDD.jsonl ou .jsonl.gz.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment com nome fixo gerado pelo servidor."
+              }
+            },
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string",
+                  "description": "JSON por linha: manifesto seguido de eventos técnicos."
+                },
+                "x-ndjson-item-schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/DiagnosticExportManifest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DiagnosticEvent"
+                    }
+                  ]
+                }
+              },
+              "application/gzip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "Fluxo JSONL compactado com GZIP."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro, corpo ou parâmetro desconhecido/inválido.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Exige a chave global de administração no header apikey. Chaves de instância não são aceitas.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de concorrência ou de coleta atingido; aguarde antes de repetir.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Espera sugerida em segundos."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Diagnóstico temporariamente indisponível. A resposta não inclui a exceção original.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/diagnostics.router.ts"
+      }
+    },
+    "/diagnostics/settings": {
+      "put": {
+        "tags": [
+          "Diagnostics"
+        ],
+        "summary": "Atualizar retenção e quota do diagnóstico",
+        "operationId": "put_diagnostics_settings",
+        "description": "Exige exclusivamente a API key global no header apikey; token de instância não autoriza este recurso. Coleta nativa já ativa, sem variável de ambiente adicional. Persiste os limites no volume existente, sem reiniciar a API ou configurar env. Ambos os campos são obrigatórios. A redução dos limites pode remover registros técnicos antigos. Não aceita parâmetros de consulta.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado do diagnóstico após persistir a configuração.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro, corpo ou parâmetro desconhecido/inválido.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Exige a chave global de administração no header apikey. Chaves de instância não são aceitas.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de concorrência ou de coleta atingido; aguarde antes de repetir.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Espera sugerida em segundos."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Diagnóstico temporariamente indisponível. A resposta não inclui a exceção original.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/diagnostics.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiagnosticSettingsRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/diagnostics/status": {
+      "get": {
+        "tags": [
+          "Diagnostics"
+        ],
+        "summary": "Consultar estado do diagnóstico nativo",
+        "operationId": "get_diagnostics_status",
+        "description": "Exige exclusivamente a API key global no header apikey; token de instância não autoriza este recurso. Coleta nativa já ativa, sem variável de ambiente adicional. Retorna disponibilidade, retenção, ocupação, contagens e sinalização de perdas. Não aceita parâmetros de consulta. As contagens abrangem os registros retidos, não um filtro da tela.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado do coletor e do armazenamento.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro, corpo ou parâmetro desconhecido/inválido.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Exige a chave global de administração no header apikey. Chaves de instância não são aceitas.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de concorrência ou de coleta atingido; aguarde antes de repetir.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Espera sugerida em segundos."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Diagnóstico temporariamente indisponível. A resposta não inclui a exceção original.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                },
+                "description": "Respostas administrativas não devem ser armazenadas em cache."
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticApiError"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/diagnostics.router.ts"
       }
     },
     "/dify/changeStatus/{instanceName}": {
@@ -14208,6 +15275,427 @@
           "language"
         ],
         "additionalProperties": true
+      },
+      "DiagnosticApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Mensagem fixa, sem conteúdo de requisição ou detalhes privados."
+          }
+        }
+      },
+      "DiagnosticEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "timestamp",
+          "level",
+          "category",
+          "code",
+          "summary",
+          "details"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+            "description": "Instante ISO 8601 em UTC, com sufixo Z."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warn",
+              "error"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "http",
+              "error",
+              "connection",
+              "call",
+              "runtime",
+              "frontend",
+              "system"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "http.request",
+              "webhook.delivery",
+              "runtime.started",
+              "runtime.sample",
+              "runtime.error",
+              "connection.state",
+              "call.signaling",
+              "call.state",
+              "call.action",
+              "call.media",
+              "frontend.error",
+              "diagnostics.exported",
+              "diagnostics.settings"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "description": "Descrição fixa do catálogo técnico, nunca texto de conversa ou da exceção."
+          },
+          "traceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+          },
+          "callId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+          },
+          "instanceId": {
+            "type": "string",
+            "pattern": "^instance-[a-f0-9]{12}$",
+            "description": "Pseudônimo estável da instância."
+          },
+          "component": {
+            "type": "string",
+            "description": "Componente técnico conhecido ou pseudônimo de componente."
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Campos técnicos permitidos por code: status, duração, tentativa, estado, tipo de sinalização, métricas ou erro sanitizado. Estrutura limitada e validada pelo servidor. Nunca inclui conversas, áudio, mídia, tokens, cabeçalhos, corpos HTTP, frames binários ou mensagens brutas de exceção."
+          }
+        }
+      },
+      "DiagnosticStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ready",
+          "persistent",
+          "storageError",
+          "diskBytes",
+          "maxDiskBytes",
+          "retentionDays",
+          "storedEvents",
+          "dropped",
+          "counts",
+          "categories",
+          "schemaVersion",
+          "service",
+          "version",
+          "startedAt",
+          "privacy"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "description": "Inicialização do coletor concluída."
+          },
+          "persistent": {
+            "type": "boolean",
+            "description": "Armazenamento em disco inicializado; avalie também storageError."
+          },
+          "storageError": {
+            "type": "boolean",
+            "description": "Foi observada falha de armazenamento/leitura. O histórico pode estar incompleto."
+          },
+          "diskBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxDiskBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "retentionDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "default": 7
+          },
+          "storedEvents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Registros descartados por limites/falhas durante o processo atual."
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "info",
+              "warn",
+              "error"
+            ],
+            "properties": {
+              "info": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "warn": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "error": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "categories": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "enum": [
+                "http",
+                "error",
+                "connection",
+                "call",
+                "runtime",
+                "frontend",
+                "system"
+              ]
+            }
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "const": 1
+          },
+          "service": {
+            "type": "string",
+            "const": "ARGWS Connect API"
+          },
+          "version": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+            "description": "Instante ISO 8601 em UTC, com sufixo Z."
+          },
+          "privacy": {
+            "type": "string",
+            "const": "technical_metadata_only"
+          }
+        }
+      },
+      "DiagnosticPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "events",
+          "nextCursor"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticEvent"
+            },
+            "description": "Ordem decrescente por timestamp e id."
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 300,
+            "description": "Cursor opaco da próxima página; null indica o fim. Preserve os mesmos filtros."
+          }
+        }
+      },
+      "DiagnosticFilters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+            "description": "Início inclusivo. Quando from e to são informados, o intervalo máximo é 30 dias."
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+            "description": "Fim inclusivo, igual ou posterior a from."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warn",
+              "error"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "http",
+              "error",
+              "connection",
+              "call",
+              "runtime",
+              "frontend",
+              "system"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "http.request",
+              "webhook.delivery",
+              "runtime.started",
+              "runtime.sample",
+              "runtime.error",
+              "connection.state",
+              "call.signaling",
+              "call.state",
+              "call.action",
+              "call.media",
+              "frontend.error",
+              "diagnostics.exported",
+              "diagnostics.settings"
+            ]
+          },
+          "traceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+            "description": "Identificador técnico exato da requisição ou entrega."
+          },
+          "callId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+            "description": "Identificador técnico exato da chamada; não é telefone ou contato."
+          },
+          "instanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+            "description": "Pseudônimo da instância retornado nos eventos, por exemplo instance-012345abcdef."
+          }
+        }
+      },
+      "DiagnosticExportManifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "schemaVersion",
+          "exportedAt",
+          "filters",
+          "diagnostics"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "manifest"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "const": 1
+          },
+          "exportedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z$",
+            "description": "Instante ISO 8601 em UTC, com sufixo Z."
+          },
+          "filters": {
+            "$ref": "#/components/schemas/DiagnosticFilters"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticStatus"
+          }
+        }
+      },
+      "DiagnosticSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "retentionDays",
+          "maxDiskMB"
+        ],
+        "properties": {
+          "retentionDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "default": 7
+          },
+          "maxDiskMB": {
+            "type": "integer",
+            "minimum": 32,
+            "maximum": 512,
+            "default": 128,
+            "description": "Limite em MiB (1.048.576 bytes). Registros antigos são removidos conforme retenção e quota."
+          }
+        }
+      },
+      "DiagnosticClientEventRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "page"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "window_error",
+              "unhandled_rejection",
+              "vue_error"
+            ]
+          },
+          "page": {
+            "type": "string",
+            "enum": [
+              "calls",
+              "diagnostics",
+              "instances",
+              "login",
+              "settings",
+              "unknown"
+            ],
+            "description": "Área fixa do Manager; nunca URL, nome de contato ou parâmetro da página."
+          },
+          "traceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+          }
+        }
       },
       "GenericResponse": {
         "type": "object",

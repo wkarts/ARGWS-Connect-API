@@ -63,3 +63,8 @@ lerna-debug.log*
 !/test/zapo-voip-signaling.test.cjs
 !/test/zapo-call-lifecycle.test.cjs
 !/test/zapo-voip-incoming-accept.test.cjs
+!/test/zapo-voip-diagnostics.test.cjs
+
+# Native technical diagnostics regression suites.
+!/test/diagnostic-*.test.cjs
+!/test/diagnostics-router.test.cjs

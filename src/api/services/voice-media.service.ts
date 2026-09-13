@@ -2,9 +2,11 @@ import { WAMonitoringService } from '@api/services/monitor.service';
 import { Auth, configService } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { BadRequestException, NotFoundException } from '@exceptions';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { IncomingMessage, Server as HttpServer } from 'http';
 import { Server as HttpsServer } from 'https';
+
+import { diagnostics } from '../../diagnostics/diagnostics.service';
 
 // ws does not ship project-local TypeScript declarations in every supported install.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -130,9 +132,33 @@ export class VoiceMediaService {
     let unsubscribe: (() => void) | null = null;
     let provider: any = null;
     let callId = '';
+    let authenticatedInstanceName = '';
+    const mediaTraceId = randomUUID();
+    let authenticationRecorded = false;
+    let failureRecorded = false;
+    let closeRecorded = false;
+    const recordMedia = (phase: 'connected' | 'authenticated' | 'closed' | 'failed', reason?: string,
+      closeCode?: number, error?: unknown) => {
+      if (phase === 'authenticated' && authenticationRecorded) return;
+      if (phase === 'failed' && failureRecorded) return;
+      if (phase === 'closed' && closeRecorded) return;
+      if (phase === 'authenticated') authenticationRecorded = true;
+      if (phase === 'failed') failureRecorded = true;
+      if (phase === 'closed') closeRecorded = true;
+      try {
+        diagnostics.record({ code: 'call.media', component: 'voice-media', traceId: mediaTraceId,
+          phase, reason, closeCode, error,
+          ...(authenticated ? { callId, instanceId: authenticatedInstanceName } : {}),
+        });
+      } catch { /* Observing a media channel must never affect audio or authentication. */ }
+    };
+    recordMedia('connected');
 
     const authTimer = setTimeout(() => {
-      if (!authenticated) ws.close(4401, 'Authentication timeout');
+      if (!authenticated) {
+        recordMedia('failed', 'auth_timeout', 4401);
+        ws.close(4401, 'Authentication timeout');
+      }
     }, AUTH_TIMEOUT_MS);
     authTimer.unref?.();
 
@@ -149,24 +175,35 @@ export class VoiceMediaService {
       }
     };
 
-    ws.on('close', cleanup);
-    ws.on('error', (error: Error) => this.logger.error(error));
+    ws.on('close', (code: number) => {
+      recordMedia('closed', undefined, code);
+      cleanup();
+    });
+    ws.on('error', (error: Error) => {
+      recordMedia('failed', 'socket_error', undefined, error);
+      this.logger.error(error);
+    });
 
     ws.on('message', async (payload: any, isBinary: boolean) => {
+      let parsingAuthentication = false;
       try {
         if (!authenticated) {
           if (isBinary) {
+            recordMedia('failed', 'auth_failed', 4401);
             ws.close(4401, 'Authenticate before sending media');
             return;
           }
 
           const authPayload = Buffer.from(payload);
           if (authPayload.byteLength === 0 || authPayload.byteLength > MAX_AUTH_PAYLOAD_BYTES) {
+            recordMedia('failed', 'invalid_payload', 4400);
             ws.close(4400, 'Invalid authentication payload');
             return;
           }
 
+          parsingAuthentication = true;
           const auth = JSON.parse(authPayload.toString('utf8'));
+          parsingAuthentication = false;
           const ticketRecord = this.consumeMediaTicket(String(auth?.ticket || ''));
           const instanceName = ticketRecord?.instanceName || String(auth?.instanceName || '');
           callId = ticketRecord?.callId || String(auth?.callId || '');
@@ -179,6 +216,7 @@ export class VoiceMediaService {
               (ticketRecord || safeTokenEquals(provider.token, token) || safeTokenEquals(globalToken, token)),
           );
           if (!authorized) {
+            recordMedia('failed', 'auth_failed', 4401);
             ws.close(4401, 'Unauthorized');
             return;
           }
@@ -188,12 +226,14 @@ export class VoiceMediaService {
             typeof provider.feedLiveAudio !== 'function' ||
             typeof provider.setExternalAudioMode !== 'function'
           ) {
+            recordMedia('failed', 'provider_unavailable', 4404);
             ws.close(4404, 'Voice media unavailable');
             return;
           }
 
           const calls = typeof provider.listCalls === 'function' ? await provider.listCalls() : [];
           if (!Array.isArray(calls) || !calls.some((call: any) => String(call?.callId || call?.id) === callId)) {
+            recordMedia('failed', 'call_not_found', 4404);
             ws.close(4404, 'Call not found');
             return;
           }
@@ -206,6 +246,8 @@ export class VoiceMediaService {
           });
 
           authenticated = true;
+          authenticatedInstanceName = instanceName;
+          recordMedia('authenticated');
           clearTimeout(authTimer);
           ws.send(JSON.stringify({ type: 'ready', format: 'f32le', sampleRate: 16000, channels: 1 }));
           return;
@@ -214,6 +256,7 @@ export class VoiceMediaService {
         if (!isBinary) return;
         const bytes = Buffer.from(payload);
         if (bytes.byteLength > MAX_PCM_FRAME_BYTES) {
+          recordMedia('failed', 'invalid_payload', 1009);
           ws.close(1009, 'Media frame too large');
           return;
         }
@@ -226,6 +269,7 @@ export class VoiceMediaService {
         );
         provider.feedLiveAudio(callId, pcm);
       } catch (error) {
+        recordMedia('failed', parsingAuthentication ? 'invalid_payload' : 'provider_error', undefined, error);
         this.logger.error(error);
         if (ws.readyState === 1) {
           ws.send(JSON.stringify({

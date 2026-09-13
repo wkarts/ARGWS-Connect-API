@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { localTemplateSchemas, localTemplateOperations, localTemplatePagination } from './local-template-schemas.mjs';
 import { operationsStatisticsOperation } from './operations-statistics-schema.mjs';
+import { diagnosticOperations, diagnosticSchemas } from './diagnostics-schema.mjs';
 import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
 
 const ROOT = process.cwd();
@@ -64,7 +65,7 @@ function tagFromPath(apiPath, sourceFile) {
     websocket: 'WebSocket', rabbitmq: 'RabbitMQ', nats: 'NATS', pusher: 'Pusher', sqs: 'SQS', kafka: 'Kafka',
     s3: 'Storage', storage: 'Storage', minio: 'Storage', chatbot: 'Chatbots', typebot: 'Chatbots', openai: 'Chatbots',
     dify: 'Chatbots', flowise: 'Chatbots', n8n: 'Chatbots', evoai: 'Chatbots', connectai: 'Chatbots',
-    compat: 'Meta Compatible Admin',
+    compat: 'Meta Compatible Admin', diagnostics: 'Diagnostics',
   };
   if (map[segment]) return map[segment];
   if (sourceFile.includes('/integrations/event/')) return 'Events';
@@ -194,6 +195,7 @@ function discoverRoutes() {
 
 const requestOverrides = {
   ...localTemplateOperations,
+  ...diagnosticOperations,
   'GET /operations/statistics': operationsStatisticsOperation,
   "GET /operations/snapshot": {"summary": "Resumo operacional privado", "description": "Exige a API key global. Somente verificações técnicas, sem canais ou conteúdo de mensagens. Retorna 503 quando o monitoramento está desabilitado ou indisponível."},
   "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
@@ -360,6 +362,7 @@ function nativeSpec(routes, version) {
       { name: 'NATS', description: 'NATS opcional.' }, { name: 'Pusher', description: 'Pusher opcional.' }, { name: 'SQS', description: 'AWS SQS opcional.' }, { name: 'Kafka', description: 'Kafka opcional.' },
       { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' }, { name: 'Chatbots', description: 'Integrações de chatbot/automação.' }, { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
       { name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },
+      { name: 'Diagnostics', description: 'Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração.' },
     ],
     paths,
     components: {
@@ -367,6 +370,7 @@ function nativeSpec(routes, version) {
       schemas: {
         ...metaCompatibilityAdminSchemas,
         ...localTemplateSchemas,
+        ...diagnosticSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },

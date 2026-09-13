@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import { EventDto } from '@api/integrations/event/event.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
@@ -8,6 +10,7 @@ import { Logger } from '@config/logger.config';
 import axios, { AxiosInstance } from 'axios';
 import * as jwt from 'jsonwebtoken';
 
+import { diagnostics } from '../../../../diagnostics/diagnostics.service';
 import { EmitData, EventController, EventControllerInterface } from '../event.controller';
 
 export class WebhookController extends EventController implements EventControllerInterface {
@@ -218,10 +221,36 @@ export class WebhookController extends EventController implements EventControlle
     const nonRetryableStatusCodes = webhookConfig.RETRY?.NON_RETRYABLE_STATUS_CODES ?? [400, 401, 403, 404, 422];
 
     let attempts = 0;
+    // Only routing metadata enters diagnostics. The webhook body, credentials,
+    // destination URL and response body are deliberately excluded.
+    const event = String(webhookData?.event || '')
+      .replace(/[.-]/g, '_')
+      .toUpperCase();
+    const delivery = {
+      code: 'webhook.delivery',
+      component: 'native-webhook',
+      traceId: diagnostics.traceId() ?? randomUUID(),
+      instanceId: webhookData?.instance,
+      targetId: createHash('sha256').update(baseURL).digest('hex').slice(0, 12),
+      event,
+      callId:
+        event === 'CALL'
+          ? webhookData?.data?.call?.callId || webhookData?.data?.callId || webhookData?.data?.id
+          : undefined,
+    };
 
     while (attempts < maxRetryAttempts) {
+      const started = Date.now();
+      diagnostics.record({ ...delivery, phase: 'started', attempt: attempts + 1 });
       try {
-        await httpService.post('', webhookData);
+        const response = await httpService.post('', webhookData);
+        diagnostics.record({
+          ...delivery,
+          phase: 'succeeded',
+          attempt: attempts + 1,
+          status: response.status,
+          durationMs: Date.now() - started,
+        });
         if (attempts > 0) {
           this.logger.log({
             local: `${origin}`,
@@ -232,6 +261,15 @@ export class WebhookController extends EventController implements EventControlle
         return;
       } catch (error) {
         attempts++;
+        diagnostics.record({
+          ...delivery,
+          level: 'error',
+          phase: 'failed',
+          attempt: attempts,
+          status: error?.response?.status,
+          durationMs: Date.now() - started,
+          error,
+        });
 
         const isTimeout = error.code === 'ECONNABORTED';
 
