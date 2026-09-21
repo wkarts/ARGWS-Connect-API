@@ -1404,7 +1404,7 @@ export class ZapoStartupService extends ChannelStartupService {
     const protocolType = protocol?.type;
     const isRevokeProtocol =
       Boolean(protocol?.key?.id) &&
-      (protocolType === 0 || String(protocolType).toUpperCase() === 'REVOKE');
+      (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
     if (isRevokeProtocol) {
       const targetKey = protocol.key;
