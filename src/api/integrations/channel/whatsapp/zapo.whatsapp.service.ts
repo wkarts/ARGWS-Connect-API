@@ -21,6 +21,7 @@ import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createPostgresStore } from '@innovatorssoft/store-postgres';
 import { getContentType } from '@innovatorssoft/zapo-js';
 import { createJid } from '@utils/createJid';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
@@ -1399,6 +1400,74 @@ export class ZapoStartupService extends ChannelStartupService {
     };
 
     const db = this.configService.get<Database>('DATABASE');
+    const protocol = message?.protocolMessage;
+    const protocolType = protocol?.type;
+    const isRevokeProtocol =
+      Boolean(protocol?.key?.id) &&
+      (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
+
+    if (isRevokeProtocol) {
+      const targetKey = protocol.key;
+      const targetMessage = await this.prismaRepository.message.findFirst({
+        where: {
+          instanceId: this.instanceId,
+          key: { path: prismaJsonPath('id'), equals: String(targetKey.id) },
+        },
+      });
+
+      let persistedMessage: any = targetMessage;
+      if (targetMessage?.id) {
+        const existingKey =
+          typeof targetMessage.key === 'object' && targetMessage.key !== null ? targetMessage.key : {};
+
+        persistedMessage = await this.prismaRepository.message.update({
+          where: { id: targetMessage.id },
+          data: {
+            key: { ...existingKey, deleted: true },
+            status: 'DELETED',
+          },
+        });
+
+        if (db.SAVE_DATA.MESSAGE_UPDATE) {
+          await this.prismaRepository.messageUpdate.create({
+            data: {
+              messageId: targetMessage.id,
+              keyId: String(targetKey.id),
+              remoteJid: targetKey.remoteJid || persistedMessage.key?.remoteJid || canonicalRemoteJid,
+              fromMe: Boolean(targetKey.fromMe),
+              participant: targetKey.participant,
+              status: 'DELETED',
+              instanceId: this.instanceId,
+            },
+          });
+        }
+      }
+
+      const deletionKey = {
+        ...targetKey,
+        remoteJid: targetKey.remoteJid || persistedMessage?.key?.remoteJid || canonicalRemoteJid,
+      };
+
+      this.sendDataWebhook(Events.MESSAGES_DELETE, {
+        id: persistedMessage?.id,
+        instanceId: this.instanceId,
+        key: deletionKey,
+        status: 'DELETED',
+        messageTimestamp: messageRaw.messageTimestamp,
+        source: persistedMessage?.source || messageRaw.source,
+      });
+
+      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+        await this.chatwootService.eventWhatsapp(
+          Events.MESSAGES_DELETE,
+          { instanceName: this.instance.name, instanceId: this.instanceId },
+          { key: deletionKey, status: 'DELETED' },
+        );
+      }
+
+      return;
+    }
+
     if (db.SAVE_DATA.NEW_MESSAGE) {
       await this.prismaRepository.message
         .create({ data: messageRaw })
