@@ -1836,7 +1836,22 @@ export class BaileysStartupService extends ChannelStartupService {
           }
 
           if (update.message === null && update.status === undefined) {
-            this.sendDataWebhook(Events.MESSAGES_DELETE, { ...key, status: 'DELETED' });
+            message.status = 'DELETED';
+
+            if (findMessage?.id) {
+              const existingKey =
+                typeof findMessage.key === 'object' && findMessage.key !== null ? findMessage.key : {};
+
+              await this.prismaRepository.message.update({
+                where: { id: findMessage.id },
+                data: {
+                  key: { ...existingKey, deleted: true },
+                  status: 'DELETED',
+                },
+              });
+            }
+
+            await this.sendDataWebhook(Events.MESSAGES_DELETE, { ...key, status: 'DELETED' });
 
             if (this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE)
               await this.prismaRepository.messageUpdate.create({ data: message });
@@ -1845,7 +1860,7 @@ export class BaileysStartupService extends ChannelStartupService {
               this.chatwootService.eventWhatsapp(
                 Events.MESSAGES_DELETE,
                 { instanceName: this.instance.name, instanceId: this.instanceId },
-                { key: key },
+                { key: key, status: 'DELETED' },
               );
             }
 
