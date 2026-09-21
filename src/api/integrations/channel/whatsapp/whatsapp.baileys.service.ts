@@ -1239,10 +1239,72 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          const editedMessage =
+          const protocolMessage =
             received?.message?.protocolMessage || received?.message?.editedMessage?.message?.protocolMessage;
+          const protocolType = protocolMessage?.type;
+          const isRevokeMessage =
+            Boolean(protocolMessage?.key?.id) &&
+            (protocolType === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
-          if (editedMessage) {
+          if (protocolMessage && isRevokeMessage) {
+            const deletedKey = protocolMessage.key;
+            const deletedAt = Long.isLong(received?.messageTimestamp)
+              ? Math.floor(received.messageTimestamp.toNumber())
+              : Math.floor(Number(received?.messageTimestamp) || Date.now() / 1000);
+
+            if (received.key?.id && deletedKey?.id) {
+              await this.baileysCache.set(`protocol_${received.key.id}`, deletedKey.id, 60 * 60 * 24);
+            }
+
+            const oldMessage = await this.getMessage(deletedKey, true);
+            let persistedMessage: any = oldMessage;
+            if ((oldMessage as any)?.id) {
+              const existingKey =
+                typeof (oldMessage as any).key === 'object' && (oldMessage as any).key !== null
+                  ? (oldMessage as any).key
+                  : {};
+
+              persistedMessage = await this.prismaRepository.message.update({
+                where: { id: (oldMessage as any).id },
+                data: {
+                  key: { ...existingKey, deleted: true },
+                  status: 'DELETED',
+                },
+              });
+
+              if (this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE) {
+                await this.prismaRepository.messageUpdate.create({
+                  data: {
+                    fromMe: Boolean(deletedKey.fromMe),
+                    keyId: deletedKey.id,
+                    remoteJid: deletedKey.remoteJid,
+                    participant: deletedKey.participant,
+                    status: 'DELETED',
+                    instanceId: this.instanceId,
+                    messageId: (oldMessage as any).id,
+                  },
+                });
+              }
+            }
+
+            await this.sendDataWebhook(Events.MESSAGES_DELETE, {
+              id: persistedMessage?.id,
+              instanceId: this.instanceId,
+              key: deletedKey,
+              status: 'DELETED',
+              messageTimestamp: deletedAt,
+              source: persistedMessage?.source,
+            });
+
+            if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+              this.chatwootService.eventWhatsapp(
+                Events.MESSAGES_DELETE,
+                { instanceName: this.instance.name, instanceId: this.instance.id },
+                { key: deletedKey, status: 'DELETED' },
+              );
+            }
+          } else if (protocolMessage) {
+            const editedMessage = protocolMessage;
             if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled)
               this.chatwootService.eventWhatsapp(
                 'messages.edit',
@@ -1283,7 +1345,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if ((type !== 'notify' && type !== 'append') || editedMessage || !received?.message) {
+          if ((type !== 'notify' && type !== 'append') || protocolMessage || !received?.message) {
             continue;
           }
 
