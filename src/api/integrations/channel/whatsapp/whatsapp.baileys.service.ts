@@ -1244,7 +1244,7 @@ export class BaileysStartupService extends ChannelStartupService {
           const protocolType = protocolMessage?.type;
           const isRevokeMessage =
             Boolean(protocolMessage?.key?.id) &&
-            (protocolType === 0 || String(protocolType).toUpperCase() === 'REVOKE');
+            (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
           if (protocolMessage && isRevokeMessage) {
             const deletedKey = protocolMessage.key;
