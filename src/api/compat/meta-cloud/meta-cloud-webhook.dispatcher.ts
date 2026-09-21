@@ -32,7 +32,17 @@ export class MetaCloudWebhookDispatcher {
   ) {}
 
   public async handleEvent(eventData: MetaCloudEventData): Promise<void> {
-    if (!['messages.upsert', 'messages.update', 'messages.delete', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE'].includes(eventData.event)) return;
+    if (
+      ![
+        'messages.upsert',
+        'messages.update',
+        'messages.delete',
+        'MESSAGES_UPSERT',
+        'MESSAGES_UPDATE',
+        'MESSAGES_DELETE',
+      ].includes(eventData.event)
+    )
+      return;
     try {
       const identity = await this.resolver.resolveByInstanceName(eventData.instanceName);
       const config = await this.prisma.metaCompatibility.findUnique({ where: { instanceId: identity.instanceId } });
