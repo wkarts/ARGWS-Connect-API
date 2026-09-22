@@ -635,6 +635,7 @@ export function sanitizeDiagnostic(input: unknown, now = Date.now()): Diagnostic
             phase: token(read(context, 'phase'), new Set(['exchange', 'adm', 'spot'])),
             http: numeric(read(context, 'http'), 599),
             fields: typeof fields === 'string' && /^[01]{4}$/.test(fields) ? fields : undefined,
+            integrity: token(read(context, 'integrity'), new Set(['missing'])),
           });
         }
         break;

@@ -9,6 +9,11 @@ import {
 } from './findhub-auth.error';
 import { GoogleAuthTransport, requestGoogleAuth } from './google-auth.transport';
 
+// Protocol profile documented by gpsoauth 2.0.0 exchange_token (MIT), used as a wire reference only.
+// This legacy marker is NOT device attestation. A Google integrity challenge remains a hard failure;
+// no token replay, fabricated challenge result, remote code execution or insecure TLS fallback is attempted.
+const AUTH_WIRE_PROFILE = { playServicesVersion: '240913000', legacyMarker: 'dummy123' } as const;
+
 function parseKeyValue(text: string): Record<string, string> {
   if (Buffer.byteLength(text) > 65536 || /^\s*</.test(text)) throw new FindHubAuthError(9106);
   const data: Record<string, string> = Object.create(null);
@@ -93,7 +98,15 @@ export class GooglePlayAuthClient {
       ].includes(reason)
     )
       throw fail(9115, reason, data);
-    if (['DroidGuardRequired', 'InvalidDroidGuard', 'DeviceIntegrityRequired', 'AttestationRequired'].includes(reason))
+    if (
+      [
+        'MissingDroidguard',
+        'DroidGuardRequired',
+        'InvalidDroidGuard',
+        'DeviceIntegrityRequired',
+        'AttestationRequired',
+      ].includes(reason)
+    )
       throw fail(9116, reason, data);
     if (response.status < 200 || response.status >= 300 || data.Error || data.ErrorDetail || data.ErrorMsg) {
       throw fail(9106, reason, data);
@@ -121,9 +134,10 @@ export class GooglePlayAuthClient {
       operatorCountry: 'us',
       lang: 'en',
       sdk_version: '17',
-      google_play_services_version: GOOGLE_ADM_CONFIG.googlePlayServicesVersion,
+      google_play_services_version: AUTH_WIRE_PROFILE.playServicesVersion,
       client_sig: GOOGLE_ADM_CONFIG.clientSig,
       callerSig: GOOGLE_ADM_CONFIG.clientSig,
+      droidguard_results: AUTH_WIRE_PROFILE.legacyMarker,
     });
     const result = await this.request(form, 'exchange');
     if (!result.Token) throw new FindHubAuthError(9105);
@@ -156,7 +170,7 @@ export class GooglePlayAuthClient {
       operatorCountry: 'us',
       lang: 'en',
       sdk_version: '17',
-      google_play_services_version: GOOGLE_ADM_CONFIG.googlePlayServicesVersion,
+      google_play_services_version: AUTH_WIRE_PROFILE.playServicesVersion,
     });
     const result = await this.request(form, scope);
     if (result.Email && accountEmail(result.Email) !== accountEmail(credentials.email))

@@ -60,6 +60,7 @@ const SAFE_REASONS = new Set([
   'InvalidScope',
   'InvalidService',
   'UnsupportedService',
+  'MissingDroidguard',
   'DroidGuardRequired',
   'InvalidDroidGuard',
   'DeviceIntegrityRequired',
@@ -89,7 +90,7 @@ function contextLabel(context: FindHubAuthResponseContext): string {
 }
 
 export class FindHubAuthError extends Error {
-  public readonly diagnosticContext?: { phase: FindHubAuthPhase; http: number; fields: string };
+  public readonly diagnosticContext?: { phase: FindHubAuthPhase; http: number; fields: string; integrity?: string };
   constructor(
     public readonly code: FindHubAuthErrorCode,
     context?: FindHubAuthResponseContext,
@@ -103,6 +104,7 @@ export class FindHubAuthError extends Error {
         fields: [context.token, context.auth, context.error, context.detail]
           .map((value) => (value === true ? '1' : '0'))
           .join(''),
+        ...(normalizeFindHubAuthReason(context.reason) === 'MissingDroidguard' ? { integrity: 'missing' } : {}),
       };
   }
 }

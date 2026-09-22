@@ -326,3 +326,56 @@ test('exported Find Hub diagnostics retain only fixed stage/status/flags, not se
  const unrelated=sanitizeDiagnostic({code:'runtime.error',component:'zapo',error:{name:'Error',code:9106,diagnosticContext:{phase:'exchange',http:400,fields:'0010'}}});
  assert.equal(unrelated.details.findHub,undefined);
 });
+
+test('wire regression: exchange and service forms use the reviewed Android auth profile', async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  const requests = [];
+  const client = new GooglePlayAuthClient(async body => {
+    const form = new URLSearchParams(body); requests.push(form);
+    return {status:200, text:form.has('Token') ? 'Token=synthetic-master' : 'Auth=synthetic-service'};
+  });
+  const opaque = 'oauth2_4/synthetic%2F+==';
+  const creds = await client.exchange('operator@example.com', opaque, '12345678901234567');
+  assert.deepEqual(Object.fromEntries(requests[0]), {
+    accountType:'HOSTED_OR_GOOGLE', Email:'operator@example.com', has_permission:'1', add_account:'1',
+    ACCESS_TOKEN:'1', Token:opaque, service:'ac2dm', source:'android', androidId:'12345678901234567',
+    device_country:'us', operatorCountry:'us', lang:'en', sdk_version:'17',
+    google_play_services_version:'240913000', client_sig:'38918a453d07199354f8b19af05ec6562ced5788',
+    callerSig:'38918a453d07199354f8b19af05ec6562ced5788', droidguard_results:'dummy123',
+  });
+  assert.equal(requests[1].get('google_play_services_version'),'240913000');
+  assert.equal(requests[1].has('droidguard_results'),false);
+  await client.serviceToken(creds,'spot');
+  assert.equal(requests[2].get('google_play_services_version'),'240913000');
+  assert.equal(requests[2].has('droidguard_results'),false);
+  assert.equal(requests.filter(form=>form.has('Token')).length,1);
+});
+
+test('MissingDroidguard is an explicit integrity refusal, not an unknown error or a successful login', async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  for (const reason of ['MissingDroidguard','MISSING_DROIDGUARD','MissingDroidGuard']) {
+    let requests=0;
+    const client=new GooglePlayAuthClient(async()=>{requests++;return {status:400,text:'Error='+reason};});
+    await assert.rejects(client.exchange('operator@example.com','synthetic','1234'),error=> {
+      assert.equal(error.code,9116);
+      assert.match(error.message,/motivo=MissingDroidguard/);
+      assert.equal(JSON.stringify(error.diagnosticContext),JSON.stringify({phase:'exchange',http:400,fields:'0010',integrity:'missing'}));
+      return true;
+    });
+    assert.equal(requests,1,'No retry or service-token request after an integrity refusal');
+  }
+});
+
+test('integrity diagnostic preserves only the fixed missing category, never arbitrary provider text', () => {
+  const {FindHubAuthError}=load('src/api/integrations/channel/findhub/auth/findhub-auth.error.ts');
+  const {sanitizeDiagnostic}=load('src/diagnostics/diagnostic-sanitizer.ts');
+  const error=new FindHubAuthError(9116,{phase:'exchange',http:400,reason:'MissingDroidguard',token:false,auth:false,error:true,detail:false});
+  const event=sanitizeDiagnostic({code:'runtime.error',category:'error',component:'findhub-auth',error});
+  assert.equal(event.details.findHub.integrity,'missing');
+  for (const secret of ['SENSITIVE_COOKIE','https://accounts.google.com/?token=secret']) {
+    error.diagnosticContext.integrity=secret;
+    const sanitized=sanitizeDiagnostic({code:'runtime.error',category:'error',component:'findhub-auth',error});
+    assert.equal(sanitized.details.findHub.integrity,undefined);
+    assert.equal(JSON.stringify(sanitized).includes(secret),false);
+  }
+});

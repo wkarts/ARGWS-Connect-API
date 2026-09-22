@@ -18,7 +18,7 @@ function evaluate(text, deps = {}, globals = {}) {
 const state = evaluate(read('src/services/findhub-auth-state.ts'));
 class Hook { listeners=[]; addListener(fn){this.listeners.push(fn);} fire(value){for(const fn of this.listeners) fn(value);} }
 const flush=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
-function harness({ version='0.1.3', exchangeFailure, exchangeWait }={}) {
+function harness({ version='0.1.4', exchangeFailure, exchangeWait }={}) {
   const calls=[], sent=[]; let beforeUnmount;
   const port={onMessage:new Hook(),onDisconnect:new Hook(),disconnect(){this.disconnected=true;this.onDisconnect.fire();},
     postMessage(message){sent.push(message);if(message.type==='PING')queueMicrotask(()=>this.onMessage.fire({type:'PONG',version}));}};
@@ -43,12 +43,12 @@ function harness({ version='0.1.3', exchangeFailure, exchangeWait }={}) {
   return {ui,port,calls,sent,emitted,beforeUnmount:()=>beforeUnmount()};
 }
 test('helper version validation rejects old/missing/malformed versions before any Google session',async()=>{
-  for(const value of ['0.1.0',undefined,'invalid']){
+  for(const value of ['0.1.0','0.1.1','0.1.2','0.1.3',undefined,'invalid']){
     assert.equal(state.compatibleFindHubHelper(value),false);
     const h=harness({version:value===undefined?'invalid':value});await h.ui.start();
     assert.equal(h.calls.length,0);assert.equal(h.ui.busy.value,false);assert.equal(h.ui.stage.value,'');assert.match(h.ui.error.value,/Atualize a extensão/);
   }
-  assert.equal(state.compatibleFindHubHelper('0.1.3'),true);assert.equal(state.compatibleFindHubHelper('0.2.0'),true);
+  assert.equal(state.compatibleFindHubHelper('0.1.4'),true);assert.equal(state.compatibleFindHubHelper('0.2.0'),true);
 });
 test('handled backend failure clears Validando and does not send a second failing cancellation',async()=>{
   const h=harness({exchangeFailure:'[FH-AUTH-9102] O Google recusou o artefato.'});await h.ui.start();

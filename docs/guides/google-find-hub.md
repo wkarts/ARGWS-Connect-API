@@ -273,3 +273,31 @@ Na autenticação, preserve literalmente o artefato retornado por `chrome.cookie
 `[etapa=exchange; http=400; campos=0010]` significa que a primeira troca retornou `Error` sem `Token`, `Auth` ou detalhe. `UNCLASSIFIED` é uma categoria local para um motivo que ainda não consta do conjunto permitido; não é a resposta literal do Google. Nenhuma credencial deve ser aceita nessa situação. As categorias conhecidas toleram diferenças de caixa/underscore; códigos 9115 identificam parâmetros recusados e 9116 identifica exigência conhecida de integridade, sem fabricar respostas de atestação. O diagnóstico preserva apenas código/etapa/HTTP/presença de campos, nunca a resposta Google bruta.
 
 Atualize API/Manager e extensão em conjunto e crie uma nova tentativa. Não altere `FINDHUB_CREDENTIALS_KEY`, volumes ou sessões WhatsApp. O assistente Windows não corrige por si só um HTTP 400 upstream. Homologação real continua necessária.
+
+## 11. Correção 0.1.4 — formulário de autenticação e mensagens da extensão
+
+A versão do helper é **0.1.4**; não modifica a versão da aplicação nem as configurações WhatsApp. API, Manager, ZIP, assistente Rust e instalador NSIS usam a mesma versão de helper. O build/release existente continua gerando os arquivos e checksums por commit.
+
+### Divergência de protocolo corrigida
+
+A implementação anterior utilizava `google_play_services_version=244433022` na autenticação e omitira `droidguard_results` na troca. O perfil atual reproduz os parâmetros do método `exchange_token` de [gpsoauth 2.0.0](https://github.com/simon-weber/gpsoauth/blob/2.0.0/gpsoauth/__init__.py): versão `240913000` e o marcador legado `droidguard_results=dummy123`. O teste compara todos os campos do formulário, preserva literalmente o cookie e assegura uma única tentativa de troca. O marcador não é enviado nos pedidos de token ADM/Spot; estes usam a mesma versão do perfil.
+
+Essa referência descreve um protocolo privado, não uma API pública Google nem uma garantia de aceitação. O marcador legado **não é uma prova de integridade de dispositivo**. `MissingDroidguard`, `DroidGuardRequired` ou desafios equivalentes continuam encerrando a tentativa com código 9116. Não há fabricação de uma resposta de challenge, execução de código Google, mudança de segurança TLS ou nova tentativa automática usando o mesmo token.
+
+### Erro 9106 e evidência disponível
+
+No diagnóstico de 22/09/2026, `exchange/http=400/fields=0010` identifica resposta com `Error` e sem `Token/Auth`. O motivo original não foi conservado; por isso **não comprova** que aquela resposta era `MissingDroidguard`. A correção reconhece esse motivo conhecido e suas variantes de caixa/separador. O diagnóstico persistido adiciona somente `integrity=missing` nesse caso específico; respostas desconhecidas continuam redigidas. Senhas, cookies, tokens e texto bruto de erro não são exportados.
+
+O teste externo negativo com conta reservada `example.invalid` e token sintético devolveu 403/BadAuthentication tanto sem quanto com o marcador. Isso confirma rejeição de credenciais inválidas, não reproduz o HTTP 400 da conta real e não certifica login. A aceitação real, recuperação de chave e localização continuam exigindo uma nova execução interativa autorizada.
+
+### Confirmação de mensagens sem corrida entre abas
+
+`APPROVE` confirma sincronamente o recebimento e trava comandos duplicados antes de verificar permissões ou abrir a aba. As verificações de permissão, foco, origem e conta permanecem obrigatórias. O port exclusivo da sessão transporta progresso e falhas. `DENY` e `VAULT_KEYS` respondem antes de descartar a aba ou emitir eventos que possam encerrá-la. A página de consentimento trata rejeição da promessa de cancelamento.
+
+Segundo o [contrato de mensagens do Chrome](https://developer.chrome.com/docs/extensions/develop/concepts/messaging), `return true` exige uma resposta posterior; navegar/encerrar o contexto pode fechar o canal. Os testes reproduzem a ordem das operações da extensão própria. O console de uma página `identifier` não identifica qual extensão originou a mensagem e não é evidência de que ela causou a resposta HTTP do Google. Não há injeção de código do helper na página de identificação/senha.
+
+### Reteste operacional
+
+Após implantar a imagem corrigida da API/Manager, instale/atualize a extensão 0.1.4 na pasta fixa e clique em **Recarregar** no navegador. Recarregue o Manager e inicie outra vinculação. Não reutilize artefatos da tentativa anterior, não gere outra `FINDHUB_CREDENTIALS_KEY`, não apague volumes e não desconecte WhatsApp. A mera instalação do EXE não atualiza o backend.
+
+Critério de conclusão: Google aceita a troca, a chave Find Hub é validada, a conexão é confirmada e o catálogo de dispositivos é obtido. CI aprovada, comando de consentimento aceito e teste negativo não substituem esse critério.

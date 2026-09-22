@@ -143,12 +143,18 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message.type === 'INFO' && isApproval) {
     reply({ origin: attempt.origin, apiOrigin: attempt.apiOrigin, email: attempt.email, stage: attempt.stage }); return false;
   }
-  if (message.type === 'DENY' && isApproval) { cleanup(attempt, 'Autorização recusada.'); reply({ ok: true }); return false; }
+  if (message.type === 'DENY' && isApproval) { reply({ ok: true }); cleanup(attempt, 'Autorização recusada.'); return false; }
   if (message.type === 'APPROVE' && isApproval && attempt.stage === 'CONSENT') {
+    // Accept the command synchronously. Completion and errors use the existing session-bound port.
+    // Never hold sendResponse while a fast auth failure can remove the originating approval tab.
+    attempt.stage = 'STARTING_LOGIN';
+    reply({ ok: true, accepted: true });
     void (async () => {
       if (!await chrome.permissions.contains({ permissions: ['cookies'], origins: [GOOGLE_PERMISSION] })) throw new Error('permission');
+      if (active !== attempt) return;
       chrome.cookies.onChanged.addListener(cookieChanged);
       attempt.baseline = (await chrome.cookies.get({ url: GOOGLE_ORIGIN, name: 'oauth_token' }))?.value;
+      if (active !== attempt) return;
       const tab = await chrome.tabs.create({ url: GOOGLE_ORIGIN + '/EmbeddedSetup', active: true });
       if (active !== attempt) { await chrome.tabs.remove(tab.id); throw new Error('cancelled'); }
       attempt.googleTab = tab.id;
@@ -156,14 +162,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       send(attempt, { type: 'WAITING_USER' });
       // A fast Google response can set the cookie before tabs.create resolves. Recheck after ownership is set.
       await readLoginCookie(attempt);
-      reply({ ok: true });
-    })().catch(() => { cleanup(attempt, 'Permissão de autenticação não concedida.'); reply({ error: 'Não foi possível iniciar o login.' }); });
-    return true;
+    })().catch(() => { cleanup(attempt, 'Não foi possível iniciar o login Google. Verifique a permissão da extensão.'); });
+    return false;
   }
   if (message.type === 'VAULT_KEYS' && sender.id === chrome.runtime.id && sender.tab?.id === attempt.googleTab && sender.frameId === 0 &&
       sender.url?.startsWith(GOOGLE_ORIGIN + '/encryption/unlock/android') && message.nonce === attempt.nonce && attempt.stage === 'VAULT') {
-    try { const vaultKeys = safeVault(message.vaultKeys); attempt.stage = 'VERIFYING'; send(attempt, { type: 'VAULT_KEYS', vaultKeys }); reply({ ok: true }); }
-    catch { cleanup(attempt, 'O Google não retornou uma chave Find Hub válida.'); reply({ error: 'Resposta inválida.' }); }
+    try { const vaultKeys = safeVault(message.vaultKeys); attempt.stage = 'VERIFYING'; reply({ ok: true }); send(attempt, { type: 'VAULT_KEYS', vaultKeys }); }
+    catch { reply({ error: 'Resposta inválida.' }); cleanup(attempt, 'O Google não retornou uma chave Find Hub válida.'); }
     return false;
   }
   reply({ error: 'Solicitação não autorizada.' });
