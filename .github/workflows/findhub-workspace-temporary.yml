@@ -17,9 +17,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Prepare exact frontend dependencies for isolated validation
+      - name: Prepare frontend validation dependencies
         run: |
-          npm ci --prefix manager --ignore-scripts
+          npm install --prefix manager --ignore-scripts --no-audit --no-fund
           npm install --prefix /tmp/findhub-tools --ignore-scripts --no-audit --no-fund prettier@3.4.2 tsx@4.20.5
           tar -czf /tmp/findhub-manager-dependencies.tar.gz manager/node_modules
           tar -czf /tmp/findhub-tools.tar.gz -C /tmp/findhub-tools node_modules
