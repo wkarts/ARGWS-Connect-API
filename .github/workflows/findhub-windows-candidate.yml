@@ -1,0 +1,75 @@
+name: Find Hub Windows binary candidate
+on:
+  push:
+    branches: [fix/findhub-exchange-windows-assistant]
+    paths: [.github/workflows/findhub-windows-candidate.yml]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Apply digest-verified source candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/findhub-next/part{0..3} | base64 --decode > "$RUNNER_TEMP/findhub-source.xz"
+          echo "d0cf7c771b60be5a63ff5b63f96d3b3b0f35e69a627f05f0fe26cce44905568e  $RUNNER_TEMP/findhub-source.xz" | sha256sum --check
+          xz -dc "$RUNNER_TEMP/findhub-source.xz" > "$RUNNER_TEMP/findhub-source.patch"
+          git apply --check "$RUNNER_TEMP/findhub-source.patch"
+          git apply "$RUNNER_TEMP/findhub-source.patch"
+          node scripts/build-findhub-extension.cjs
+          node scripts/build-findhub-distribution.cjs --revision "$GITHUB_SHA" --channel candidate
+      - name: Compile Windows Rust executable and unit tests
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          $rc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter rc.exe -Recurse | Where-Object { $_.FullName -match '\\x64\\rc.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$rc) { throw 'Windows resource compiler unavailable' }
+          $env:RC_EXE = $rc.FullName
+          $project = 'browser-extensions/findhub-auth/windows-assistant/Cargo.toml'
+          cargo +1.90.0 test --manifest-path $project --locked --offline
+          if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed' }
+          cargo +1.90.0 build --manifest-path $project --release --locked --offline
+          if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+          Copy-Item browser-extensions/findhub-auth/windows-assistant/target/release/connect-findhub-assistant.exe build/findhub-extension/Connect-FindHub-Auth-Assistant-0.1.3-windows-x64.exe
+      - name: Exercise native GUI, installation, update and isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & browser-extensions/findhub-auth/windows-assistant/smoke-test.ps1 -Exe (Resolve-Path build/findhub-extension/Connect-FindHub-Auth-Assistant-0.1.3-windows-x64.exe)
+      - name: Record exact source and checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'build/findhub-extension'
+          $files = @('Connect-FindHub-Auth-0.1.3.zip','Connect-FindHub-Auth-Assistant-0.1.3-windows-x64.exe')
+          $lines = $files | ForEach-Object { ((Get-FileHash "$out/$_" -Algorithm SHA256).Hash.ToLowerInvariant()) + '  ' + $_ }
+          [IO.File]::WriteAllText((Join-Path $pwd "$out/SHA256SUMS.txt"), (($lines -join "`n") + "`n"))
+          $proof = @{ sourceRevision = $env:GITHUB_SHA; patchSha256 = 'd0cf7c771b60be5a63ff5b63f96d3b3b0f35e69a627f05f0fe26cce44905568e'; version = '0.1.3'; target = 'x86_64-pc-windows-msvc'; signed = $false; browserApprovalRequired = $true; googleLoginTested = $false }
+          $proof | ConvertTo-Json | Set-Content "$out/windows-candidate.json"
+          git diff --binary > "$out/source-candidate.patch"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: findhub-windows-rust-delivery
+          path: |
+            build/findhub-extension/Connect-FindHub-Auth-0.1.3.zip
+            build/findhub-extension/Connect-FindHub-Auth-Assistant-0.1.3-windows-x64.exe
+            build/findhub-extension/SHA256SUMS.txt
+            build/findhub-extension/windows-candidate.json
+            build/findhub-extension/source-candidate.patch
+          if-no-files-found: error
+          retention-days: 14
