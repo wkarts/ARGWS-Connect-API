@@ -54,7 +54,8 @@ export function encodeGetEidInfoRequest(): Buffer {
 }
 
 export function encodeSecurityUnlockExtras(sessionId = randomUUID()): Buffer {
-  const domain = concat(fieldString(1, 'finder_hw'), fieldVarint(2, 0));
+  // SecurityDomain.unknown has implicit proto3 presence; omit its zero default.
+  const domain = fieldString(1, 'finder_hw');
   return concat(fieldVarint(1, 1), fieldMessage(2, domain), fieldString(6, sessionId));
 }
 
