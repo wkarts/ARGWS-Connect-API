@@ -1,0 +1,45 @@
+name: Find Hub response analysis workspace
+on:
+  push:
+    branches: [fix/findhub-auth-response-release]
+    paths: [.github/workflows/findhub-response-analysis-temporary.yml]
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_PROVIDER: postgresql
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 344748651c24b89f7bd990cb1b1d985073acd9f9
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run db:generate && npm run build
+      - name: Resolve sanitized error frames without credentials
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const {TraceMap,originalPositionFor} = require('@jridgewell/trace-mapping');
+          const candidates=fs.readdirSync('dist').filter(n=>/\.js\.map$/.test(n));
+          for(const file of candidates) {
+            const map = new TraceMap(JSON.parse(fs.readFileSync('dist/'+file,'utf8')));
+            for(const [line,column] of [[240,26620],[240,27023],[348,23022],[348,25393],[352,15708],[352,21116]]) {
+              console.log(JSON.stringify({file,line,column,source:originalPositionFor(map,{line,column:column-1})}));
+            }
+          }
+          JS
+      - name: Package exact baseline and validation dependencies
+        run: |
+          tar -czf /tmp/findhub-baseline-validation.tar.gz dist node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findhub-baseline-validation
+          path: /tmp/findhub-baseline-validation.tar.gz
+          retention-days: 1
