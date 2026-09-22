@@ -1,8 +1,9 @@
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 
 import { decryptOwnerKey } from '../crypto/findhub-crypto';
 import { GOOGLE_ENDPOINTS } from '../findhub.constants';
-import { FindHubAasCredentials } from '../findhub.types';
+import { FindHubAasCredentials, FindHubFcmCredentials } from '../findhub.types';
+import { FindHubFcmClient } from '../protocol/fcm.client';
 import { encodeSecurityUnlockExtras } from '../protocol/findhub-proto';
 import { FindHubSpotClient } from '../protocol/spot.client';
 import { FindHubStartupService } from '../services/findhub-runtime.service';
@@ -19,6 +20,7 @@ type Attempt = {
   expiresAt: number;
   stage: Stage;
   credentials?: FindHubAasCredentials;
+  fcm: FindHubFcmCredentials;
   timer: NodeJS.Timeout;
 };
 const digest = (value: string) => createHash('sha256').update(value).digest();
@@ -70,11 +72,24 @@ export class FindHubBrowserAuthService {
         this.discard(id);
       }
     }
-    if (this.attempts.size >= 128) throw new Error('Limite de vinculações simultâneas atingido.');
+    if (this.attempts.size + this.starting.size >= 128) throw new Error('Limite de vinculações simultâneas atingido.');
     if (this.starting.has(runtime.instanceId)) throw new Error('A vinculação desta conta está sendo iniciada.');
     this.starting.add(runtime.instanceId);
     let session: Awaited<ReturnType<ReturnType<FindHubStartupService['auth']>['start']>>;
+    let fcm: FindHubFcmCredentials;
     try {
+      // Native Google registration happens before issuing a login session. This identity is reused after login.
+      // No socket is started here; credentials remain attempt-local until the vault key is verified.
+      try {
+        const receiver = new FindHubFcmClient(
+          null,
+          async () => undefined,
+          () => undefined,
+        );
+        fcm = await receiver.ensureRegistered();
+      } catch {
+        throw new FindHubAuthError(9114);
+      }
       session = await runtime.auth().start(runtime.instanceName, normalized);
     } finally {
       this.starting.delete(runtime.instanceId);
@@ -86,6 +101,7 @@ export class FindHubBrowserAuthService {
       instanceId: runtime.instanceId,
       instanceName: runtime.instanceName,
       email: normalized,
+      fcm,
       secretHash: digest(session.bridgeToken),
       expiresAt,
       stage: 'WAITING_USER',
@@ -153,7 +169,7 @@ export class FindHubBrowserAuthService {
     if (attempt.stage !== 'WAITING_USER') throw new Error('Este token já foi processado. Inicie outra vinculação.');
     attempt.stage = 'EXCHANGING';
     try {
-      const credentials = await this.google.exchange(attempt.email, data.oauthToken, randomBytes(8).toString('hex'));
+      const credentials = await this.google.exchange(attempt.email, data.oauthToken, attempt.fcm.gcm.androidId);
       this.require(runtime, data); // Cancellation/expiry during the network call must win.
       attempt.credentials = credentials;
       attempt.stage = 'WAITING_VAULT_KEY';
@@ -197,6 +213,7 @@ export class FindHubBrowserAuthService {
         email: attempt.credentials.email,
         androidId: attempt.credentials.androidId,
         accountToken: attempt.credentials.aasToken,
+        fcm: attempt.fcm,
         sharedKey: sharedKey.toString('base64'),
       });
       await runtime.connect();

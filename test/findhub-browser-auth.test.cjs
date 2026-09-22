@@ -29,6 +29,11 @@ function harness(options = {}) {
   const encryptedOwnerKey = Buffer.concat([iv, cipher.update(owner), cipher.final(), cipher.getAuthTag()]);
   const stored = [], stages = [];
   const overrides = {
+    '../protocol/fcm.client': { FindHubFcmClient: class { async ensureRegistered() {
+      if (options.registrationFailure) throw new Error('SENSITIVE');
+      return { gcm: { androidId: '12345678901234567', securityToken: 'synthetic-secret' },
+        registration: { token: 'synthetic-fcm' }, keys: { privateKey: 'synthetic-key' } };
+    } } },
     '../protocol/spot.client': { FindHubSpotClient: class { async ownerKeyEnvelope() { if (options.spotFailure) throw new Error('SENSITIVE'); return { encryptedOwnerKey }; } } },
     './google-play-auth.client': { GooglePlayAuthClient: class { async exchange(email, token, androidId) {
       stages.push('exchange'); if (options.exchangeFailure) throw new Error('SENSITIVE'); if (options.wait) await options.wait;
@@ -103,7 +108,7 @@ test('AAS validates the requested account and the resulting Find Hub service per
     const form = new URLSearchParams(body); forms.push(form);
     return { status: 200, text: form.has('Token') ? 'Token=synthetic-aas\nEmail=operator@example.com' : 'Auth=synthetic-adm' };
   });
-  assert.equal((await client.exchange('operator@example.com', 'synthetic-oauth', '0011')).aasToken, 'synthetic-aas');
+  assert.equal((await client.exchange('operator@example.com', 'synthetic-oauth', '123456789')).aasToken, 'synthetic-aas');
   assert.equal(forms.length, 2);
   assert.equal(forms[0].get('Token'), 'synthetic-oauth');
   assert.equal(forms[1].get('EncryptedPasswd'), 'synthetic-aas');
@@ -115,11 +120,11 @@ test('regression: Token without optional Email proceeds only after a real servic
   const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
   let count = 0;
   const client = new GooglePlayAuthClient(async () => ({ status: 200, text: ++count === 1 ? 'Token=synthetic-aas' : 'Auth=synthetic-adm' }));
-  const credentials = await client.exchange('operator@example.com', 'synthetic-oauth', '0011');
+  const credentials = await client.exchange('operator@example.com', 'synthetic-oauth', '123456789');
   assert.equal(credentials.email, 'operator@example.com'); assert.equal(count, 2);
   let rejectedCount = 0;
   const rejected = new GooglePlayAuthClient(async () => ({ status: 200, text: ++rejectedCount === 1 ? 'Token=synthetic-aas' : 'Error=BadAuthentication' }));
-  await assert.rejects(rejected.exchange('operator@example.com', 'synthetic-oauth', '0011'), error => error.code === 9102);
+  await assert.rejects(rejected.exchange('operator@example.com', 'synthetic-oauth', '123456789'), error => error.code === 9102);
 });
 
 test('explicit different Google identity is refused in exchange and service verification', async () => {
@@ -127,7 +132,7 @@ test('explicit different Google identity is refused in exchange and service veri
   for (const mismatchAt of [1, 2]) {
     let count = 0;
     const client = new GooglePlayAuthClient(async () => ({ status: 200, text: (++count === 1 ? 'Token=synthetic-aas' : 'Auth=synthetic-adm') + (count === mismatchAt ? '\nEmail=other@example.com' : '') }));
-    await assert.rejects(client.exchange('operator@example.com', 'synthetic-oauth', '0011'), error => error.code === 9104);
+    await assert.rejects(client.exchange('operator@example.com', 'synthetic-oauth', '123456789'), error => error.code === 9104);
     assert.equal(count, mismatchAt);
   }
 });
@@ -140,11 +145,11 @@ test('cookie URI encoding is normalized once, preserving plus and equals', async
       if (form.has('Token')) assert.equal(form.get('Token'), 'oauth2_4/opaque+test==');
       return { status: 200, text: form.has('Token') ? 'Token=test' : 'Auth=test' };
     });
-    await client.exchange('operator@example.com', token, '0011');
+    await client.exchange('operator@example.com', token, '123456789');
   }
   const noNetwork = new GooglePlayAuthClient(async () => { throw Error('Must not request'); });
   for (const token of ['', 'x%0Ay', 'a b', 'a%EF%FF', 'x'.repeat(16385)]) {
-    await assert.rejects(noNetwork.exchange('operator@example.com', token, '0011'), error => error.code === 9101);
+    await assert.rejects(noNetwork.exchange('operator@example.com', token, '123456789'), error => error.code === 9101);
   }
 });
 
@@ -158,7 +163,7 @@ for (const [status, text, code] of [
   const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
   let requests = 0;
   const client = new GooglePlayAuthClient(async () => { requests++; return { status, text }; });
-  await assert.rejects(client.exchange('operator@example.com', 'synthetic-oauth', '0011'), error =>
+  await assert.rejects(client.exchange('operator@example.com', 'synthetic-oauth', '123456789'), error =>
     error.code === code && !JSON.stringify(error).includes('DO_NOT_EXPOSE') && !error.message.includes('DO_NOT_EXPOSE'));
   assert.equal(requests, 1, 'one-use artifact must never be retried automatically');
 });
@@ -230,4 +235,71 @@ test('MCS handles fragmented initial frames and rejects oversized frames',()=>{
  const payload=Buffer.from([10,2,111,107]);const packet=Buffer.concat([Buffer.from([41,3,payload.length]),payload]);
  fcm.consume(packet.subarray(0,2));assert.equal(acknowledged,0);fcm.consume(packet.subarray(2,4));assert.equal(acknowledged,0);fcm.consume(packet.subarray(4));assert.equal(acknowledged,1);
  assert.throws(()=>fcm.consume(Buffer.alloc(1048577)),/too large/);
+});
+
+
+test('regression: browser exchange uses registered Google decimal ID and reuses the exact FCM credentials', async () => {
+ const h=harness(); const session=await h.service.start(h.runtime,'operator@example.com');
+ await h.service.exchange(h.runtime,{...session,oauthToken:'synthetic'});
+ await h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys});
+ assert.equal(h.stored[0].androidId,'12345678901234567');
+ assert.equal(h.stored[0].fcm.gcm.androidId,h.stored[0].androidId);
+});
+test('failed receiver registration never issues a Google login session or claims ready', async () => {
+ const h=harness({registrationFailure:true});
+ await assert.rejects(h.service.start(h.runtime,'operator@example.com'),e=>e.code===9114 && !e.message.includes('SENSITIVE'));
+ assert.equal(h.service.pending(h.runtime),null); assert.equal(h.stored.length,0);
+});
+test('fabricated hexadecimal identity cannot be sent to Google', async () => {
+ const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+ let sent=false; const client=new GooglePlayAuthClient(async()=>{sent=true;return {status:200,text:'Token=x'};});
+ for(const id of ['a19b22ff','-1','0','18446744073709551616','123/secret'])
+   await assert.rejects(client.exchange('operator@example.com','synthetic',id),e=>e.code===9101);
+ assert.equal(sent,false);
+});
+test('regression: former 9106 at request line 66 now distinguishes HTTP status and upstream phase without secrets', async () => {
+ const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+ const client=new GooglePlayAuthClient(async()=>({status:400,text:'Error=InvalidRequest\nErrorDetail=SECRET email@private.example\nToken=PRIVATE-TOKEN'}));
+ await assert.rejects(client.exchange('operator@example.com','synthetic','123456789'), e=>
+   e.code===9106 && e.message.includes('etapa=exchange; http=400; motivo=InvalidRequest; campos=1011') && !/SECRET|private|PRIVATE/.test(e.message));
+});
+test('unknown error text cannot leak via diagnostic context; service phase remains distinguishable', async () => {
+ const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+ const client=new GooglePlayAuthClient(async()=>({status:403,text:'Error=USER-SECRET-VALUE'}));
+ await assert.rejects(client.serviceToken({email:'operator@example.com',androidId:'1234',aasToken:'secret'},'adm'),e=>
+  e.message.includes('etapa=adm; http=403; motivo=UNCLASSIFIED') && !e.message.includes('USER-SECRET'));
+});
+
+
+function nativeRegistrationHarness({ missingInstallationToken = false } = {}) {
+  const requests = []; const checkin = Buffer.alloc(18);
+  checkin[0] = 57; checkin.writeBigUInt64LE(12345678901234567n, 1);
+  checkin[9] = 65; checkin.writeBigUInt64LE(9876543210123456n, 10);
+  const globals = { fetch: async (url, options) => {
+    requests.push({url,options});
+    if (requests.length === 1) return {ok:true,arrayBuffer:async()=>checkin};
+    if (requests.length === 2) return {ok:true,text:async()=>'token=synthetic-gcm\n'};
+    if (requests.length === 3) {
+      const data=JSON.parse(options.body); assert.match(data.fid,/^[cdef][A-Za-z0-9_-]{21}$/);
+      return {ok:true,text:async()=>JSON.stringify({fid:data.fid,authToken:missingInstallationToken?{}:{token:'synthetic-install'}})};
+    }
+    if (requests.length === 4) return {ok:true,text:async()=>JSON.stringify({token:'synthetic-registration'})};
+    throw Error('Unexpected registration replay');
+  }};
+  const {FindHubFcmClient}=load('src/api/integrations/channel/findhub/protocol/fcm.client.ts',{},globals);
+  return {requests,client:new FindHubFcmClient(null,async()=>{},()=>{})};
+}
+test('native Google registration uses 22-character URL-safe FID and preserves decimal check-in identity',async()=>{
+  const h=nativeRegistrationHarness();const credentials=await h.client.ensureRegistered();
+  assert.equal(h.requests.length,4);assert.equal(credentials.gcm.androidId,'12345678901234567');
+  assert.equal(credentials.gcm.token,'synthetic-gcm');
+  assert.equal(new URLSearchParams(h.requests[1].options.body).get('device'),credentials.gcm.androidId);
+  const registration=JSON.parse(h.requests[3].options.body);
+  assert.ok(registration.web.endpoint.endsWith('/synthetic-gcm'));assert.ok(!registration.web.endpoint.includes('\n'));
+  assert.equal(await h.client.ensureRegistered(),credentials);assert.equal(h.requests.length,4);
+});
+test('registration stops before push registration if Firebase does not return installation authorization',async()=>{
+  const h=nativeRegistrationHarness({missingInstallationToken:true});
+  await assert.rejects(h.client.ensureRegistered(),/Invalid Firebase installation response/);
+  assert.equal(h.requests.length,3);assert.equal(h.client.currentCredentials,null);
 });

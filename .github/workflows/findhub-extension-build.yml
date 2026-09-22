@@ -1,0 +1,96 @@
+name: Find Hub - Build extension and Windows installer
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      channel:
+        required: false
+        default: candidate
+        type: string
+permissions:
+  contents: read
+jobs:
+  windows:
+    name: Extension ZIP and Windows setup
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Validate source identity and deterministic extension payload
+        shell: pwsh
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:CHANNEL -notin @('candidate','develop','stable')) { throw 'Invalid channel' }
+          $revision = (git rev-parse HEAD).Trim()
+          node scripts/build-findhub-distribution.cjs --revision $revision --channel $env:CHANNEL
+          if ($LASTEXITCODE -ne 0) { throw 'Distribution contract failed' }
+      - name: Get pinned native installer compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'nsis-3.11.zip'
+          $expected = 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1'
+          $sources = @(
+            'https://master.dl.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip?viasf=1',
+            'https://phoenixnap.dl.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip',
+            'https://distfiles.macports.org/nsis/nsis-3.11.zip'
+          )
+          $verified = $false
+          foreach ($uri in $sources) {
+            try {
+              Invoke-WebRequest -Uri $uri -OutFile $zip -TimeoutSec 90
+              $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -ne $expected) { throw "Pinned archive digest mismatch: $actual" }
+              $verified = $true
+              break
+            } catch {
+              Write-Warning "Compiler mirror failed verification: $uri ($($_.Exception.Message))"
+              if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
+            }
+          }
+          if (!$verified) { throw 'No compiler mirror supplied the pinned NSIS archive; refusing to execute.' }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'findhub-nsis')
+      - name: Compile Windows binary without admin privileges or browser policy modifications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $compiler = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'findhub-nsis') -Filter makensis.exe -Recurse | Select-Object -First 1
+          if (!$compiler) { throw 'Compiler missing' }
+          $build = Join-Path $pwd 'build\findhub-extension'
+          $source = Join-Path $pwd 'browser-extensions\findhub-auth'
+          & $compiler.FullName /V3 "/DBUILD_DIR=$build" "/DSOURCE_DIR=$source" "$source\installer\setup.nsi"
+          if ($LASTEXITCODE -ne 0) { throw 'Native installer build failed' }
+      - name: Test real install and update in disposable runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem build/findhub-extension/Connect-FindHub-Auth-Setup-*.exe | Select-Object -First 1
+          & browser-extensions/findhub-auth/installer/smoke-test.ps1 -Exe $exe.FullName
+      - name: Generate release checksums and provenance
+        shell: pwsh
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          $revision = (git rev-parse HEAD).Trim()
+          node scripts/build-findhub-distribution.cjs --revision $revision --channel $env:CHANNEL --finalize
+          if ($LASTEXITCODE -ne 0) { throw 'Release metadata failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findhub-extension-distribution
+          path: |
+            build/findhub-extension/Connect-FindHub-Auth-*.zip
+            build/findhub-extension/Connect-FindHub-Auth-Setup-*.exe
+            build/findhub-extension/extension-release.json
+            build/findhub-extension/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

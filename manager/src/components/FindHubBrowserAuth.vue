@@ -46,7 +46,7 @@ async function start() {
         if (message.type !== 'PONG') return
         clearTimeout(timer)
         if (!compatibleFindHubHelper(message.version)) {
-          reject(new Error('Atualize a extensão Find Hub Auth para 0.1.1 ou superior, recarregue-a na página de extensões e atualize o Manager.'))
+          reject(new Error('Atualize a extensão Find Hub Auth para 0.1.2 ou superior, recarregue-a na página de extensões e atualize o Manager.'))
         } else resolve()
       })
       port.onDisconnect.addListener(() => {
@@ -60,6 +60,7 @@ async function start() {
       })
       port.postMessage({ type: 'PING' })
     })
+    stage.value = 'Preparando a identidade do receptor nos serviços Google…'
     const session = await connect.findHubBrowserAuth(props.instanceId, 'start', { email: email.value.trim() })
     if (serial !== attempt) {
       try { await connect.findHubBrowserAuth(props.instanceId, 'cancel', { sessionId: session.sessionId, bridgeToken: session.bridgeToken }) } catch { /* expired */ }
@@ -117,7 +118,7 @@ onBeforeUnmount(() => { void cancel() })
   <PanelCard title="Conectar conta Google" description="Você faz login diretamente no Google. A Connect|API valida e protege as credenciais recebidas.">
     <div class="form-stack">
       <div class="alert">Autenticação assistida por extensão própria, para Chrome/Edge no computador. É uma alternativa experimental ao fluxo puramente web; não funciona em qualquer navegador mobile e ainda exige homologação com sua conta. Nenhum aplicativo é instalado no smartphone que será localizado.</div>
-      <details><summary>Preparar o navegador uma única vez</summary><p>Obtenha a extensão desta instalação, extraia o ZIP e abra a página de extensões do navegador. Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta extraída. Para atualizar, substitua os arquivos da pasta já carregada e clique em “Recarregar” na extensão. Confirme a versão 0.1.1 e recarregue a interface. Durante a vinculação, confira os destinos na janela da extensão antes de autorizar.</p><p>O protocolo privado pode produzir credenciais Google de alcance amplo. Use somente sua própria instalação confiável. Senha, PIN e confirmações são informados exclusivamente nas páginas Google.</p><button class="btn ghost" :disabled="downloading || busy" @click="download">{{ downloading ? 'Preparando…' : 'Obter extensão de autenticação' }}</button></details>
+      <details><summary>Preparar o navegador uma única vez</summary><p>Obtenha a extensão desta instalação, extraia o ZIP e abra a página de extensões do navegador. Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta extraída. Para atualizar, substitua os arquivos da pasta já carregada e clique em “Recarregar” na extensão. Confirme a versão 0.1.2 e recarregue a interface. Durante a vinculação, confira os destinos na janela da extensão antes de autorizar.</p><p>O protocolo privado pode produzir credenciais Google de alcance amplo. Use somente sua própria instalação confiável. Senha, PIN e confirmações são informados exclusivamente nas páginas Google.</p><button class="btn ghost" :disabled="downloading || busy" @click="download">{{ downloading ? 'Preparando…' : 'Obter extensão de autenticação' }}</button><p><a class="btn ghost" href="https://github.com/wkarts/ARGWS-Connect-API/releases?q=findhub" target="_blank" rel="noopener noreferrer">Instalador Windows e versões publicadas</a></p><p>O instalador prepara/atualiza os arquivos. O navegador ainda exige Carregar sem compactação ou Recarregar; nenhuma permissão é concedida silenciosamente. Escolha a distribuição correspondente ao seu canal e à versão da API.</p></details>
       <label class="field"><span>Conta Google a vincular</span><input v-model="email" type="email" maxlength="320" autocomplete="email" :disabled="busy" placeholder="sua-conta@gmail.com" /></label>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>
       <p v-if="stage" role="status">{{ stage }}</p>

@@ -1,0 +1,5 @@
+# Keep the published extension ZIP byte-identical on Linux and Windows.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.zip binary
