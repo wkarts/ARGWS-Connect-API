@@ -16,7 +16,7 @@ export class FindHubNovaClient {
         'Accept-Language': 'en-US',
         'User-Agent': GOOGLE_ADM_CONFIG.fmdUserAgent,
       },
-      body: payload,
+      body: Uint8Array.from(payload),
     });
     if (!response.ok) throw new Error(`Google Find Hub Nova request failed (${response.status})`);
     return Buffer.from(await response.arrayBuffer());
