@@ -76,6 +76,11 @@ jobs:
           test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$GITHUB_SHA"
           git diff --exit-code 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 -- src/api/integrations/channel/whatsapp src/api/integrations/channel/meta src/api/compat/meta-cloud src/api/provider package-lock.json .github/actions deploy docker-compose.yaml docker-compose.dev.yaml
           git rm -r .github/findhub-next .github/workflows/findhub-next-workspace.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('manager/src/services/findhub-auth-state.ts')
+          path.write_text(path.read_text().rstrip() + '\n')
+          PY
           git add -u
           git add -f public/findhub-auth.zip
           git diff --cached --check
