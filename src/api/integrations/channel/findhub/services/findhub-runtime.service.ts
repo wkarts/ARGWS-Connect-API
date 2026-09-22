@@ -36,8 +36,8 @@ export class FindHubStartupService {
     qrCode: false,
     pairingCode: false,
     devices: true,
-    location: true,
-    tracking: true,
+    location: false,
+    tracking: false,
   });
 
   public stateConnection: { state: FindHubRuntimeState; statusReason?: number } = { state: 'close' };
