@@ -64,7 +64,7 @@ async function checkin(existing?: FindHubFcmCredentials): Promise<{ androidId: s
   const response = await fetch(GOOGLE_ENDPOINTS.checkin, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-protobuf' },
-    body,
+    body: Uint8Array.from(body),
   });
   if (!response.ok) throw new Error(`Google check-in failed (${response.status})`);
   return decodeCheckin(Buffer.from(await response.arrayBuffer()));
@@ -155,7 +155,7 @@ function encodeSetting(name: string, value: string): Buffer {
   return concat(fieldString(1, name), fieldString(2, value));
 }
 
-function encodeheartbeatStat(): Buffer {
+function encodeHeartbeatStat(): Buffer {
   return concat(fieldString(1, ''), fieldVarint(2, true), fieldVarint(3, 10_000));
 }
 
@@ -307,7 +307,7 @@ export class FindHubFcmClient {
 
   private consume(chunk: Buffer): void {
     this.receiveBuffer = Buffer.concat([this.receiveBuffer, chunk]);
-    while (true) {
+    while (this.receiveBuffer.length > 0) {
       let offset = 0;
       if (this.firstInbound) {
         if (this.receiveBuffer.length < 2) return;
