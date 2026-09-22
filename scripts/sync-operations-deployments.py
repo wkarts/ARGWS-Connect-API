@@ -215,10 +215,12 @@ fi
 '''
                     text += f'docker compose --env-file .env -f {compose} up -d\ndocker compose --env-file .env -f {compose} ps\n'
                 outputs[path] = text
-    # Keep the additive Find Hub template contract during operations regeneration.
+    # Preserve Find Hub in the existing operations scope only. The independent
+    # Find Hub generator owns its additional canonical/docs/Swarm deployment files.
     from runpy import run_path
     findhub = run_path(str(root / 'scripts/sync-findhub-deployments.py'))
-    outputs.update(findhub['generate'](root, overrides=outputs))
+    additions = findhub['generate'](root, overrides=outputs)
+    outputs.update({path: content for path, content in additions.items() if path in outputs})
     return outputs
 
 
