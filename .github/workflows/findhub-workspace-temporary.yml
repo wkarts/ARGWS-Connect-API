@@ -14,14 +14,19 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - name: Archive tracked source only
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Prepare exact frontend dependencies for isolated validation
         run: |
-          git archive HEAD | gzip > /tmp/findhub-source.tar.gz
-          git rev-parse HEAD > /tmp/findhub-source.commit
+          npm ci --prefix manager --ignore-scripts
+          npm install --prefix /tmp/findhub-tools --ignore-scripts --no-audit --no-fund prettier@3.4.2 tsx@4.20.5
+          tar -czf /tmp/findhub-manager-dependencies.tar.gz manager/node_modules
+          tar -czf /tmp/findhub-tools.tar.gz -C /tmp/findhub-tools node_modules
       - uses: actions/upload-artifact@v4
         with:
-          name: findhub-correction-source
+          name: findhub-validation-dependencies
           path: |
-            /tmp/findhub-source.tar.gz
-            /tmp/findhub-source.commit
+            /tmp/findhub-manager-dependencies.tar.gz
+            /tmp/findhub-tools.tar.gz
           retention-days: 1
