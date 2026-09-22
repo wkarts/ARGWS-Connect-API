@@ -39,10 +39,26 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $zip = Join-Path $env:RUNNER_TEMP 'nsis-3.11.zip'
-          $uri = 'https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip'
-          Invoke-WebRequest -Uri $uri -OutFile $zip -MaximumRetryCount 3
           $expected = 'c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1'
-          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'NSIS digest mismatch' }
+          $sources = @(
+            'https://master.dl.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip?viasf=1',
+            'https://phoenixnap.dl.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip',
+            'https://distfiles.macports.org/nsis/nsis-3.11.zip'
+          )
+          $verified = $false
+          foreach ($uri in $sources) {
+            try {
+              Invoke-WebRequest -Uri $uri -OutFile $zip -TimeoutSec 90
+              $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -ne $expected) { throw "Pinned archive digest mismatch: $actual" }
+              $verified = $true
+              break
+            } catch {
+              Write-Warning "Compiler mirror failed verification: $uri ($($_.Exception.Message))"
+              if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
+            }
+          }
+          if (!$verified) { throw 'No compiler mirror supplied the pinned NSIS archive; refusing to execute.' }
           Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'findhub-nsis')
       - name: Compile Windows binary without admin privileges or browser policy modifications
         shell: pwsh
