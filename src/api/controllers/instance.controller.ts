@@ -255,6 +255,33 @@ export class InstanceController {
   }
 
   public async createInstance(instanceData: InstanceDto) {
+    const isFindHub = instanceData.integration === Integration.GOOGLE_FIND_HUB;
+    let createdFindHubInstanceId: string | undefined;
+
+    // Reject channel-incompatible options before creating or removing any instance.
+    if (isFindHub) {
+      const whatsappFlags = new Set([
+        'rejectCall',
+        'groupsIgnore',
+        'alwaysOnline',
+        'readMessages',
+        'readStatus',
+        'syncFullHistory',
+      ]);
+      const unsupported = Object.entries(instanceData)
+        .filter(
+          ([key, value]) =>
+            (whatsappFlags.has(key) && value === true) ||
+            (key === 'msgCall' && Boolean(value)) ||
+            (key === 'voipMaxConcurrentCalls' && value != null) ||
+            (/^(proxy|chatwoot)/.test(key) && Boolean(value)),
+        )
+        .map(([key]) => key);
+      if (unsupported.length) {
+        throw new BadRequestException(`Opções não suportadas pelo Google Find Hub: ${unsupported.join(', ')}.`);
+      }
+    }
+
     try {
       const instance = channelController.init(instanceData, {
         configService: this.configService,
@@ -291,6 +318,7 @@ export class InstanceController {
         businessId: instanceData.businessId,
         status: instanceData.status,
       });
+      if (isFindHub) createdFindHubInstanceId = instanceId;
 
       instance.setInstance({
         instanceName: instanceData.instanceName,
@@ -309,10 +337,11 @@ export class InstanceController {
       // set events
       await eventManager.setInstance(instance.instanceName, instanceData);
 
-      instance.sendDataWebhook(Events.INSTANCE_CREATE, {
+      const creationEvent = instance.sendDataWebhook(Events.INSTANCE_CREATE, {
         instanceName: instanceData.instanceName,
         instanceId: instanceId,
       });
+      if (isFindHub) await creationEvent;
 
       const instanceDto: InstanceDto = {
         instanceName: instance.instanceName,
@@ -358,7 +387,8 @@ export class InstanceController {
             : undefined,
       };
 
-      await this.settingsService.create(instanceDto, settings);
+      // Find Hub is a device/location channel, not a WhatsApp settings runtime.
+      if (!isFindHub) await this.settingsService.create(instanceDto, settings);
 
       let webhookWaBusiness = null,
         accessTokenWaBusiness = '';
@@ -422,7 +452,7 @@ export class InstanceController {
           sqs: {
             enabled: instanceData?.sqs?.enabled,
           },
-          settings,
+          settings: isFindHub ? null : settings,
           qrcode: getQrcode,
         };
 
@@ -535,7 +565,25 @@ export class InstanceController {
         },
       };
     } catch (error) {
-      this.waMonitor.deleteInstance(instanceData.instanceName);
+      if (isFindHub) {
+        // A failed initializer/duplicate insert must never delete an existing account.
+        if (createdFindHubInstanceId) {
+          try {
+            const current = this.waMonitor.waInstances[instanceData.instanceName];
+            if (current?.instanceId === createdFindHubInstanceId) {
+              await this.waMonitor.removeInstanceNow(instanceData.instanceName);
+            } else {
+              await this.prismaRepository.instance.deleteMany({
+                where: { id: createdFindHubInstanceId, integration: Integration.GOOGLE_FIND_HUB },
+              });
+            }
+          } catch {
+            this.logger.error('Falha ao limpar a nova instância Google Find Hub após erro de criação.');
+          }
+        }
+      } else {
+        this.waMonitor.deleteInstance(instanceData.instanceName);
+      }
       this.logger.error(isArray(error.message) ? error.message[0] : error.message);
       throw new BadRequestException(isArray(error.message) ? error.message[0] : error.message);
     }
@@ -830,6 +878,9 @@ export class InstanceController {
   }
 
   public async setPresence({ instanceName }: InstanceDto, data: SetPresenceDto) {
+    if (this.waMonitor.waInstances[instanceName]?.integration === Integration.GOOGLE_FIND_HUB) {
+      throw new BadRequestException('Presença do WhatsApp não se aplica ao Google Find Hub.');
+    }
     return await this.waMonitor.waInstances[instanceName].setPresence(data);
   }
 
@@ -853,17 +904,23 @@ export class InstanceController {
     const { instance } = await this.connectionState({ instanceName });
     try {
       const waInstances = this.waMonitor.waInstances[instanceName];
-      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) waInstances?.clearCacheChatwoot();
+      if (
+        waInstances?.integration !== Integration.GOOGLE_FIND_HUB &&
+        this.configService.get<Chatwoot>('CHATWOOT').ENABLED
+      ) {
+        waInstances?.clearCacheChatwoot();
+      }
 
       if (instance.state === 'connecting' || instance.state === 'open') {
         await this.logout({ instanceName });
       }
 
       try {
-        waInstances?.sendDataWebhook(Events.INSTANCE_DELETE, {
+        const deletionEvent = waInstances?.sendDataWebhook(Events.INSTANCE_DELETE, {
           instanceName,
           instanceId: waInstances.instanceId,
         });
+        if (waInstances?.integration === Integration.GOOGLE_FIND_HUB) await deletionEvent;
       } catch (error) {
         this.logger.error(error);
       }
