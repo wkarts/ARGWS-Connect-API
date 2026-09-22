@@ -4,6 +4,7 @@ import PanelCard from '@/components/PanelCard.vue'
 import { connect } from '@/services/connect'
 import { runtime } from '@/config/runtime'
 import { FINDHUB_EXTENSION_ID } from '@/services/findhub-extension-id'
+import { compatibleFindHubHelper, consumedFindHubAttempt } from '@/services/findhub-auth-state'
 import { friendlyError } from '@/services/errors'
 const props = defineProps<{ instanceId: string; initialEmail?: string }>()
 const emit = defineEmits<{ connected: [] }>()
@@ -13,6 +14,7 @@ let proof: { sessionId: string; bridgeToken: string } | null = null
 let heartbeat: ReturnType<typeof setInterval> | null = null
 let deadline: ReturnType<typeof setTimeout> | null = null
 let attempt = 0
+let processing: 'exchange' | 'complete' | null = null
 function closePort() {
   if (heartbeat) clearInterval(heartbeat)
   if (deadline) clearTimeout(deadline)
@@ -24,7 +26,7 @@ async function cancel() {
   attempt++
   const pending = proof; proof = null
   try { port?.postMessage({ type: 'CANCEL', sessionId: pending?.sessionId }) } catch { /* closed */ }
-  closePort(); busy.value = false
+  closePort(); busy.value = false; stage.value = ''; processing = null
   if (pending) {
     try { await connect.findHubBrowserAuth(props.instanceId, 'cancel', pending) }
     catch { /* Backend rejects cancellation during a final verification; status remains authoritative. */ }
@@ -40,20 +42,29 @@ async function start() {
     port = chromeRuntime.connect(FINDHUB_EXTENSION_ID, { name: 'connect-findhub-auth-v1' })
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Extensão não encontrada. Instale-a e recarregue a interface.')), 4000)
-      port.onMessage.addListener((message: any) => { if (message.type === 'PONG') { clearTimeout(timer); resolve() } })
+      port.onMessage.addListener((message: any) => {
+        if (message.type !== 'PONG') return
+        clearTimeout(timer)
+        if (!compatibleFindHubHelper(message.version)) {
+          reject(new Error('Atualize a extensão Find Hub Auth para 0.1.1 ou superior, recarregue-a na página de extensões e atualize o Manager.'))
+        } else resolve()
+      })
       port.onDisconnect.addListener(() => {
         void chromeRuntime.lastError
         clearTimeout(timer)
         reject(new Error('Extensão não encontrada ou permissão de acesso recusada.'))
         if (serial === attempt && proof) {
-          error.value = 'A vinculação foi encerrada. Consulte o estado da conta antes de tentar novamente.'
+          if (!error.value) error.value = 'A vinculação foi encerrada. Consulte o estado da conta antes de tentar novamente.'
           void cancel()
         }
       })
       port.postMessage({ type: 'PING' })
     })
     const session = await connect.findHubBrowserAuth(props.instanceId, 'start', { email: email.value.trim() })
-    if (serial !== attempt) return
+    if (serial !== attempt) {
+      try { await connect.findHubBrowserAuth(props.instanceId, 'cancel', { sessionId: session.sessionId, bridgeToken: session.bridgeToken }) } catch { /* expired */ }
+      return
+    }
     proof = { sessionId: session.sessionId, bridgeToken: session.bridgeToken }
     deadline = setTimeout(() => { error.value = 'A vinculação expirou. Inicie novamente.'; void cancel() }, Math.max(1, Date.parse(session.expiresAt) - Date.now()))
     heartbeat = setInterval(() => { try { port?.postMessage({ type: 'PING' }) } catch { void cancel() } }, 15000)
@@ -65,23 +76,29 @@ async function start() {
         if (message.type === 'WAITING_USER') stage.value = 'Faça login diretamente no Google. Mantenha esta página aberta.'
         if (message.type === 'WAITING_VAULT_KEY') stage.value = 'Conclua o desbloqueio do Find Hub na página do Google.'
         if (message.type === 'OAUTH_TOKEN') {
+          if (processing) return
+          processing = 'exchange'
           stage.value = 'Validando a conta Google…'
           const response = await connect.findHubBrowserAuth(props.instanceId, 'exchange', { ...proof, oauthToken: message.oauthToken })
           if (serial !== attempt || !proof) return
           port?.postMessage({ type: 'UNLOCK', sessionId: proof.sessionId, unlockUrl: response.unlockUrl })
         }
         if (message.type === 'VAULT_KEYS') {
+          if (processing !== 'exchange') return
+          processing = 'complete'
           stage.value = 'Validando a chave, a conexão e o catálogo de dispositivos…'
           const response = await connect.findHubBrowserAuth(props.instanceId, 'complete', { ...proof, vaultKeys: message.vaultKeys })
           if (serial !== attempt || !proof) return
           if (response.connected !== true) throw new Error('O backend não confirmou uma conexão válida.')
           const sessionId = proof.sessionId; proof = null; attempt++
           port?.postMessage({ type: 'DONE', sessionId }); closePort(); busy.value = false
+          processing = null
           stage.value = 'Conta conectada e validada.'; emit('connected')
         }
       })().catch(async (e) => {
         if (serial !== attempt) return
         error.value = friendlyError(e)
+        if (consumedFindHubAttempt(e)) proof = null
         await cancel()
       })
     })
@@ -100,7 +117,7 @@ onBeforeUnmount(() => { void cancel() })
   <PanelCard title="Conectar conta Google" description="Você faz login diretamente no Google. A Connect|API valida e protege as credenciais recebidas.">
     <div class="form-stack">
       <div class="alert">Autenticação assistida por extensão própria, para Chrome/Edge no computador. É uma alternativa experimental ao fluxo puramente web; não funciona em qualquer navegador mobile e ainda exige homologação com sua conta. Nenhum aplicativo é instalado no smartphone que será localizado.</div>
-      <details><summary>Preparar o navegador uma única vez</summary><p>Obtenha a extensão desta instalação, extraia o ZIP e abra a página de extensões do navegador. Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta extraída. Recarregue a interface. Durante a vinculação, confira os destinos na janela da extensão antes de autorizar.</p><p>O protocolo privado pode produzir credenciais Google de alcance amplo. Use somente sua própria instalação confiável. Senha, PIN e confirmações são informados exclusivamente nas páginas Google.</p><button class="btn ghost" :disabled="downloading || busy" @click="download">{{ downloading ? 'Preparando…' : 'Obter extensão de autenticação' }}</button></details>
+      <details><summary>Preparar o navegador uma única vez</summary><p>Obtenha a extensão desta instalação, extraia o ZIP e abra a página de extensões do navegador. Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta extraída. Para atualizar, substitua os arquivos da pasta já carregada e clique em “Recarregar” na extensão. Confirme a versão 0.1.1 e recarregue a interface. Durante a vinculação, confira os destinos na janela da extensão antes de autorizar.</p><p>O protocolo privado pode produzir credenciais Google de alcance amplo. Use somente sua própria instalação confiável. Senha, PIN e confirmações são informados exclusivamente nas páginas Google.</p><button class="btn ghost" :disabled="downloading || busy" @click="download">{{ downloading ? 'Preparando…' : 'Obter extensão de autenticação' }}</button></details>
       <label class="field"><span>Conta Google a vincular</span><input v-model="email" type="email" maxlength="320" autocomplete="email" :disabled="busy" placeholder="sua-conta@gmail.com" /></label>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>
       <p v-if="stage" role="status">{{ stage }}</p>

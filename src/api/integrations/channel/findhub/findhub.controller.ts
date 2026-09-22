@@ -1,6 +1,8 @@
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
+import { diagnostics } from '../../../../diagnostics/diagnostics.service';
+import { FindHubAuthError } from './auth/findhub-auth.error';
 import { FindHubBrowserAuthService } from './auth/findhub-browser-auth.service';
 import { FINDHUB_EXTENSION_ID } from './auth/findhub-extension.constants';
 import { FINDHUB_INTEGRATION } from './findhub.constants';
@@ -45,7 +47,7 @@ export class FindHubController {
       minimumIntervalSeconds: Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30)),
       helper: {
         extensionId: FINDHUB_EXTENSION_ID,
-        version: '0.1.0',
+        version: '0.1.1',
         required: true,
         mobileSupported: false,
         downloadPath: `/findhub/auth/extension/${encodeURIComponent(instanceName)}`,
@@ -60,6 +62,15 @@ export class FindHubController {
       if (operation === 'complete') return await this.browser.complete(runtime, data);
       return this.browser.cancel(runtime, data);
     } catch (error) {
+      if (error instanceof FindHubAuthError) {
+        diagnostics.record({
+          code: 'runtime.error',
+          component: 'findhub-auth',
+          instanceId: instanceName,
+          level: 'warn',
+          error,
+        });
+      }
       throw new BadRequestException(error instanceof Error ? error.message : 'Falha na vinculação Google.');
     }
   }

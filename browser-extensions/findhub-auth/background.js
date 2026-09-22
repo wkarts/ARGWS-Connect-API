@@ -24,6 +24,7 @@ async function newCookie(attempt, cookie) {
   attempt.reading = true;
   try {
     const tab = await chrome.tabs.get(attempt.googleTab);
+    if (!tab?.url) return;
     const window = await chrome.windows.get(tab.windowId);
     // Do not collect an artifact from unrelated/background Google activity.
     if (active !== attempt || !tab.active || !window.focused || new URL(tab.url).origin !== GOOGLE_ORIGIN) return;
@@ -32,6 +33,17 @@ async function newCookie(attempt, cookie) {
     send(attempt, { type: 'OAUTH_TOKEN', oauthToken: cookie.value });
   } catch { cleanup(attempt, 'A aba de autenticação foi encerrada.'); }
   finally { attempt.reading = false; }
+}
+async function readLoginCookie(attempt) {
+  if (active !== attempt || attempt.stage !== 'LOGIN' || attempt.reading) return;
+  try {
+    const tab = await chrome.tabs.get(attempt.googleTab);
+    if (!tab?.url) return;
+    const window = await chrome.windows.get(tab.windowId);
+    if (active !== attempt || !tab.active || !window.focused || new URL(tab.url).origin !== GOOGLE_ORIGIN) return;
+    const cookie = await chrome.cookies.get({ url: tab.url, name: 'oauth_token' });
+    if (cookie) await newCookie(attempt, cookie);
+  } catch { cleanup(attempt, 'Não foi possível ler o resultado do login na aba Google autorizada.'); }
 }
 function cookieChanged(change) {
   const attempt = active;
@@ -77,10 +89,15 @@ async function installVaultBridge(attempt) {
 chrome.tabs.onUpdated.addListener((id, change) => {
   const attempt = active;
   if (!attempt || id !== attempt.googleTab) return;
-  if (attempt.stage === 'VAULT' && change.status === 'complete') {
+  if (attempt.stage === 'LOGIN' && change.status === 'complete') void readLoginCookie(attempt);
+  if (attempt.stage === 'VAULT' && (change.status === 'complete' || change.status === 'loading')) {
     void installVaultBridge(attempt).catch(() => cleanup(attempt, 'O navegador não permitiu concluir o desbloqueio.'));
   }
 });
+chrome.tabs.onActivated?.addListener(({ tabId }) => {
+  if (active?.googleTab === tabId) void readLoginCookie(active);
+});
+chrome.windows.onFocusChanged?.addListener(() => { if (active) void readLoginCookie(active); });
 chrome.tabs.onRemoved.addListener((id) => {
   const attempt = active;
   if (attempt && (id === attempt.googleTab || id === attempt.approvalTab)) cleanup(attempt, 'Vinculação cancelada pelo usuário.');
@@ -137,6 +154,8 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
       attempt.googleTab = tab.id;
       attempt.stage = 'LOGIN';
       send(attempt, { type: 'WAITING_USER' });
+      // A fast Google response can set the cookie before tabs.create resolves. Recheck after ownership is set.
+      await readLoginCookie(attempt);
       reply({ ok: true });
     })().catch(() => { cleanup(attempt, 'Permissão de autenticação não concedida.'); reply({ error: 'Não foi possível iniciar o login.' }); });
     return true;

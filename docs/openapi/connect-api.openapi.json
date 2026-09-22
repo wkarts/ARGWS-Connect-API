@@ -6722,7 +6722,7 @@
         ],
         "summary": "Validar artefato do login Google",
         "operationId": "post_findhub_auth_browser_exchange_instancename",
-        "description": "Troca o artefato temporário autorizado pelo usuário e verifica o e-mail retornado pelo Google. Exige apikey e prova da sessão. Não persiste senha, não aceita callback genérico e não marca a conta como conectada. A resposta fornece somente o endereço de desbloqueio.",
+        "description": "Troca uma única vez o artefato temporário autorizado pelo usuário; normaliza o escape URI do cookie sem transformar + em espaço. O campo Email da resposta é opcional: divergência explícita é rejeitada, e uma segunda solicitação confirma o token de serviço ADM para a conta informada antes de prosseguir. Cada solicitação Google tem timeout de 30 segundos; clientes devem permitir pelo menos 65 segundos para esta etapa. Usa HTTPS/1.1 dedicado sem ALPN, com verificação de certificado e hostname habilitada. Falhas retornam mensagem segura com código FH-AUTH-9101 a FH-AUTH-9113, sem resposta bruta, cookies ou tokens. Exige apikey e prova da sessão. Não persiste senha, não aceita callback genérico e não marca a conta como conectada. A resposta fornece somente o endereço de desbloqueio.",
         "parameters": [
           {
             "name": "instanceName",
@@ -6863,7 +6863,7 @@
         ],
         "summary": "Obter extensão própria de autenticação",
         "operationId": "get_findhub_auth_extension_instancename",
-        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
+        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional 0.1.1, com ícone oficial e o mesmo ID público. Ao atualizar, substitua os arquivos da pasta já carregada, recarregue a extensão e o Manager. A atualização do backend também é necessária. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
         "parameters": [
           {
             "name": "instanceName",
