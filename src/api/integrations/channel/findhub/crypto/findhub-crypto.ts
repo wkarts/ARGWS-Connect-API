@@ -96,7 +96,7 @@ function cmac(key: Buffer, data: Buffer): Buffer {
     padded[partial.length] = 0x80;
     last = xor(padded, k2);
   }
-  let state = Buffer.alloc(16);
+  let state: Buffer = Buffer.alloc(16);
   for (let index = 0; index < blocks - 1; index++) {
     state = aesEcb(key, xor(state, data.subarray(index * 16, (index + 1) * 16)));
   }
