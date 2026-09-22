@@ -34,6 +34,11 @@ jobs:
           xz -dc /tmp/findhub-next.xz > /tmp/findhub-next.patch
           git apply --check /tmp/findhub-next.patch
           git apply --index /tmp/findhub-next.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('manager/src/services/findhub-auth-state.ts')
+          path.write_text(path.read_text().rstrip() + '\n')
+          PY
       - name: Install unchanged API dependencies
         run: npm ci --no-audit --no-fund
       - name: Format owned changes and validate Rust installation core
