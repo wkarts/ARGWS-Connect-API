@@ -269,8 +269,8 @@ export function providerCapabilities(value: any): ProviderCapabilitySet {
       qrCode: false,
       pairingCode: false,
       devices: true,
-      location: false,
-      tracking: false,
+      location: true,
+      tracking: true,
     }
   }
   if (provider === 'WHATSAPP-ZAPO') {
