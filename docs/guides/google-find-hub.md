@@ -73,11 +73,23 @@ Os eventos usam o `EventManager` existente e podem chegar a WebSocket, Webhook, 
 
 Cada dispositivo pode possuir um vínculo independente com Traccar pelo adapter HTTP/OsmAnd.
 
-## Estado atual do transporte
+## Transporte de localização
 
-Nova, Spot, protobuf, E2EE, catálogo de dispositivos, persistência, eventos, Manager e Traccar estão modelados no canal.
+O canal implementa nativamente Nova, Spot, protobuf, E2EE e o transporte FCM/MCS usado para a resposta assíncrona de localização.
 
-A atualização ativa de localização depende do transporte push privado usado pelo Find Hub. A implementação que captura cookies/sessões do navegador não é incluída na Connect|API. Enquanto esse transporte não estiver habilitado por um provider seguro, a capability `location/tracking` é anunciada como indisponível.
+O fluxo ativo é:
+
+1. registra/mantém o receptor FCM;
+2. mantém a conexão TLS MCS com `mtalk.google.com:5228`;
+3. envia `nbe_execute_action` pela Nova com um `requestUuid`;
+4. correlaciona o `DeviceUpdate` recebido pelo FCM/MCS;
+5. descriptografa o relatório E2EE;
+6. normaliza latitude, longitude, precisão, altitude e timestamp;
+7. publica `findhub.location.updated` e, quando configurado, encaminha ao Traccar.
+
+O tracking periódico é restaurado automaticamente após reinicialização da instância.
+
+A autenticação do usuário continua separada do transporte: a Connect|API não captura senha ou cookies do navegador e recebe somente um bundle previamente autorizado por um `CredentialProvider`.
 
 ## Privacidade
 
