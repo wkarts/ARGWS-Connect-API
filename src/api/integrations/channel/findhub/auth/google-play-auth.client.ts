@@ -3,10 +3,13 @@ import { FindHubAasCredentials } from '../findhub.types';
 
 function parseKeyValue(text: string): Record<string, string> {
   return Object.fromEntries(
-    text.split(/\r?\n/).filter(Boolean).map((line) => {
-      const index = line.indexOf('=');
-      return index < 0 ? [line, ''] : [line.slice(0, index), line.slice(index + 1)];
-    }),
+    text
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const index = line.indexOf('=');
+        return index < 0 ? [line, ''] : [line.slice(0, index), line.slice(index + 1)];
+      }),
   );
 }
 
