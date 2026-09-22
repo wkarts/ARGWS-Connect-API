@@ -151,14 +151,24 @@ def generate(root, overrides=None):
         outputs[prefix + 'prepare-findhub-env.py'] = helper
         prepare_path = prefix + 'prepare-env.sh'
         prepare = read(prepare_path)
-        hook = 'python3 ./prepare-findhub-env.py --env-file .env "$@"\n'
-        if hook not in prepare:
+        legacy_hook = 'python3 ./prepare-findhub-env.py --env-file .env "$@"\n'
+        hook = ('if ! python3 ./prepare-findhub-env.py --env-file .env "$@"; then\n'
+                '  echo "AVISO: Find Hub requer ajuste de configuracao; outros canais nao foram bloqueados. Nenhuma chave invalida foi substituida." >&2\n'
+                'fi\n')
+        if legacy_hook in prepare:
+            prepare = prepare.replace(legacy_hook, hook)
+        elif hook not in prepare:
             prepare = prepare.rstrip() + '\n' + hook
         outputs[prepare_path] = prepare
         preflight_path = prefix + 'preflight.sh'
         if preflight_path in paths:
             preflight = read(preflight_path)
-            hook = 'python3 ./prepare-findhub-env.py --env-file .env --check\n'
+            legacy_hook = 'python3 ./prepare-findhub-env.py --env-file .env --check\n'
+            hook = ('if ! python3 ./prepare-findhub-env.py --env-file .env --check; then\n'
+                    '  echo "AVISO: Find Hub indisponivel ate corrigir sua configuracao. A validacao dos demais canais continua." >&2\n'
+                    'fi\n')
+            if legacy_hook in preflight:
+                preflight = preflight.replace(legacy_hook, hook)
             if hook not in preflight:
                 anchor = 'cd "$(dirname "$0")"\n'
                 if anchor not in preflight:

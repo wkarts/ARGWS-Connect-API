@@ -448,3 +448,25 @@ test('legacy monitor save error handling is unchanged for WhatsApp', async () =>
   assert.equal(h.rows.size, 0);
   assert.equal(h.errors.length, 1);
 });
+
+
+test('restoring a failed Google account does not reject loading unrelated WhatsApp runtimes', async () => {
+  const h = harness({ factoryError: true });
+  const whatsapp = { instanceId: 'stable-wa', integration: Integration.WHATSAPP_ZAPO };
+  h.monitor.waInstances['whatsapp-already-online'] = whatsapp;
+  await h.monitor.setInstance({ instanceId: 'google-id', instanceName: 'google-restore', integration: Integration.GOOGLE_FIND_HUB, connectionStatus: 'open' });
+  assert.equal(h.monitor.waInstances['whatsapp-already-online'], whatsapp);
+  assert.equal(h.monitor.waInstances['google-restore'], undefined);
+  assert.ok(h.errors.length > 0);
+});
+
+test('restored Google account registers its own runtime even while awaiting login', async () => {
+  const h = harness();
+  await h.controller.createInstance(findHub());
+  const row = h.rows.get('findhub-test');
+  delete h.monitor.waInstances['findhub-test'];
+  await h.monitor.setInstance({ instanceName: row.name, instanceId: row.id, integration: Integration.GOOGLE_FIND_HUB, token: row.token, connectionStatus: 'connecting' });
+  assert.equal(h.monitor.waInstances['findhub-test'].integration, Integration.GOOGLE_FIND_HUB);
+  assert.equal(h.monitor.waInstances['findhub-test'].connectionStatus.state, 'connecting');
+  assert.equal(h.calls.filter(([name]) => name === 'wa.setSettings').length, 0);
+});

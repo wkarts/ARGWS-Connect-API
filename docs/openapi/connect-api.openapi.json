@@ -6577,6 +6577,345 @@
         }
       }
     },
+    "/findhub/auth/browser/cancel/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Cancelar tentativa de vinculação",
+        "operationId": "post_findhub_auth_browser_cancel_instancename",
+        "description": "Invalida a tentativa e descarta credenciais temporárias. Uma verificação final já iniciada não pode ser cancelada neste endpoint; aguarde o resultado e use desvincular. Não encerra sessões de outros canais ou contas.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelar tentativa de vinculação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserCancelled"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserProof"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/complete/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Validar chave e concluir conexão Find Hub",
+        "operationId": "post_findhub_auth_browser_complete_instancename",
+        "description": "Recebe o callback finder_hw, verifica a chave contra o envelope da mesma conta, cifra as credenciais e tenta autenticar MCS e listar dispositivos. Só confirma READY após essa verificação. Pode levar até alguns minutos; Google pode recusar o protocolo privado. Não é homologação universal.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validar chave e concluir conexão Find Hub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserCompleteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/exchange/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Validar artefato do login Google",
+        "operationId": "post_findhub_auth_browser_exchange_instancename",
+        "description": "Troca o artefato temporário autorizado pelo usuário e verifica o e-mail retornado pelo Google. Exige apikey e prova da sessão. Não persiste senha, não aceita callback genérico e não marca a conta como conectada. A resposta fornece somente o endereço de desbloqueio.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validar artefato do login Google",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserExchangeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserExchangeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/start/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Iniciar vinculação assistida no navegador",
+        "operationId": "post_findhub_auth_browser_start_instancename",
+        "description": "Cria tentativa de dez minutos, sem autenticar. O Manager usa a extensão própria no Chrome/Edge desktop; exige aprovação explícita da origem e do servidor em cada tentativa. Não é OAuth público, não é login puramente web/mobile. Desvincule credenciais anteriores antes de iniciar outra conta.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Tentativa criada; usuário ainda precisa autorizar e autenticar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserStartRequest"
+              },
+              "example": {
+                "email": "operator@example.com"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/extension/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Obter extensão própria de autenticação",
+        "operationId": "get_findhub_auth_extension_instancename",
+        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ZIP da extensão própria, sem segredos ou chaves privadas.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/findhub/auth/import/{instanceName}": {
       "post": {
         "tags": [
@@ -6970,6 +7309,65 @@
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
+    "/findhub/disconnect/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Desvincular conta Google",
+        "operationId": "post_findhub_disconnect_instancename",
+        "description": "Interrompe o canal, remove credenciais, catálogo local, histórico e vínculos relacionados da instância. Não apaga dispositivos físicos nem a conta Google. Não altera credenciais ou conexões de instâncias WhatsApp. Aguarde eventual verificação final antes de desvincular.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desvincular conta Google",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDisconnected"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/findhub/locate/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
@@ -7167,6 +7565,80 @@
         "responses": {
           "204": {
             "description": "Vínculo removido; resposta sem corpo."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar vínculo Traccar do dispositivo",
+        "operationId": "get_findhub_traccar_deviceid_instancename",
+        "description": "Retorna somente o vínculo local do dispositivo pertencente à instância autorizada, ou null quando não configurado. Não consulta o catálogo de dispositivos de outros canais nem fornece uma API de administração remota do Traccar.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar vínculo Traccar do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindHubTraccarBinding"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -16939,7 +17411,31 @@
           },
           "ready": {
             "type": "boolean",
-            "description": "Indica credenciais persistidas; não comprova sozinho a disponibilidade de localização no Google."
+            "description": "True somente com credenciais validadas e transporte MCS autenticado no runtime atual; não garante que o smartphone forneça uma posição nova."
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "connectionState": {
+            "type": "string"
+          },
+          "pending": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "historyEnabled": {
+            "type": "boolean"
+          },
+          "minimumIntervalSeconds": {
+            "type": "integer"
+          },
+          "helper": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "ID público e versão da extensão opcional; indica mobileSupported=false e caminho de download autenticado."
           }
         }
       },
@@ -17184,6 +17680,204 @@
           },
           "traccarDeviceId": {
             "type": "string"
+          }
+        }
+      },
+      "FindHubBrowserStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "minLength": 3,
+            "maxLength": 320
+          }
+        }
+      },
+      "FindHubBrowserProof": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "FindHubBrowserExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "oauthToken"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "oauthToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "writeOnly": true,
+            "description": "Artefato temporário do login explicitamente autorizado na extensão; nunca enviar cookies arbitrários ou senha."
+          }
+        }
+      },
+      "FindHubBrowserCompleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "vaultKeys"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "vaultKeys": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536,
+            "writeOnly": true,
+            "description": "JSON do callback finder_hw. Outros domínios de segurança não são enviados pela extensão."
+          }
+        }
+      },
+      "FindHubBrowserSession": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "state",
+          "authMode",
+          "expiresAt",
+          "loginUrl"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "description": "Segredo temporário da vinculação; não registrar em logs, URL ou webhook."
+          },
+          "state": {
+            "const": "WAITING_USER"
+          },
+          "authMode": {
+            "const": "browser-extension"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "loginUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "browserRequired": {
+            "const": true
+          },
+          "helperRequired": {
+            "const": true
+          }
+        }
+      },
+      "FindHubBrowserExchangeResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "unlockUrl"
+        ],
+        "properties": {
+          "state": {
+            "const": "WAITING_VAULT_KEY"
+          },
+          "unlockUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "FindHubBrowserResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "email",
+          "connected"
+        ],
+        "properties": {
+          "state": {
+            "const": "READY"
+          },
+          "email": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubBrowserCancelled": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "const": "CANCELLED"
+          }
+        }
+      },
+      "FindHubDisconnected": {
+        "type": "object",
+        "required": [
+          "state",
+          "connected"
+        ],
+        "properties": {
+          "state": {
+            "const": "WAITING_AUTH"
+          },
+          "connected": {
+            "const": false
           }
         }
       },

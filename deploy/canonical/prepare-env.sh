@@ -47,4 +47,6 @@ path.write_text(text)
 PYENV
 chmod 600 .env
 echo "Stack ${STACK_NAME} preparada."
-python3 ./prepare-findhub-env.py --env-file .env "$@"
+if ! python3 ./prepare-findhub-env.py --env-file .env "$@"; then
+  echo "AVISO: Find Hub requer ajuste de configuracao; outros canais nao foram bloqueados. Nenhuma chave invalida foi substituida." >&2
+fi

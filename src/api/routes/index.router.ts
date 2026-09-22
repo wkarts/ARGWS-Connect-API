@@ -5,6 +5,7 @@ import { authGuard } from '@api/guards/auth.guard';
 import { instanceExistsGuard, instanceLoggedGuard } from '@api/guards/instance.guard';
 import Telemetry from '@api/guards/telemetry.guard';
 import { ChannelRouter } from '@api/integrations/channel/channel.router';
+import { findHubChannelBoundary } from '@api/integrations/channel/findhub/findhub-boundary.guard';
 import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
@@ -38,7 +39,7 @@ router.use('/operations', new OperationsRouter().router);
 router.use('/diagnostics', new DiagnosticsRouter().router);
 const serverConfig = configService.get('SERVER');
 const databaseConfig = configService.get<Database>('DATABASE');
-const guards = [instanceExistsGuard, instanceLoggedGuard, authGuard['apikey']];
+const guards = [instanceExistsGuard, instanceLoggedGuard, authGuard['apikey'], findHubChannelBoundary];
 
 const telemetry = new Telemetry();
 

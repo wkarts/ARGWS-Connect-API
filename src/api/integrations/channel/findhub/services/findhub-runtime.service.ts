@@ -27,7 +27,7 @@ export class FindHubStartupService {
     interactiveMessages: false,
     media: false,
     profile: false,
-    privacy: true,
+    privacy: false,
     labels: false,
     receipts: false,
     businessProfile: false,
@@ -46,6 +46,8 @@ export class FindHubStartupService {
   private readonly authBroker: FindHubAuthBrokerService;
   private readonly traccar = new FindHubTraccarService();
   private protocol?: FindHubProtocolClient;
+  private readonly locating = new Set<string>();
+  private generation = 0;
   private tracking = new Map<string, NodeJS.Timeout>();
   private instance = { name: '', id: '', token: '', integration: FINDHUB_INTEGRATION };
 
@@ -76,6 +78,10 @@ export class FindHubStartupService {
   public get token() {
     return this.instance.token;
   }
+  public get transportReady(): boolean {
+    return this.stateConnection.state === 'open' && this.protocol?.ready === true;
+  }
+
   public get connectionStatus() {
     return this.stateConnection;
   }
@@ -107,10 +113,18 @@ export class FindHubStartupService {
     this.protocol = new FindHubProtocolClient(loaded.credentials, loaded.sharedKey, clientUuid, (credentials) =>
       this.authBroker.persistCredentials(this.instance.id, credentials),
     );
-    await this.protocol.connect();
-    await this.refreshDevices();
-    await this.setState('open');
-    await this.restoreTracking();
+    try {
+      await this.setState('connecting');
+      await this.protocol.connect();
+      await this.refreshDevices();
+      await this.authBroker.setAuthState(this.instance.id, 'READY');
+      await this.setState('open');
+      await this.restoreTracking();
+    } catch {
+      await this.closeClient();
+      await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
+      throw new Error('Não foi possível validar a conexão Google Find Hub. A conta não foi marcada como conectada.');
+    }
     return { instance: { instanceName: this.instance.name, status: 'open' }, auth: { state: 'READY' } };
   }
 
@@ -120,6 +134,7 @@ export class FindHubStartupService {
   }
 
   public async closeClient(): Promise<void> {
+    this.generation++;
     for (const timer of this.tracking.values()) clearInterval(timer);
     this.tracking.clear();
     await this.protocol?.close().catch(() => undefined);
@@ -207,7 +222,18 @@ export class FindHubStartupService {
   public async locate(deviceId: string): Promise<FindHubPosition | null> {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     const device = await this.device(deviceId);
-    const positions = await this.protocol.locate(device);
+    if (this.locating.has(deviceId)) throw new Error('Uma localização deste dispositivo já está em andamento.');
+    const generation = this.generation;
+    const protocol = this.protocol;
+    this.locating.add(deviceId);
+    let positions: FindHubPosition[];
+    try {
+      positions = await protocol.locate(device);
+    } finally {
+      this.locating.delete(deviceId);
+    }
+    if (generation !== this.generation || protocol !== this.protocol)
+      throw new Error('A conexão de localização foi encerrada.');
     if (!positions.length) return null;
     const position = positions[0];
     await this.persistPosition(device, position);
@@ -267,6 +293,13 @@ export class FindHubStartupService {
     });
   }
 
+  public async traccarBinding(deviceId: string): Promise<any> {
+    const device = await this.device(deviceId);
+    return await (this.prisma as any).findHubTraccarBinding.findFirst({
+      where: { deviceId: device.id, instanceId: this.instance.id },
+    });
+  }
+
   public async setTraccar(deviceId: string, config: FindHubTraccarConfig): Promise<any> {
     const device = await this.device(deviceId);
     return await (this.prisma as any).findHubTraccarBinding.upsert({
@@ -315,13 +348,16 @@ export class FindHubStartupService {
     if (previous) clearInterval(previous);
 
     const timer = setInterval(() => {
-      void this.locate(deviceId).catch(async () => {
-        await this.emit(FINDHUB_EVENTS.ERROR, {
-          operation: 'tracking',
-          deviceId,
-          message: 'Location refresh failed',
-        });
-      });
+      if (this.locating.has(deviceId)) return;
+      void this.locate(deviceId)
+        .catch(async () => {
+          await this.emit(FINDHUB_EVENTS.ERROR, {
+            operation: 'tracking',
+            deviceId,
+            message: 'Location refresh failed',
+          });
+        })
+        .catch(() => undefined);
     }, intervalSeconds * 1000);
 
     timer.unref?.();

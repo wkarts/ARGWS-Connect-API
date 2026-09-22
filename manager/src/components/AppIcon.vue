@@ -6,6 +6,7 @@ const brandIcons: Record<string, string> = {
 }
 
 const icons: Record<string, string[]> = {
+  location: ['M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0z','M15 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0'],
   home: ['M3 11.5 12 4l9 7.5','M5.5 10.5V20h13v-9.5','M9 20v-6h6v6'],
   radio: ['M8.5 15.5a5 5 0 0 1 0-7','M15.5 8.5a5 5 0 0 1 0 7','M5.7 18.3a9 9 0 0 1 0-12.6','M18.3 5.7a9 9 0 0 1 0 12.6','M12 12h.01'],
   channels: ['M6 7h12','M6 12h12','M6 17h12','M3 7h.01','M3 12h.01','M3 17h.01'],

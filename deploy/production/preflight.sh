@@ -3,7 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 python3 ./prepare-operations-env.py --check
 export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
-python3 ./prepare-findhub-env.py --env-file .env --check
+if ! python3 ./prepare-findhub-env.py --env-file .env --check; then
+  echo "AVISO: Find Hub indisponivel ate corrigir sua configuracao. A validacao dos demais canais continua." >&2
+fi
 
 [[ -f .env ]] || { echo "ERRO: .env inexistente. Execute ./prepare-env.sh."; exit 1; }
 

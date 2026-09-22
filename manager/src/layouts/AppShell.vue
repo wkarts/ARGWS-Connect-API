@@ -9,6 +9,7 @@ import { applicationVersionLabel, featureEnabled } from '@/config/runtime'
 
 const route = useRoute(), router = useRouter(), session = useSessionStore(), ui = useUiStore()
 onMounted(() => ui.applyTheme())
+const props = defineProps<{ navigationGroups?: Array<{ title: string; items: Array<{ label: string; to: string; icon: string; permission?: string; feature?: string }> }> }>()
 const groups = [
   { title: 'PRINCIPAL', items: [{ label:'Visão Geral', to:'/', icon:'home' }] },
   { title: 'COMUNICAÇÃO', items: [
@@ -18,6 +19,7 @@ const groups = [
     { label:'Mensagens', to:'/mensagens', icon:'mail', permission:'messages.read', feature:'messages' },
     { label:'Contatos', to:'/contatos', icon:'users', permission:'messages.read', feature:'contacts' },
   ]},
+  { title: 'LOCALIZAÇÃO', items: [{ label:'Google Find Hub', to:'/findhub', icon:'location', permission:'instances.read' }] },
   { title: 'VOZ', items: [
     { label:'Chamadas', to:'/chamadas', icon:'phone', permission:'pbx.read', feature:'voice' },
     { label:'Ramais', to:'/ramais', icon:'hash', permission:'pbx.read', feature:'voiceExtensions' },
@@ -42,7 +44,7 @@ const groups = [
     { label:'Configurações', to:'/configuracoes', icon:'settings', feature:'settings' },
   ]},
 ]
-const visibleGroups = computed(() => groups
+const visibleGroups = computed(() => (props.navigationGroups || groups)
   .map(g => ({...g, items:g.items.filter((i:any)=>(!i.permission || session.hasPermission(i.permission)) && (!i.feature || featureEnabled(i.feature, false)))}))
   .filter(g=>g.items.length))
 async function logout(){ await session.logout(); router.push('/login') }

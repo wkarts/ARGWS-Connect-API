@@ -39,7 +39,14 @@ export class FindHubSpotClient {
     const token = await this.auth.serviceToken(this.credentials, 'spot');
     return await new Promise<Buffer>((resolve, reject) => {
       const client = http2.connect(GOOGLE_ENDPOINTS.spotAuthority);
-      client.once('error', reject);
+      client.once('error', (error) => {
+        client.destroy();
+        reject(error);
+      });
+      client.setTimeout(30_000, () => {
+        client.destroy();
+        reject(new Error('Google Spot request timed out'));
+      });
       const request = client.request({
         ':method': 'POST',
         ':path': `${GOOGLE_ENDPOINTS.spotPath}/${method}`,
@@ -54,7 +61,23 @@ export class FindHubSpotClient {
         const status = Number(headers[':status'] || 0);
         if (status !== 200) reject(new Error(`Google Spot request failed (${status})`));
       });
-      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      let size = 0;
+      request.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > 1048576) {
+          request.close();
+          client.destroy();
+          reject(new Error('Google Spot response too large'));
+          return;
+        }
+        chunks.push(Buffer.from(chunk));
+      });
+      request.on('trailers', (headers) => {
+        if (headers['grpc-status'] && String(headers['grpc-status']) !== '0') {
+          client.close();
+          reject(new Error('Google Spot rejected the request'));
+        }
+      });
       request.on('end', () => {
         client.close();
         try {

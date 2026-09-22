@@ -249,6 +249,7 @@ export function providerCapabilities(value: any): ProviderCapabilitySet {
     return {
       ...baseCapabilities,
       messaging: false,
+      privacy: false,
       contacts: false,
       chats: false,
       groups: false,

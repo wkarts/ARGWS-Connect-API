@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppShell from '@/layouts/AppShell.vue'
+import FindHubInstanceCard from '@/components/FindHubInstanceCard.vue'
+import { isFindHub, findHubPath } from '@/services/findhub-channel'
 import PageHeader from '@/components/PageHeader.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import StatusPill from '@/components/StatusPill.vue'
@@ -58,7 +60,7 @@ async function create() {
   if (!form.value.name.trim()) return
   creating.value = true
   try {
-    await connect.createConnection({
+    const result = await connect.createConnection({
       instanceName: form.value.name.trim(),
       integration: form.value.mode,
       token: secureToken(),
@@ -67,6 +69,10 @@ async function create() {
     })
     createOpen.value = false
     feedback.value = 'Instância criada com sucesso.'
+    if (form.value.mode === 'GOOGLE-FIND-HUB') {
+      await router.push(findHubPath(String(result?.instance?.instanceId || form.value.name.trim())))
+      return
+    }
     await load()
   } catch (e) {
     feedback.value = friendlyError(e)
@@ -80,7 +86,7 @@ onMounted(load)
 
 <template>
   <AppShell>
-    <PageHeader title="Instâncias" description="Acompanhe seus canais e escolha a tecnologia de conexão de cada número.">
+    <PageHeader title="Instâncias" description="Administre conexões de comunicação e contas dos canais de localização.">
       <button class="btn primary" @click="openCreate"><AppIcon name="plus" :size="17"/>Nova instância</button>
     </PageHeader>
 
@@ -95,7 +101,9 @@ onMounted(load)
     <EmptyState v-else-if="!filtered.length" icon="radio" title="Nenhuma instância encontrada" description="Quando houver conexões cadastradas, elas aparecerão aqui."/>
 
     <div v-else class="instance-grid">
-      <article v-for="item in filtered" :key="item.id" class="instance-card" @click="router.push(`/instancias/${encodeURIComponent(item.id)}`)">
+      <template v-for="item in filtered" :key="item.id">
+      <FindHubInstanceCard v-if="isFindHub(item)" :item="item" />
+      <article v-else class="instance-card" @click="router.push(`/instancias/${encodeURIComponent(item.id)}`)">
         <div class="instance-card-head">
           <div class="instance-avatar"><img v-if="item.avatar" :src="item.avatar" alt=""/><AppIcon v-else name="radio"/></div>
           <div><strong>{{ item.name }}</strong><span>{{ item.profileName || item.number || 'Sem perfil conectado' }}</span></div>
@@ -114,6 +122,7 @@ onMounted(load)
           <button type="button" class="card-link instance-card-action instance-card-open" @click.stop="router.push(`/instancias/${encodeURIComponent(item.id)}`)">Abrir <AppIcon name="arrow" :size="15"/></button>
         </footer>
       </article>
+      </template>
     </div>
 
     <TestMessageModal v-if="testInstance" :key="testInstance.id" :instance-id="testInstance.id" :instance-name="testInstance.name" :provider="testInstance.provider" :connected="testInstance.status === 'connected'" @close="testInstance = null" />

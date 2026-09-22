@@ -101,6 +101,38 @@ export const findHubOperations = {
   'DELETE /findhub/traccar/{deviceId}/{instanceName}': operation('Remover vínculo com o Traccar', 'Remove apenas a integração desse dispositivo na instância. Não remove o smartphone do Google nem o cadastro remoto no Traccar.', {}, { responses: { '204': { description: 'Vínculo removido; resposta sem corpo.' }, ...errors } }),
 };
 
+// Browser-assisted producer is optional and is not a public Google OAuth authorization-code flow.
+const proofProperties = {
+  sessionId: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-fA-F-]{36}$' },
+  bridgeToken: { type: 'string', minLength: 32, maxLength: 128, writeOnly: true },
+};
+Object.assign(findHubSchemas, {
+  FindHubBrowserStartRequest: { type: 'object', additionalProperties: false, required: ['email'], properties: { email: { type: 'string', format: 'email', minLength: 3, maxLength: 320 } } },
+  FindHubBrowserProof: { type: 'object', additionalProperties: false, required: ['sessionId', 'bridgeToken'], properties: proofProperties },
+  FindHubBrowserExchangeRequest: { type: 'object', additionalProperties: false, required: ['sessionId', 'bridgeToken', 'oauthToken'], properties: { ...proofProperties, oauthToken: { type: 'string', minLength: 1, maxLength: 16384, writeOnly: true, description: 'Artefato temporário do login explicitamente autorizado na extensão; nunca enviar cookies arbitrários ou senha.' } } },
+  FindHubBrowserCompleteRequest: { type: 'object', additionalProperties: false, required: ['sessionId', 'bridgeToken', 'vaultKeys'], properties: { ...proofProperties, vaultKeys: { type: 'string', minLength: 1, maxLength: 65536, writeOnly: true, description: 'JSON do callback finder_hw. Outros domínios de segurança não são enviados pela extensão.' } } },
+  FindHubBrowserSession: { type: 'object', required: ['sessionId','bridgeToken','state','authMode','expiresAt','loginUrl'], properties: { ...findHubSchemas.FindHubAuthSession.properties, state: { const: 'WAITING_USER' }, authMode: { const: 'browser-extension' }, loginUrl: { type: 'string', format: 'uri' }, browserRequired: { const: true }, helperRequired: { const: true } } },
+  FindHubBrowserExchangeResult: { type: 'object', required: ['state','unlockUrl'], properties: { state: { const: 'WAITING_VAULT_KEY' }, unlockUrl: { type: 'string', format: 'uri' } } },
+  FindHubBrowserResult: { type: 'object', required: ['state','email','connected'], properties: { state: { const: 'READY' }, email: text, connected: { type: 'boolean' } } },
+  FindHubBrowserCancelled: { type: 'object', required: ['state'], properties: { state: { const: 'CANCELLED' } } },
+  FindHubDisconnected: { type: 'object', required: ['state','connected'], properties: { state: { const: 'WAITING_AUTH' }, connected: { const: false } } },
+});
+findHubSchemas.FindHubAuthStatus.properties = {
+  ...findHubSchemas.FindHubAuthStatus.properties,
+  ready: { type: 'boolean', description: 'True somente com credenciais validadas e transporte MCS autenticado no runtime atual; não garante que o smartphone forneça uma posição nova.' },
+  connected: { type: 'boolean' }, connectionState: text, pending: { type: ['object','null'], additionalProperties: true },
+  historyEnabled: { type: 'boolean' }, minimumIntervalSeconds: { type: 'integer' }, helper: { type: 'object', additionalProperties: true, description: 'ID público e versão da extensão opcional; indica mobileSupported=false e caminho de download autenticado.' },
+};
+Object.assign(findHubOperations, {
+  'POST /findhub/auth/browser/start/{instanceName}': operation('Iniciar vinculação assistida no navegador', 'Cria tentativa de dez minutos, sem autenticar. O Manager usa a extensão própria no Chrome/Edge desktop; exige aprovação explícita da origem e do servidor em cada tentativa. Não é OAuth público, não é login puramente web/mobile. Desvincule credenciais anteriores antes de iniciar outra conta.', ref('FindHubBrowserSession'), { requestBody: body('FindHubBrowserStartRequest', {email:'operator@example.com'}), responses: response(ref('FindHubBrowserSession'), 'Tentativa criada; usuário ainda precisa autorizar e autenticar.', '201') }),
+  'POST /findhub/auth/browser/exchange/{instanceName}': operation('Validar artefato do login Google', 'Troca o artefato temporário autorizado pelo usuário e verifica o e-mail retornado pelo Google. Exige apikey e prova da sessão. Não persiste senha, não aceita callback genérico e não marca a conta como conectada. A resposta fornece somente o endereço de desbloqueio.', ref('FindHubBrowserExchangeResult'), { requestBody: body('FindHubBrowserExchangeRequest') }),
+  'POST /findhub/auth/browser/complete/{instanceName}': operation('Validar chave e concluir conexão Find Hub', 'Recebe o callback finder_hw, verifica a chave contra o envelope da mesma conta, cifra as credenciais e tenta autenticar MCS e listar dispositivos. Só confirma READY após essa verificação. Pode levar até alguns minutos; Google pode recusar o protocolo privado. Não é homologação universal.', ref('FindHubBrowserResult'), { requestBody: body('FindHubBrowserCompleteRequest') }),
+  'POST /findhub/auth/browser/cancel/{instanceName}': operation('Cancelar tentativa de vinculação', 'Invalida a tentativa e descarta credenciais temporárias. Uma verificação final já iniciada não pode ser cancelada neste endpoint; aguarde o resultado e use desvincular. Não encerra sessões de outros canais ou contas.', ref('FindHubBrowserCancelled'), { requestBody: body('FindHubBrowserProof') }),
+  'GET /findhub/auth/extension/{instanceName}': operation('Obter extensão própria de autenticação', 'Entrega o pacote ZIP versionado e self-hosted da extensão opcional. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.', {}, { responses: { '200': { description: 'ZIP da extensão própria, sem segredos ou chaves privadas.', content: { 'application/zip': { schema: { type: 'string', format: 'binary' } } } }, ...errors } }),
+  'GET /findhub/traccar/{deviceId}/{instanceName}': operation('Consultar vínculo Traccar do dispositivo', 'Retorna somente o vínculo local do dispositivo pertencente à instância autorizada, ou null quando não configurado. Não consulta o catálogo de dispositivos de outros canais nem fornece uma API de administração remota do Traccar.', { oneOf: [ref('FindHubTraccarBinding'),{type:'null'}] }),
+  'POST /findhub/disconnect/{instanceName}': operation('Desvincular conta Google', 'Interrompe o canal, remove credenciais, catálogo local, histórico e vínculos relacionados da instância. Não apaga dispositivos físicos nem a conta Google. Não altera credenciais ou conexões de instâncias WhatsApp. Aguarde eventual verificação final antes de desvincular.', ref('FindHubDisconnected')),
+});
+
 // Event transport envelopes differ. These describe the shared data field, not an invented wire envelope.
 export const findHubEventMessages = {
   'findhub.auth.update': { description: 'Nome reservado no catálogo atual. O Auth Broker não emite esse evento nos métodos start/import/status; acompanhe a autenticação pelo endpoint de status.', data: { type: 'object', additionalProperties: true } },

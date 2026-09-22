@@ -10,7 +10,7 @@ O canal Google Find Hub não implementa configurações de mensagens e chamadas 
 
 Campos genéricos inativos (`false`, strings vazias) são tolerados; o sinalizador `qrcode` não inicia pareamento nesse canal. Configurações ativas de mensagens/chamadas, Proxy e Chatwoot são rejeitadas com HTTP 400 **antes de criar ou excluir qualquer registro**. Essas integrações não devem ser anunciadas como disponíveis para Find Hub enquanto não forem implementadas.
 
-A criação não autentica uma conta Google. Sem credenciais importadas, a conexão retorna `WAITING_AUTH` e `ready=false`. O fluxo de `CredentialProvider` e suas limitações estão no [guia principal](google-find-hub.md). Não é necessário trocar a chave de criptografia para resolver este erro.
+A criação não autentica uma conta Google. Sem credenciais importadas, a conexão retorna `WAITING_AUTH` e `ready=false`. Os fluxos de autenticação assistida por extensão e `CredentialProvider`, com suas limitações estão no [guia principal](google-find-hub.md). Não é necessário trocar a chave de criptografia para resolver este erro.
 
 ## Configurações, presença e exclusão
 

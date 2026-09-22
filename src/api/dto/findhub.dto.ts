@@ -23,3 +23,14 @@ export class FindHubTraccarDto {
   url: string;
   deviceId: string;
 }
+
+export class FindHubBrowserProofDto {
+  sessionId: string;
+  bridgeToken: string;
+}
+export class FindHubBrowserExchangeDto extends FindHubBrowserProofDto {
+  oauthToken: string;
+}
+export class FindHubBrowserCompleteDto extends FindHubBrowserProofDto {
+  vaultKeys: string;
+}

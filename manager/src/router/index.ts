@@ -1,15 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { appBasePath, featureEnabled, runtime } from '@/config/runtime'
 import { useSessionStore } from '@/stores/session'
+import { connect } from '@/services/connect'
+import { findHubPath, isFindHub } from '@/services/findhub-channel'
 
 const routes = [
+  { path: '/findhub', component: () => import('@/views/findhub/FindHubAccountsView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
+  { path: '/findhub/:id/:section(conta|dispositivos|historico|integracoes|eventos)?', component: () => import('@/views/FindHubView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
   { path: '/login', component: () => import('@/views/auth/LoginView.vue'), meta: { public: true } },
   { path: '/primeiro-acesso', component: () => import('@/views/auth/SetupView.vue'), meta: { public: true, feature: 'users' } },
   { path: '/confirmacao', component: () => import('@/views/auth/VerifyView.vue'), meta: { public: true, feature: 'security' } },
   { path: '/', component: () => import('@/views/DashboardView.vue') },
   { path: '/instancias', component: () => import('@/views/InstancesView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id', component: () => import('@/views/InstanceView.vue'), meta: { permission: 'instances.read' } },
-  { path: '/instancias/:id/findhub', component: () => import('@/views/FindHubView.vue'), meta: { permission: 'instances.read' } },
+  { path: '/instancias/:id/findhub', redirect: (to: any) => findHubPath(String(to.params.id)), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes', component: () => import('@/views/IntegrationsView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes/:key', component: () => import('@/views/IntegrationDetailView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/modelos', component: () => import('@/views/LocalTemplatesView.vue'), meta: { permission: 'instances.read' } },
@@ -55,6 +59,17 @@ router.beforeEach(async (to) => {
   if (session.security?.enrollmentRequired && featureEnabled('security', false) && to.path !== '/seguranca') return '/seguranca'
   const permission = to.meta.permission as string | undefined
   if (permission && !session.hasPermission(permission)) return '/'
+  const scopedId = String(to.params?.id || to.query?.instance || '')
+  if (scopedId && (to.path.startsWith('/instancias/') || to.path.startsWith('/findhub/') || to.path === '/integracoes')) {
+    try {
+      const instance = await connect.connection(scopedId)
+      if (isFindHub(instance) && to.meta.channel !== 'findhub') {
+        const section = to.path.includes('/configuracao') ? 'eventos' : to.path.includes('/integracoes') ? 'integracoes' : 'conta'
+        return { path: findHubPath(scopedId, section), replace: true }
+      }
+      if (!isFindHub(instance) && to.meta.channel === 'findhub') return { path: '/findhub', replace: true }
+    } catch { return { path: '/instancias', replace: true } }
+  }
   return true
 })
 export default router

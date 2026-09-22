@@ -32,9 +32,9 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  // PUT and DELETE share the Traccar path: 11 distinct paths, 12 HTTP operations.
-  assert.equal(implemented.length, 11);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 12);
+  // The browser producer adds six paths; GET/PUT/DELETE share the Traccar path.
+  assert.equal(implemented.length, 17);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 19);
   assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
   assert.match(dedicated.info.description, /CredentialProvider/);
   assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);
@@ -81,4 +81,33 @@ test('Find Hub events describe actual data and do not claim an unimplemented aut
     assert.ok(events.components.messages[id]?.payload?.properties?.data, name);
   }
   assert.match(events.channels['findhub.auth.update'].description, /não emite/);
+});
+
+
+test('invalid optional Find Hub configuration does not abort other channels deployment', () => {
+  const os = require('node:os');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'findhub-optional-'));
+  try {
+    const envFile = path.join(directory, '.env');
+    const before = 'AUTHENTICATION_API_KEY=keep-fixture-key\nFINDHUB_CREDENTIALS_KEY=invalid-fixture-key\n';
+    fs.writeFileSync(envFile, before, { mode: 0o600 });
+    const strict = spawnSync(python, [path.join(root, 'scripts/prepare-findhub-env.py'), '--env-file', envFile, '--check', '--require-key'], { encoding: 'utf8' });
+    assert.notEqual(strict.status, 0, 'Explicit Find Hub activation must still reject an invalid key');
+    assert.equal(fs.readFileSync(envFile, 'utf8'), before, 'Invalid credentials are never rotated');
+    const coverage = json('docs/operations/findhub-deployment-coverage.json');
+    const candidates = ['prepare-env.sh', 'preflight.sh', ...['canonical','cloudpanel','develop','dockge','homologation','production'].flatMap(name => [`deploy/${name}/prepare-env.sh`, `deploy/${name}/preflight.sh`])];
+    for (const file of candidates) {
+      const script = read(file);
+      const block = script.match(/if ! python3 \.\/prepare-findhub-env\.py[^\n]*\n[\s\S]*?\nfi/);
+      assert.ok(block, `Channel-only warning boundary missing in ${file}`);
+      assert.ok(script.includes('set -euo pipefail'), 'Global validation must remain strict');
+      fs.copyFileSync(path.join(root, 'scripts/prepare-findhub-env.py'), path.join(directory, 'prepare-findhub-env.py'));
+      const result = spawnSync('bash', ['-c', 'set -euo pipefail\n' + block[0] + '\necho OTHER_CHANNELS_CONTINUE'], { cwd: directory, encoding: 'utf8' });
+      assert.equal(result.status, 0, file + ': ' + result.stderr);
+      assert.match(result.stdout, /OTHER_CHANNELS_CONTINUE/);
+      assert.match(result.stderr, /AVISO/);
+      assert.equal(fs.readFileSync(envFile, 'utf8'), before);
+    }
+    assert.ok(coverage.apiServices.length >= 8);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
