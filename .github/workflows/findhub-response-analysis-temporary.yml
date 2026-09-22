@@ -28,12 +28,15 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/fix/findhub-auth-response-release
           git merge-base --is-ancestor 344748651c24b89f7bd990cb1b1d985073acd9f9 HEAD
-          test -z "$(git diff --name-only 344748651c24b89f7bd990cb1b1d985073acd9f9 HEAD -- . ':!.github/workflows/findhub-response-analysis-temporary.yml' ':!.github/findhub-response-correction')"
+          test -z "$(git diff --name-only 344748651c24b89f7bd990cb1b1d985073acd9f9 HEAD -- . ':!.github/workflows/findhub-response-analysis-temporary.yml' ':!.github/findhub-response-correction' ':!.github/workflows/auto-version-release.yml' ':!.github/workflows/findhub-extension-build.yml' ':!.github/workflows/findhub-extension-release.yml')"
           cat .github/findhub-response-correction/part{0..1} > /tmp/findhub-response.xz
           echo 'ce7a23b1343e2a7653665a1c818c139cc4250c5c80affb8fa418dafe31567fb1  /tmp/findhub-response.xz' | sha256sum --check
           xz -dc /tmp/findhub-response.xz > /tmp/findhub-response.patch
-          git apply --check /tmp/findhub-response.patch
-          git apply --index /tmp/findhub-response.patch
+          exclude=(--exclude=.github/workflows/auto-version-release.yml --exclude=.github/workflows/findhub-extension-build.yml --exclude=.github/workflows/findhub-extension-release.yml)
+          git apply --check "${exclude[@]}" /tmp/findhub-response.patch
+          git apply --index "${exclude[@]}" /tmp/findhub-response.patch
+          git apply --check .github/findhub-response-correction/firebase.patch
+          git apply --index .github/findhub-response-correction/firebase.patch
           node scripts/build-findhub-extension.cjs
           npm run docs:generate
       - name: Install unchanged API dependencies
@@ -60,6 +63,7 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/$branch"
           test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$GITHUB_SHA"
           git diff --exit-code 344748651c24b89f7bd990cb1b1d985073acd9f9 -- src/api/integrations/channel/whatsapp src/api/integrations/channel/meta src/api/compat/meta-cloud src/api/provider package-lock.json .github/actions deploy docker-compose.yaml docker-compose.dev.yaml
+          git diff --exit-code HEAD -- .github/workflows/auto-version-release.yml .github/workflows/findhub-extension-build.yml .github/workflows/findhub-extension-release.yml
           git rm -r .github/findhub-response-correction .github/workflows/findhub-response-analysis-temporary.yml
           git add -u
           git add -f public/findhub-auth.zip

@@ -1,0 +1,96 @@
+diff --git a/docs/guides/google-find-hub.md b/docs/guides/google-find-hub.md
+index 5ef9945..fe7bccc 100644
+--- a/docs/guides/google-find-hub.md
++++ b/docs/guides/google-find-hub.md
+@@ -261,3 +261,5 @@ Referências primárias para o contrato de instalação e protocolo (consulta de
+ - https://github.com/leonboe1/GoogleFindMyTools/blob/main/Auth/fcm_receiver.py
+ 
+ **Atualize API/Manager e extensão juntos. Não rotacione `FINDHUB_CREDENTIALS_KEY`, não remova volumes e não desconecte WhatsApp para aplicar esta correção. Testes de CI não substituem login Google, posição real e envio Traccar com dispositivos próprios.**
++
++O registro nativo do receptor também utiliza FID Firebase de 22 caracteres Base64URL; respostas sem autorização de instalação são recusadas antes de abrir o login. Referência de formato: https://github.com/firebase/firebase-js-sdk/blob/main/packages/installations/src/helpers/generate-fid.ts.
+diff --git a/src/api/integrations/channel/findhub/protocol/fcm.client.ts b/src/api/integrations/channel/findhub/protocol/fcm.client.ts
+index e66977b..02a129d 100644
+--- a/src/api/integrations/channel/findhub/protocol/fcm.client.ts
++++ b/src/api/integrations/channel/findhub/protocol/fcm.client.ts
+@@ -95,13 +95,16 @@ async function gcmRegister(checkinData: {
+   });
+   const text = await response.text();
+   if (!response.ok || !text.startsWith('token=')) throw new Error('Google GCM registration failed');
+-  return { token: text.slice('token='.length), appId };
++  const token = text.slice('token='.length).trim();
++  if (!token || /\s/.test(token)) throw new Error('Invalid Google GCM registration token');
++  return { token, appId };
+ }
+ 
+ async function fcmInstall(): Promise<{ fid: string; authToken: string; refreshToken?: string }> {
+   const fidBytes = randomBytes(17);
+   fidBytes[0] = 0x70 + (fidBytes[0] % 0x10);
+-  const fid = fidBytes.toString('base64');
++  // Firebase installations require exactly 22 URL-safe base64 characters (132 bits).
++  const fid = fidBytes.toString('base64url').slice(0, 22);
+   const heartbeat = Buffer.from(JSON.stringify({ heartbeats: [], version: 2 })).toString('base64');
+   const response = await fetch(GOOGLE_ENDPOINTS.fcmInstall, {
+     method: 'POST',
+@@ -122,9 +125,18 @@ async function fcmInstall(): Promise<{ fid: string; authToken: string; refreshTo
+     }),
+   });
+   const data = await responseJson(response);
++  const assignedFid = data.fid || fid;
++  if (
++    typeof assignedFid !== 'string' ||
++    !/^[cdef][A-Za-z0-9_-]{21}$/.test(assignedFid) ||
++    typeof data.authToken?.token !== 'string' ||
++    !data.authToken.token
++  ) {
++    throw new Error('Invalid Firebase installation response');
++  }
+   return {
+-    fid: data.fid || fid,
+-    authToken: data.authToken?.token,
++    fid: assignedFid,
++    authToken: data.authToken.token,
+     refreshToken: data.refreshToken,
+   };
+ }
+diff --git a/test/findhub-browser-auth.test.cjs b/test/findhub-browser-auth.test.cjs
+index 07d99f9..f003dcb 100644
+--- a/test/findhub-browser-auth.test.cjs
++++ b/test/findhub-browser-auth.test.cjs
+@@ -269,3 +269,37 @@ test('unknown error text cannot leak via diagnostic context; service phase remai
+  await assert.rejects(client.serviceToken({email:'operator@example.com',androidId:'1234',aasToken:'secret'},'adm'),e=>
+   e.message.includes('etapa=adm; http=403; motivo=UNCLASSIFIED') && !e.message.includes('USER-SECRET'));
+ });
++
++
++function nativeRegistrationHarness({ missingInstallationToken = false } = {}) {
++  const requests = []; const checkin = Buffer.alloc(18);
++  checkin[0] = 57; checkin.writeBigUInt64LE(12345678901234567n, 1);
++  checkin[9] = 65; checkin.writeBigUInt64LE(9876543210123456n, 10);
++  const globals = { fetch: async (url, options) => {
++    requests.push({url,options});
++    if (requests.length === 1) return {ok:true,arrayBuffer:async()=>checkin};
++    if (requests.length === 2) return {ok:true,text:async()=>'token=synthetic-gcm\n'};
++    if (requests.length === 3) {
++      const data=JSON.parse(options.body); assert.match(data.fid,/^[cdef][A-Za-z0-9_-]{21}$/);
++      return {ok:true,text:async()=>JSON.stringify({fid:data.fid,authToken:missingInstallationToken?{}:{token:'synthetic-install'}})};
++    }
++    if (requests.length === 4) return {ok:true,text:async()=>JSON.stringify({token:'synthetic-registration'})};
++    throw Error('Unexpected registration replay');
++  }};
++  const {FindHubFcmClient}=load('src/api/integrations/channel/findhub/protocol/fcm.client.ts',{},globals);
++  return {requests,client:new FindHubFcmClient(null,async()=>{},()=>{})};
++}
++test('native Google registration uses 22-character URL-safe FID and preserves decimal check-in identity',async()=>{
++  const h=nativeRegistrationHarness();const credentials=await h.client.ensureRegistered();
++  assert.equal(h.requests.length,4);assert.equal(credentials.gcm.androidId,'12345678901234567');
++  assert.equal(credentials.gcm.token,'synthetic-gcm');
++  assert.equal(new URLSearchParams(h.requests[1].options.body).get('device'),credentials.gcm.androidId);
++  const registration=JSON.parse(h.requests[3].options.body);
++  assert.ok(registration.web.endpoint.endsWith('/synthetic-gcm'));assert.ok(!registration.web.endpoint.includes('\n'));
++  assert.equal(await h.client.ensureRegistered(),credentials);assert.equal(h.requests.length,4);
++});
++test('registration stops before push registration if Firebase does not return installation authorization',async()=>{
++  const h=nativeRegistrationHarness({missingInstallationToken:true});
++  await assert.rejects(h.client.ensureRegistered(),/Invalid Firebase installation response/);
++  assert.equal(h.requests.length,3);assert.equal(h.client.currentCredentials,null);
++});
