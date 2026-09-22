@@ -178,3 +178,44 @@ O pacote da extensão é reproduzível e versionado em `public/findhub-auth.zip`
 Os preparadores/preflights gerais tratam a configuração Find Hub como módulo opcional: uma chave Google inválida produz aviso sem impedir implantação dos canais WhatsApp. O preparador dedicado e `--check --require-key` continuam retornando falha; o cofre continua recusando chaves inválidas e nenhuma é rotacionada automaticamente. Corrija a configuração antes de ativar uma conta Google. Não foi relaxada a validação de banco, Redis, credenciais administrativas ou imagens.
 
 Na restauração de instâncias, uma exceção do Find Hub é capturada no seu próprio caminho, sem rejeitar tarefas de restauração dos demais canais. O runtime não trata TLS estabelecido como autenticação MCS: aguarda LoginResponse. Localizações têm limite de requisições pendentes e não sobrepõem consultas do mesmo dispositivo. Essas proteções reduzem impacto no processo compartilhado; não equivalem a isolamento de recursos em processos separados.
+
+
+## 11. Correção da vinculação e atualização da extensão 0.1.1
+
+Atualize **API/Manager e extensão juntos**. Não troque a chave `FINDHUB_CREDENTIALS_KEY`, não apague volumes e não importe tokens antigos. Na página de extensões do Chrome/Edge, substitua os arquivos da mesma pasta e clique em **Recarregar**. Confirme a versão **0.1.1**, recarregue o Manager e inicie uma nova tentativa. O ID público da extensão foi preservado; não há necessidade de desvincular contas WhatsApp.
+
+O ícone oficial é fornecido em PNG 16/32/48/128, preservando o original enviado pelo proprietário. O empacotador inclui os ícones tanto na lista de extensões quanto na barra do navegador. O ZIP é gerado sem downloads externos e validado pelos testes.
+
+### Falhas corrigidas
+
+O campo `Email` da resposta de troca do Google é opcional; a ausência dele não invalida sozinha um `Token`. O cliente recusa divergência explícita de conta e exige uma solicitação de token ADM bem-sucedida para a conta informada antes de prosseguir. Isso não substitui a validação da chave `finder_hw` nem a conexão final. Cookies URI-escaped são decodificados uma vez, preservando os caracteres `+`/`=`. Nenhum token de uso único é ressubmetido automaticamente.
+
+A troca usa `node:https`, com um agente **exclusivo do Find Hub**, HTTP/1.1 sem anúncio ALPN. Permanecem TLS 1.2 mínimo, autoridades certificadoras do ambiente e verificação de hostname; nenhum `rejectUnauthorized=false`, captcha bypass, atestado inventado ou alteração do `fetch` global foi introduzido. Timeout absoluto de 30 segundos por solicitação e limite de 64 KiB na resposta. A etapa de troca pode realizar duas solicitações; o Manager permite 65 segundos.
+
+O Manager agora interrompe o progresso após falhas, protege a troca de artefatos contra eventos duplicados e recusa extensões anteriores a 0.1.1. Uma falha terminal confirmada pelo servidor não gera outra chamada de cancelamento inválida; falhas de rede ainda tentam cancelar a sessão. A extensão reconfere o cookie depois de criar/carregar a aba autorizada para não perder uma resposta rápida, sem reenviar o cookie que existia antes da tentativa.
+
+### Diagnóstico seguro
+
+O HTTP continua usando o formato de erro já existente. A mensagem tem prefixo `[FH-AUTH-NNNN]`; o diagnóstico técnico registra o mesmo código numérico em `details.code`, sem corpo HTTP, email, cookie, senha, PIN, URL de challenge ou tokens. Nenhuma mudança no sanitizador global foi necessária.
+
+| Código | Interpretação |
+|---|---|
+| 9101 | Artefato local inválido. |
+| 9102 | Google recusou a credencial (`BadAuthentication`); não repetir o mesmo artefato. |
+| 9103 | Google requer interação adicional; cumprir no próprio Google. |
+| 9104 | Conta diferente da solicitada. |
+| 9105 | Token exigido não foi devolvido. |
+| 9106 | Resposta inesperada, inválida ou acima do limite. |
+| 9107 | Timeout de rede. |
+| 9108 | Falha de validação TLS; não desativar certificados. |
+| 9109 | Falha de transporte, indisponibilidade ou limitação do Google. |
+| 9110 | Tentativa expirada/cancelada. |
+| 9111 | Falha interna de troca sem exposição de detalhes. |
+| 9112 | Chave de localização não validada. |
+| 9113 | Conexão final não confirmada. |
+
+### Evidência e limitações
+
+O diagnóstico fornecido pelo operador em 22/09/2026 contém quatro HTTP 400 nas tentativas de autenticação/cancelamento às 15:36:24Z e 15:39:50Z; o exportador anterior preservou somente fingerprint e rota sanitizada. Ele **não permite afirmar** qual resposta bruta o Google produziu. As correções atacam incompatibilidades verificadas no código e passam por regressões com respostas controladas; a autenticação ponta a ponta com a conta do operador continua necessitando de nova execução autorizada. Não há promessa de superar restrições da conta Google.
+
+Referências técnicas (consulta em 22/09/2026): `leonboe1/GoogleFindMyTools/Auth/aas_token_retrieval.py` trata Email como opcional; `simon-weber/gpsoauth/gpsoauth/__init__.py` documenta o transporte legado sem ALPN; documentação Chrome Extensions de `cookies` e `manifest/icons`. Os projetos foram usados como referência de comportamento, sem instalação ou tradução de código GPL.

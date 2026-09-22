@@ -529,7 +529,7 @@ export const current = {
 
   async findHubBrowserAuth(id: string, operation: 'start' | 'exchange' | 'complete' | 'cancel', data: any) {
     return withInstance(id, async (_item, name, token) => api<any>(`/findhub/auth/browser/${operation}/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data, timeout: operation === 'complete' ? 240000 : 45000,
+      method: 'POST', token, data, timeout: operation === 'complete' ? 240000 : operation === 'exchange' ? 65000 : 45000,
     }))
   },
   async findHubDownloadHelper(id: string) {

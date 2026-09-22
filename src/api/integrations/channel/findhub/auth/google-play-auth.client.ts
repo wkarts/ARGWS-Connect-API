@@ -1,51 +1,83 @@
-import { GOOGLE_ADM_CONFIG, GOOGLE_ENDPOINTS, GOOGLE_OAUTH_SCOPES } from '../findhub.constants';
+import { GOOGLE_ADM_CONFIG, GOOGLE_OAUTH_SCOPES } from '../findhub.constants';
 import { FindHubAasCredentials } from '../findhub.types';
+import { FindHubAuthError, safeFindHubAuthError } from './findhub-auth.error';
+import { GoogleAuthTransport, requestGoogleAuth } from './google-auth.transport';
 
 function parseKeyValue(text: string): Record<string, string> {
-  return Object.fromEntries(
-    text
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => {
-        const index = line.indexOf('=');
-        return index < 0 ? [line, ''] : [line.slice(0, index), line.slice(index + 1)];
-      }),
-  );
-}
-
-async function request(form: URLSearchParams): Promise<Record<string, string>> {
-  const response = await fetch(GOOGLE_ENDPOINTS.androidAuth, {
-    method: 'POST',
-    signal: AbortSignal.timeout(30_000),
-    redirect: 'error',
-    headers: {
-      'User-Agent': 'GoogleAuth/1.4 (gzip)',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept-Encoding': 'identity',
-      Accept: '*/*',
-      Connection: 'Keep-Alive',
-    },
-    body: form.toString(),
-  });
-  const text = await response.text();
-  const data = parseKeyValue(text);
-  if (!response.ok || data.Error || data.ErrorDetail || data.ErrorMsg) {
-    throw new Error(`Google account authentication failed (${data.Error || response.status})`);
+  if (Buffer.byteLength(text) > 65536 || /^\s*</.test(text)) throw new FindHubAuthError(9106);
+  const data: Record<string, string> = Object.create(null);
+  for (const line of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    if (!line) continue;
+    const index = line.indexOf('=');
+    if (index < 1) throw new FindHubAuthError(9106);
+    const key = line.slice(0, index);
+    if (Object.prototype.hasOwnProperty.call(data, key)) throw new FindHubAuthError(9106);
+    data[key] = line.slice(index + 1);
   }
   return data;
 }
 
+function loginToken(value: unknown): string {
+  if (typeof value !== 'string' || !value || value.length > 16384) throw new FindHubAuthError(9101);
+  let token = value;
+  // Decode URI-escaped cookie bytes once only. '+' is a literal token byte, never a form-space.
+  if (/%[0-9a-f]{2}/i.test(token)) {
+    try {
+      token = decodeURIComponent(token);
+    } catch {
+      throw new FindHubAuthError(9101);
+    }
+  }
+  if (
+    !token ||
+    /\s/.test(token) ||
+    Array.from(token).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
+  )
+    throw new FindHubAuthError(9101);
+  return token;
+}
+
+function accountEmail(value: string): string {
+  const email = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new FindHubAuthError(9101);
+  return email;
+}
+
 export class GooglePlayAuthClient {
-  /** Redeem the one-use token produced by the user's explicit Google login. */
+  constructor(private readonly transport: GoogleAuthTransport = requestGoogleAuth) {}
+
+  private async request(form: URLSearchParams): Promise<Record<string, string>> {
+    let response: Awaited<ReturnType<GoogleAuthTransport>>;
+    try {
+      response = await this.transport(form.toString());
+    } catch (error) {
+      throw safeFindHubAuthError(error, 9109);
+    }
+    if (response.status === 429 || response.status >= 500) throw new FindHubAuthError(9109);
+    if (response.status >= 300 && response.status < 400) throw new FindHubAuthError(9103);
+    const data = parseKeyValue(response.text);
+    if (data.Error === 'BadAuthentication') throw new FindHubAuthError(9102);
+    if (['NeedsBrowser', 'CaptchaRequired', 'InvalidSecondFactor', 'WebLoginRequired'].includes(data.Error)) {
+      throw new FindHubAuthError(9103);
+    }
+    if (response.status < 200 || response.status >= 300 || data.Error || data.ErrorDetail || data.ErrorMsg) {
+      throw new FindHubAuthError(9106);
+    }
+    return data;
+  }
+
+  /** Redeem once; an absent optional Email field is not a failed login. */
   public async exchange(email: string, oauthToken: string, androidId: string): Promise<FindHubAasCredentials> {
-    if (!oauthToken || oauthToken.length > 16384) throw new Error('Token de vinculação Google inválido.');
+    const requestedEmail = accountEmail(email);
     const form = new URLSearchParams({
       accountType: 'HOSTED_OR_GOOGLE',
-      Email: email,
+      Email: requestedEmail,
       has_permission: '1',
       add_account: '1',
       ACCESS_TOKEN: '1',
-      Token: oauthToken,
+      Token: loginToken(oauthToken),
       service: 'ac2dm',
       source: 'android',
       androidId,
@@ -57,12 +89,18 @@ export class GooglePlayAuthClient {
       client_sig: GOOGLE_ADM_CONFIG.clientSig,
       callerSig: GOOGLE_ADM_CONFIG.clientSig,
     });
-    const result = await request(form);
-    if (!result.Token || !result.Email) throw new Error('O Google não confirmou a credencial e a conta.');
-    if (result.Email.trim().toLowerCase() !== email.trim().toLowerCase()) {
-      throw new Error('A conta autenticada no Google é diferente da conta solicitada.');
-    }
-    return { email: result.Email, androidId, aasToken: result.Token };
+    const result = await this.request(form);
+    if (!result.Token) throw new FindHubAuthError(9105);
+    if (result.Email && accountEmail(result.Email) !== requestedEmail) throw new FindHubAuthError(9104);
+    const credentials = {
+      email: result.Email ? accountEmail(result.Email) : requestedEmail,
+      androidId,
+      aasToken: result.Token,
+    };
+    // Prove that Google accepts the selected account + master token for Find Hub before proceeding.
+    // This is a second service request, not a retry/redemption of the one-use browser artifact.
+    await this.serviceToken(credentials, 'adm');
+    return credentials;
   }
 
   public async serviceToken(credentials: FindHubAasCredentials, scope: 'adm' | 'spot'): Promise<string> {
@@ -84,9 +122,10 @@ export class GooglePlayAuthClient {
       sdk_version: '17',
       google_play_services_version: GOOGLE_ADM_CONFIG.googlePlayServicesVersion,
     });
-    const result = await request(form);
-    const token = result.Auth;
-    if (!token) throw new Error(`Google ${scope} token was not returned`);
-    return token;
+    const result = await this.request(form);
+    if (result.Email && accountEmail(result.Email) !== accountEmail(credentials.email))
+      throw new FindHubAuthError(9104);
+    if (!result.Auth) throw new FindHubAuthError(9105);
+    return result.Auth;
   }
 }

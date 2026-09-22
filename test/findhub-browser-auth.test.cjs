@@ -7,16 +7,18 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
-function load(relative, overrides = {}, globals = {}) {
+function load(relative, overrides = {}, globals = {}, cache = new Map()) {
+  if (cache.has(relative)) return cache.get(relative).exports;
   const source = fs.readFileSync(path.join(root, relative), 'utf8');
   const code = ts.transpileModule(source, { fileName: relative, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
   const module = { exports: {} };
+  cache.set(relative, module);
   vm.runInNewContext(code, { Buffer, URL, URLSearchParams, AbortSignal, setTimeout, clearTimeout, setInterval, clearInterval,
     process: { env: {} }, console, module, exports: module.exports,
     require(name) {
       if (Object.hasOwn(overrides, name)) return overrides[name];
-      if (['crypto', 'tls', 'http2'].includes(name)) return require(name);
-      if (name.startsWith('.')) return load(path.normalize(path.join(path.dirname(relative), name + '.ts')), overrides, globals);
+      if (['crypto', 'tls', 'http2', 'node:https'].includes(name)) return require(name);
+      if (name.startsWith('.')) return load(path.normalize(path.join(path.dirname(relative), name + '.ts')), overrides, globals, cache);
       throw new Error('Unexpected module: ' + name);
     }, ...globals }, { filename: relative });
   return module.exports;
@@ -61,7 +63,7 @@ test('complete validates owner-key encryption before saving; connection checked 
   const result = await h.service.complete(h.runtime, { ...session, vaultKeys: h.vaultKeys });
   assert.equal(result.connected,true); assert.equal(result.state,'READY');
   assert.deepEqual(h.stages,['exchange','import','connect']); assert.equal(h.service.pending(h.runtime),null);
-  await assert.rejects(h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys}),/expirada/);
+  await assert.rejects(h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys}),/FH-AUTH-9110/);
 });
 test('wrong account key is refused without persisting any bundle', async () => {
   const h = harness(); const session = await h.service.start(h.runtime,'operator@example.com');
@@ -79,29 +81,140 @@ for (const failure of ['exchangeFailure','spotFailure','connectFailure']) test(`
 test('cancel during token exchange wins over a late Google response',async()=>{
   let release;const wait = new Promise(r=>release=r); const h=harness({wait});const session=await h.service.start(h.runtime,'operator@example.com');
   const operation = h.service.exchange(h.runtime,{...session,oauthToken:'synthetic'});h.service.cancel(h.runtime,session);release();
-  await assert.rejects(operation,/Não foi possível/);assert.equal(h.stored.length,0);assert.equal(h.service.pending(h.runtime),null);
+  await assert.rejects(operation,/FH-AUTH-9110/);assert.equal(h.stored.length,0);assert.equal(h.service.pending(h.runtime),null);
 });
 test('wrong instance, wrong bridge secret, expiry and duplicate exchange are rejected',async()=>{
  const h=harness();const session=await h.service.start(h.runtime,'operator@example.com');
- await assert.rejects(h.service.exchange({...h.runtime,instanceId:'other'}, {...session,oauthToken:'synthetic'}),/não autorizada/);
- await assert.rejects(h.service.exchange(h.runtime, {...session,bridgeToken:'wrong',oauthToken:'synthetic'}),/não autorizada/);
+ await assert.rejects(h.service.exchange({...h.runtime,instanceId:'other'}, {...session,oauthToken:'synthetic'}),/FH-AUTH-9110/);
+ await assert.rejects(h.service.exchange(h.runtime, {...session,bridgeToken:'wrong',oauthToken:'synthetic'}),/FH-AUTH-9110/);
  await h.service.exchange(h.runtime,{...session,oauthToken:'synthetic'});
  await assert.rejects(h.service.exchange(h.runtime,{...session,oauthToken:'synthetic'}),/já foi processado/);
  h.service.attempts.get(session.sessionId).expiresAt=0;
- await assert.rejects(h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys}),/expirada/);h.service.abort(h.runtime);
+ await assert.rejects(h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys}),/FH-AUTH-9110/);h.service.abort(h.runtime);
 });
 test('vault parser rejects foreign domains, oversized response and malformed byte values',()=>{
  const {findHubVaultKeys}=harness();
  for(const value of [null,'{}','not-json','x'.repeat(65537),JSON.stringify({finder_hw:[{key:[0]}]}),JSON.stringify({finder_hw:[{key:Array(32).fill(-1)}]})])assert.throws(()=>findHubVaultKeys(value));
 });
-test('AAS exchange binds the Google-returned account and never submits password',async()=>{
- let forms=[];let response='Token=synthetic-aas\nEmail=operator@example.com';
- const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts',{}, {fetch:async(url,request)=>{forms.push(new URLSearchParams(request.body));assert.equal(request.redirect,'error');return {ok:true,text:async()=>response};}});
- const client=new GooglePlayAuthClient();assert.equal((await client.exchange('operator@example.com','synthetic-oauth','0011')).aasToken,'synthetic-aas');
- assert.equal(forms[0].has('Passwd'),false);assert.equal(forms[0].get('Token'),'synthetic-oauth');
- response='Token=synthetic-aas\nEmail=other@example.com';await assert.rejects(client.exchange('operator@example.com','synthetic-oauth','0011'),/diferente/);
- response='Token=synthetic-aas';await assert.rejects(client.exchange('operator@example.com','synthetic-oauth','0011'),/não confirmou/);
+test('AAS validates the requested account and the resulting Find Hub service permission', async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  const forms = [];
+  const client = new GooglePlayAuthClient(async (body) => {
+    const form = new URLSearchParams(body); forms.push(form);
+    return { status: 200, text: form.has('Token') ? 'Token=synthetic-aas\nEmail=operator@example.com' : 'Auth=synthetic-adm' };
+  });
+  assert.equal((await client.exchange('operator@example.com', 'synthetic-oauth', '0011')).aasToken, 'synthetic-aas');
+  assert.equal(forms.length, 2);
+  assert.equal(forms[0].get('Token'), 'synthetic-oauth');
+  assert.equal(forms[1].get('EncryptedPasswd'), 'synthetic-aas');
+  assert.equal(forms[1].get('service'), 'oauth2:https://www.googleapis.com/auth/android_device_manager');
+  assert.ok(forms.every(form => !form.has('Passwd') && !form.has('password')));
 });
+
+test('regression: Token without optional Email proceeds only after a real service-token response', async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  let count = 0;
+  const client = new GooglePlayAuthClient(async () => ({ status: 200, text: ++count === 1 ? 'Token=synthetic-aas' : 'Auth=synthetic-adm' }));
+  const credentials = await client.exchange('operator@example.com', 'synthetic-oauth', '0011');
+  assert.equal(credentials.email, 'operator@example.com'); assert.equal(count, 2);
+  let rejectedCount = 0;
+  const rejected = new GooglePlayAuthClient(async () => ({ status: 200, text: ++rejectedCount === 1 ? 'Token=synthetic-aas' : 'Error=BadAuthentication' }));
+  await assert.rejects(rejected.exchange('operator@example.com', 'synthetic-oauth', '0011'), error => error.code === 9102);
+});
+
+test('explicit different Google identity is refused in exchange and service verification', async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  for (const mismatchAt of [1, 2]) {
+    let count = 0;
+    const client = new GooglePlayAuthClient(async () => ({ status: 200, text: (++count === 1 ? 'Token=synthetic-aas' : 'Auth=synthetic-adm') + (count === mismatchAt ? '\nEmail=other@example.com' : '') }));
+    await assert.rejects(client.exchange('operator@example.com', 'synthetic-oauth', '0011'), error => error.code === 9104);
+    assert.equal(count, mismatchAt);
+  }
+});
+
+test('cookie URI encoding is normalized once, preserving plus and equals', async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  for (const token of ['oauth2_4/opaque+test==', 'oauth2_4%2Fopaque%2Btest%3D%3D']) {
+    const client = new GooglePlayAuthClient(async body => {
+      const form = new URLSearchParams(body);
+      if (form.has('Token')) assert.equal(form.get('Token'), 'oauth2_4/opaque+test==');
+      return { status: 200, text: form.has('Token') ? 'Token=test' : 'Auth=test' };
+    });
+    await client.exchange('operator@example.com', token, '0011');
+  }
+  const noNetwork = new GooglePlayAuthClient(async () => { throw Error('Must not request'); });
+  for (const token of ['', 'x%0Ay', 'a b', 'a%EF%FF', 'x'.repeat(16385)]) {
+    await assert.rejects(noNetwork.exchange('operator@example.com', token, '0011'), error => error.code === 9101);
+  }
+});
+
+for (const [status, text, code] of [
+  [403, 'Error=BadAuthentication\nErrorDetail=DO_NOT_EXPOSE', 9102],
+  [403, 'Error=NeedsBrowser\nUrl=https://example.invalid/?token=DO_NOT_EXPOSE', 9103],
+  [200, 'Auth=DO_NOT_EXPOSE', 9105], [200, '<html>DO_NOT_EXPOSE</html>', 9106],
+  [302, 'Location=DO_NOT_EXPOSE', 9103], [429, 'Error=DO_NOT_EXPOSE', 9109],
+  [503, 'DO_NOT_EXPOSE', 9109], [200, 'Token=one\nToken=DO_NOT_EXPOSE', 9106],
+]) test(`safe Google failure status=${status} code=${code}`, async () => {
+  const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+  let requests = 0;
+  const client = new GooglePlayAuthClient(async () => { requests++; return { status, text }; });
+  await assert.rejects(client.exchange('operator@example.com', 'synthetic-oauth', '0011'), error =>
+    error.code === code && !JSON.stringify(error).includes('DO_NOT_EXPOSE') && !error.message.includes('DO_NOT_EXPOSE'));
+  assert.equal(requests, 1, 'one-use artifact must never be retried automatically');
+});
+
+function transportHarness({ status = 200, chunks = [Buffer.from('Token=synthetic')], failure, stalled = false } = {}) {
+  const { EventEmitter } = require('node:events');
+  const options = [], destinations = [], bodies = [], agents = []; let timeout;
+  const { requestGoogleAuth } = load('src/api/integrations/channel/findhub/auth/google-auth.transport.ts', {
+    'node:https': {
+      Agent: class { constructor(options) { agents.push(options); } },
+      request(url, opts, callback) {
+        options.push(opts); destinations.push(url);
+        const req = new EventEmitter(); req.destroy = () => {};
+        req.end = body => {
+          bodies.push(body);
+          queueMicrotask(() => {
+            if (stalled) return;
+            if (failure) { req.emit('error', Object.assign(new Error('DO_NOT_EXPOSE'), { code: failure })); return; }
+            const res = new EventEmitter(); res.statusCode = status; res.destroy = () => {};
+            callback(res); for (const chunk of chunks) res.emit('data', chunk); res.emit('end');
+          });
+        };
+        return req;
+      },
+    },
+  }, { setTimeout: fn => { timeout = fn; return { unref() {} }; }, clearTimeout: () => {},
+    fetch: () => { throw Error('Global fetch must not be used for Android auth'); } });
+  return { requestGoogleAuth, options, destinations, bodies, agents, expire: () => timeout() };
+}
+
+test('private auth uses isolated HTTPS/1.1 without ALPN; CA/hostname verification and TLS 1.2 remain enabled', async () => {
+  const h = transportHarness(); assert.equal((await h.requestGoogleAuth('Token=synthetic')).status, 200);
+  assert.equal(h.destinations[0], 'https://android.clients.google.com/auth');
+  assert.equal(h.options[0].method, 'POST'); assert.equal(h.options[0].headers['User-Agent'], 'GoogleAuth/1.4');
+  for (const opts of [h.agents[0], h.options[0]]) {
+    assert.equal(opts.rejectUnauthorized, true); assert.equal(opts.minVersion, 'TLSv1.2');
+    assert.equal(opts.ALPNProtocols.length, 0); assert.equal(opts.checkServerIdentity, undefined);
+  }
+  assert.equal(h.options[0].headers['Content-Length'], Buffer.byteLength(h.bodies[0]));
+});
+
+test('transport enforces absolute timeout and bounded response, no insecure retries', async () => {
+  const stalled = transportHarness({ stalled: true }); const pending = stalled.requestGoogleAuth('test=1');
+  const rejected = assert.rejects(pending, error => error.code === 9107); stalled.expire(); await rejected;
+  const large = transportHarness({ chunks: [Buffer.alloc(65537)] });
+  await assert.rejects(large.requestGoogleAuth('test=1'), error => error.code === 9106);
+  assert.equal(stalled.bodies.length, 1); assert.equal(large.bodies.length, 1);
+});
+
+for (const [failure, code] of [['CERT_HAS_EXPIRED', 9108], ['ERR_TLS_CERT_ALTNAME_INVALID', 9108], ['ETIMEDOUT', 9107], ['ENOTFOUND', 9109]]) {
+  test(`transport maps ${failure} without leaking details`, async () => {
+    const h = transportHarness({ failure });
+    await assert.rejects(h.requestGoogleAuth('Token=DO_NOT_EXPOSE'), error => error.code === code && !error.message.includes('DO_NOT_EXPOSE'));
+  });
+}
+
 for(const provider of ['WHATSAPP-BAILEYS','WHATSAPP-ZAPO','WHATSAPP-BUSINESS'])test(`${provider}: new boundary does not change WhatsApp dispatch or query Google`,async()=>{
  const {findHubChannelBoundary}=load('src/api/integrations/channel/findhub/findhub-boundary.guard.ts',{'@api/server.module':{waMonitor:{waInstances:{unit:{integration:provider}}},prismaRepository:{instance:{findUnique(){throw new Error('Unexpected query');}}}},'@exceptions':{BadRequestException:Error}});
  let next=0;await findHubChannelBoundary({params:{instanceName:'unit'},originalUrl:'/message/sendText/unit'},null,()=>next++);assert.equal(next,1);

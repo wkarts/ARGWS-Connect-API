@@ -1,6 +1,6 @@
 # Connect|API Find Hub Auth — extensão opcional
 
-ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.0.
+ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.1.
 
 Esta é uma implementação experimental própria para Chrome/Edge desktop, não um login OAuth público Google. Extraia o ZIP servido pela sua API e use Carregar sem compactação na página de extensões (modo desenvolvedor). Volte ao Manager e inicie Conectar conta. A janela **da extensão** mostra a origem solicitante, o servidor destinatário e a conta: aprove somente destinos de sua confiança.
 
@@ -9,3 +9,11 @@ Esta é uma implementação experimental própria para Chrome/Edge desktop, não
 O protocolo privado pode entregar credenciais Google de alcance amplo. Tokens não são exibidos ou copiados manualmente e não devem aparecer nos logs. A página destinatária já autorizada recebe os artefatos e os envia ao backend próprio por HTTPS. XSS nessa página comprometeria os dados; não vincule contas em instalações não confiáveis.
 
 **Limites:** sem homologação com conta Google real; desafios/restrições do Google podem impedir o fluxo. Não instala aplicativos no smartphone rastreado, mas exige esta extensão no navegador usado para vincular. Chrome Android, Safari iOS e Firefox não são suportados por esta implementação. Não substitui um futuro fluxo puramente web/mobile. Não coletar PIN, senha, captcha ou passkey.
+
+## Atualização 0.1.1
+
+Substitua o conteúdo da pasta da extensão já instalada, clique em **Recarregar** em `chrome://extensions` (ou `edge://extensions`) e recarregue o Manager. O ID não mudou. A API também precisa da correção desta versão; trocar somente a extensão não corrige a troca de credenciais no servidor. Não reutilize a sessão anterior.
+
+O ícone é a imagem oficial fornecida pelo proprietário, apenas redimensionada para 16/32/48/128 px, mantendo fundo, desenho e proporções. SHA-256 do PNG 1024 original: `6968e17ff8f88417d50c88b5082008ecfb93cad840834c6dc9e034e2f6709926`.
+
+A leitura do artefato é repetida após a abertura e carregamento da aba autorizada para não perder respostas rápidas. Continua exigindo consentimento, foco, origem correta e uma tentativa ativa. Nenhum cookie preexistente da tentativa anterior é reenviado.

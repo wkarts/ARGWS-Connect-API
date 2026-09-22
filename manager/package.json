@@ -16,7 +16,7 @@
     "test:communication-privacy": "node --test scripts/privacy-test-message.test.mjs",
     "test:instance-token": "node --test scripts/instance-token.test.mjs",
     "test:diagnostics": "node --test scripts/diagnostics.test.mjs",
-    "test:findhub-channel": "node --test scripts/findhub-channel.test.mjs"
+    "test:findhub-channel": "node --test scripts/findhub-channel.test.mjs scripts/findhub-auth-flow.test.mjs"
   },
   "dependencies": {
     "pinia": "3.0.3",

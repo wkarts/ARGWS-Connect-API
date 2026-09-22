@@ -7,19 +7,19 @@ function evaluate(name,dependencies={},globals={}) { const module={exports:{}}; 
 const policy=evaluate('policy.js');
 class Hook {listeners=[];addListener=(fn)=>this.listeners.push(fn);removeListener=(fn)=>{this.listeners=this.listeners.filter(v=>v!==fn);};fire(...args){return this.listeners.map(fn=>fn(...args));}}
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
-function harness(permission=true) {
- let nextId=20,cookieReads=0; const tabs=new Map(),removed=[],scripts=[],ports=[];
+function harness(permission=true, fastCookie=false) {
+ let nextId=20,cookieReads=0; let cookie={value:'previous-session'}; const tabs=new Map(),removed=[],scripts=[],ports=[];
  const chrome={runtime:{id:'dcnejnlafhanlldafkijledmonimkgng',getURL:name=>'chrome-extension://dcnejnlafhanlldafkijledmonimkgng/'+name,onConnectExternal:new Hook(),onMessage:new Hook()},
-  permissions:{contains:async()=>permission},windows:{get:async()=>({focused:true})},
-  cookies:{onChanged:new Hook(),get:async()=>{cookieReads++;return {value:'previous-session'};}},
+  permissions:{contains:async()=>permission},windows:{get:async()=>({focused:true}),onFocusChanged:new Hook()},
+  cookies:{onChanged:new Hook(),get:async()=>{cookieReads++;return cookie;}},
   scripting:{executeScript:async data=>scripts.push(data)},
-  tabs:{onUpdated:new Hook(),onRemoved:new Hook(),create:async({url})=>{const row={id:nextId++,url,active:true,windowId:1};tabs.set(row.id,row);return row;},get:async id=>tabs.get(id),update:async(id,data)=>Object.assign(tabs.get(id),data),remove:async id=>{removed.push(id);tabs.delete(id);}},
+  tabs:{onUpdated:new Hook(),onActivated:new Hook(),onRemoved:new Hook(),create:async({url})=>{const row={id:nextId++,url,active:true,windowId:1};tabs.set(row.id,row);if(fastCookie && url.includes('EmbeddedSetup')){cookie={name:'oauth_token',domain:'accounts.google.com',value:'fast-new'};chrome.cookies.onChanged.fire({removed:false,cookie});}return row;},get:async id=>tabs.get(id),update:async(id,data)=>Object.assign(tabs.get(id),data),remove:async id=>{removed.push(id);tabs.delete(id);}},
  };
  evaluate('background.js',{'./policy.js':policy},{chrome});
  function connect(url='https://manager.example.com/manager/findhub/unit/conta',frameId=0){const messages=[];const port={name:'connect-findhub-auth-v1',sender:{url,frameId,tab:{id:10}},onMessage:new Hook(),onDisconnect:new Hook(),postMessage:m=>messages.push(m),disconnect(){this.disconnected=true;this.onDisconnect.fire();}};chrome.runtime.onConnectExternal.fire(port);ports.push(port);return {port,messages,send:m=>port.onMessage.fire(m)};}
  function approvalSender(){const tab=[...tabs.values()].find(t=>t.url.endsWith('/approve.html'));return {id:chrome.runtime.id,url:chrome.runtime.getURL('approve.html'),frameId:0,tab:{id:tab?.id}};}
  async function command(message,sender=approvalSender()) {let answer;chrome.runtime.onMessage.fire(message,sender,data=>answer=data);await flush();return answer;}
- return {chrome,tabs,removed,scripts,connect,command,approvalSender,reads:()=>cookieReads};
+ return {chrome,tabs,removed,scripts,connect,command,approvalSender,reads:()=>cookieReads,setCookie:value=>{cookie=value;}};
 }
 const request={type:'BEGIN',sessionId:'11111111-1111-4111-8111-111111111111',email:'operator@example.com',apiOrigin:'https://api.example.com'};
 test('manifest is self-hosted, has no remote code/storage and optional Google-only host access',()=>{
@@ -62,4 +62,36 @@ test('a frame or another extension cannot silently start linking',async()=>{
 });
 test('denied optional permission does not open Google or read cookies',async()=>{
  const h=harness(false);const c=h.connect();c.send(request);await flush();assert.ok((await h.command({type:'APPROVE'})).error);assert.equal(h.reads(),0);assert.equal(h.tabs.size,0);
+});
+
+
+test('fast Google cookie arriving before tabs.create resolves is not lost', async () => {
+  const h = harness(true, true); const c = h.connect(); c.send(request); await flush();
+  await h.command({type:'APPROVE'}); await flush();
+  assert.equal(c.messages.filter(message => message.type === 'OAUTH_TOKEN').length, 1);
+  assert.equal(c.messages.find(message => message.type === 'OAUTH_TOKEN').oauthToken, 'fast-new');
+  c.send({type:'CANCEL',sessionId:request.sessionId}); await flush();
+});
+
+test('rechecking the owned tab never replays the baseline or duplicates an emitted artifact', async () => {
+  const h = harness(); const c = h.connect(); c.send(request); await flush(); await h.command({type:'APPROVE'});
+  const google = [...h.tabs.values()].find(tab => tab.url.includes('EmbeddedSetup'));
+  h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'}); await flush();
+  assert.equal(c.messages.filter(message=>message.type==='OAUTH_TOKEN').length,0);
+  h.setCookie({value:'one-new'}); h.chrome.tabs.onActivated.fire({tabId:google.id}); await flush();
+  h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'}); await flush();
+  assert.equal(c.messages.filter(message=>message.type==='OAUTH_TOKEN').length,1);
+  c.send({type:'CANCEL',sessionId:request.sessionId}); await flush();
+});
+
+test('0.1.1 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
+  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.1');
+  assert.equal(policy.VERSION, manifest.version);
+  for (const size of [16,32,48,128]) {
+    const icon = fs.readFileSync(path.join(folder,manifest.icons[size]));
+    assert.equal(icon.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+    assert.equal(icon.readUInt32BE(16),size);assert.equal(icon.readUInt32BE(20),size);
+    assert.equal(manifest.action.default_icon[size],manifest.icons[size]);
+  }
+  assert.match(read('approve.html'), /icons\/icon-128\.png/);
 });

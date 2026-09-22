@@ -6,6 +6,7 @@ import { FindHubAasCredentials } from '../findhub.types';
 import { encodeSecurityUnlockExtras } from '../protocol/findhub-proto';
 import { FindHubSpotClient } from '../protocol/spot.client';
 import { FindHubStartupService } from '../services/findhub-runtime.service';
+import { FindHubAuthError, safeFindHubAuthError } from './findhub-auth.error';
 import { GooglePlayAuthClient } from './google-play-auth.client';
 
 type Stage = 'WAITING_USER' | 'EXCHANGING' | 'WAITING_VAULT_KEY' | 'VERIFYING';
@@ -109,7 +110,7 @@ export class FindHubBrowserAuthService {
       typeof proof.bridgeToken !== 'string' ||
       !timingSafeEqual(digest(proof.bridgeToken), attempt.secretHash)
     ) {
-      throw new Error('Vinculação expirada, cancelada ou não autorizada.');
+      throw new FindHubAuthError(9110);
     }
     return attempt;
   }
@@ -160,9 +161,14 @@ export class FindHubBrowserAuthService {
       url.searchParams.set('kdi', encodeSecurityUnlockExtras(data.sessionId).toString('base64'));
       url.searchParams.set('authuser', credentials.email);
       return { state: attempt.stage, unlockUrl: url.toString() };
-    } catch {
+    } catch (error) {
       this.discard(data.sessionId);
-      throw new Error('Não foi possível validar o login Google. Confirme a conta e inicie outra vinculação.');
+      try {
+        runtime.auth().cancel(runtime.instanceName, data.sessionId, data.bridgeToken);
+      } catch {
+        /* Already expired/cancelled. Never clear a previously persisted account here. */
+      }
+      throw safeFindHubAuthError(error, 9111);
     }
   }
 
@@ -184,7 +190,7 @@ export class FindHubBrowserAuthService {
           /* Try retained key epochs. */
         }
       }
-      if (!sharedKey) throw new Error('Chave não corresponde à conta Google.');
+      if (!sharedKey) throw new FindHubAuthError(9112);
       this.require(runtime, data);
       await runtime.auth().importBundle(runtime.instanceName, {
         ...data,
@@ -194,9 +200,10 @@ export class FindHubBrowserAuthService {
         sharedKey: sharedKey.toString('base64'),
       });
       await runtime.connect();
+      if (!runtime.transportReady) throw new FindHubAuthError(9113);
       return { state: 'READY', email: attempt.email, connected: runtime.transportReady };
-    } catch {
-      throw new Error('Não foi possível concluir a validação Google Find Hub. Nenhuma conexão foi confirmada.');
+    } catch (error) {
+      throw safeFindHubAuthError(error, 9113);
     } finally {
       this.discard(data.sessionId);
     }
