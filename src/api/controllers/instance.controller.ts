@@ -302,7 +302,9 @@ export class InstanceController {
       });
 
       this.waMonitor.waInstances[instance.instanceName] = instance;
-      this.waMonitor.delInstanceTime(instance.instanceName);
+      if (instanceData.integration !== Integration.GOOGLE_FIND_HUB) {
+        this.waMonitor.delInstanceTime(instance.instanceName);
+      }
 
       // set events
       await eventManager.setInstance(instance.instanceName, instanceData);
@@ -546,6 +548,11 @@ export class InstanceController {
 
       if (!state) {
         throw new BadRequestException('The "' + instanceName + '" instance does not exist');
+      }
+
+      if (instance?.integration === Integration.GOOGLE_FIND_HUB) {
+        if (state === 'open') return await this.connectionState({ instanceName });
+        return await instance.connect();
       }
 
       if (state == 'open') {
