@@ -36,6 +36,11 @@ export enum Events {
   MESSAGING_HISTORY_SET = 'messaging-history.set',
   REMOVE_INSTANCE = 'remove.instance',
   LOGOUT_INSTANCE = 'logout.instance',
+  FINDHUB_AUTH_UPDATE = 'findhub.auth.update',
+  FINDHUB_DEVICES_UPDATED = 'findhub.devices.updated',
+  FINDHUB_LOCATION_UPDATED = 'findhub.location.updated',
+  FINDHUB_TRACKING_UPDATE = 'findhub.tracking.update',
+  FINDHUB_ERROR = 'findhub.error',
 }
 
 export declare namespace wa {
@@ -155,4 +160,5 @@ export const Integration = {
   WHATSAPP_BUSINESS: 'WHATSAPP-BUSINESS',
   WHATSAPP_BAILEYS: 'WHATSAPP-BAILEYS',
   WHATSAPP_ZAPO: 'WHATSAPP-ZAPO',
+  GOOGLE_FIND_HUB: 'GOOGLE-FIND-HUB',
 };

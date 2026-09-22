@@ -10,7 +10,7 @@
     "start:prod": "node dist/main",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
-    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && npm run test:manager-contract",
+    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && npm run test:manager-contract && npm run test:findhub",
     "test:manager-contract": "node --test test/manager-feature-contract.test.cjs",
     "test:voip": "node --test test/zapo-voip-*.test.cjs test/zapo-call-lifecycle.test.cjs",
     "test:video": "npm run build:connect-voip && node --test test/connect-video-*.test.cjs test/video-media.test.cjs test/connect-voip-*.test.cjs test/connect-call-adapter.test.cjs",
@@ -33,7 +33,8 @@
     "runtime:deps:check": "node ./scripts/check-zapo-runtime.cjs",
     "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs",
     "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs",
-    "build:connect-voip": "node scripts/build-connect-voip.cjs"
+    "build:connect-voip": "node scripts/build-connect-voip.cjs",
+    "test:findhub": "tsx ./test/findhub-protocol.contract.test.ts"
   },
   "repository": {
     "type": "git",

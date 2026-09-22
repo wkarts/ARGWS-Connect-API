@@ -57,6 +57,9 @@ export type ProviderCapabilitySet = {
   voice: boolean
   qrCode: boolean
   pairingCode: boolean
+  devices?: boolean
+  location?: boolean
+  tracking?: boolean
 }
 
 export type ConnectionItem = {

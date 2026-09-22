@@ -302,6 +302,51 @@
           "$ref": "#/components/messages/ConnectEvent"
         }
       }
+    },
+    "findhub.auth.update": {
+      "description": "Evento `findhub.auth.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_findhub_auth_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "findhub.devices.updated": {
+      "description": "Evento `findhub.devices.updated` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_findhub_devices_updated",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "findhub.location.updated": {
+      "description": "Evento `findhub.location.updated` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_findhub_location_updated",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "findhub.tracking.update": {
+      "description": "Evento `findhub.tracking.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_findhub_tracking_update",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
+    },
+    "findhub.error": {
+      "description": "Evento `findhub.error` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "subscribe": {
+        "operationId": "consume_findhub_error",
+        "message": {
+          "$ref": "#/components/messages/ConnectEvent"
+        }
+      }
     }
   },
   "components": {

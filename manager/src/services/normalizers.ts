@@ -199,6 +199,7 @@ export function overview(raw: any): Overview {
 
 export function normalizeProvider(value: any): WhatsAppProvider {
   const raw = str(value || 'WHATSAPP-BAILEYS').toUpperCase()
+  if (raw.includes('FIND-HUB') || raw.includes('FINDHUB')) return 'GOOGLE-FIND-HUB'
   if (raw.includes('ZAPO')) return 'WHATSAPP-ZAPO'
   if (raw.includes('BUSINESS') || raw.includes('META')) return 'WHATSAPP-BUSINESS'
   if (raw.includes('BAILEYS') || raw.includes('WHATSAPP')) return 'WHATSAPP-BAILEYS'
@@ -207,6 +208,7 @@ export function normalizeProvider(value: any): WhatsAppProvider {
 
 export function providerLabel(value: any) {
   const provider = normalizeProvider(value)
+  if (provider === 'GOOGLE-FIND-HUB') return 'Google Find Hub'
   if (provider === 'WHATSAPP-ZAPO') return 'ZAPO'
   if (provider === 'WHATSAPP-BUSINESS') return 'WhatsApp Business / Cloud API'
   if (provider === 'WHATSAPP-BAILEYS') return 'Baileys'
@@ -236,10 +238,41 @@ const baseCapabilities: ProviderCapabilitySet = {
   voice: false,
   qrCode: true,
   pairingCode: true,
+  devices: false,
+  location: false,
+  tracking: false,
 }
 
 export function providerCapabilities(value: any): ProviderCapabilitySet {
   const provider = normalizeProvider(value)
+  if (provider === 'GOOGLE-FIND-HUB') {
+    return {
+      ...baseCapabilities,
+      messaging: false,
+      contacts: false,
+      chats: false,
+      groups: false,
+      statusRead: false,
+      statusPublish: false,
+      presence: false,
+      chatState: false,
+      pnLid: false,
+      interactiveMessages: false,
+      media: false,
+      profile: false,
+      labels: false,
+      receipts: false,
+      businessProfile: false,
+      businessCatalog: false,
+      calls: false,
+      voice: false,
+      qrCode: false,
+      pairingCode: false,
+      devices: true,
+      location: true,
+      tracking: true,
+    }
+  }
   if (provider === 'WHATSAPP-ZAPO') {
     return { ...baseCapabilities, calls: true, voice: true, businessCatalog: true }
   }
@@ -295,6 +328,7 @@ function normalizeStatus(value: any): ConnectionItem['status'] {
 
 function normalizeChannel(value: any) {
   const s = str(value).toLowerCase()
+  if (s.includes('find-hub') || s.includes('findhub')) return 'Google Find Hub'
   if (s.includes('whatsapp') || s.includes('baileys') || s.includes('zapo') || s.includes('business')) return 'WhatsApp'
   if (s.includes('instagram')) return 'Instagram'
   if (s.includes('telegram')) return 'Telegram'

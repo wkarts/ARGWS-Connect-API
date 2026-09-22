@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-13T16:04:19.872Z",
+  "generatedAt": "2026-09-22T02:21:33.689Z",
   "version": "1.1.3",
-  "sourceDigest": "b3a2ee12472de2612fdb870da0ba6199df551f9bc7cbea2ada152e07d126b27c",
+  "sourceDigest": "8ec8dd7c77dcea528ac424d386245b3cc4a4cc619e8d0cab18fa3ff85030e380",
   "operations": [
     {
       "method": "GET",
@@ -422,6 +422,66 @@
       "method": "PUT",
       "path": "/dify/update/{difyId}/{instanceName}",
       "source": "src/api/integrations/chatbot/dify/routes/dify.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/auth/import/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/auth/start/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/auth/status/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/device/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/devices/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/devices/refresh/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/locate/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/positions/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/findhub/traccar/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/findhub/traccar/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/tracking/start/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/tracking/stop/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {
       "method": "POST",

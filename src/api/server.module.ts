@@ -25,6 +25,7 @@ import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
 import { TemplateController } from './controllers/template.controller';
 import { ChannelController } from './integrations/channel/channel.controller';
+import { FindHubController } from './integrations/channel/findhub/findhub.controller';
 import { MetaController } from './integrations/channel/meta/meta.controller';
 import { BaileysController } from './integrations/channel/whatsapp/baileys.controller';
 import { ChatbotController } from './integrations/chatbot/chatbot.controller';
@@ -160,6 +161,7 @@ export const metaCloudWebhookDispatcher = new MetaCloudWebhookDispatcher(
 eventManager.setMetaCloudDispatcher(metaCloudWebhookDispatcher);
 export const chatbotController = new ChatbotController(prismaRepository, waMonitor);
 export const channelController = new ChannelController(prismaRepository, waMonitor);
+export const findHubController = new FindHubController(waMonitor);
 
 // channels
 export const metaController = new MetaController(prismaRepository, waMonitor);

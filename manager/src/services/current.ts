@@ -525,6 +525,57 @@ export const current = {
     })
   },
 
+
+  async findHubAuthStart(id: string, email: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/auth/start/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { email },
+    }))
+  },
+
+  async findHubAuthStatus(id: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/auth/status/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async findHubImportCredentials(id: string, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/auth/import/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data,
+    }))
+  },
+
+  async findHubDevices(id: string) {
+    return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/devices/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async findHubRefreshDevices(id: string) {
+    return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/devices/refresh/${encodeURIComponent(name)}`, {
+      method: 'POST', token,
+    }))
+  },
+
+  async findHubLocate(id: string, deviceId: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/locate/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      method: 'POST', token, timeout: 45000,
+    }))
+  },
+
+  async findHubStartTracking(id: string, deviceId: string, intervalSeconds = 60) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/tracking/start/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { intervalSeconds },
+    }))
+  },
+
+  async findHubStopTracking(id: string, deviceId: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/tracking/stop/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      method: 'POST', token,
+    }))
+  },
+
+  async findHubPositions(id: string, deviceId: string, limit = 100) {
+    return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/positions/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      token, params: { limit },
+    }))
+  },
+
   async health() {
     return api<any>('/health', { token: '' })
   },

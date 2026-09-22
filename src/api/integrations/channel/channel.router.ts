@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { ConnectCompatibilityRouter } from './connect/connect.compat';
+import { FindHubRouter } from './findhub/findhub.router';
 import { MetaRouter } from './meta/meta.router';
 import { BaileysRouter } from './whatsapp/baileys.router';
 
@@ -16,5 +17,6 @@ export class ChannelRouter {
     this.router.use('/', new ConnectCompatibilityRouter(configService).router);
     this.router.use('/', new MetaRouter(configService).router);
     this.router.use('/baileys', new BaileysRouter(...guards).router);
+    this.router.use('/findhub', new FindHubRouter(...guards).router);
   }
 }

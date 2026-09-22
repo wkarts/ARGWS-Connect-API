@@ -9,6 +9,7 @@ const routes = [
   { path: '/', component: () => import('@/views/DashboardView.vue') },
   { path: '/instancias', component: () => import('@/views/InstancesView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id', component: () => import('@/views/InstanceView.vue'), meta: { permission: 'instances.read' } },
+  { path: '/instancias/:id/findhub', component: () => import('@/views/FindHubView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes', component: () => import('@/views/IntegrationsView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes/:key', component: () => import('@/views/IntegrationDetailView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/modelos', component: () => import('@/views/LocalTemplatesView.vue'), meta: { permission: 'instances.read' } },
