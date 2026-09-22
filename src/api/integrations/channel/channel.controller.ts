@@ -9,6 +9,7 @@ import { BadRequestException } from '@exceptions';
 import EventEmitter2 from 'eventemitter2';
 
 import { ConnectStartupService } from './connect/connect.channel.service';
+import { FindHubStartupService } from './findhub/services/findhub-runtime.service';
 import { BusinessStartupService } from './meta/whatsapp.business.service';
 import { BaileysStartupService } from './whatsapp/whatsapp.baileys.service';
 import { ZapoMediaRecoveryStartupService } from './whatsapp/zapo.media-recovery.extensions';
@@ -55,6 +56,10 @@ export class ChannelController {
   public init(instanceData: InstanceDto, data: ChannelDataType) {
     if (!instanceData.token && instanceData.integration === Integration.WHATSAPP_BUSINESS) {
       throw new BadRequestException('token is required');
+    }
+
+    if (instanceData.integration === Integration.GOOGLE_FIND_HUB) {
+      return new FindHubStartupService(data.configService, data.eventEmitter, data.prismaRepository);
     }
 
     if (instanceData.integration === Integration.WHATSAPP_BUSINESS) {
