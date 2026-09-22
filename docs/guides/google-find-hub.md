@@ -219,3 +219,47 @@ O HTTP continua usando o formato de erro já existente. A mensagem tem prefixo `
 O diagnóstico fornecido pelo operador em 22/09/2026 contém quatro HTTP 400 nas tentativas de autenticação/cancelamento às 15:36:24Z e 15:39:50Z; o exportador anterior preservou somente fingerprint e rota sanitizada. Ele **não permite afirmar** qual resposta bruta o Google produziu. As correções atacam incompatibilidades verificadas no código e passam por regressões com respostas controladas; a autenticação ponta a ponta com a conta do operador continua necessitando de nova execução autorizada. Não há promessa de superar restrições da conta Google.
 
 Referências técnicas (consulta em 22/09/2026): `leonboe1/GoogleFindMyTools/Auth/aas_token_retrieval.py` trata Email como opcional; `simon-weber/gpsoauth/gpsoauth/__init__.py` documenta o transporte legado sem ALPN; documentação Chrome Extensions de `cookies` e `manifest/icons`. Os projetos foram usados como referência de comportamento, sem instalação ou tradução de código GPL.
+
+## Extensão 0.1.2: identidade Google, diagnóstico e distribuição Windows
+
+A vinculação agora prepara o receptor FCM nativo antes de abrir o login. `androidId` é o identificador decimal retornado pelo check-in Google, não um hexadecimal aleatório. A mesma identidade/credenciais FCM são reutilizadas na conexão após validar o domínio `finder_hw`. Nenhuma credencial é persistida nessa preparação; falha em preparar o receptor retorna `FH-AUTH-9114` sem iniciar login nem marcar a conta como conectada. A preparação possui quatro operações com limite de 30 segundos cada; o cliente reserva 135 segundos para iniciar a sessão. Não são efetuadas tentativas automáticas de reaproveitar um artefato de login.
+
+As falhas de resposta Google incluem um contexto categórico limitado, por exemplo:
+
+```text
+[FH-AUTH-9106] ... [etapa=exchange; http=400; motivo=InvalidRequest; campos=0011]
+```
+
+`etapa` identifica `exchange`, `adm` ou `spot`. `http` é apenas o status numérico retornado pelo Google. `motivo` é uma lista fechada de categorias conhecidas, ou `UNCLASSIFIED`; valores desconhecidos não são copiados. `campos` possui quatro indicadores booleanos: presença de Token, Auth, Error e ErrorDetail/ErrorMsg. Corpos de resposta, URLs Google, e-mail, PIN e valores de tokens não são publicados nem gravados no diagnóstico. Uma negativa do Google continua sendo negativa: a classificação não afrouxa a autenticação.
+
+O diagnóstico de 22/09/2026 foi correlacionado com o mapa de fontes da versão implantada `344748651c24b89f7bd990cb1b1d985073acd9f9`: o erro era lançado em `google-play-auth.client.ts:66`, durante `exchange`, depois de analisar uma resposta de pares chave/valor. Esse fato não identifica por si só o status/motivo Google, pois a versão anterior o omitia. Não atribuir essa ocorrência a senha incorreta, TLS, extensão sem permissão ou campos de retorno sem evidência. A nova versão corrige a identidade enviada e conserva informação não sensível suficiente para o próximo teste.
+
+### Build e release
+
+- `node scripts/build-findhub-extension.cjs` gera o ZIP determinístico servido pela própria API em `/findhub/auth/extension/:instanceName`; permanece no diretório `public` incluído na imagem. `--check` verifica sincronização.
+- `node scripts/build-findhub-distribution.cjs --revision <SHA completo> --channel candidate|develop|stable` prepara o ICO do instalador com os PNGs oficiais, ZIP versionado, versão e proveniência. O ícone original é `public/branding/connect-api/core/connect-api-app-icon-dark.png`; os derivados 16/32/48/128 permanecem os aprovados.
+- O workflow reutilizável `findhub-extension-build.yml` compila um instalador Windows nativo com NSIS 3.11 fixado e verifica o SHA-256 do compilador. Executa instalação, atualização, conservação de ID/pasta, remoção e verificação de que políticas do navegador não mudaram em um runner descartável.
+- PRs produzem **artefatos de teste**, sem release. Pushes em `develop` produzem prerelease imutável `findhub-extension-<versão>-develop-<SHA12>`, sem alterar `latest` ou versão da aplicação.
+- O release existente de `main` aguarda explicitamente o build Windows e anexa ZIP, EXE, `extension-release.json` e `SHA256SUMS.txt` à **mesma release da aplicação**. Não depende de um evento `release` secundário disparado por `GITHUB_TOKEN`.
+- O `extension-release.json` vincula arquivos, hash, versão do helper e commit de origem. A versão da extensão é independente da versão semântica da Connect|API. Nenhuma chave privada de assinatura é empacotada.
+
+### Instalar ou atualizar no Windows
+
+Obtenha `Connect-FindHub-Auth-Setup-0.1.2.exe` e os checksums da distribuição correspondente à sua versão/canal da API. O instalador contém o payload offline e instala somente para o usuário atual em `%LOCALAPPDATA%\ARGWS\ConnectFindHubAuth\extension`. Para atualizar, execute o novo instalador: o ID e a pasta continuam estáveis. Há troca com staging e preservação da pasta anterior se a promoção falhar. Não fecha navegadores, não reinicia o computador, não acessa sessões Google e não instala serviços.
+
+**A primeira ativação ainda depende do navegador:** Chrome/Edge não permitem instalar silenciosamente uma extensão local arbitrária em Windows pessoal. Abra `chrome://extensions` ou `edge://extensions`, habilite Modo do desenvolvedor, selecione Carregar sem compactação e escolha a pasta acima. Nas atualizações clique em Recarregar. O EXE abre instruções, a pasta e o navegador escolhido, mas não edita perfis, políticas corporativas ou permissões para contornar essa aprovação.
+
+O binário é **não assinado** enquanto a organização não fornecer seu processo de assinatura Authenticode. Não instrua usuários a desabilitar SmartScreen/antivírus/políticas. A ausência de assinatura consta no instalador e na proveniência. O ZIP continua disponível para instalação manual e outros sistemas operacionais.
+
+Chrome e Edge desktop são os alvos iniciais. Manifest V3 e as APIs utilizadas favorecem portabilidade para outros Chromium, mas cada navegador/versão/política precisa ser homologado. Não declarar suporte universal a navegadores mobile.
+
+Referências primárias para o contrato de instalação e protocolo (consulta de 22/09/2026):
+- https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions
+- https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked
+- https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/port-chrome-extension
+- https://github.com/leonboe1/GoogleFindMyTools/blob/main/Auth/aas_token_retrieval.py
+- https://github.com/leonboe1/GoogleFindMyTools/blob/main/Auth/fcm_receiver.py
+
+**Atualize API/Manager e extensão juntos. Não rotacione `FINDHUB_CREDENTIALS_KEY`, não remova volumes e não desconecte WhatsApp para aplicar esta correção. Testes de CI não substituem login Google, posição real e envio Traccar com dispositivos próprios.**
+
+O registro nativo do receptor também utiliza FID Firebase de 22 caracteres Base64URL; respostas sem autorização de instalação são recusadas antes de abrir o login. Referência de formato: https://github.com/firebase/firebase-js-sdk/blob/main/packages/installations/src/helpers/generate-fid.ts.

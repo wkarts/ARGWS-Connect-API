@@ -1,4 +1,4 @@
-export const FINDHUB_MIN_HELPER_VERSION = '0.1.1'
+export const FINDHUB_MIN_HELPER_VERSION = '0.1.2'
 
 export function compatibleFindHubHelper(version: unknown): boolean {
   if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) return false
@@ -13,5 +13,5 @@ export function compatibleFindHubHelper(version: unknown): boolean {
 export function consumedFindHubAttempt(error: unknown): boolean {
   // These fixed backend outcomes already finish or invalidate the attempt; do not issue a second failing cancel.
   const message = error instanceof Error ? error.message : ''
-  return /\[FH-AUTH-91(?:0[1-9]|1[0-3])\]/.test(message)
+  return /\[FH-AUTH-91(?:0[1-9]|1[0-4])\]/.test(message)
 }

@@ -95,13 +95,16 @@ async function gcmRegister(checkinData: {
   });
   const text = await response.text();
   if (!response.ok || !text.startsWith('token=')) throw new Error('Google GCM registration failed');
-  return { token: text.slice('token='.length), appId };
+  const token = text.slice('token='.length).trim();
+  if (!token || /\s/.test(token)) throw new Error('Invalid Google GCM registration token');
+  return { token, appId };
 }
 
 async function fcmInstall(): Promise<{ fid: string; authToken: string; refreshToken?: string }> {
   const fidBytes = randomBytes(17);
   fidBytes[0] = 0x70 + (fidBytes[0] % 0x10);
-  const fid = fidBytes.toString('base64');
+  // Firebase installations require exactly 22 URL-safe base64 characters (132 bits).
+  const fid = fidBytes.toString('base64url').slice(0, 22);
   const heartbeat = Buffer.from(JSON.stringify({ heartbeats: [], version: 2 })).toString('base64');
   const response = await fetch(GOOGLE_ENDPOINTS.fcmInstall, {
     method: 'POST',
@@ -122,9 +125,18 @@ async function fcmInstall(): Promise<{ fid: string; authToken: string; refreshTo
     }),
   });
   const data = await responseJson(response);
+  const assignedFid = data.fid || fid;
+  if (
+    typeof assignedFid !== 'string' ||
+    !/^[cdef][A-Za-z0-9_-]{21}$/.test(assignedFid) ||
+    typeof data.authToken?.token !== 'string' ||
+    !data.authToken.token
+  ) {
+    throw new Error('Invalid Firebase installation response');
+  }
   return {
-    fid: data.fid || fid,
-    authToken: data.authToken?.token,
+    fid: assignedFid,
+    authToken: data.authToken.token,
     refreshToken: data.refreshToken,
   };
 }

@@ -1,6 +1,6 @@
 import { GOOGLE_ADM_CONFIG, GOOGLE_OAUTH_SCOPES } from '../findhub.constants';
 import { FindHubAasCredentials } from '../findhub.types';
-import { FindHubAuthError, safeFindHubAuthError } from './findhub-auth.error';
+import { FindHubAuthError, FindHubAuthErrorCode, FindHubAuthPhase, safeFindHubAuthError } from './findhub-auth.error';
 import { GoogleAuthTransport, requestGoogleAuth } from './google-auth.transport';
 
 function parseKeyValue(text: string): Record<string, string> {
@@ -48,22 +48,40 @@ function accountEmail(value: string): string {
 export class GooglePlayAuthClient {
   constructor(private readonly transport: GoogleAuthTransport = requestGoogleAuth) {}
 
-  private async request(form: URLSearchParams): Promise<Record<string, string>> {
+  private async request(form: URLSearchParams, phase: FindHubAuthPhase): Promise<Record<string, string>> {
     let response: Awaited<ReturnType<GoogleAuthTransport>>;
     try {
       response = await this.transport(form.toString());
     } catch (error) {
       throw safeFindHubAuthError(error, 9109);
     }
-    if (response.status === 429 || response.status >= 500) throw new FindHubAuthError(9109);
-    if (response.status >= 300 && response.status < 400) throw new FindHubAuthError(9103);
-    const data = parseKeyValue(response.text);
-    if (data.Error === 'BadAuthentication') throw new FindHubAuthError(9102);
-    if (['NeedsBrowser', 'CaptchaRequired', 'InvalidSecondFactor', 'WebLoginRequired'].includes(data.Error)) {
-      throw new FindHubAuthError(9103);
+    const fail = (code: FindHubAuthErrorCode, reason: string, data: Record<string, string> = {}) =>
+      new FindHubAuthError(code, {
+        phase,
+        http: response.status,
+        reason,
+        token: Boolean(data.Token),
+        auth: Boolean(data.Auth),
+        error: Boolean(data.Error),
+        detail: Boolean(data.ErrorDetail || data.ErrorMsg),
+      });
+    if (response.status === 429 || response.status >= 500) throw fail(9109, 'ServiceUnavailable');
+    if (response.status >= 300 && response.status < 400) throw fail(9103, 'NeedsBrowser');
+    let data: Record<string, string>;
+    try {
+      data = parseKeyValue(response.text);
+    } catch {
+      throw fail(9106, 'MALFORMED_RESPONSE');
+    }
+    // ErrorDetail/ErrorMsg are never returned or logged: they may contain login URLs and account data.
+    const reason =
+      data.Error?.trim() || (response.status < 200 || response.status >= 300 ? 'HTTP_ERROR' : 'ERROR_FIELDS');
+    if (['BadAuthentication', 'InvalidToken', 'ExpiredToken'].includes(reason)) throw fail(9102, reason, data);
+    if (['NeedsBrowser', 'CaptchaRequired', 'InvalidSecondFactor', 'WebLoginRequired'].includes(reason)) {
+      throw fail(9103, reason, data);
     }
     if (response.status < 200 || response.status >= 300 || data.Error || data.ErrorDetail || data.ErrorMsg) {
-      throw new FindHubAuthError(9106);
+      throw fail(9106, reason, data);
     }
     return data;
   }
@@ -71,6 +89,9 @@ export class GooglePlayAuthClient {
   /** Redeem once; an absent optional Email field is not a failed login. */
   public async exchange(email: string, oauthToken: string, androidId: string): Promise<FindHubAasCredentials> {
     const requestedEmail = accountEmail(email);
+    // The protocol takes the unsigned decimal identifier issued by Google check-in, not a fabricated hex UUID.
+    if (!/^[1-9][0-9]{0,19}$/.test(androidId) || BigInt(androidId) > 18446744073709551615n)
+      throw new FindHubAuthError(9101);
     const form = new URLSearchParams({
       accountType: 'HOSTED_OR_GOOGLE',
       Email: requestedEmail,
@@ -89,7 +110,7 @@ export class GooglePlayAuthClient {
       client_sig: GOOGLE_ADM_CONFIG.clientSig,
       callerSig: GOOGLE_ADM_CONFIG.clientSig,
     });
-    const result = await this.request(form);
+    const result = await this.request(form, 'exchange');
     if (!result.Token) throw new FindHubAuthError(9105);
     if (result.Email && accountEmail(result.Email) !== requestedEmail) throw new FindHubAuthError(9104);
     const credentials = {
@@ -122,7 +143,7 @@ export class GooglePlayAuthClient {
       sdk_version: '17',
       google_play_services_version: GOOGLE_ADM_CONFIG.googlePlayServicesVersion,
     });
-    const result = await this.request(form);
+    const result = await this.request(form, scope);
     if (result.Email && accountEmail(result.Email) !== accountEmail(credentials.email))
       throw new FindHubAuthError(9104);
     if (!result.Auth) throw new FindHubAuthError(9105);

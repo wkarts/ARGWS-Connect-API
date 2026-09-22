@@ -17,3 +17,9 @@ Substitua o conteúdo da pasta da extensão já instalada, clique em **Recarrega
 O ícone é a imagem oficial fornecida pelo proprietário, apenas redimensionada para 16/32/48/128 px, mantendo fundo, desenho e proporções. SHA-256 do PNG 1024 original: `6968e17ff8f88417d50c88b5082008ecfb93cad840834c6dc9e034e2f6709926`.
 
 A leitura do artefato é repetida após a abertura e carregamento da aba autorizada para não perder respostas rápidas. Continua exigindo consentimento, foco, origem correta e uma tentativa ativa. Nenhum cookie preexistente da tentativa anterior é reenviado.
+
+### Distribuição 0.1.2
+
+O instalador Windows `Connect-FindHub-Auth-Setup-0.1.2.exe` e o ZIP são publicados juntos, com `SHA256SUMS.txt` e `extension-release.json`. O EXE instala/atualiza arquivos por usuário, sem administrador, em `%LOCALAPPDATA%\ARGWS\ConnectFindHubAuth\extension`. A ativação inicial (`Carregar sem compactação`) e o `Recarregar` após atualizar permanecem sob controle do navegador. Não são alteradas políticas/perfis para forçar instalação. O EXE não é assinado; não desative proteções de segurança para executá-lo.
+
+O ID do helper e os ícones oficiais foram preservados. API/Manager 0.1.2 do fluxo prepara uma identidade Google FCM real antes do login e informa o contexto categórico de falhas, sem divulgar segredos. A versão da aplicação e a versão do helper são independentes. Consulte o commit em `extension-release.json` antes de misturar builds.

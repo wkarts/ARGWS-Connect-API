@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Connect|API — Find Hub Auth",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "minimum_chrome_version": "120",
   "description": "Vinculação consentida de uma conta Google Find Hub à sua instalação Connect|API. Sem telemetria.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAumXXOvzr5M5wDsLC9dvfTDQKxhrpTXlt57blWJmfV1lK9sEpYq9VA1r4foLZuteYLuPSo3VEF8MfEtdB8q9eqRhTeDUcLyAkpFgBd2Kf0f2Wc5U0x+8Z1MRfyJnfW7LqpgZ84C/YBdmHk0Cjr1uTB898Jk3tEccd6YL+oW+/0aiYZHSGZvIdJYfrEs8oiFiusFdCsDFIP2AiysEUGMtyRgOKZHzD7d7+RhopQVTwk/NAq9bxLXga2GeCrBMwLmLiykNNEe2UwT70nGNCUZ00WWjYhl5qGtn9TWvzJKCcDvmazGW1rfiXedoRKvEfOGjFYT+EfPS4xd/Abc0c+ZNjjQIDAQAB",
