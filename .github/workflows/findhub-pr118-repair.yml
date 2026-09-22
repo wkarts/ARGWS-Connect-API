@@ -1,0 +1,88 @@
+name: Find Hub PR 118 - isolated repair
+
+on:
+  push:
+    branches: [feat/google-find-hub-channel]
+    paths: [.github/workflows/findhub-pr118-repair.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: findhub-pr118-isolated-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.repository == 'wkarts/ARGWS-Connect-API' && github.ref == 'refs/heads/feat/google-find-hub-channel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      HUSKY: '0'
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://test:test@127.0.0.1:5432/test
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          submodules: recursive
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20.x'
+          cache: npm
+      - name: Install locked project dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Apply the existing lint rules only to Find Hub
+        run: ./node_modules/.bin/eslint --fix --ext .ts src/api/integrations/channel/findhub
+      - name: Regenerate actual OpenAPI and AsyncAPI contracts
+        run: npm run docs:generate
+      - name: Verify lint and generated contracts
+        run: |
+          npm run lint:check
+          npm run docs:check
+          git diff --check
+      - name: Commit only formatting and generated contracts to the existing feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            case "$file" in
+              src/api/integrations/channel/findhub/*|docs/openapi/*|docs/asyncapi/*) ;;
+              *) echo "Unexpected modified path: $file"; exit 1 ;;
+            esac
+          done < <(git diff --name-only)
+          git add -- src/api/integrations/channel/findhub docs/openapi docs/asyncapi
+          if git diff --cached --quiet; then
+            echo 'No generated changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'fix(findhub): corrigir lint e sincronizar contratos OpenAPI e AsyncAPI'
+          # Non-force push rejects concurrent branch changes. Never push develop or main.
+          git push origin HEAD:refs/heads/feat/google-find-hub-channel
+          printf 'Repair commit: `%s`\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate compatibility and application build
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          for task in db:generate test:compat build test:voip test:video; do
+            echo "::group::$task"
+            npm run "$task"
+            result=$?
+            printf '%s: exit %s\n' "$task" "$result" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$result" -ne 0 ]; then status=1; fi
+            echo '::endgroup::'
+          done
+          exit "$status"
+      - name: Validate Manager without changing its dependency files
+        if: success() || failure()
+        run: |
+          npm --prefix manager install --ignore-scripts --no-audit --no-fund --package-lock=false
+          npm --prefix manager run build
+          npm --prefix manager run check:language
+          npm --prefix manager run check:sfc
