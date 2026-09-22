@@ -15,4 +15,8 @@ approve.addEventListener('click', async () => {
     status.textContent = 'Faça login e desbloqueie o Find Hub na aba Google. Não feche o Manager.';
   } catch { status.textContent = 'Não autorizado. Cancele e inicie novamente no Manager.'; }
 });
-document.querySelector('#deny').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'DENY' }));
+document.querySelector('#deny').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'DENY' }).catch(() => {
+    status.textContent = 'A tentativa já foi encerrada. Volte ao Manager.';
+  });
+});

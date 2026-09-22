@@ -61,7 +61,7 @@ test('a frame or another extension cannot silently start linking',async()=>{
  const h=harness();const c=h.connect(undefined,1);c.send(request);await flush();assert.equal(h.tabs.size,0);assert.equal(h.reads(),0);
 });
 test('denied optional permission does not open Google or read cookies',async()=>{
- const h=harness(false);const c=h.connect();c.send(request);await flush();assert.ok((await h.command({type:'APPROVE'})).error);assert.equal(h.reads(),0);assert.equal(h.tabs.size,0);
+ const h=harness(false);const c=h.connect();c.send(request);await flush();assert.equal((await h.command({type:'APPROVE'})).accepted,true);assert.equal(c.messages.at(-1).type,'ERROR');assert.equal(h.reads(),0);assert.equal(h.tabs.size,0);
 });
 
 
@@ -84,8 +84,8 @@ test('rechecking the owned tab never replays the baseline or duplicates an emitt
   c.send({type:'CANCEL',sessionId:request.sessionId}); await flush();
 });
 
-test('0.1.3 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
-  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.3');
+test('0.1.4 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
+  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.4');
   assert.equal(policy.VERSION, manifest.version);
   for (const size of [16,32,48,128]) {
     const icon = fs.readFileSync(path.join(folder,manifest.icons[size]));
@@ -94,4 +94,43 @@ test('0.1.3 preserves the public extension ID and packages the official raster i
     assert.equal(manifest.action.default_icon[size],manifest.icons[size]);
   }
   assert.match(read('approve.html'), /icons\/icon-128\.png/);
+});
+
+test('approval acknowledges synchronously before permission checks or tab creation', async () => {
+  let permissionResolve;
+  const h=harness(new Promise(resolve=>{permissionResolve=resolve;}));
+  const c=h.connect();c.send(request);await flush();
+  let reply;const returns=h.chrome.runtime.onMessage.fire({type:'APPROVE'},h.approvalSender(),r=>reply=r);
+  assert.equal(reply.accepted,true);assert.equal(returns[0],false);
+  assert.equal(h.tabs.size,1);assert.equal(h.reads(),0);
+  const second=await h.command({type:'APPROVE'});assert.ok(second.error);
+  c.send({type:'CANCEL',sessionId:request.sessionId});await flush();permissionResolve(true);await flush();
+  assert.equal(h.tabs.size,0);assert.equal(h.reads(),0);
+  assert.equal(h.chrome.cookies.onChanged.listeners.length,0);
+  assert.equal(c.messages.some(m=>m.type==='OAUTH_TOKEN'),false);
+});
+
+test('denial replies before closing the sender tab; no async response promise is left open', async () => {
+  const h=harness();const c=h.connect();c.send(request);await flush();
+  let acknowledged=false;
+  const remove=h.chrome.tabs.remove;
+  h.chrome.tabs.remove=async id=>{assert.equal(acknowledged,true);return remove(id);};
+  const returns=h.chrome.runtime.onMessage.fire({type:'DENY'},h.approvalSender(),r=>{acknowledged=r.ok;});
+  assert.equal(returns[0],false);assert.equal(acknowledged,true);
+  await flush();await flush();assert.equal(h.tabs.size,0);assert.equal(c.port.disconnected,true);
+});
+
+test('fast backend rejection cannot close the approval tab before its response', async () => {
+  const h=harness(true,true);const c=h.connect();c.send(request);await flush();
+  let acknowledged=false;const post=c.port.postMessage;
+  c.port.postMessage=message=> {
+    post(message);
+    if (message.type==='OAUTH_TOKEN') {
+      assert.equal(acknowledged,true);
+      c.send({type:'CANCEL',sessionId:request.sessionId});
+    }
+  };
+  const returns=h.chrome.runtime.onMessage.fire({type:'APPROVE'},h.approvalSender(),r=>{acknowledged=r.accepted;});
+  assert.equal(acknowledged,true);assert.equal(returns[0],false);
+  await flush();await flush();assert.equal(h.tabs.size,0);assert.equal(c.port.disconnected,true);
 });

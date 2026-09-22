@@ -1,6 +1,6 @@
 # Connect|API Find Hub Auth — extensão opcional
 
-ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.3.
+ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.4.
 
 Esta é uma implementação experimental própria para Chrome/Edge desktop, não um login OAuth público Google. Extraia o ZIP servido pela sua API e use Carregar sem compactação na página de extensões (modo desenvolvedor). Volte ao Manager e inicie Conectar conta. A janela **da extensão** mostra a origem solicitante, o servidor destinatário e a conta: aprove somente destinos de sua confiança.
 
@@ -29,3 +29,11 @@ O ID do helper e os ícones oficiais foram preservados. API/Manager 0.1.2 do flu
 O release disponibiliza ZIP, instalador NSIS e assistente Rust Windows x64, com a mesma identidade e ícones canônicos. Consulte `windows-assistant/README.md` no repositório. O assistente apenas prepara/atualiza os arquivos e ajuda a abrir o gerenciamento de extensões: aprovação inicial e recarregamento permanecem no navegador. Não altera políticas nem perfis; não acessa a conta Google.
 
 O backend correspondente preserva os bytes opacos do cookie sem decodificação URI adicional e diferencia motivos conhecidos de rejeição. A nova versão não representa uma homologação automática do login real.
+
+### 0.1.4 — Troca de autenticação e confirmação das mensagens
+
+Atualize a API/Manager e o helper juntos. O comando de aprovação agora é confirmado antes de abrir outra aba; conclusão e erros continuam no canal vinculado à sessão. Cancelar ou receber uma falha rápida do servidor não deixa `sendResponse` pendente. Aceitar o comando não significa aceitar a conta Google.
+
+No backend, o formulário de troca segue o perfil de interoperabilidade de `gpsoauth` 2.0.0, sem instalar essa biblioteca. O marcador legado `droidguard_results=dummy123` não é uma prova de integridade. Uma exigência real do Google permanece uma falha, sem reenvio do token, bypass ou alteração de TLS. `MissingDroidguard` é classificado como `[FH-AUTH-9116]`, não `UNCLASSIFIED`.
+
+O login real continua sujeito à homologação pelo operador. A ocorrência de `message channel closed` em outra página/extensão, por si só, não comprova a causa de um HTTP 400 no backend. Preserve a chave da instalação e comece uma nova tentativa após atualizar ambos os lados.
