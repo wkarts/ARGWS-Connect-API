@@ -22,6 +22,7 @@ const error = ref('')
 const feedback = ref('')
 
 const connected = computed(() => auth.value?.ready === true || auth.value?.state === 'READY')
+const transportReady = computed(() => instance.value?.capabilities?.location === true)
 
 async function load() {
   error.value = ''
@@ -155,6 +156,10 @@ onMounted(load)
         <StatusPill status="connected"/>
       </div>
 
+      <div v-if="!transportReady" class="alert">
+        O catálogo de dispositivos está disponível. A atualização ativa de localização permanece desabilitada até que um transporte push autorizado seja configurado.
+      </div>
+
       <PanelCard
         class="top-gap"
         title="Dispositivos"
@@ -192,13 +197,13 @@ onMounted(load)
             </div>
 
             <footer class="instance-card-actions">
-              <button class="btn ghost" :disabled="device.locating" @click="locate(device)">
+              <button class="btn ghost" :disabled="device.locating || !transportReady" @click="locate(device)">
                 {{ device.locating ? 'Localizando...' : 'Localizar agora' }}
               </button>
               <button
                 class="btn"
                 :class="device.trackingEnabled ? 'danger' : 'primary'"
-                :disabled="device.busy"
+                :disabled="device.busy || !transportReady"
                 @click="toggleTracking(device)"
               >
                 {{ device.trackingEnabled ? 'Parar tracking' : 'Iniciar tracking' }}
