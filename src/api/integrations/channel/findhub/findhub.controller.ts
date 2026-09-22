@@ -27,14 +27,34 @@ export class FindHubController {
     return result;
   }
 
-  public status(instanceName: string) { return this.runtime(instanceName).auth().status(instanceName); }
-  public devices(instanceName: string) { return this.runtime(instanceName).devices(); }
-  public refreshDevices(instanceName: string) { return this.runtime(instanceName).refreshDevices(); }
-  public device(instanceName: string, deviceId: string) { return this.runtime(instanceName).device(deviceId); }
-  public locate(instanceName: string, deviceId: string) { return this.runtime(instanceName).locate(deviceId); }
-  public startTracking(instanceName: string, deviceId: string, data: any) { return this.runtime(instanceName).startTracking(deviceId, data.intervalSeconds); }
-  public stopTracking(instanceName: string, deviceId: string) { return this.runtime(instanceName).stopTracking(deviceId); }
-  public positions(instanceName: string, deviceId: string, limit: number) { return this.runtime(instanceName).positions(deviceId, limit); }
-  public setTraccar(instanceName: string, deviceId: string, data: any) { return this.runtime(instanceName).setTraccar(deviceId, data); }
-  public removeTraccar(instanceName: string, deviceId: string) { return this.runtime(instanceName).removeTraccar(deviceId); }
+  public status(instanceName: string) {
+    return this.runtime(instanceName).auth().status(instanceName);
+  }
+  public devices(instanceName: string) {
+    return this.runtime(instanceName).devices();
+  }
+  public refreshDevices(instanceName: string) {
+    return this.runtime(instanceName).refreshDevices();
+  }
+  public device(instanceName: string, deviceId: string) {
+    return this.runtime(instanceName).device(deviceId);
+  }
+  public locate(instanceName: string, deviceId: string) {
+    return this.runtime(instanceName).locate(deviceId);
+  }
+  public startTracking(instanceName: string, deviceId: string, data: any) {
+    return this.runtime(instanceName).startTracking(deviceId, data.intervalSeconds);
+  }
+  public stopTracking(instanceName: string, deviceId: string) {
+    return this.runtime(instanceName).stopTracking(deviceId);
+  }
+  public positions(instanceName: string, deviceId: string, limit: number) {
+    return this.runtime(instanceName).positions(deviceId, limit);
+  }
+  public setTraccar(instanceName: string, deviceId: string, data: any) {
+    return this.runtime(instanceName).setTraccar(deviceId, data);
+  }
+  public removeTraccar(instanceName: string, deviceId: string) {
+    return this.runtime(instanceName).removeTraccar(deviceId);
+  }
 }

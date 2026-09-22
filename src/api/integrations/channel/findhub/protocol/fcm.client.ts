@@ -1,9 +1,9 @@
 import { createECDH, randomBytes, randomUUID } from 'crypto';
 import tls, { TLSSocket } from 'tls';
 
+import { decryptLegacyWebPush, webPushParams } from '../crypto/webpush';
 import { GOOGLE_ADM_CONFIG, GOOGLE_ENDPOINTS } from '../findhub.constants';
 import { FindHubFcmCredentials } from '../findhub.types';
-import { decryptLegacyWebPush, webPushParams } from '../crypto/webpush';
 import {
   bytes,
   concat,
@@ -70,7 +70,10 @@ async function checkin(existing?: FindHubFcmCredentials): Promise<{ androidId: s
   return decodeCheckin(Buffer.from(await response.arrayBuffer()));
 }
 
-async function gcmRegister(checkinData: { androidId: string; securityToken: string }): Promise<{ token: string; appId: string }> {
+async function gcmRegister(checkinData: {
+  androidId: string;
+  securityToken: string;
+}): Promise<{ token: string; appId: string }> {
   const appId = `wp:${GOOGLE_ADM_CONFIG.androidPackage}#${randomUUID()}`;
   const body = new URLSearchParams({
     app: GOOGLE_ADM_CONFIG.chromeId,
@@ -87,7 +90,8 @@ async function gcmRegister(checkinData: { androidId: string; securityToken: stri
     body: body.toString(),
   });
   const text = await response.text();
-  if (!response.ok || !text.startsWith('token=')) throw new Error(`Google GCM registration failed: ${text.slice(0, 200)}`);
+  if (!response.ok || !text.startsWith('token='))
+    throw new Error(`Google GCM registration failed: ${text.slice(0, 200)}`);
   return { token: text.slice('token='.length), appId };
 }
 
@@ -162,12 +166,7 @@ function encodeHeartbeatStat(): Buffer {
 function encodeSelectiveAck(persistentId: string, lastStreamId: number): Buffer {
   const selectiveAck = fieldString(1, persistentId);
   const extension = concat(fieldVarint(1, 12), fieldBytes(2, selectiveAck));
-  return concat(
-    fieldVarint(2, 1),
-    fieldString(3, ''),
-    fieldMessage(7, extension),
-    fieldVarint(10, lastStreamId),
-  );
+  return concat(fieldVarint(2, 1), fieldString(3, ''), fieldMessage(7, extension), fieldVarint(10, lastStreamId));
 }
 
 function encodeHeartbeatAck(lastStreamId: number): Buffer {
@@ -274,7 +273,11 @@ export class FindHubFcmClient {
   private async connect(): Promise<void> {
     if (this.stopped) return;
     await new Promise<void>((resolve, reject) => {
-      const socket = tls.connect({ host: GOOGLE_ENDPOINTS.mcsHost, port: GOOGLE_ENDPOINTS.mcsPort, servername: GOOGLE_ENDPOINTS.mcsHost });
+      const socket = tls.connect({
+        host: GOOGLE_ENDPOINTS.mcsHost,
+        port: GOOGLE_ENDPOINTS.mcsPort,
+        servername: GOOGLE_ENDPOINTS.mcsHost,
+      });
       this.socket = socket;
       this.receiveBuffer = Buffer.alloc(0);
       this.firstInbound = true;

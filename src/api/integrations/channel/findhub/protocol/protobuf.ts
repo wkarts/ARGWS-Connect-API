@@ -126,7 +126,9 @@ export function bytes(buffer: Buffer, no: number): Buffer | undefined {
 }
 
 export function repeatedBytes(buffer: Buffer, no: number): Buffer[] {
-  return fields(buffer, no).filter((item) => item.wire === 2).map((item) => item.value as Buffer);
+  return fields(buffer, no)
+    .filter((item) => item.wire === 2)
+    .map((item) => item.value as Buffer);
 }
 
 export function string(buffer: Buffer, no: number): string | undefined {

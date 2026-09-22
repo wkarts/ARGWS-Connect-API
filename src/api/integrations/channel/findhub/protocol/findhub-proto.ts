@@ -63,7 +63,9 @@ function canonicIds(identifier: Buffer): string[] {
   const phone = bytes(identifier, 1);
   const container = phone ? bytes(phone, 2) : direct;
   if (!container) return [];
-  return repeatedBytes(container, 1).map((item) => string(item, 1)).filter(Boolean) as string[];
+  return repeatedBytes(container, 1)
+    .map((item) => string(item, 1))
+    .filter(Boolean) as string[];
 }
 
 function normalizeDeviceType(type: number | undefined): FindHubDevice['deviceType'] {
@@ -93,7 +95,12 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
   return ids.map((googleDeviceId) => ({
     googleDeviceId,
     name,
-    identifierType: identifierType === IdentifierType.ANDROID ? 'ANDROID' : identifierType === IdentifierType.SPOT ? 'SPOT' : 'UNKNOWN',
+    identifierType:
+      identifierType === IdentifierType.ANDROID
+        ? 'ANDROID'
+        : identifierType === IdentifierType.SPOT
+          ? 'SPOT'
+          : 'UNKNOWN',
     deviceType: normalizeDeviceType(deviceType),
     manufacturer: string(registration, 20),
     model: string(registration, 34),

@@ -1,10 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createECDH,
-  createHash,
-  hkdfSync,
-} from 'crypto';
+import { createCipheriv, createDecipheriv, createECDH, createHash, hkdfSync } from 'crypto';
 
 import { decodePlainLocation, EncryptedLocationReport } from '../protocol/findhub-proto';
 
@@ -69,7 +63,7 @@ function subkey(key: Buffer): Buffer {
   for (let index = 15; index >= 0; index--) {
     const next = block[index];
     shifted[index] = ((next << 1) & 0xff) | carry;
-    carry = (next & 0x80) ? 1 : 0;
+    carry = next & 0x80 ? 1 : 0;
   }
   if (block[0] & 0x80) shifted[15] ^= 0x87;
   return shifted;
@@ -136,7 +130,8 @@ function decryptAesEax(key: Buffer, nonce: Buffer, ciphertextAndTag: Buffer): Bu
   const headerTag = eaxOmac(key, 1, Buffer.alloc(0));
   const messageTag = eaxOmac(key, 2, ciphertext);
   const expected = xor(xor(nonceTag, headerTag), messageTag);
-  if (expected.length !== tag.length || !expected.equals(tag)) throw new Error('Find Hub AES-EAX authentication failed');
+  if (expected.length !== tag.length || !expected.equals(tag))
+    throw new Error('Find Hub AES-EAX authentication failed');
   return aesCtrCrypt(key, nonceTag, ciphertext);
 }
 

@@ -30,7 +30,10 @@ function grpcPayload(payload: Buffer): Buffer {
 }
 
 export class FindHubSpotClient {
-  constructor(private readonly auth: GooglePlayAuthClient, private readonly credentials: FindHubAasCredentials) {}
+  constructor(
+    private readonly auth: GooglePlayAuthClient,
+    private readonly credentials: FindHubAasCredentials,
+  ) {}
 
   private async request(method: string, payload: Buffer): Promise<Buffer> {
     const token = await this.auth.serviceToken(this.credentials, 'spot');

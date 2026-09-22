@@ -4,11 +4,7 @@ import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
 import { decryptIdentityKey, decryptLocationReport, decryptOwnerKey } from '../crypto/findhub-crypto';
 import { FindHubDevice, FindHubPosition, FindHubStoredCredentials } from '../findhub.types';
 import { FindHubFcmClient } from '../protocol/fcm.client';
-import {
-  decodeDeviceRegistration,
-  decodeDeviceUpdate,
-  decodeLocationReports,
-} from '../protocol/findhub-proto';
+import { decodeDeviceRegistration, decodeDeviceUpdate, decodeLocationReports } from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
 

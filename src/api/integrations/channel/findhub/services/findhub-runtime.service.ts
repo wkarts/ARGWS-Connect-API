@@ -1,8 +1,8 @@
 import { PrismaRepository } from '@api/repository/repository.service';
 import { eventManager } from '@api/server.module';
 import { ConfigService, HttpServer } from '@config/env.config';
-import { randomUUID } from 'crypto';
 import { Logger } from '@config/logger.config';
+import { randomUUID } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
@@ -67,10 +67,18 @@ export class FindHubStartupService {
     this.logger.setInstance(instance.instanceName);
   }
 
-  public get instanceName() { return this.instance.name; }
-  public get instanceId() { return this.instance.id; }
-  public get token() { return this.instance.token; }
-  public get connectionStatus() { return this.stateConnection; }
+  public get instanceName() {
+    return this.instance.name;
+  }
+  public get instanceId() {
+    return this.instance.id;
+  }
+  public get token() {
+    return this.instance.token;
+  }
+  public get connectionStatus() {
+    return this.stateConnection;
+  }
 
   public async connectToWhatsapp(): Promise<any> {
     return await this.connect();
@@ -96,11 +104,8 @@ export class FindHubStartupService {
       });
     }
 
-    this.protocol = new FindHubProtocolClient(
-      loaded.credentials,
-      loaded.sharedKey,
-      clientUuid,
-      (credentials) => this.authBroker.persistCredentials(this.instance.id, credentials),
+    this.protocol = new FindHubProtocolClient(loaded.credentials, loaded.sharedKey, clientUuid, (credentials) =>
+      this.authBroker.persistCredentials(this.instance.id, credentials),
     );
     await this.protocol.connect();
     await this.refreshDevices();
@@ -366,10 +371,12 @@ export class FindHubStartupService {
 
   private async setState(state: FindHubRuntimeState): Promise<void> {
     this.stateConnection = { state };
-    await this.prisma.instance.update({
-      where: { id: this.instance.id },
-      data: { connectionStatus: state },
-    }).catch(() => undefined);
+    await this.prisma.instance
+      .update({
+        where: { id: this.instance.id },
+        data: { connectionStatus: state },
+      })
+      .catch(() => undefined);
 
     await this.emit('connection.update', {
       instance: this.instance.name,

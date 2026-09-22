@@ -16,8 +16,10 @@ export const GOOGLE_ENDPOINTS = {
   spotPath: '/google.internal.spot.v1.SpotService',
   checkin: 'https://android.clients.google.com/checkin',
   gcmRegister: 'https://android.clients.google.com/c2dm/register3',
-  fcmInstall: 'https://firebaseinstallations.googleapis.com/v1/projects/google.com:api-project-289722593072/installations',
-  fcmRegisterBase: 'https://fcmregistrations.googleapis.com/v1/projects/google.com:api-project-289722593072/registrations',
+  fcmInstall:
+    'https://firebaseinstallations.googleapis.com/v1/projects/google.com:api-project-289722593072/installations',
+  fcmRegisterBase:
+    'https://fcmregistrations.googleapis.com/v1/projects/google.com:api-project-289722593072/registrations',
   fcmSendBase: 'https://fcm.googleapis.com/fcm/send/',
   mcsHost: 'mtalk.google.com',
   mcsPort: 5228,

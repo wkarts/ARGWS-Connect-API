@@ -8,14 +8,7 @@ export type FindHubAuthState =
 
 export type FindHubRuntimeState = 'close' | 'connecting' | 'open';
 
-export type FindHubDeviceType =
-  | 'PHONE'
-  | 'TABLET'
-  | 'WATCH'
-  | 'HEADPHONES'
-  | 'EARBUDS'
-  | 'TRACKER'
-  | 'UNKNOWN';
+export type FindHubDeviceType = 'PHONE' | 'TABLET' | 'WATCH' | 'HEADPHONES' | 'EARBUDS' | 'TRACKER' | 'UNKNOWN';
 
 export interface FindHubDevice {
   id: string;

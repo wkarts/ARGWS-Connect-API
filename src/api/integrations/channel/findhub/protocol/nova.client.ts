@@ -4,7 +4,10 @@ import { FindHubAasCredentials } from '../findhub.types';
 import { decodeDevicesList, encodeDeviceListRequest, encodeExecuteLocateRequest } from './findhub-proto';
 
 export class FindHubNovaClient {
-  constructor(private readonly auth: GooglePlayAuthClient, private readonly credentials: FindHubAasCredentials) {}
+  constructor(
+    private readonly auth: GooglePlayAuthClient,
+    private readonly credentials: FindHubAasCredentials,
+  ) {}
 
   private async request(scope: string, payload: Buffer): Promise<Buffer> {
     const token = await this.auth.serviceToken(this.credentials, 'adm');
@@ -26,7 +29,12 @@ export class FindHubNovaClient {
     return decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest()));
   }
 
-  public async locate(args: { googleDeviceId: string; fcmRegistrationId: string; requestUuid: string; clientUuid: string }) {
+  public async locate(args: {
+    googleDeviceId: string;
+    fcmRegistrationId: string;
+    requestUuid: string;
+    clientUuid: string;
+  }) {
     await this.request(NOVA_SCOPES.executeAction, encodeExecuteLocateRequest(args));
   }
 }
