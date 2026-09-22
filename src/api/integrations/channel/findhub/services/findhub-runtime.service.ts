@@ -1,6 +1,7 @@
 import { PrismaRepository } from '@api/repository/repository.service';
 import { eventManager } from '@api/server.module';
 import { ConfigService, HttpServer } from '@config/env.config';
+import { randomUUID } from 'crypto';
 import { Logger } from '@config/logger.config';
 import EventEmitter2 from 'eventemitter2';
 
@@ -36,8 +37,8 @@ export class FindHubStartupService {
     qrCode: false,
     pairingCode: false,
     devices: true,
-    location: false,
-    tracking: false,
+    location: true,
+    tracking: true,
   });
 
   public stateConnection: { state: FindHubRuntimeState; statusReason?: number } = { state: 'close' };
@@ -86,14 +87,25 @@ export class FindHubStartupService {
     }
 
     await this.protocol?.close().catch(() => undefined);
+    let clientUuid = loaded.account.clientUuid;
+    if (!clientUuid) {
+      clientUuid = randomUUID();
+      await (this.prisma as any).findHubAccount.update({
+        where: { id: loaded.account.id },
+        data: { clientUuid },
+      });
+    }
+
     this.protocol = new FindHubProtocolClient(
       loaded.credentials,
       loaded.sharedKey,
+      clientUuid,
       (credentials) => this.authBroker.persistCredentials(this.instance.id, credentials),
     );
     await this.protocol.connect();
     await this.refreshDevices();
     await this.setState('open');
+    await this.restoreTracking();
     return { instance: { instanceName: this.instance.name, status: 'open' }, auth: { state: 'READY' } };
   }
 
@@ -278,6 +290,19 @@ export class FindHubStartupService {
 
   public async sendDataWebhook(event: any, data: any): Promise<void> {
     await this.emit(String(event), data);
+  }
+
+  private async restoreTracking(): Promise<void> {
+    const rows = await (this.prisma as any).findHubDevice.findMany({
+      where: {
+        instanceId: this.instance.id,
+        trackingEnabled: true,
+      },
+    });
+
+    for (const row of rows) {
+      this.installTracking(row.id, row.trackingIntervalSeconds || 60);
+    }
   }
 
   private installTracking(deviceId: string, intervalSeconds: number): void {
