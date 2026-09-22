@@ -32,7 +32,9 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  assert.equal(implemented.length, 12);
+  // PUT and DELETE share the Traccar path: 11 distinct paths, 12 HTTP operations.
+  assert.equal(implemented.length, 11);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 12);
   assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
   assert.match(dedicated.info.description, /CredentialProvider/);
   assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);
