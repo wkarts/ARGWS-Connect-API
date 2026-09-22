@@ -93,7 +93,8 @@ jobs:
             if curl -fsS http://127.0.0.1:39183/health >/dev/null; then break; fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:39183/manager/docs/openapi/findhub.openapi.json -o /tmp/findhub-served.json
+          # The existing reverse proxy strips the public /manager/docs prefix.
+          curl -fsS http://127.0.0.1:39183/openapi/findhub.openapi.json -o /tmp/findhub-served.json
           node -e 'const d=require("/tmp/findhub-served.json");const n=Object.values(d.paths).reduce((n,p)=>n+Object.keys(p).length,0);if(!d.info.title.includes("Find Hub")||Object.keys(d.paths).length!==11||n!==12)process.exit(1);console.log("Scalar Find Hub HTTP smoke passed: 11 paths, 12 operations")'
       - name: Commit validated generated files on the repair branch only
         shell: bash
