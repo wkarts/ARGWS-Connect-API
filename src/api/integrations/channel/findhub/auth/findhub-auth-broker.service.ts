@@ -1,6 +1,5 @@
-import { randomBytes, randomUUID } from 'crypto';
-
 import { PrismaRepository } from '@api/repository/repository.service';
+import { randomBytes, randomUUID } from 'crypto';
 
 import { GOOGLE_ENDPOINTS } from '../findhub.constants';
 import { FindHubAuthSession, FindHubStoredCredentials } from '../findhub.types';
@@ -89,7 +88,9 @@ export class FindHubAuthBrokerService {
     };
   }
 
-  public async load(instanceId: string): Promise<{ credentials: FindHubStoredCredentials; sharedKey: Buffer; account: any } | null> {
+  public async load(
+    instanceId: string,
+  ): Promise<{ credentials: FindHubStoredCredentials; sharedKey: Buffer; account: any } | null> {
     const account = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId } });
     if (!account?.encryptedCredentials || !account?.encryptedSharedKey) return null;
     const credentials = this.vault.decrypt<FindHubStoredCredentials>(account.encryptedCredentials);
