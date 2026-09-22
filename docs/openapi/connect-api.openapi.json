@@ -18,6 +18,10 @@
   ],
   "tags": [
     {
+      "name": "Google Find Hub",
+      "description": "Contas Google, autenticação por CredentialProvider, dispositivos, localização, tracking e Traccar. Consulte também o documento dedicado Google Find Hub no seletor do Scalar."
+    },
+    {
       "name": "Core",
       "description": "Healthcheck, descoberta e utilidades globais."
     },
@@ -6576,11 +6580,11 @@
     "/findhub/auth/import/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Importar bundle autorizado e conectar",
         "operationId": "post_findhub_auth_import_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Exige apikey da instância, sessionId e bridgeToken. Cifra o bundle com FINDHUB_CREDENTIALS_KEY e tenta conectar o canal. Não recebe senha, cookies do navegador nem a chave de criptografia do servidor. Um login comum no Google não produz automaticamente esse bundle.",
         "parameters": [
           {
             "name": "instanceName",
@@ -6600,21 +6604,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Importar bundle autorizado e conectar",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubAuthResult"
                 }
               }
             }
@@ -6627,16 +6621,25 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/FindHubCredentialBundleRequest"
               }
             }
           }
@@ -6646,11 +6649,11 @@
     "/findhub/auth/start/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Iniciar vinculação da conta Google",
         "operationId": "post_findhub_auth_start_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Cria sessão de dez minutos e devolve bridgeToken sensível. Não devolve URL OAuth, QR Code ou callback Google: o CredentialProvider externo precisa obter o bundle autorizado.",
         "parameters": [
           {
             "name": "instanceName",
@@ -6669,22 +6672,12 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
           "201": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Sessão temporária criada; aguarda o CredentialProvider.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubAuthSession"
                 }
               }
             }
@@ -6697,16 +6690,28 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/FindHubAuthStartRequest"
+              },
+              "example": {
+                "email": "operador@example.com"
               }
             }
           }
@@ -6716,11 +6721,11 @@
     "/findhub/auth/status/{instanceName}": {
       "get": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Consultar estado da autenticação",
         "operationId": "get_findhub_auth_status_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Consulta estado persistido sem devolver tokens nem chaves. Use para acompanhar a vinculação tanto pelo Manager quanto por integração externa.",
         "parameters": [
           {
             "name": "instanceName",
@@ -6740,21 +6745,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Consultar estado da autenticação",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubAuthStatus"
                 }
               }
             }
@@ -6767,6 +6762,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
@@ -6775,11 +6780,11 @@
     "/findhub/device/{deviceId}/{instanceName}": {
       "get": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Consultar um dispositivo",
         "operationId": "get_findhub_device_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Use o id local retornado na listagem, não googleDeviceId. A consulta permanece restrita à instância autorizada.",
         "parameters": [
           {
             "name": "deviceId",
@@ -6809,21 +6814,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Consultar um dispositivo",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubDevice"
                 }
               }
             }
@@ -6836,6 +6831,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
@@ -6844,11 +6849,11 @@
     "/findhub/devices/{instanceName}": {
       "get": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Listar dispositivos cadastrados",
         "operationId": "get_findhub_devices_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Retorna o catálogo local da instância; não força uma consulta nova ao Google. Telefones usam identifierType ANDROID e deviceType PHONE quando o protocolo informa esse tipo.",
         "parameters": [
           {
             "name": "instanceName",
@@ -6868,21 +6873,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Listar dispositivos cadastrados",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindHubDevice"
+                  }
                 }
               }
             }
@@ -6895,6 +6893,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
@@ -6903,11 +6911,11 @@
     "/findhub/devices/refresh/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Atualizar catálogo pelo Google Find Hub",
         "operationId": "post_findhub_devices_refresh_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.",
         "parameters": [
           {
             "name": "instanceName",
@@ -6927,21 +6935,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Atualizar catálogo pelo Google Find Hub",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindHubDevice"
+                  }
                 }
               }
             }
@@ -6954,30 +6955,29 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
-          }
-        },
-        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
-        }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
     "/findhub/locate/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Solicitar localização do dispositivo",
         "operationId": "post_findhub_locate_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Solicitação ativa via Nova e resposta assíncrona FCM/MCS. Pode retornar null quando não há posição; respeita FINDHUB_LOCATION_TIMEOUT_MS. Timestamp é a data do relatório, não a hora da chamada. Não há promessa de GPS em tempo real ou de localização nova a cada requisição.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7007,21 +7007,18 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Solicitar localização do dispositivo",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindHubPosition"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               }
             }
@@ -7034,30 +7031,29 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
-          }
-        },
-        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
-        }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
     "/findhub/positions/{deviceId}/{instanceName}": {
       "get": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Consultar histórico de posições",
         "operationId": "get_findhub_positions_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Retorna somente posições persistidas. FINDHUB_STORE_POSITION_HISTORY=false por padrão; nesse caso novas posições não são inseridas no histórico. Usa recordedAt no registro persistido e ordena da mais recente para a mais antiga.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7078,6 +7074,17 @@
               "minLength": 1
             },
             "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
           }
         ],
         "security": [
@@ -7087,21 +7094,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Consultar histórico de posições",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindHubStoredPosition"
+                  }
                 }
               }
             }
@@ -7114,6 +7114,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
@@ -7122,11 +7132,11 @@
     "/findhub/traccar/{deviceId}/{instanceName}": {
       "delete": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Remover vínculo com o Traccar",
         "operationId": "delete_findhub_traccar_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Remove apenas a integração desse dispositivo na instância. Não remove o smartphone do Google nem o cadastro remoto no Traccar.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7155,25 +7165,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
+          "204": {
+            "description": "Vínculo removido; resposta sem corpo."
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -7183,28 +7176,27 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
-          }
-        },
-        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
-        }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       },
       "put": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Configurar vínculo com o Traccar",
         "operationId": "put_findhub_traccar_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Salva vínculo individual via HTTP/OsmAnd. Não cria automaticamente o dispositivo no Traccar. url deve ser alcançável pelo container da API; localhost no container não é o host da VPS.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7234,21 +7226,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Configurar vínculo com o Traccar",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubTraccarBinding"
                 }
               }
             }
@@ -7261,16 +7243,30 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/FindHubTraccarRequest"
+              },
+              "example": {
+                "enabled": true,
+                "url": "http://traccar:5055",
+                "deviceId": "android-01"
               }
             }
           }
@@ -7280,11 +7276,11 @@
     "/findhub/tracking/start/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Iniciar acompanhamento periódico",
         "operationId": "post_findhub_tracking_start_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Persiste a configuração por dispositivo e agenda consultas periódicas. O intervalo efetivo respeita o mínimo do ambiente. Frequência e disponibilidade de novas posições dependem do Google e do smartphone.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7314,21 +7310,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Iniciar acompanhamento periódico",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubTrackingResult"
                 }
               }
             }
@@ -7341,6 +7327,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
@@ -7349,8 +7345,10 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/FindHubTrackingRequest"
+              },
+              "example": {
+                "intervalSeconds": 60
               }
             }
           }
@@ -7360,11 +7358,11 @@
     "/findhub/tracking/stop/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Parar acompanhamento periódico",
         "operationId": "post_findhub_tracking_stop_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Interrompe o agendamento e persiste trackingEnabled=false; não remove o aparelho da conta Google.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7394,21 +7392,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Parar acompanhamento periódico",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubTrackingResult"
                 }
               }
             }
@@ -7421,20 +7409,19 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
-          }
-        },
-        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
-        }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
     "/flowise/changeStatus/{instanceName}": {
@@ -16823,6 +16810,380 @@
             "type": "integer",
             "minimum": 100000,
             "maximum": 4000000
+          }
+        }
+      },
+      "FindHubAuthStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "description": "Conta Google de propriedade do operador autorizado."
+          }
+        }
+      },
+      "FindHubAuthSession": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "state",
+          "authMode",
+          "expiresAt"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "description": "Segredo temporário da vinculação; não registrar em logs, URL ou webhook."
+          },
+          "state": {
+            "const": "WAITING_AUTH"
+          },
+          "authMode": {
+            "const": "credential-provider"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FindHubCredentialBundleRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "email",
+          "androidId",
+          "accountToken",
+          "sharedKey"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true
+          },
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "androidId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accountToken": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true,
+            "description": "Token AAS previamente obtido por um CredentialProvider compatível. Não é senha Google, API key do Cloud Console ou access_token OAuth público."
+          },
+          "sharedKey": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true,
+            "description": "Chave autorizada do domínio de segurança Find Hub, hexadecimal ou base64. Não confundir com FINDHUB_CREDENTIALS_KEY, que pertence exclusivamente ao servidor."
+          },
+          "fcm": {
+            "type": "object",
+            "writeOnly": true,
+            "additionalProperties": true,
+            "description": "Estado FCM opcional, fornecido pelo CredentialProvider; material sensível."
+          }
+        }
+      },
+      "FindHubAuthResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "email"
+        ],
+        "properties": {
+          "state": {
+            "const": "READY"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "FindHubAuthStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "email",
+          "ready"
+        ],
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Indica credenciais persistidas; não comprova sozinho a disponibilidade de localização no Google."
+          }
+        }
+      },
+      "FindHubDevice": {
+        "type": "object",
+        "required": [
+          "id",
+          "googleDeviceId",
+          "name",
+          "identifierType",
+          "deviceType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID local usado no parâmetro deviceId das rotas; sempre isolado pela instância."
+          },
+          "googleDeviceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "identifierType": {
+            "type": "string",
+            "enum": [
+              "ANDROID",
+              "SPOT",
+              "UNKNOWN"
+            ]
+          },
+          "deviceType": {
+            "type": "string",
+            "enum": [
+              "PHONE",
+              "TABLET",
+              "WATCH",
+              "HEADPHONES",
+              "EARBUDS",
+              "TRACKER",
+              "UNKNOWN"
+            ]
+          },
+          "manufacturer": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "trackingEnabled": {
+            "type": "boolean"
+          },
+          "trackingIntervalSeconds": {
+            "type": "integer"
+          },
+          "lastLocationAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "FindHubPosition": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "googleDeviceId",
+          "latitude",
+          "longitude",
+          "timestamp",
+          "source",
+          "ownReport"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "googleDeviceId": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "altitude": {
+            "type": "number"
+          },
+          "accuracy": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "RECENT",
+              "NETWORK",
+              "LAST_KNOWN",
+              "CROWDSOURCED",
+              "AGGREGATED",
+              "UNKNOWN"
+            ]
+          },
+          "semanticLocation": {
+            "type": "string"
+          },
+          "ownReport": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubStoredPosition": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "altitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "accuracy": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "ownReport": {
+            "type": "boolean"
+          },
+          "semanticLocation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FindHubTrackingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 3600,
+            "description": "A API respeita também FINDHUB_MIN_TRACKING_INTERVAL_SECONDS; trata-se de consulta periódica, não GPS contínuo."
+          }
+        }
+      },
+      "FindHubTrackingResult": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "enabled"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "type": "integer"
+          }
+        }
+      },
+      "FindHubTraccarRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "url",
+          "deviceId"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Endpoint HTTP/OsmAnd acessível a partir da API; não é o endpoint REST /api do Traccar."
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identificador do dispositivo cadastrado no Traccar."
+          }
+        }
+      },
+      "FindHubTraccarBinding": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "traccarDeviceId": {
+            "type": "string"
           }
         }
       },

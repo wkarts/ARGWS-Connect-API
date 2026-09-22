@@ -2,9 +2,22 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 
 function keyFromEnvironment(): Buffer {
   const raw = String(process.env.FINDHUB_CREDENTIALS_KEY || '').trim();
-  if (!raw) throw new Error('FINDHUB_CREDENTIALS_KEY is required');
-  const key = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
-  if (key.length !== 32) throw new Error('FINDHUB_CREDENTIALS_KEY must contain exactly 32 bytes');
+  if (!raw) {
+    throw new Error(
+      'Find Hub não configurado: defina FINDHUB_CREDENTIALS_KEY no ambiente do container da API. ' +
+        'Execute prepare-findhub-env.py na pasta da stack e recrie o container. Não é uma chave do Google.',
+    );
+  }
+  if (/^[0-9a-f]{64}$/i.test(raw)) return Buffer.from(raw, 'hex');
+  const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
+  const key = Buffer.from(normalized, 'base64');
+  if (
+    !/^[A-Za-z0-9+/]{43}=?$/.test(normalized) ||
+    key.length !== 32 ||
+    key.toString('base64').replace(/=$/, '') !== normalized.replace(/=$/, '')
+  ) {
+    throw new Error('FINDHUB_CREDENTIALS_KEY deve conter 32 bytes: 64 caracteres hex ou base64 canônico.');
+  }
   return key;
 }
 

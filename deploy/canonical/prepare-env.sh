@@ -47,3 +47,4 @@ path.write_text(text)
 PYENV
 chmod 600 .env
 echo "Stack ${STACK_NAME} preparada."
+python3 ./prepare-findhub-env.py --env-file .env "$@"

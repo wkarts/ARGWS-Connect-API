@@ -304,53 +304,257 @@
       }
     },
     "findhub.auth.update": {
-      "description": "Evento `findhub.auth.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "description": "Nome reservado no catálogo atual. O Auth Broker não emite esse evento nos métodos start/import/status; acompanhe a autenticação pelo endpoint de status.",
       "subscribe": {
         "operationId": "consume_findhub_auth_update",
         "message": {
-          "$ref": "#/components/messages/ConnectEvent"
+          "$ref": "#/components/messages/findhub_auth_update"
         }
       }
     },
     "findhub.devices.updated": {
-      "description": "Evento `findhub.devices.updated` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "description": "Catálogo atualizado pela consulta remota.",
       "subscribe": {
         "operationId": "consume_findhub_devices_updated",
         "message": {
-          "$ref": "#/components/messages/ConnectEvent"
+          "$ref": "#/components/messages/findhub_devices_updated"
         }
       }
     },
     "findhub.location.updated": {
-      "description": "Evento `findhub.location.updated` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "description": "Posição obtida; timestamp pertence ao relatório recebido, que pode ser antigo.",
       "subscribe": {
         "operationId": "consume_findhub_location_updated",
         "message": {
-          "$ref": "#/components/messages/ConnectEvent"
+          "$ref": "#/components/messages/findhub_location_updated"
         }
       }
     },
     "findhub.tracking.update": {
-      "description": "Evento `findhub.tracking.update` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "description": "Acompanhamento ativado ou desativado por dispositivo.",
       "subscribe": {
         "operationId": "consume_findhub_tracking_update",
         "message": {
-          "$ref": "#/components/messages/ConnectEvent"
+          "$ref": "#/components/messages/findhub_tracking_update"
         }
       }
     },
     "findhub.error": {
-      "description": "Evento `findhub.error` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.",
+      "description": "Erro de acompanhamento, sem credenciais.",
       "subscribe": {
         "operationId": "consume_findhub_error",
         "message": {
-          "$ref": "#/components/messages/ConnectEvent"
+          "$ref": "#/components/messages/findhub_error"
         }
       }
     }
   },
   "components": {
     "messages": {
+      "findhub_auth_update": {
+        "name": "findhub_auth_update",
+        "title": "findhub.auth.update",
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "instance": {},
+            "data": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "findhub_devices_updated": {
+        "name": "findhub_devices_updated",
+        "title": "findhub.devices.updated",
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "instance": {},
+            "data": {
+              "type": "object",
+              "properties": {
+                "devices": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "identifierType": {
+                        "type": "string"
+                      },
+                      "deviceType": {
+                        "type": "string"
+                      },
+                      "trackingEnabled": {
+                        "type": "boolean"
+                      },
+                      "lastLocationAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "findhub_location_updated": {
+        "name": "findhub_location_updated",
+        "title": "findhub.location.updated",
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "instance": {},
+            "data": {
+              "type": "object",
+              "properties": {
+                "device": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "location": {
+                  "type": "object",
+                  "required": [
+                    "deviceId",
+                    "googleDeviceId",
+                    "latitude",
+                    "longitude",
+                    "timestamp",
+                    "source",
+                    "ownReport"
+                  ],
+                  "properties": {
+                    "deviceId": {
+                      "type": "string"
+                    },
+                    "googleDeviceId": {
+                      "type": "string"
+                    },
+                    "latitude": {
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "type": "number"
+                    },
+                    "altitude": {
+                      "type": "number"
+                    },
+                    "accuracy": {
+                      "type": "number"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "RECENT",
+                        "NETWORK",
+                        "LAST_KNOWN",
+                        "CROWDSOURCED",
+                        "AGGREGATED",
+                        "UNKNOWN"
+                      ]
+                    },
+                    "semanticLocation": {
+                      "type": "string"
+                    },
+                    "ownReport": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "findhub_tracking_update": {
+        "name": "findhub_tracking_update",
+        "title": "findhub.tracking.update",
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "instance": {},
+            "data": {
+              "type": "object",
+              "required": [
+                "deviceId",
+                "enabled"
+              ],
+              "properties": {
+                "deviceId": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "intervalSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "findhub_error": {
+        "name": "findhub_error",
+        "title": "findhub.error",
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "event": {
+              "type": "string"
+            },
+            "instance": {},
+            "data": {
+              "type": "object",
+              "properties": {
+                "operation": {
+                  "type": "string"
+                },
+                "deviceId": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        }
+      },
       "ConnectEvent": {
         "name": "ConnectEvent",
         "title": "Evento Connect|API",

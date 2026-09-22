@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 python3 ./prepare-operations-env.py --check
 export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
+python3 ./prepare-findhub-env.py --env-file .env --check
 
 if [[ ! -f .env ]]; then
   echo "ERRO: .env inexistente. Execute ./prepare-env.sh."

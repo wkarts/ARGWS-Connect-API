@@ -6,6 +6,7 @@ import { operationsStatisticsOperation } from './operations-statistics-schema.mj
 import { diagnosticOperations, diagnosticSchemas } from './diagnostics-schema.mjs';
 import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
 import { videoCallOperations, videoCallSchemas } from './video-call-schemas.mjs';
+import { findHubOperations, findHubSchemas, findHubEventMessages } from './findhub-schemas.mjs';
 
 const ROOT = process.cwd();
 const API_DIRS = [
@@ -198,6 +199,7 @@ const requestOverrides = {
   ...localTemplateOperations,
   ...diagnosticOperations,
   ...videoCallOperations,
+  ...findHubOperations,
   'GET /operations/statistics': operationsStatisticsOperation,
   "GET /operations/snapshot": {"summary": "Resumo operacional privado", "description": "Exige a API key global. Somente verificações técnicas, sem canais ou conteúdo de mensagens. Retorna 503 quando o monitoramento está desabilitado ou indisponível."},
   "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
@@ -355,6 +357,7 @@ function nativeSpec(routes, version) {
     },
     servers: [{ url: 'https://d.api.connect.argws.com.br', description: 'Develop / homologação' }, { url: 'http://localhost:38080', description: 'Docker local' }],
     tags: [
+      { name: 'Google Find Hub', description: 'Contas Google, autenticação por CredentialProvider, dispositivos, localização, tracking e Traccar. Consulte também o documento dedicado Google Find Hub no seletor do Scalar.' },
       { name: 'Core', description: 'Healthcheck, descoberta e utilidades globais.' }, { name: 'Instances', description: 'Criação, conexão, estado, logout, restart e exclusão.' },
       { name: 'Messages', description: 'Texto, mídia, áudio, PTV, sticker, localização, contatos, reações, enquetes, listas e botões.' },
       { name: 'Chats & Contacts', description: 'Chats, contatos, mensagens persistidas, perfil, presença e privacidade.' }, { name: 'Groups', description: 'Criação e administração de grupos.' },
@@ -374,6 +377,7 @@ function nativeSpec(routes, version) {
         ...localTemplateSchemas,
         ...diagnosticSchemas,
         ...videoCallSchemas,
+        ...findHubSchemas,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
@@ -387,6 +391,19 @@ function nativeSpec(routes, version) {
         NotFound: { description: 'Recurso ou instância não encontrado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
       },
     },
+  };
+}
+
+function findHubSpec(native, version) {
+  return {
+    ...native,
+    info: {
+      title: 'Connect|API — Google Find Hub', version,
+      summary: 'Implantação, autenticação, dispositivos, localização e Traccar.',
+      description: fs.readFileSync(path.join(ROOT, 'docs', 'guides', 'google-find-hub.md'), 'utf8'),
+    },
+    tags: native.tags.filter((tag) => tag.name === 'Google Find Hub'),
+    paths: Object.fromEntries(Object.entries(native.paths).filter(([apiPath]) => apiPath.startsWith('/findhub/'))),
   };
 }
 
@@ -449,10 +466,23 @@ function asyncSpec(version) {
   const events = [];
   if (enumMatch) for (const match of enumMatch[1].matchAll(/[A-Z0-9_]+\s*=\s*['"]([^'"]+)['"]/g)) events.push(match[1]);
   const channels = {};
+  const findHubMessages = {};
   for (const event of events) {
     channels[event] = {
       description: `Evento \`${event}\` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.`,
       subscribe: { operationId: `consume_${event.replace(/[^A-Za-z0-9]+/g, '_')}`, message: { $ref: '#/components/messages/ConnectEvent' } },
+    };
+  }
+  for (const [event, definition] of Object.entries(findHubEventMessages)) {
+    if (!channels[event]) continue;
+    const messageName = event.replace(/[^A-Za-z0-9]+/g, '_');
+    channels[event].description = definition.description;
+    channels[event].subscribe.message = { $ref: `#/components/messages/${messageName}` };
+    findHubMessages[messageName] = {
+      name: messageName, title: event,
+      payload: { type: 'object', additionalProperties: true, properties: {
+        event: { type: 'string' }, instance: {}, data: definition.data,
+      } },
     };
   }
   return {
@@ -466,7 +496,7 @@ function asyncSpec(version) {
       ].join('\n'),
     },
     channels,
-    components: { messages: { ConnectEvent: { name: 'ConnectEvent', title: 'Evento Connect|API', payload: { type: 'object', additionalProperties: true, properties: { event: { type: 'string' }, instance: {}, data: {} } } } } },
+    components: { messages: { ...findHubMessages, ConnectEvent: { name: 'ConnectEvent', title: 'Evento Connect|API', payload: { type: 'object', additionalProperties: true, properties: { event: { type: 'string' }, instance: {}, data: {} } } } } },
   };
 }
 
@@ -486,6 +516,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const routes = discoverRoutes();
 const native = nativeSpec(routes, pkg.version);
 const graph = graphSpec(pkg.version);
+const findhub = findHubSpec(native, pkg.version);
 const asyncapi = asyncSpec(pkg.version);
 const coverage = {
   generatedAt: new Date().toISOString(), version: pkg.version,
@@ -495,6 +526,7 @@ const coverage = {
 };
 
 writeOrCheck(path.join(OUTPUT_DIR, 'connect-api.openapi.json'), stableJson(native));
+writeOrCheck(path.join(OUTPUT_DIR, 'findhub.openapi.json'), stableJson(findhub));
 writeOrCheck(path.join(OUTPUT_DIR, 'meta-compatible.openapi.json'), stableJson(graph));
 writeOrCheck(path.join(ASYNC_DIR, 'connect-api-events.asyncapi.json'), stableJson(asyncapi));
 
