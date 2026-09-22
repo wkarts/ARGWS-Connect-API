@@ -137,18 +137,18 @@ test('explicit different Google identity is refused in exchange and service veri
   }
 });
 
-test('cookie URI encoding is normalized once, preserving plus and equals', async () => {
+test('opaque browser cookie reaches the form unchanged: percent, plus, equals and escaped byte sequences', async () => {
   const { GooglePlayAuthClient } = load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
-  for (const token of ['oauth2_4/opaque+test==', 'oauth2_4%2Fopaque%2Btest%3D%3D']) {
+  for (const token of ['oauth2_4/opaque+test==', 'oauth2_4%2Fopaque%2Btest%3D%3D', 'opaque%252Bvalue%0A', 'opaque%EF%FF']) {
     const client = new GooglePlayAuthClient(async body => {
       const form = new URLSearchParams(body);
-      if (form.has('Token')) assert.equal(form.get('Token'), 'oauth2_4/opaque+test==');
+      if (form.has('Token')) assert.equal(form.get('Token'), token, 'must preserve exactly the cookie API bytes');
       return { status: 200, text: form.has('Token') ? 'Token=test' : 'Auth=test' };
     });
     await client.exchange('operator@example.com', token, '123456789');
   }
   const noNetwork = new GooglePlayAuthClient(async () => { throw Error('Must not request'); });
-  for (const token of ['', 'x%0Ay', 'a b', 'a%EF%FF', 'x'.repeat(16385)]) {
+  for (const token of ['', 'x\ny', 'a b', 'a\u0000b', 'x'.repeat(16385)]) {
     await assert.rejects(noNetwork.exchange('operator@example.com', token, '123456789'), error => error.code === 9101);
   }
 });
@@ -261,7 +261,7 @@ test('regression: former 9106 at request line 66 now distinguishes HTTP status a
  const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
  const client=new GooglePlayAuthClient(async()=>({status:400,text:'Error=InvalidRequest\nErrorDetail=SECRET email@private.example\nToken=PRIVATE-TOKEN'}));
  await assert.rejects(client.exchange('operator@example.com','synthetic','123456789'), e=>
-   e.code===9106 && e.message.includes('etapa=exchange; http=400; motivo=InvalidRequest; campos=1011') && !/SECRET|private|PRIVATE/.test(e.message));
+   e.code===9115 && e.message.includes('etapa=exchange; http=400; motivo=InvalidRequest; campos=1011') && !/SECRET|private|PRIVATE/.test(e.message));
 });
 test('unknown error text cannot leak via diagnostic context; service phase remains distinguishable', async () => {
  const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
@@ -302,4 +302,27 @@ test('registration stops before push registration if Firebase does not return in
   const h=nativeRegistrationHarness({missingInstallationToken:true});
   await assert.rejects(h.client.ensureRegistered(),/Invalid Firebase installation response/);
   assert.equal(h.requests.length,3);assert.equal(h.client.currentCredentials,null);
+});
+
+for (const [reason,code,expected] of [
+ ['BAD_AUTHENTICATION',9102,'BadAuthentication'], ['needs_browser',9103,'NeedsBrowser'],
+ ['invalid_argument',9115,'InvalidArgument'], ['INVALID_CLIENT',9115,'InvalidClient'],
+ ['DROID_GUARD_REQUIRED',9116,'DroidGuardRequired'], ['private@example.com',9106,'UNCLASSIFIED'],
+]) test(`known error enums are classified without exposing upstream text: ${code} ${expected}`, async()=>{
+ const {GooglePlayAuthClient}=load('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts');
+ let calls=0;const client=new GooglePlayAuthClient(async()=>{calls++;return {status:400,text:`Error=${reason}`};});
+ await assert.rejects(client.exchange('operator@example.com','synthetic','123456789'),error=>{
+   assert.equal(error.code,code); assert.ok(error.message.includes(`motivo=${expected}`));
+   assert.equal(JSON.stringify(error.diagnosticContext),JSON.stringify({phase:'exchange',http:400,fields:'0010'}));
+   assert.ok(!error.message.includes('private@example.com')); return true;
+ }); assert.equal(calls,1,'no repeat redemption and no fake integrity proof');
+});
+test('exported Find Hub diagnostics retain only fixed stage/status/flags, not secret upstream data',()=>{
+ const {sanitizeDiagnostic}=load('src/diagnostics/diagnostic-sanitizer.ts');
+ const marker='DO_NOT_EXPORT_GOOGLE_TOKEN';
+ const event=sanitizeDiagnostic({code:'runtime.error',component:'findhub-auth',level:'warn',error:{name:'FindHubAuthError',code:9106,message:marker,diagnosticContext:{phase:'exchange',http:400,fields:'0010',reason:marker,Token:marker}}});
+ assert.equal(JSON.stringify(event.details.findHub),JSON.stringify({code:9106,phase:'exchange',http:400,fields:'0010'}));
+ assert.ok(!JSON.stringify(event).includes(marker));
+ const unrelated=sanitizeDiagnostic({code:'runtime.error',component:'zapo',error:{name:'Error',code:9106,diagnosticContext:{phase:'exchange',http:400,fields:'0010'}}});
+ assert.equal(unrelated.details.findHub,undefined);
 });

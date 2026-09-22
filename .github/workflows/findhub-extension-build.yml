@@ -34,6 +34,26 @@ jobs:
           $revision = (git rev-parse HEAD).Trim()
           node scripts/build-findhub-distribution.cjs --revision $revision --channel $env:CHANNEL
           if ($LASTEXITCODE -ne 0) { throw 'Distribution contract failed' }
+      - name: Build native Rust Windows assistant and run its unit tests
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain unavailable' }
+          $rc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter rc.exe -Recurse | Where-Object { $_.FullName -match '\\x64\\rc.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$rc) { throw 'Windows SDK resource compiler missing' }
+          $env:RC_EXE = $rc.FullName
+          $project = 'browser-extensions/findhub-auth/windows-assistant/Cargo.toml'
+          cargo +1.90.0 test --manifest-path $project --locked --offline
+          if ($LASTEXITCODE -ne 0) { throw 'Rust unit tests failed' }
+          cargo +1.90.0 build --manifest-path $project --release --locked --offline
+          if ($LASTEXITCODE -ne 0) { throw 'Rust build failed' }
+          $version = (Get-Content browser-extensions/findhub-auth/manifest.json -Raw | ConvertFrom-Json).version
+          Copy-Item browser-extensions/findhub-auth/windows-assistant/target/release/connect-findhub-assistant.exe "build/findhub-extension/Connect-FindHub-Auth-Assistant-$version-windows-x64.exe"
+          & browser-extensions/findhub-auth/windows-assistant/smoke-test.ps1 -Exe (Resolve-Path "build/findhub-extension/Connect-FindHub-Auth-Assistant-$version-windows-x64.exe")
+          if ($LASTEXITCODE -ne 0) { throw 'Rust assistant smoke test failed' }
       - name: Get pinned native installer compiler
         shell: pwsh
         run: |
@@ -90,6 +110,7 @@ jobs:
           path: |
             build/findhub-extension/Connect-FindHub-Auth-*.zip
             build/findhub-extension/Connect-FindHub-Auth-Setup-*.exe
+            build/findhub-extension/Connect-FindHub-Auth-Assistant-*.exe
             build/findhub-extension/extension-release.json
             build/findhub-extension/SHA256SUMS.txt
           if-no-files-found: error

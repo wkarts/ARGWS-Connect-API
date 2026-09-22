@@ -1,6 +1,6 @@
 # Connect|API Find Hub Auth — extensão opcional
 
-ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.1.
+ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.3.
 
 Esta é uma implementação experimental própria para Chrome/Edge desktop, não um login OAuth público Google. Extraia o ZIP servido pela sua API e use Carregar sem compactação na página de extensões (modo desenvolvedor). Volte ao Manager e inicie Conectar conta. A janela **da extensão** mostra a origem solicitante, o servidor destinatário e a conta: aprove somente destinos de sua confiança.
 
@@ -23,3 +23,9 @@ A leitura do artefato é repetida após a abertura e carregamento da aba autoriz
 O instalador Windows `Connect-FindHub-Auth-Setup-0.1.2.exe` e o ZIP são publicados juntos, com `SHA256SUMS.txt` e `extension-release.json`. O EXE instala/atualiza arquivos por usuário, sem administrador, em `%LOCALAPPDATA%\ARGWS\ConnectFindHubAuth\extension`. A ativação inicial (`Carregar sem compactação`) e o `Recarregar` após atualizar permanecem sob controle do navegador. Não são alteradas políticas/perfis para forçar instalação. O EXE não é assinado; não desative proteções de segurança para executá-lo.
 
 O ID do helper e os ícones oficiais foram preservados. API/Manager 0.1.2 do fluxo prepara uma identidade Google FCM real antes do login e informa o contexto categórico de falhas, sem divulgar segredos. A versão da aplicação e a versão do helper são independentes. Consulte o commit em `extension-release.json` antes de misturar builds.
+
+### 0.1.3 — Assistente Windows Rust
+
+O release disponibiliza ZIP, instalador NSIS e assistente Rust Windows x64, com a mesma identidade e ícones canônicos. Consulte `windows-assistant/README.md` no repositório. O assistente apenas prepara/atualiza os arquivos e ajuda a abrir o gerenciamento de extensões: aprovação inicial e recarregamento permanecem no navegador. Não altera políticas nem perfis; não acessa a conta Google.
+
+O backend correspondente preserva os bytes opacos do cookie sem decodificação URI adicional e diferencia motivos conhecidos de rejeição. A nova versão não representa uma homologação automática do login real.

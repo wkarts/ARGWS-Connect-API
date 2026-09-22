@@ -622,6 +622,21 @@ export function sanitizeDiagnostic(input: unknown, now = Date.now()): Diagnostic
       case 'runtime.error':
         level = read(input, 'level') === 'warn' ? 'warn' : 'error';
         details = diagnosticError(read(input, 'error'));
+        if (read(input, 'component') === 'findhub-auth' && read(read(input, 'error'), 'name') === 'FindHubAuthError') {
+          const failure = read(input, 'error');
+          const context = read(failure, 'diagnosticContext');
+          const failureCode = read(failure, 'code');
+          const fields = read(context, 'fields');
+          details.findHub = compact({
+            code:
+              Number.isInteger(failureCode) && Number(failureCode) >= 9101 && Number(failureCode) <= 9116
+                ? failureCode
+                : undefined,
+            phase: token(read(context, 'phase'), new Set(['exchange', 'adm', 'spot'])),
+            http: numeric(read(context, 'http'), 599),
+            fields: typeof fields === 'string' && /^[01]{4}$/.test(fields) ? fields : undefined,
+          });
+        }
         break;
       case 'webhook.delivery': {
         const event = read(input, 'event');

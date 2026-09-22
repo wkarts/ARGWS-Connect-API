@@ -5,7 +5,7 @@ test('distribution build packages exact ZIP and derives stable ID without depend
  const out=fs.mkdtempSync(path.join(os.tmpdir(),'findhub-dist-'));t.after(()=>fs.rmSync(out,{recursive:true,force:true}));
  cp.execFileSync(process.execPath,['scripts/build-findhub-distribution.cjs','--output',out,'--revision','a'.repeat(40)],{cwd:root});
  const meta=JSON.parse(fs.readFileSync(path.join(out,'extension-release.json')));
- assert.equal(meta.version,'0.1.2');assert.equal(meta.extensionId,'dcnejnlafhanlldafkijledmonimkgng');assert.equal(meta.windows.signed,false);assert.equal(meta.windows.browserApprovalRequired,true);
+ assert.equal(meta.version,'0.1.3');assert.equal(meta.extensionId,'dcnejnlafhanlldafkijledmonimkgng');assert.equal(meta.windows.signed,false);assert.equal(meta.windows.browserApprovalRequired,true);
  assert.equal(meta.iconSource,'public/branding/connect-api/core/connect-api-app-icon-dark.png');
  assert.deepEqual(fs.readFileSync(path.join(out,meta.zip.file)),fs.readFileSync(path.join(root,'public/findhub-auth.zip')));
  assert.equal(fs.readFileSync(path.join(out,'connect-findhub.ico')).readUInt16LE(2),1);
@@ -25,4 +25,14 @@ test('application release explicitly waits for Windows build and attaches binari
  assert.match(read('.github/workflows/findhub-extension-release.yml'),/--prerelease --latest=false/);
  assert.match(read('.github/workflows/findhub-extension-build.yml'),/smoke-test\.ps1/);
  assert.match(read('.github/workflows/findhub-extension-build.yml'),/c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1/);
+});
+
+test('Rust assistant is embedded, offline, per-user and attached to both release channels',()=>{
+ const cargo=read('browser-extensions/findhub-auth/windows-assistant/Cargo.toml');
+ assert.doesNotMatch(cargo,/\[dependencies/);
+ const native=read('browser-extensions/findhub-auth/windows-assistant/src/ui.rs');
+ assert.match(native,/Instalar \/ atualizar/);assert.match(native,/Recarregar/);
+ assert.doesNotMatch(native,/ExtensionInstallForcelist|Secure Preferences|--load-extension|--disable-extensions/);
+ for(const file of ['.github/workflows/auto-version-release.yml','.github/workflows/findhub-extension-release.yml'])assert.match(read(file),/Connect-FindHub-Auth-Assistant-\*\.exe/);
+ const workflow=read('.github/workflows/findhub-extension-build.yml');assert.match(workflow,/cargo \+1\.90\.0 test/);assert.match(workflow,/--locked --offline/);
 });

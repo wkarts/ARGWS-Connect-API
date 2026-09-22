@@ -14,6 +14,8 @@ const MESSAGES = {
   9112: 'Não foi possível validar a chave de localização da conta. Conclua o desbloqueio diretamente no Google.',
   9113: 'Não foi possível validar a conexão Google Find Hub. Nenhuma conexão foi confirmada.',
   9114: 'Não foi possível registrar a identidade Google do receptor Find Hub. O login não foi iniciado. Verifique a saída de rede para os serviços Google.',
+  9115: 'O Google recusou os parâmetros da troca de autenticação. Nenhuma conta foi conectada. Consulte a etapa e o motivo técnico; não reutilize o artefato.',
+  9116: 'O Google exige validação de integridade do dispositivo. Esse desafio não é substituído pela extensão ou pelo instalador. Nenhuma conta foi conectada.',
 } as const;
 
 export type FindHubAuthErrorCode = keyof typeof MESSAGES;
@@ -53,13 +55,33 @@ const SAFE_REASONS = new Set([
   'ERROR_FIELDS',
   'MISSING_CREDENTIAL',
   'UNCLASSIFIED',
+  'InvalidArgument',
+  'InvalidClient',
+  'InvalidScope',
+  'InvalidService',
+  'UnsupportedService',
+  'DroidGuardRequired',
+  'InvalidDroidGuard',
+  'DeviceIntegrityRequired',
+  'AttestationRequired',
+  'UNKNOWN_ERROR',
 ]);
+
+/** Match only known enum spellings; unknown/free-form values never cross the public boundary. */
+export function normalizeFindHubAuthReason(value: string): string {
+  if (typeof value !== 'string' || !/^[A-Za-z_ -]{1,80}$/.test(value)) return 'UNCLASSIFIED';
+  const canonical = value.replace(/[_ -]/g, '').toLowerCase();
+  for (const known of SAFE_REASONS) {
+    if (known.replace(/[_ -]/g, '').toLowerCase() === canonical) return known;
+  }
+  return 'UNCLASSIFIED';
+}
 
 /** Only bounded fixed categories survive the public error boundary. Never echo a Google value verbatim. */
 function contextLabel(context: FindHubAuthResponseContext): string {
   const phase = ['exchange', 'adm', 'spot'].includes(context.phase) ? context.phase : 'exchange';
   const http = Number.isInteger(context.http) && context.http >= 100 && context.http <= 599 ? context.http : 0;
-  const reason = SAFE_REASONS.has(context.reason) ? context.reason : 'UNCLASSIFIED';
+  const reason = normalizeFindHubAuthReason(context.reason);
   const flags = [context.token, context.auth, context.error, context.detail]
     .map((value) => (value === true ? '1' : '0'))
     .join('');
@@ -67,12 +89,21 @@ function contextLabel(context: FindHubAuthResponseContext): string {
 }
 
 export class FindHubAuthError extends Error {
+  public readonly diagnosticContext?: { phase: FindHubAuthPhase; http: number; fields: string };
   constructor(
     public readonly code: FindHubAuthErrorCode,
     context?: FindHubAuthResponseContext,
   ) {
     super(`[FH-AUTH-${code}] ${MESSAGES[code]}${context ? contextLabel(context) : ''}`);
     this.name = 'FindHubAuthError';
+    if (context)
+      this.diagnosticContext = {
+        phase: ['exchange', 'adm', 'spot'].includes(context.phase) ? context.phase : 'exchange',
+        http: Number.isInteger(context.http) && context.http >= 100 && context.http <= 599 ? context.http : 0,
+        fields: [context.token, context.auth, context.error, context.detail]
+          .map((value) => (value === true ? '1' : '0'))
+          .join(''),
+      };
   }
 }
 

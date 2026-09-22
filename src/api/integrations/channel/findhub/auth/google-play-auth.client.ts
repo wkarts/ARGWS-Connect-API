@@ -1,6 +1,12 @@
 import { GOOGLE_ADM_CONFIG, GOOGLE_OAUTH_SCOPES } from '../findhub.constants';
 import { FindHubAasCredentials } from '../findhub.types';
-import { FindHubAuthError, FindHubAuthErrorCode, FindHubAuthPhase, safeFindHubAuthError } from './findhub-auth.error';
+import {
+  FindHubAuthError,
+  FindHubAuthErrorCode,
+  FindHubAuthPhase,
+  normalizeFindHubAuthReason,
+  safeFindHubAuthError,
+} from './findhub-auth.error';
 import { GoogleAuthTransport, requestGoogleAuth } from './google-auth.transport';
 
 function parseKeyValue(text: string): Record<string, string> {
@@ -19,15 +25,9 @@ function parseKeyValue(text: string): Record<string, string> {
 
 function loginToken(value: unknown): string {
   if (typeof value !== 'string' || !value || value.length > 16384) throw new FindHubAuthError(9101);
-  let token = value;
-  // Decode URI-escaped cookie bytes once only. '+' is a literal token byte, never a form-space.
-  if (/%[0-9a-f]{2}/i.test(token)) {
-    try {
-      token = decodeURIComponent(token);
-    } catch {
-      throw new FindHubAuthError(9101);
-    }
-  }
+  // chrome.cookies.get returns the cookie value, not a URL query parameter. Preserve all opaque bytes.
+  // URLSearchParams below performs the single required form encoding. Never decode or retry a login token.
+  const token = value;
   if (
     !token ||
     /\s/.test(token) ||
@@ -74,12 +74,27 @@ export class GooglePlayAuthClient {
       throw fail(9106, 'MALFORMED_RESPONSE');
     }
     // ErrorDetail/ErrorMsg are never returned or logged: they may contain login URLs and account data.
-    const reason =
-      data.Error?.trim() || (response.status < 200 || response.status >= 300 ? 'HTTP_ERROR' : 'ERROR_FIELDS');
+    const reason = normalizeFindHubAuthReason(
+      data.Error?.trim() || (response.status < 200 || response.status >= 300 ? 'HTTP_ERROR' : 'ERROR_FIELDS'),
+    );
     if (['BadAuthentication', 'InvalidToken', 'ExpiredToken'].includes(reason)) throw fail(9102, reason, data);
     if (['NeedsBrowser', 'CaptchaRequired', 'InvalidSecondFactor', 'WebLoginRequired'].includes(reason)) {
       throw fail(9103, reason, data);
     }
+    if (
+      [
+        'InvalidRequest',
+        'BadRequest',
+        'InvalidArgument',
+        'InvalidClient',
+        'InvalidScope',
+        'InvalidService',
+        'UnsupportedService',
+      ].includes(reason)
+    )
+      throw fail(9115, reason, data);
+    if (['DroidGuardRequired', 'InvalidDroidGuard', 'DeviceIntegrityRequired', 'AttestationRequired'].includes(reason))
+      throw fail(9116, reason, data);
     if (response.status < 200 || response.status >= 300 || data.Error || data.ErrorDetail || data.ErrorMsg) {
       throw fail(9106, reason, data);
     }
