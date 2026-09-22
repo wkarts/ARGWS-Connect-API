@@ -1,6 +1,9 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import {
   FindHubAuthStartDto,
+  FindHubBrowserCompleteDto,
+  FindHubBrowserExchangeDto,
+  FindHubBrowserProofDto,
   FindHubCredentialBundleDto,
   FindHubTraccarDto,
   FindHubTrackingDto,
@@ -8,11 +11,16 @@ import {
 import { findHubController } from '@api/server.module';
 import {
   findHubAuthStartSchema,
+  findHubBrowserCancelSchema,
+  findHubBrowserCompleteSchema,
+  findHubBrowserExchangeSchema,
+  findHubBrowserStartSchema,
   findHubCredentialBundleSchema,
   findHubTraccarSchema,
   findHubTrackingSchema,
 } from '@validate/findhub.schema';
 import { RequestHandler, Router } from 'express';
+import { resolve } from 'path';
 
 export class FindHubRouter extends RouterBroker {
   public readonly router: Router = Router();
@@ -21,6 +29,63 @@ export class FindHubRouter extends RouterBroker {
     super();
 
     this.router
+      .get('/auth/extension/:instanceName', ...guards, (req, res, next) => {
+        findHubController.extensionAllowed(req.params.instanceName);
+        res.setHeader('Cache-Control', 'no-store');
+        res.download(resolve(process.cwd(), 'public/findhub-auth.zip'), 'Connect-FindHub-Auth.zip', (error) => {
+          if (error) next(error);
+        });
+      })
+      .post('/disconnect/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.disconnect(req.params.instanceName)),
+      )
+      .get('/traccar/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.traccar(req.params.instanceName, req.params.deviceId)),
+      )
+      .post('/auth/browser/start/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(201).json(
+          await this.dataValidate({
+            request: req,
+            schema: findHubBrowserStartSchema,
+            ClassRef: FindHubAuthStartDto,
+            execute: (instance, data) => findHubController.browserAuth(instance.instanceName, 'start', data),
+          }),
+        );
+      })
+      .post('/auth/browser/exchange/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).json(
+          await this.dataValidate({
+            request: req,
+            schema: findHubBrowserExchangeSchema,
+            ClassRef: FindHubBrowserExchangeDto,
+            execute: (instance, data) => findHubController.browserAuth(instance.instanceName, 'exchange', data),
+          }),
+        );
+      })
+      .post('/auth/browser/complete/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).json(
+          await this.dataValidate({
+            request: req,
+            schema: findHubBrowserCompleteSchema,
+            ClassRef: FindHubBrowserCompleteDto,
+            execute: (instance, data) => findHubController.browserAuth(instance.instanceName, 'complete', data),
+          }),
+        );
+      })
+      .post('/auth/browser/cancel/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).json(
+          await this.dataValidate({
+            request: req,
+            schema: findHubBrowserCancelSchema,
+            ClassRef: FindHubBrowserProofDto,
+            execute: (instance, data) => findHubController.browserAuth(instance.instanceName, 'cancel', data),
+          }),
+        );
+      })
       .post('/auth/start/:instanceName', ...guards, async (req, res) =>
         res.status(201).json(
           await this.dataValidate({

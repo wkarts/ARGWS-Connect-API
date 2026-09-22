@@ -394,6 +394,7 @@ function viewHarness({
     } },
     '@/config/runtime': { featureEnabled: () => false },
     '@/services/errors': { friendlyError: error => error.message },
+    '@/services/findhub-channel': load(read('src/services/findhub-channel.ts')),
     '@/services/normalizers': { isCallActive: call => !['ended', 'failed'].includes(call.state) },
     '@/services/video-media': { VideoMediaSession: { async prepare() {
       requests.push(['camera'])

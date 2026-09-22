@@ -1,4 +1,5 @@
 import { InstanceDto } from '@api/dto/instance.dto';
+import { FindHubStartupService } from '@api/integrations/channel/findhub/services/findhub-runtime.service';
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { channelController } from '@api/server.module';
@@ -318,6 +319,29 @@ export class WAMonitoringService {
   }
 
   private async setInstance(instanceData: InstanceDto) {
+    // A Google account failure must never reject an unawaited legacy WhatsApp restore task.
+    if (instanceData.integration === Integration.GOOGLE_FIND_HUB) {
+      try {
+        const runtime = channelController.init(instanceData, {
+          configService: this.configService,
+          eventEmitter: this.eventEmitter,
+          prismaRepository: this.prismaRepository,
+          cache: this.cache,
+          chatwootCache: this.chatwootCache,
+          baileysCache: this.baileysCache,
+          providerFiles: this.providerFiles,
+        }) as FindHubStartupService;
+        if (!runtime) return;
+        runtime.setInstance(instanceData);
+        this.waInstances[instanceData.instanceName] = runtime;
+        if (['open', 'connecting'].includes(instanceData.connectionStatus)) await runtime.connect();
+      } catch {
+        this.logger.error(
+          'Não foi possível restaurar uma conta Find Hub. As conexões dos outros canais foram preservadas.',
+        );
+      }
+      return;
+    }
     const instance = channelController.init(instanceData, {
       configService: this.configService,
       eventEmitter: this.eventEmitter,

@@ -43,6 +43,10 @@ export class FindHubProtocolClient {
     );
   }
 
+  public get ready(): boolean {
+    return this.fcm.ready;
+  }
+
   public async connect(): Promise<void> {
     await this.ensureOwnerKey();
     await this.fcm.start();
@@ -63,8 +67,12 @@ export class FindHubProtocolClient {
   }
 
   public async locate(device: FindHubDevice): Promise<FindHubPosition[]> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
     const requestUuid = randomUUID();
     const metadataPromise = this.waitForLocation(requestUuid);
+    // Attach immediately: a network call can outlive the push deadline.
+    void metadataPromise.catch(() => undefined);
 
     try {
       await this.nova.locate({

@@ -291,7 +291,8 @@ export const current = {
     if (data?.number) payload.number = String(data.number).replace(/\D/g, '')
     if (data?.businessId) payload.businessId = String(data.businessId).trim()
     const result = await api('/instance/create', { method: 'POST', data: payload })
-    await rawInstances()
+    // The dedicated channel immediately resolves the newly created ID for routing.
+    await rawInstances(payload.integration === 'GOOGLE-FIND-HUB')
     return result
   },
 
@@ -525,6 +526,29 @@ export const current = {
     })
   },
 
+
+  async findHubBrowserAuth(id: string, operation: 'start' | 'exchange' | 'complete' | 'cancel', data: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/auth/browser/${operation}/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data, timeout: operation === 'complete' ? 240000 : 45000,
+    }))
+  },
+  async findHubDownloadHelper(id: string) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(`${runtime.apiBaseUrl}/findhub/auth/extension/${encodeURIComponent(name)}`, {
+        credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(30000),
+      })
+      if (!response.ok) throw new Error('Não foi possível obter a extensão desta instalação.')
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'Connect-FindHub-Auth.zip'; anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+  async findHubDisconnect(id: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/disconnect/${encodeURIComponent(name)}`, { method: 'POST', token }))
+  },
+  async findHubTraccar(id: string, deviceId: string, method: 'GET' | 'PUT' | 'DELETE' = 'GET', data?: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/traccar/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { method, token, data }))
+  },
 
   async findHubAuthStart(id: string, email: string) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/auth/start/${encodeURIComponent(name)}`, {

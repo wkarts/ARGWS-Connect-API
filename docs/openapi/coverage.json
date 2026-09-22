@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-22T03:26:28.981Z",
+  "generatedAt": "2026-09-22T14:03:15.943Z",
   "version": "1.1.3",
-  "sourceDigest": "8ec8dd7c77dcea528ac424d386245b3cc4a4cc619e8d0cab18fa3ff85030e380",
+  "sourceDigest": "6893841566d0b899f18d640d59f5e1e3e762f725cbca8659417241ebc52b0ff4",
   "operations": [
     {
       "method": "GET",
@@ -425,6 +425,31 @@
     },
     {
       "method": "POST",
+      "path": "/findhub/auth/browser/cancel/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/auth/browser/complete/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/auth/browser/exchange/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/auth/browser/start/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/auth/extension/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
       "path": "/findhub/auth/import/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
@@ -455,6 +480,11 @@
     },
     {
       "method": "POST",
+      "path": "/findhub/disconnect/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
       "path": "/findhub/locate/{deviceId}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
@@ -465,6 +495,11 @@
     },
     {
       "method": "DELETE",
+      "path": "/findhub/traccar/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
       "path": "/findhub/traccar/{deviceId}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },

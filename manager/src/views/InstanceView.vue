@@ -205,7 +205,7 @@ onBeforeUnmount(stopWatch)
         <div>
           <span>Provider atual</span>
           <strong>{{ providerLabel }}</strong>
-          <small>{{ provider==='GOOGLE-FIND-HUB' ? 'Canal de localização' : 'Canal WhatsApp' }} · {{ connected ? 'Conectado' : 'Aguardando conexão' }}</small>
+          <small>Canal WhatsApp · {{ connected ? 'Conectado' : 'Aguardando conexão' }}</small>
         </div>
         <button v-if="canMigrate" class="btn ghost" :disabled="migrationBusy || busy" @click="preflightMigration">
           <AppIcon name="refresh" :size="16"/>Trocar para {{ migrationTargetLabel }}
@@ -255,12 +255,6 @@ onBeforeUnmount(stopWatch)
             <AppIcon :name="item.enabled ? 'check' : 'close'" :size="15"/><span>{{ item.label }}</span>
           </div>
         </div>
-      </PanelCard>
-
-      <PanelCard v-if="provider==='GOOGLE-FIND-HUB'" class="top-gap" title="Google Find Hub" description="Administre os dispositivos vinculados a esta conta Google.">
-        <button class="btn primary" @click="router.push(`/instancias/${encodeURIComponent(id)}/findhub`)">
-          <AppIcon name="radio" :size="16"/>Abrir Google Find Hub
-        </button>
       </PanelCard>
 
       <div class="instance-shortcuts top-gap">

@@ -1,5 +1,5 @@
 import { PrismaRepository } from '@api/repository/repository.service';
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 
 import { FindHubAuthSession, FindHubStoredCredentials } from '../findhub.types';
 import { FindHubCredentialVault } from './findhub-credential-vault';
@@ -26,6 +26,15 @@ export class FindHubAuthBrokerService {
       select: { id: true },
     });
     if (!instance) throw new Error('Find Hub instance not found');
+
+    // A new attempt invalidates previous attempts for this account, without touching stored keys.
+    for (const [id, previous] of this.sessions) {
+      if (previous.instanceName === instanceName || previous.expiresAt <= Date.now()) this.sessions.delete(id);
+    }
+    const previous = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: instance.id } });
+    if (previous?.encryptedCredentials || previous?.encryptedSharedKey) {
+      throw new Error('Desvincule as credenciais anteriores antes de iniciar uma nova autenticação Google.');
+    }
 
     const bridgeToken = randomBytes(32).toString('base64url');
     const session: FindHubAuthSession = {
@@ -69,6 +78,9 @@ export class FindHubAuthBrokerService {
     });
     if (!instance) throw new Error('Find Hub instance not found');
 
+    if (String(data.email).trim().toLowerCase() !== session.email.trim().toLowerCase()) {
+      throw new Error('A conta do bundle não corresponde à sessão de vinculação.');
+    }
     const sharedKey = this.decodeKey(data.sharedKey);
     if (sharedKey.length < 16) throw new Error('Invalid Find Hub shared key');
 
@@ -85,7 +97,7 @@ export class FindHubAuthBrokerService {
       where: { instanceId: instance.id },
       data: {
         googleEmail: credentials.aas.email,
-        authState: 'READY',
+        authState: 'VERIFYING',
         encryptedCredentials: this.vault.encrypt(credentials),
         encryptedSharedKey: this.vault.encrypt({ key: sharedKey.toString('base64') }),
       },
@@ -93,7 +105,7 @@ export class FindHubAuthBrokerService {
 
     this.sessions.delete(session.id);
     return {
-      state: 'READY',
+      state: 'VERIFYING',
       email: credentials.aas.email,
     };
   }
@@ -140,12 +152,21 @@ export class FindHubAuthBrokerService {
       where: { instanceId },
       data: {
         encryptedCredentials: this.vault.encrypt(credentials),
-        authState: 'READY',
       },
     });
   }
 
+  public async setAuthState(instanceId: string, authState: 'READY' | 'AUTH_REQUIRED'): Promise<void> {
+    await (this.prisma as any).findHubAccount.updateMany({ where: { instanceId }, data: { authState } });
+  }
+
+  public cancel(instanceName: string, id: string, token: string): void {
+    this.requireSession(instanceName, id, token);
+    this.sessions.delete(id);
+  }
+
   public async clear(instanceId: string): Promise<void> {
+    this.sessions.clear();
     await (this.prisma as any).findHubAccount.deleteMany({
       where: { instanceId },
     });
@@ -159,7 +180,9 @@ export class FindHubAuthBrokerService {
       throw new Error('Find Hub authentication session expired or invalid');
     }
 
-    if (this.vault.hash(bridgeToken) !== session.bridgeTokenHash) {
+    if (
+      !timingSafeEqual(Buffer.from(this.vault.hash(bridgeToken), 'hex'), Buffer.from(session.bridgeTokenHash, 'hex'))
+    ) {
       throw new Error('Invalid Find Hub bridge token');
     }
 

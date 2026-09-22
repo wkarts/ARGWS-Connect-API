@@ -13,6 +13,8 @@ export class FindHubNovaClient {
     const token = await this.auth.serviceToken(this.credentials, 'adm');
     const response = await fetch(`${GOOGLE_ENDPOINTS.novaBase}/${scope}`, {
       method: 'POST',
+      signal: AbortSignal.timeout(30_000),
+      redirect: 'error',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         Authorization: `Bearer ${token}`,

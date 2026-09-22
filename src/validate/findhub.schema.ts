@@ -47,3 +47,36 @@ export const findHubTraccarSchema: JSONSchema7 = {
   required: ['enabled', 'url', 'deviceId'],
   additionalProperties: false,
 };
+
+const browserProof = {
+  sessionId: { type: 'string', minLength: 36, maxLength: 36, pattern: '^[0-9a-fA-F-]{36}$' },
+  bridgeToken: { type: 'string', minLength: 32, maxLength: 128 },
+} as const;
+export const findHubBrowserStartSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  required: ['email'],
+  additionalProperties: false,
+  properties: { email: { type: 'string', minLength: 3, maxLength: 320, format: 'email' } },
+};
+export const findHubBrowserCancelSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  required: ['sessionId', 'bridgeToken'],
+  additionalProperties: false,
+  properties: browserProof,
+};
+export const findHubBrowserExchangeSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  required: ['sessionId', 'bridgeToken', 'oauthToken'],
+  additionalProperties: false,
+  properties: { ...browserProof, oauthToken: { type: 'string', minLength: 1, maxLength: 16384 } },
+};
+export const findHubBrowserCompleteSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  required: ['sessionId', 'bridgeToken', 'vaultKeys'],
+  additionalProperties: false,
+  properties: { ...browserProof, vaultKeys: { type: 'string', minLength: 1, maxLength: 65536 } },
+};

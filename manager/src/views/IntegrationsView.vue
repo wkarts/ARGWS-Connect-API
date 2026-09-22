@@ -7,6 +7,7 @@ import PanelCard from '@/components/PanelCard.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { connect } from '@/services/connect'
+import { isFindHub } from '@/services/findhub-channel'
 import { integrationDefinitions } from '@/services/integration-definitions'
 import { friendlyError } from '@/services/errors'
 import type { ConnectionItem, IntegrationKey, IntegrationSummary } from '@/types/domain'
@@ -48,7 +49,7 @@ function openIntegration(key: IntegrationKey) {
 }
 
 onMounted(async () => {
-  instances.value = await connect.connections().catch(() => [])
+  instances.value = (await connect.connections().catch(() => [])).filter((item) => !isFindHub(item))
   if (!selected.value || !instances.value.some((item) => item.id === selected.value)) selected.value = instances.value[0]?.id || ''
   await loadSummaries()
 })

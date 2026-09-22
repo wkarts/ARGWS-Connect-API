@@ -1,7 +1,7 @@
 {
   "name": "argws-connect-api",
   "version": "1.1.3",
-  "description": "ARGWS Connect API — Communication & Integration Platform",
+  "description": "ARGWS Connect API \u2014 Communication & Integration Platform",
   "main": "./dist/main.js",
   "type": "commonjs",
   "scripts": {
@@ -34,7 +34,7 @@
     "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs",
     "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs",
     "build:connect-voip": "node scripts/build-connect-voip.cjs",
-    "test:findhub": "tsx ./test/findhub-protocol.contract.test.ts && tsx ./test/findhub-vault.test.ts && node --test test/findhub-deployment.contract.test.cjs && python3 test/findhub-env.test.py && node --test test/findhub-instance-lifecycle.test.cjs"
+    "test:findhub": "tsx ./test/findhub-protocol.contract.test.ts && tsx ./test/findhub-vault.test.ts && node --test test/findhub-deployment.contract.test.cjs && python3 test/findhub-env.test.py && node --test test/findhub-instance-lifecycle.test.cjs && node --test test/findhub-browser-auth.test.cjs test/findhub-extension.test.cjs && node scripts/build-findhub-extension.cjs --check"
   },
   "repository": {
     "type": "git",

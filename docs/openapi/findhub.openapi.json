@@ -4,7 +4,7 @@
     "title": "Connect|API — Google Find Hub",
     "version": "1.1.3",
     "summary": "Implantação, autenticação, dispositivos, localização e Traccar.",
-    "description": "# Google Find Hub — implantação e API\n\nO provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instância. Os dispositivos pertencem àquela instância; o Manager e as integrações externas utilizam a mesma API. O canal é nativo TypeScript, sem GoogleFindMyTools, Python de localização, VNC, Selenium ou Chromium no servidor.\n\n> **Estado real da autenticação:** a implementação atual recebe um bundle por `CredentialProvider`. O botão de iniciar vinculação cria uma sessão; ele **não implementa um login Google OAuth com redirecionamento automático**, nem fornece um produtor desse bundle. Autenticar no Google em uma aba, sozinho, não autoriza o backend. Tokens AAS e chaves do Find Hub precisam ser obtidos por um provider compatível e autorizado. Não envie senha Google, cookies, tokens ou chaves em chamados, prints ou logs. CI aprovado não substitui a homologação com uma conta e um smartphone reais.\n\n## 1. Corrigir `FINDHUB_CREDENTIALS_KEY is required`\n\n`FINDHUB_CREDENTIALS_KEY` é uma chave **local do servidor**, usada por AES-256-GCM para cifrar as credenciais no banco. Não é uma API key do Google Cloud, token do Traccar ou segredo que o usuário deva preencher no Manager.\n\nNa pasta da stack que contém o `.env` efetivamente usado:\n\n```bash\n# Prepara somente as configurações Find Hub. Preserva o restante do .env.\npython3 ./prepare-findhub-env.py --env-file .env\n\n# Verifica sem mostrar o segredo.\npython3 ./prepare-findhub-env.py --env-file .env --check --require-key\n```\n\n`prepare-env.sh` também chama esse preparador nos perfis com instalador. Uma chave existente válida nunca é rotacionada. Uma chave não vazia e inválida é rejeitada, não substituída. O arquivo é gravado com permissão 0600. **Se você já possuía contas cifradas e perdeu a chave, restaure a chave do backup: gerar outra não recupera os dados antigos.**\n\nPara configuração manual, gere uma única vez com `openssl rand -hex 32`, guarde o resultado em `FINDHUB_CREDENTIALS_KEY` no `.env` e não exponha o valor no frontend. Aceita 64 caracteres hex ou base64 de 32 bytes.\n\nRecrie o container da API: `restart` não reaplica mudanças de ambiente. Exemplo específico do perfil `deploy/develop`:\n\n```bash\ndocker compose --env-file .env -f compose.yaml up -d --no-deps --force-recreate api-argws-connect-develop\n\ndocker compose --env-file .env -f compose.yaml exec -T api-argws-connect-develop \\\n  node -e 'const v=process.env.FINDHUB_CREDENTIALS_KEY||\"\";const b=/^[0-9a-f]{64}$/i.test(v)?Buffer.from(v,\"hex\"):Buffer.from(v,\"base64\");if(b.length!==32)process.exit(1);console.log(\"Chave Find Hub presente: 32 bytes; valor oculto\")'\n```\n\nNos perfis raiz, CloudPanel, Dockge e homologação, o serviço pode se chamar `api`; respeite o nome do seu Compose. No Portainer/Dockge, salve as variáveis no ambiente da stack e recrie o serviço. No Swarm, o CLI `docker stack deploy` não carrega `.env` como o Compose: forneça as variáveis no ambiente do comando ou renderize o arquivo com `docker compose --env-file ... config` para um arquivo protegido antes do deploy. Não publique o YAML renderizado com segredos.\n\n## 2. Variáveis do canal\n\n| Variável | Padrão no template | Uso |\n| --- | --- | --- |\n| `FINDHUB_CREDENTIALS_KEY` | vazio; preparador gera chave dedicada | Cifra credenciais. Obrigatória ao instanciar Find Hub; não é exigida pelos providers WhatsApp. |\n| `FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS` | `60` | Intervalo inicial de novos dispositivos. |\n| `FINDHUB_MIN_TRACKING_INTERVAL_SECONDS` | `30` | Mínimo aplicado ao iniciar tracking. |\n| `FINDHUB_LOCATION_TIMEOUT_MS` | `30000` | Espera máxima da solicitação de posição. |\n| `FINDHUB_STORE_POSITION_HISTORY` | `false` | Histórico opt-in no banco. Não impede a resposta de localização ou os eventos. |\n| `FINDHUB_TRACCAR_TIMEOUT_MS` | `10000` | Timeout HTTP do adaptador Traccar. |\n\nTodos os templates de API e o modelo Swarm repassam esses parâmetros explicitamente. A documentação possui configuração própria de Scalar, **sem chave Find Hub**. O inventário versionado está em `docs/operations/findhub-deployment-coverage.json`.\n\nA alteração não troca tags de imagem dos perfis estáveis/canônicos. O canal exige uma imagem que já contenha sua implementação; após a PR 118, isso corresponde ao canal `develop`, não implica promoção automática para `latest`.\n\n## 3. Banco, rede e conservação da chave\n\nAs migrations existentes criam `FindHubAccount`, `FindHubDevice`, `FindHubPosition` e `FindHubTraccarBinding` nos providers PostgreSQL/MySQL. Use o procedimento de migration da stack; não crie as tabelas manualmente nem apague dados para corrigir uma chave ausente.\n\nO tráfego é de saída: HTTPS para autenticação/Nova/Spot/FCM do Google e TLS para `mtalk.google.com:5228`. Não é necessário publicar porta 5228 na VPS nem criar um serviço Find Hub separado. O Traccar deve ser acessível pelo container da API. A frequência de posição depende do Google, da rede e do aparelho.\n\nMantenha o `.env`/secret com backup protegido e acesso restrito. Reutilize a **mesma chave** após restart, atualização e restauração de banco. Não copie a chave para Scalar, Manager, URL, webhook ou analytics.\n\n## 4. Autenticação da API e criação da instância\n\nOs endpoints utilizam o header `apikey` da Connect|API: chave administrativa ou token autorizado da instância, conforme os guards existentes. Nunca confunda esse header com `FINDHUB_CREDENTIALS_KEY`.\n\n```http\nPOST /instance/create\napikey: <CHAVE_ADMINISTRATIVA>\nContent-Type: application/json\n\n{\"instanceName\":\"google-operador\",\"integration\":\"GOOGLE-FIND-HUB\",\"qrcode\":false}\n```\n\nDepois, com a instância existente e a chave do servidor configurada:\n\n```http\nPOST /findhub/auth/start/google-operador\napikey: <TOKEN_DA_INSTANCIA>\nContent-Type: application/json\n\n{\"email\":\"operador@example.com\"}\n```\n\nA resposta `201` contém `sessionId`, `bridgeToken`, `state=WAITING_AUTH`, `authMode=credential-provider` e `expiresAt`. A sessão dura dez minutos e reside em memória: uma reinicialização exige iniciar outra sessão. O `bridgeToken` não substitui o header `apikey`.\n\nO provider autorizado conclui por `POST /findhub/auth/import/{instanceName}`, enviando `sessionId`, `bridgeToken`, `email`, `androidId`, `accountToken` (AAS), `sharedKey` e, opcionalmente, `fcm`. A API cifra o bundle e tenta conectar. **Não envie a chave de criptografia do servidor nesse payload.** Consulte `GET /findhub/auth/status/{instanceName}` para acompanhar o estado persistido.\n\n## 5. Dispositivos, posição, tracking e histórico\n\n| Método e rota | Comportamento |\n| --- | --- |\n| `GET /findhub/devices/{instanceName}` | Catálogo local; não força nova consulta Google. |\n| `POST /findhub/devices/refresh/{instanceName}` | Consulta Google e atualiza o catálogo da conta. |\n| `GET /findhub/device/{deviceId}/{instanceName}` | Detalha dispositivo; `deviceId` é o ID local retornado na lista. |\n| `POST /findhub/locate/{deviceId}/{instanceName}` | Solicita posição. Pode retornar `null` quando não houver relatório utilizável. |\n| `POST /findhub/tracking/start/{deviceId}/{instanceName}` | Agenda consultas; body opcional `{\"intervalSeconds\":60}`. |\n| `POST /findhub/tracking/stop/{deviceId}/{instanceName}` | Interrompe consultas desse dispositivo. |\n| `GET /findhub/positions/{deviceId}/{instanceName}?limit=100` | Histórico persistido, mais recente primeiro; limite 1–1000. |\n\nO resultado de localização contém `latitude`, `longitude`, `timestamp`, `source`, `ownReport` e metadados disponíveis. **Use o timestamp do relatório**, não a hora da requisição, para avaliar quão recente é a posição. Histórico usa `recordedAt`; habilitá-lo não recupera posições antigas que nunca foram salvas. Tracking é consulta periódica, não stream GPS garantido a cada segundo.\n\n## 6. Integração Traccar\n\n```http\nPUT /findhub/traccar/<ID_LOCAL>/google-operador\napikey: <TOKEN_DA_INSTANCIA>\nContent-Type: application/json\n\n{\"enabled\":true,\"url\":\"http://traccar:5055\",\"deviceId\":\"android-01\"}\n```\n\nO `deviceId` do body é o identificador previamente cadastrado no Traccar; não é o ID local do parâmetro de rota. Configure o receptor HTTP/OsmAnd, não a API REST de administração do Traccar. Posições recebidas são encaminhadas quando o vínculo estiver habilitado. `DELETE` na mesma rota remove apenas o vínculo local e retorna `204` sem corpo.\n\n## 7. Eventos\n\nO EventManager existente transporta os eventos segundo a configuração por instância. Consulte o contrato **Eventos** no Scalar para o envelope específico do transporte e a descrição do campo `data`.\n\n`findhub.devices.updated`, `findhub.location.updated`, `findhub.tracking.update` e `findhub.error` são emitidos pelos caminhos implementados. **`findhub.auth.update` está reservado no catálogo, mas o Auth Broker atual não o emite ao iniciar/importar; use o endpoint de status.** Nenhum evento deve conter bridgeToken, AAS ou sharedKey.\n\n## 8. Scalar e validação\n\nNo seletor de documentos do Scalar, escolha **Connect|API Google Find Hub**. O contrato é servido em `openapi/findhub.openapi.json`, respeitando o mesmo `BASE_PATH` da documentação. As rotas também aparecem no REST geral sob a tag **Google Find Hub**. A imagem de docs precisa ser atualizada junto da API para receber o novo contrato.\n\n```bash\npython3 scripts/sync-findhub-deployments.py --check\nnpm run docs:generate\nnpm run docs:check\nnpm run test:findhub\n```\n\n`docs:check` valida também o documento dedicado. Os testes cobrem templates, preparação idempotente da chave, envelope cifrado existente e schemas; não fazem login nem rastreiam aparelhos reais.\n"
+    "description": "# Google Find Hub — implantação e API\n\nO provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instância. Os dispositivos pertencem àquela instância; o Manager e as integrações externas utilizam a mesma API. O canal é nativo TypeScript, sem GoogleFindMyTools, Python de localização, VNC, Selenium ou Chromium no servidor.\n\n> **Autenticação assistida e limites:** o Manager oferece agora a opção de vinculação por uma extensão própria, com aprovação explícita da origem, do servidor e da conta. Ela obtém somente o artefato de login e a chave `finder_hw`, sem copiar tokens manualmente. A implementação **não implementa um login Google OAuth público** nem garante login puramente web em PC/mobile: exige Chrome/Edge desktop com a extensão e permanece sem homologação com conta Google real. O modo `CredentialProvider` por importação continua como alternativa avançada. Não informe senha/PIN à API; digite-os somente no Google.\n\n## 1. Corrigir `FINDHUB_CREDENTIALS_KEY is required`\n\n`FINDHUB_CREDENTIALS_KEY` é uma chave **local do servidor**, usada por AES-256-GCM para cifrar as credenciais no banco. Não é uma API key do Google Cloud, token do Traccar ou segredo que o usuário deva preencher no Manager.\n\nNa pasta da stack que contém o `.env` efetivamente usado:\n\n```bash\n# Prepara somente as configurações Find Hub. Preserva o restante do .env.\npython3 ./prepare-findhub-env.py --env-file .env\n\n# Verifica sem mostrar o segredo.\npython3 ./prepare-findhub-env.py --env-file .env --check --require-key\n```\n\n`prepare-env.sh` também chama esse preparador nos perfis com instalador. Uma chave existente válida nunca é rotacionada. Uma chave não vazia e inválida é rejeitada, não substituída. O arquivo é gravado com permissão 0600. **Se você já possuía contas cifradas e perdeu a chave, restaure a chave do backup: gerar outra não recupera os dados antigos.**\n\nPara configuração manual, gere uma única vez com `openssl rand -hex 32`, guarde o resultado em `FINDHUB_CREDENTIALS_KEY` no `.env` e não exponha o valor no frontend. Aceita 64 caracteres hex ou base64 de 32 bytes.\n\nRecrie o container da API: `restart` não reaplica mudanças de ambiente. Exemplo específico do perfil `deploy/develop`:\n\n```bash\ndocker compose --env-file .env -f compose.yaml up -d --no-deps --force-recreate api-argws-connect-develop\n\ndocker compose --env-file .env -f compose.yaml exec -T api-argws-connect-develop \\\n  node -e 'const v=process.env.FINDHUB_CREDENTIALS_KEY||\"\";const b=/^[0-9a-f]{64}$/i.test(v)?Buffer.from(v,\"hex\"):Buffer.from(v,\"base64\");if(b.length!==32)process.exit(1);console.log(\"Chave Find Hub presente: 32 bytes; valor oculto\")'\n```\n\nNos perfis raiz, CloudPanel, Dockge e homologação, o serviço pode se chamar `api`; respeite o nome do seu Compose. No Portainer/Dockge, salve as variáveis no ambiente da stack e recrie o serviço. No Swarm, o CLI `docker stack deploy` não carrega `.env` como o Compose: forneça as variáveis no ambiente do comando ou renderize o arquivo com `docker compose --env-file ... config` para um arquivo protegido antes do deploy. Não publique o YAML renderizado com segredos.\n\n## 2. Variáveis do canal\n\n| Variável | Padrão no template | Uso |\n| --- | --- | --- |\n| `FINDHUB_CREDENTIALS_KEY` | vazio; preparador gera chave dedicada | Cifra credenciais. Obrigatória ao instanciar Find Hub; não é exigida pelos providers WhatsApp. |\n| `FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS` | `60` | Intervalo inicial de novos dispositivos. |\n| `FINDHUB_MIN_TRACKING_INTERVAL_SECONDS` | `30` | Mínimo aplicado ao iniciar tracking. |\n| `FINDHUB_LOCATION_TIMEOUT_MS` | `30000` | Espera máxima da solicitação de posição. |\n| `FINDHUB_STORE_POSITION_HISTORY` | `false` | Histórico opt-in no banco. Não impede a resposta de localização ou os eventos. |\n| `FINDHUB_TRACCAR_TIMEOUT_MS` | `10000` | Timeout HTTP do adaptador Traccar. |\n\nTodos os templates de API e o modelo Swarm repassam esses parâmetros explicitamente. A documentação possui configuração própria de Scalar, **sem chave Find Hub**. O inventário versionado está em `docs/operations/findhub-deployment-coverage.json`.\n\nA alteração não troca tags de imagem dos perfis estáveis/canônicos. O canal exige uma imagem que já contenha sua implementação; após a PR 118, isso corresponde ao canal `develop`, não implica promoção automática para `latest`.\n\n## 3. Banco, rede e conservação da chave\n\nAs migrations existentes criam `FindHubAccount`, `FindHubDevice`, `FindHubPosition` e `FindHubTraccarBinding` nos providers PostgreSQL/MySQL. Use o procedimento de migration da stack; não crie as tabelas manualmente nem apague dados para corrigir uma chave ausente.\n\nO tráfego é de saída: HTTPS para autenticação/Nova/Spot/FCM do Google e TLS para `mtalk.google.com:5228`. Não é necessário publicar porta 5228 na VPS nem criar um serviço Find Hub separado. O Traccar deve ser acessível pelo container da API. A frequência de posição depende do Google, da rede e do aparelho.\n\nMantenha o `.env`/secret com backup protegido e acesso restrito. Reutilize a **mesma chave** após restart, atualização e restauração de banco. Não copie a chave para Scalar, Manager, URL, webhook ou analytics.\n\n## 4. Autenticação da API e criação da instância\n\nOs endpoints utilizam o header `apikey` da Connect|API: chave administrativa ou token autorizado da instância, conforme os guards existentes. Nunca confunda esse header com `FINDHUB_CREDENTIALS_KEY`.\n\n```http\nPOST /instance/create\napikey: <CHAVE_ADMINISTRATIVA>\nContent-Type: application/json\n\n{\"instanceName\":\"google-operador\",\"integration\":\"GOOGLE-FIND-HUB\",\"qrcode\":false}\n```\n\nDepois, com a instância existente e a chave do servidor configurada:\n\n```http\nPOST /findhub/auth/start/google-operador\napikey: <TOKEN_DA_INSTANCIA>\nContent-Type: application/json\n\n{\"email\":\"operador@example.com\"}\n```\n\nA resposta `201` contém `sessionId`, `bridgeToken`, `state=WAITING_AUTH`, `authMode=credential-provider` e `expiresAt`. A sessão dura dez minutos e reside em memória: uma reinicialização exige iniciar outra sessão. O `bridgeToken` não substitui o header `apikey`.\n\nO provider autorizado conclui por `POST /findhub/auth/import/{instanceName}`, enviando `sessionId`, `bridgeToken`, `email`, `androidId`, `accountToken` (AAS), `sharedKey` e, opcionalmente, `fcm`. A API cifra o bundle e tenta conectar. **Não envie a chave de criptografia do servidor nesse payload.** Consulte `GET /findhub/auth/status/{instanceName}` para acompanhar o estado persistido.\n\n## 5. Dispositivos, posição, tracking e histórico\n\n| Método e rota | Comportamento |\n| --- | --- |\n| `GET /findhub/devices/{instanceName}` | Catálogo local; não força nova consulta Google. |\n| `POST /findhub/devices/refresh/{instanceName}` | Consulta Google e atualiza o catálogo da conta. |\n| `GET /findhub/device/{deviceId}/{instanceName}` | Detalha dispositivo; `deviceId` é o ID local retornado na lista. |\n| `POST /findhub/locate/{deviceId}/{instanceName}` | Solicita posição. Pode retornar `null` quando não houver relatório utilizável. |\n| `POST /findhub/tracking/start/{deviceId}/{instanceName}` | Agenda consultas; body opcional `{\"intervalSeconds\":60}`. |\n| `POST /findhub/tracking/stop/{deviceId}/{instanceName}` | Interrompe consultas desse dispositivo. |\n| `GET /findhub/positions/{deviceId}/{instanceName}?limit=100` | Histórico persistido, mais recente primeiro; limite 1–1000. |\n\nO resultado de localização contém `latitude`, `longitude`, `timestamp`, `source`, `ownReport` e metadados disponíveis. **Use o timestamp do relatório**, não a hora da requisição, para avaliar quão recente é a posição. Histórico usa `recordedAt`; habilitá-lo não recupera posições antigas que nunca foram salvas. Tracking é consulta periódica, não stream GPS garantido a cada segundo.\n\n## 6. Integração Traccar\n\n```http\nPUT /findhub/traccar/<ID_LOCAL>/google-operador\napikey: <TOKEN_DA_INSTANCIA>\nContent-Type: application/json\n\n{\"enabled\":true,\"url\":\"http://traccar:5055\",\"deviceId\":\"android-01\"}\n```\n\nO `deviceId` do body é o identificador previamente cadastrado no Traccar; não é o ID local do parâmetro de rota. Configure o receptor HTTP/OsmAnd, não a API REST de administração do Traccar. Posições recebidas são encaminhadas quando o vínculo estiver habilitado. `DELETE` na mesma rota remove apenas o vínculo local e retorna `204` sem corpo.\n\n## 7. Eventos\n\nO EventManager existente transporta os eventos segundo a configuração por instância. Consulte o contrato **Eventos** no Scalar para o envelope específico do transporte e a descrição do campo `data`.\n\n`findhub.devices.updated`, `findhub.location.updated`, `findhub.tracking.update` e `findhub.error` são emitidos pelos caminhos implementados. **`findhub.auth.update` está reservado no catálogo, mas o Auth Broker atual não o emite ao iniciar/importar; use o endpoint de status.** Nenhum evento deve conter bridgeToken, AAS ou sharedKey.\n\n## 8. Scalar e validação\n\nNo seletor de documentos do Scalar, escolha **Connect|API Google Find Hub**. O contrato é servido em `openapi/findhub.openapi.json`, respeitando o mesmo `BASE_PATH` da documentação. As rotas também aparecem no REST geral sob a tag **Google Find Hub**. A imagem de docs precisa ser atualizada junto da API para receber o novo contrato.\n\n```bash\npython3 scripts/sync-findhub-deployments.py --check\nnpm run docs:generate\nnpm run docs:check\nnpm run test:findhub\n```\n\n`docs:check` valida também o documento dedicado. Os testes cobrem templates, preparação idempotente da chave, envelope cifrado existente e schemas; não fazem login nem rastreiam aparelhos reais.\n\n\n## 9. Área dedicada e autenticação assistida\n\nA rota `/manager/findhub` lista somente contas Google. Dentro da conta, as seções são **Conta e autenticação**, **Dispositivos**, **Histórico**, **Traccar** e **Eventos**. Os links antigos de detalhe, configurações e bots redirecionam para a seção correta **antes de carregar a tela WhatsApp**. Os seletores de mensagens, chamadas e bots não incluem Find Hub. O cartão Google não exibe número, contatos, conversas, mensagens ou teste de envio.\n\nO canal compartilha infraestrutura administrativa da Connect|API (controle de acesso, registro de instâncias, banco e transportes). Isso não o torna um provider de mensagens. A barreira após o guard de autenticação recusa endpoints específicos de WhatsApp/bots quando a instância é Google; a resolução Meta Compatible existente continua restrita aos providers WhatsApp. Não se trata de isolamento em processos/containers diferentes.\n\n### Extensão opcional no navegador do operador\n\nNa seção Conta, obtenha o ZIP da sua própria instalação, extraia e carregue a pasta como extensão sem compactação no Chrome/Edge desktop (modo desenvolvedor). Recarregue o Manager e escolha **Conectar conta Google**. Confira os destinos na janela da extensão antes de autorizar. O usuário faz login no Google, desbloqueia as chaves na página Google e a interface aguarda a verificação do backend. Não há Session ID ou bridgeToken para copiar manualmente.\n\n**Mudança em relação ao requisito puramente web:** esta alternativa requer uma extensão. Chrome Android, Safari iOS e Firefox não são suportados por esta implementação. Ela não instala um agente no smartphone a localizar, mas não satisfaz vinculação em qualquer navegador mobile. A extensão é experimental, não publicada na Chrome Web Store; não é uma integração oficial do Google. Mudanças ou desafios do protocolo Google podem impedir a vinculação.\n\nCredenciais desse protocolo privado podem autorizar acesso Google mais amplo que localização. Vincule apenas contas próprias e instalações de confiança. A página solicitante autorizada recebe os artefatos temporários e os envia ao backend por HTTPS; uma vulnerabilidade nessa página comprometeria esse material. A permissão de host da extensão é opcional e limitada a `accounts.google.com`; ela não lê senha/PIN/formulários, não exporta cookies arbitrários, não utiliza storage permanente nem envia analytics. Fechar a origem ou a aba de autenticação encerra a tentativa. O processo usa o navegador do operador, não VNC ou Chromium da API.\n\n### Mesmo fluxo para frontends externos\n\nTodos os endpoints abaixo exigem `apikey` autorizado para a instância e continuam disponíveis fora do Manager:\n\n| Etapa | Método e rota |\n| --- | --- |\n| Iniciar | `POST /findhub/auth/browser/start/{instanceName}` com `{email}` |\n| Artefato do login | `POST /findhub/auth/browser/exchange/{instanceName}` com `{sessionId,bridgeToken,oauthToken}` |\n| Desbloqueio Find Hub | `POST /findhub/auth/browser/complete/{instanceName}` com `{sessionId,bridgeToken,vaultKeys}` |\n| Cancelar | `POST /findhub/auth/browser/cancel/{instanceName}` com `{sessionId,bridgeToken}` |\n| Estado | `GET /findhub/auth/status/{instanceName}` |\n| Helper self-hosted | `GET /findhub/auth/extension/{instanceName}` |\n| Desvincular | `POST /findhub/disconnect/{instanceName}` |\n| Consultar vínculo Traccar | `GET /findhub/traccar/{deviceId}/{instanceName}` |\n\nO contrato da extensão está em `browser-extensions/findhub-auth/README.md` e o cliente de referência em `manager/src/components/FindHubBrowserAuth.vue`. Abra `chrome.runtime.connect` com o ID informado por `auth/status.helper.extensionId` e nome `connect-findhub-auth-v1`. `BEGIN` recebe `sessionId`, `email` e `apiOrigin`; nunca o apikey ou bridgeToken. A extensão pede consentimento, emite `OAUTH_TOKEN` e depois aguarda `UNLOCK` com o endereço retornado pelo backend. O callback emite `VAULT_KEYS`. Finalize com `DONE` ou `CANCEL`; envie `PING` a cada 15 segundos enquanto ativo. A extensão não transforma uma página não autorizada em cliente Google: cada tentativa exige consentimento na janela própria.\n\nAs provas permanecem em memória. Nunca coloque tokens no query string, localStorage, SessionStorage, webhook ou log. Uma chamada `complete` já aceita não é interrompida por `cancel`; aguarde a conclusão e desvincule explicitamente. Credenciais preexistentes não são sobrescritas só por abrir uma tentativa: o backend exige desvinculação anterior. O status `ready/connected` agora exige transporte MCS autenticado, não apenas um registro marcado READY no banco.\n\n### Validação e build\n\n```\nnode scripts/build-findhub-extension.cjs\nnpm run docs:generate\nnpm run docs:check\nnpm run test:findhub\nnpm test --prefix manager\n```\n\nO pacote da extensão é reproduzível e versionado em `public/findhub-auth.zip`, incluído na imagem normal da API. Não houve nova dependência de produção, novo container ou mudança nas chaves existentes. Os testes de autenticação isolam as respostas Google: aprovação desses testes não significa login real homologado.\n\n### Falhas contidas no canal\n\nOs preparadores/preflights gerais tratam a configuração Find Hub como módulo opcional: uma chave Google inválida produz aviso sem impedir implantação dos canais WhatsApp. O preparador dedicado e `--check --require-key` continuam retornando falha; o cofre continua recusando chaves inválidas e nenhuma é rotacionada automaticamente. Corrija a configuração antes de ativar uma conta Google. Não foi relaxada a validação de banco, Redis, credenciais administrativas ou imagens.\n\nNa restauração de instâncias, uma exceção do Find Hub é capturada no seu próprio caminho, sem rejeitar tarefas de restauração dos demais canais. O runtime não trata TLS estabelecido como autenticação MCS: aguarda LoginResponse. Localizações têm limite de requisições pendentes e não sobrepõem consultas do mesmo dispositivo. Essas proteções reduzem impacto no processo compartilhado; não equivalem a isolamento de recursos em processos separados.\n"
   },
   "servers": [
     {
@@ -23,6 +23,345 @@
     }
   ],
   "paths": {
+    "/findhub/auth/browser/cancel/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Cancelar tentativa de vinculação",
+        "operationId": "post_findhub_auth_browser_cancel_instancename",
+        "description": "Invalida a tentativa e descarta credenciais temporárias. Uma verificação final já iniciada não pode ser cancelada neste endpoint; aguarde o resultado e use desvincular. Não encerra sessões de outros canais ou contas.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelar tentativa de vinculação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserCancelled"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserProof"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/complete/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Validar chave e concluir conexão Find Hub",
+        "operationId": "post_findhub_auth_browser_complete_instancename",
+        "description": "Recebe o callback finder_hw, verifica a chave contra o envelope da mesma conta, cifra as credenciais e tenta autenticar MCS e listar dispositivos. Só confirma READY após essa verificação. Pode levar até alguns minutos; Google pode recusar o protocolo privado. Não é homologação universal.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validar chave e concluir conexão Find Hub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserCompleteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/exchange/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Validar artefato do login Google",
+        "operationId": "post_findhub_auth_browser_exchange_instancename",
+        "description": "Troca o artefato temporário autorizado pelo usuário e verifica o e-mail retornado pelo Google. Exige apikey e prova da sessão. Não persiste senha, não aceita callback genérico e não marca a conta como conectada. A resposta fornece somente o endereço de desbloqueio.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validar artefato do login Google",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserExchangeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserExchangeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/start/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Iniciar vinculação assistida no navegador",
+        "operationId": "post_findhub_auth_browser_start_instancename",
+        "description": "Cria tentativa de dez minutos, sem autenticar. O Manager usa a extensão própria no Chrome/Edge desktop; exige aprovação explícita da origem e do servidor em cada tentativa. Não é OAuth público, não é login puramente web/mobile. Desvincule credenciais anteriores antes de iniciar outra conta.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Tentativa criada; usuário ainda precisa autorizar e autenticar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserStartRequest"
+              },
+              "example": {
+                "email": "operator@example.com"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/extension/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Obter extensão própria de autenticação",
+        "operationId": "get_findhub_auth_extension_instancename",
+        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ZIP da extensão própria, sem segredos ou chaves privadas.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/findhub/auth/import/{instanceName}": {
       "post": {
         "tags": [
@@ -416,6 +755,65 @@
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
+    "/findhub/disconnect/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Desvincular conta Google",
+        "operationId": "post_findhub_disconnect_instancename",
+        "description": "Interrompe o canal, remove credenciais, catálogo local, histórico e vínculos relacionados da instância. Não apaga dispositivos físicos nem a conta Google. Não altera credenciais ou conexões de instâncias WhatsApp. Aguarde eventual verificação final antes de desvincular.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desvincular conta Google",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDisconnected"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/findhub/locate/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
@@ -613,6 +1011,80 @@
         "responses": {
           "204": {
             "description": "Vínculo removido; resposta sem corpo."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar vínculo Traccar do dispositivo",
+        "operationId": "get_findhub_traccar_deviceid_instancename",
+        "description": "Retorna somente o vínculo local do dispositivo pertencente à instância autorizada, ou null quando não configurado. Não consulta o catálogo de dispositivos de outros canais nem fornece uma API de administração remota do Traccar.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar vínculo Traccar do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindHubTraccarBinding"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -1994,7 +2466,31 @@
           },
           "ready": {
             "type": "boolean",
-            "description": "Indica credenciais persistidas; não comprova sozinho a disponibilidade de localização no Google."
+            "description": "True somente com credenciais validadas e transporte MCS autenticado no runtime atual; não garante que o smartphone forneça uma posição nova."
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "connectionState": {
+            "type": "string"
+          },
+          "pending": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "historyEnabled": {
+            "type": "boolean"
+          },
+          "minimumIntervalSeconds": {
+            "type": "integer"
+          },
+          "helper": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "ID público e versão da extensão opcional; indica mobileSupported=false e caminho de download autenticado."
           }
         }
       },
@@ -2239,6 +2735,204 @@
           },
           "traccarDeviceId": {
             "type": "string"
+          }
+        }
+      },
+      "FindHubBrowserStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "minLength": 3,
+            "maxLength": 320
+          }
+        }
+      },
+      "FindHubBrowserProof": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "FindHubBrowserExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "oauthToken"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "oauthToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "writeOnly": true,
+            "description": "Artefato temporário do login explicitamente autorizado na extensão; nunca enviar cookies arbitrários ou senha."
+          }
+        }
+      },
+      "FindHubBrowserCompleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "vaultKeys"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "vaultKeys": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536,
+            "writeOnly": true,
+            "description": "JSON do callback finder_hw. Outros domínios de segurança não são enviados pela extensão."
+          }
+        }
+      },
+      "FindHubBrowserSession": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "state",
+          "authMode",
+          "expiresAt",
+          "loginUrl"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "description": "Segredo temporário da vinculação; não registrar em logs, URL ou webhook."
+          },
+          "state": {
+            "const": "WAITING_USER"
+          },
+          "authMode": {
+            "const": "browser-extension"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "loginUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "browserRequired": {
+            "const": true
+          },
+          "helperRequired": {
+            "const": true
+          }
+        }
+      },
+      "FindHubBrowserExchangeResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "unlockUrl"
+        ],
+        "properties": {
+          "state": {
+            "const": "WAITING_VAULT_KEY"
+          },
+          "unlockUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "FindHubBrowserResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "email",
+          "connected"
+        ],
+        "properties": {
+          "state": {
+            "const": "READY"
+          },
+          "email": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubBrowserCancelled": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "const": "CANCELLED"
+          }
+        }
+      },
+      "FindHubDisconnected": {
+        "type": "object",
+        "required": [
+          "state",
+          "connected"
+        ],
+        "properties": {
+          "state": {
+            "const": "WAITING_AUTH"
+          },
+          "connected": {
+            "const": false
           }
         }
       },

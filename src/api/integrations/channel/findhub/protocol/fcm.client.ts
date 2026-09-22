@@ -52,7 +52,7 @@ function int64Flexible(payload: Buffer, fieldNo: number): bigint | undefined {
 
 async function responseJson(response: Response): Promise<any> {
   const text = await response.text();
-  if (!response.ok) throw new Error(`Google FCM request failed (${response.status}): ${text.slice(0, 300)}`);
+  if (!response.ok) throw new Error(`Google FCM request failed (${response.status})`);
   return text ? JSON.parse(text) : {};
 }
 
@@ -63,6 +63,8 @@ async function checkin(existing?: FindHubFcmCredentials): Promise<{ androidId: s
   );
   const response = await fetch(GOOGLE_ENDPOINTS.checkin, {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
+    redirect: 'error',
     headers: { 'Content-Type': 'application/x-protobuf' },
     body: Uint8Array.from(body),
   });
@@ -83,6 +85,8 @@ async function gcmRegister(checkinData: {
   });
   const response = await fetch(GOOGLE_ENDPOINTS.gcmRegister, {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
+    redirect: 'error',
     headers: {
       Authorization: `AidLogin ${checkinData.androidId}:${checkinData.securityToken}`,
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -90,8 +94,7 @@ async function gcmRegister(checkinData: {
     body: body.toString(),
   });
   const text = await response.text();
-  if (!response.ok || !text.startsWith('token='))
-    throw new Error(`Google GCM registration failed: ${text.slice(0, 200)}`);
+  if (!response.ok || !text.startsWith('token=')) throw new Error('Google GCM registration failed');
   return { token: text.slice('token='.length), appId };
 }
 
@@ -102,6 +105,8 @@ async function fcmInstall(): Promise<{ fid: string; authToken: string; refreshTo
   const heartbeat = Buffer.from(JSON.stringify({ heartbeats: [], version: 2 })).toString('base64');
   const response = await fetch(GOOGLE_ENDPOINTS.fcmInstall, {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
+    redirect: 'error',
     headers: {
       'Content-Type': 'application/json',
       'x-firebase-client': heartbeat,
@@ -133,6 +138,8 @@ async function fcmRegister(
   const endpoint = `${GOOGLE_ENDPOINTS.fcmRegisterBase}`;
   const response = await fetch(endpoint, {
     method: 'POST',
+    signal: AbortSignal.timeout(30_000),
+    redirect: 'error',
     headers: {
       'Content-Type': 'application/json',
       'x-goog-firebase-installations-auth': installation.authToken,
@@ -215,6 +222,12 @@ export class FindHubFcmClient {
   private stopped = false;
   private reconnectTimer?: NodeJS.Timeout;
   private inputStreamId = 0;
+  private authenticated = false;
+  private loginResult?: (error?: Error) => void;
+
+  public get ready(): boolean {
+    return this.authenticated && !this.stopped;
+  }
 
   constructor(
     private credentials: FindHubFcmCredentials | null,
@@ -258,13 +271,15 @@ export class FindHubFcmClient {
   }
 
   public async start(): Promise<void> {
-    await this.ensureRegistered();
     this.stopped = false;
+    await this.ensureRegistered();
+    if (this.stopped) throw new Error('Find Hub connection cancelled');
     await this.connect();
   }
 
   public async stop(): Promise<void> {
     this.stopped = true;
+    this.authenticated = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.destroy();
     this.socket = undefined;
@@ -278,6 +293,28 @@ export class FindHubFcmClient {
         port: GOOGLE_ENDPOINTS.mcsPort,
         servername: GOOGLE_ENDPOINTS.mcsHost,
       });
+      const timeout = setTimeout(() => {
+        reject(new Error('Google MCS connection timed out'));
+        socket.destroy();
+      }, 30_000);
+      socket.once('close', () => {
+        this.authenticated = false;
+        this.loginResult = undefined;
+        clearTimeout(timeout);
+        reject(new Error('Google MCS connection closed'));
+      });
+      this.authenticated = false;
+      this.loginResult = (error) => {
+        clearTimeout(timeout);
+        this.loginResult = undefined;
+        if (error) {
+          reject(error);
+          socket.destroy();
+        } else {
+          this.authenticated = true;
+          resolve();
+        }
+      };
       this.socket = socket;
       this.receiveBuffer = Buffer.alloc(0);
       this.firstInbound = true;
@@ -287,14 +324,21 @@ export class FindHubFcmClient {
         try {
           socket.write(encodePacket(2, encodeLogin(this.credentials!), this.firstOutbound));
           this.firstOutbound = false;
-          resolve();
+          // LoginResponse, not the TLS handshake, confirms authentication.
         } catch (error) {
           reject(error);
         }
       });
-      socket.on('data', (chunk) => this.consume(chunk));
+      socket.on('data', (chunk) => {
+        try {
+          this.consume(chunk);
+        } catch {
+          socket.destroy(new Error('Invalid Google MCS frame'));
+        }
+      });
       socket.on('error', (error) => {
-        if (socket.connecting) reject(error);
+        clearTimeout(timeout);
+        reject(error);
       });
       socket.on('close', () => this.scheduleReconnect());
     });
@@ -309,6 +353,7 @@ export class FindHubFcmClient {
   }
 
   private consume(chunk: Buffer): void {
+    if (this.receiveBuffer.length + chunk.length > 1048576) throw new Error('Google MCS receive buffer too large');
     this.receiveBuffer = Buffer.concat([this.receiveBuffer, chunk]);
     while (this.receiveBuffer.length > 0) {
       let offset = 0;
@@ -317,7 +362,6 @@ export class FindHubFcmClient {
         const version = this.receiveBuffer[0];
         if (version < 38) throw new Error(`Unsupported Google MCS version ${version}`);
         offset = 1;
-        this.firstInbound = false;
       }
       if (this.receiveBuffer.length <= offset) return;
       const tag = this.receiveBuffer[offset++];
@@ -328,8 +372,10 @@ export class FindHubFcmClient {
         return;
       }
       const size = Number(lengthInfo.value);
+      if (!Number.isSafeInteger(size) || size < 0 || size > 1048576) throw new Error('Google MCS frame too large');
       const start = lengthInfo.offset;
       if (this.receiveBuffer.length < start + size) return;
+      this.firstInbound = false;
       const payload = this.receiveBuffer.subarray(start, start + size);
       this.receiveBuffer = this.receiveBuffer.subarray(start + size);
       this.handleFrame(tag, payload);
@@ -338,6 +384,15 @@ export class FindHubFcmClient {
 
   private handleFrame(tag: number, payload: Buffer): void {
     this.inputStreamId += 1;
+    if (tag === 3) {
+      const error = bytes(payload, 3);
+      this.loginResult?.(error || !string(payload, 1) ? new Error('Google MCS login rejected') : undefined);
+      return;
+    }
+    if (tag === 4) {
+      this.socket?.destroy();
+      return;
+    }
     if (tag === 0) {
       this.socket?.write(encodePacket(1, encodeHeartbeatAck(this.inputStreamId), this.firstOutbound));
       this.firstOutbound = false;
@@ -350,7 +405,10 @@ export class FindHubFcmClient {
     if (persistentId) {
       if (!this.credentials.persistentIds.includes(persistentId)) {
         this.credentials.persistentIds.push(persistentId);
-        void this.onCredentials(this.credentials);
+        this.credentials.persistentIds = this.credentials.persistentIds.slice(-512);
+        void this.onCredentials(this.credentials).catch(() => {
+          this.socket?.destroy();
+        });
       }
       this.socket?.write(encodePacket(7, encodeSelectiveAck(persistentId, this.inputStreamId), this.firstOutbound));
       this.firstOutbound = false;

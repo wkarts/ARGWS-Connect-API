@@ -1,10 +1,14 @@
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { BadRequestException, NotFoundException } from '@exceptions';
 
+import { FindHubBrowserAuthService } from './auth/findhub-browser-auth.service';
+import { FINDHUB_EXTENSION_ID } from './auth/findhub-extension.constants';
 import { FINDHUB_INTEGRATION } from './findhub.constants';
 import { FindHubStartupService } from './services/findhub-runtime.service';
 
 export class FindHubController {
+  private readonly browser = new FindHubBrowserAuthService();
+
   constructor(private readonly monitor: WAMonitoringService) {}
 
   private runtime(instanceName: string): FindHubStartupService {
@@ -22,13 +26,54 @@ export class FindHubController {
 
   public async importCredentials(instanceName: string, data: any) {
     const runtime = this.runtime(instanceName);
-    const result = await runtime.auth().importBundle(instanceName, data);
+    await runtime.auth().importBundle(instanceName, data);
     await runtime.connect();
-    return result;
+    return await this.status(instanceName);
   }
 
-  public status(instanceName: string) {
-    return this.runtime(instanceName).auth().status(instanceName);
+  public async status(instanceName: string) {
+    const runtime = this.runtime(instanceName);
+    const status = await runtime.auth().status(instanceName);
+    const connected = status.ready && runtime.transportReady;
+    return {
+      ...status,
+      ready: connected,
+      connected,
+      connectionState: runtime.connectionStatus.state,
+      pending: this.browser.pending(runtime),
+      historyEnabled: String(process.env.FINDHUB_STORE_POSITION_HISTORY || 'false').toLowerCase() === 'true',
+      minimumIntervalSeconds: Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30)),
+      helper: {
+        extensionId: FINDHUB_EXTENSION_ID,
+        version: '0.1.0',
+        required: true,
+        mobileSupported: false,
+        downloadPath: `/findhub/auth/extension/${encodeURIComponent(instanceName)}`,
+      },
+    };
+  }
+  public async browserAuth(instanceName: string, operation: 'start' | 'exchange' | 'complete' | 'cancel', data: any) {
+    try {
+      const runtime = this.runtime(instanceName);
+      if (operation === 'start') return await this.browser.start(runtime, data.email);
+      if (operation === 'exchange') return await this.browser.exchange(runtime, data);
+      if (operation === 'complete') return await this.browser.complete(runtime, data);
+      return this.browser.cancel(runtime, data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha na vinculação Google.');
+    }
+  }
+  public extensionAllowed(instanceName: string) {
+    this.runtime(instanceName);
+  }
+  public traccar(instanceName: string, deviceId: string) {
+    return this.runtime(instanceName).traccarBinding(deviceId);
+  }
+  public async disconnect(instanceName: string) {
+    const runtime = this.runtime(instanceName);
+    this.browser.abort(runtime);
+    await runtime.logoutInstance();
+    return { state: 'WAITING_AUTH', connected: false };
   }
   public devices(instanceName: string) {
     return this.runtime(instanceName).devices();
