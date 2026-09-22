@@ -26,6 +26,29 @@ jobs:
           xz -dc "$RUNNER_TEMP/findhub-source.xz" > "$RUNNER_TEMP/findhub-source.patch"
           git apply --check "$RUNNER_TEMP/findhub-source.patch"
           git apply "$RUNNER_TEMP/findhub-source.patch"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('browser-extensions/findhub-auth/windows-assistant/src/install.rs')
+          s = p.read_text(encoding='utf-8')
+          anchor = 'include!(concat!(env!("OUT_DIR"), "/payload.rs"));'
+          addition = '''
+          // Unique across concurrent operations even on a coarse Windows system clock.
+          fn unique_id() -> String {
+              use std::sync::atomic::{AtomicU64, Ordering};
+              static NEXT: AtomicU64 = AtomicU64::new(0);
+              format!("{}-{}-{}", std::process::id(),
+                  SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
+                  NEXT.fetch_add(1, Ordering::Relaxed))
+          }
+          '''
+          assert s.count(anchor) == 1
+          old = 'let stamp=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();'
+          assert s.count(old) == 1
+          old_temp = 'format!("findhub-rust-test-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())'
+          assert s.count(old_temp) == 1
+          s = s.replace(anchor, anchor + addition).replace(old, 'let stamp=unique_id();').replace(old_temp, 'format!("findhub-rust-test-{}",unique_id())')
+          p.write_text(s, encoding='utf-8')
+          PY
           node scripts/build-findhub-extension.cjs
           node scripts/build-findhub-distribution.cjs --revision "$GITHUB_SHA" --channel candidate
       - name: Compile Windows Rust executable and unit tests
@@ -40,6 +63,7 @@ jobs:
           if (!$rc) { throw 'Windows resource compiler unavailable' }
           $env:RC_EXE = $rc.FullName
           $project = 'browser-extensions/findhub-auth/windows-assistant/Cargo.toml'
+          cargo +1.90.0 fmt --manifest-path $project
           cargo +1.90.0 test --manifest-path $project --locked --offline
           if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed' }
           cargo +1.90.0 build --manifest-path $project --release --locked --offline
