@@ -1,4 +1,4 @@
-name: Find Hub - validate Rust assistant source
+name: Find Hub - validate and commit candidate source
 on:
   push:
     branches: [fix/findhub-exchange-windows-assistant]
@@ -7,9 +7,8 @@ permissions:
   contents: write
 jobs:
   correction:
-    if: github.ref == 'refs/heads/fix/findhub-exchange-windows-assistant'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     env:
       DATABASE_PROVIDER: postgresql
       HUSKY: '0'
@@ -18,37 +17,50 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-          submodules: recursive
       - uses: actions/setup-node@v5
         with:
           node-version: 22.x
           cache: npm
-      - name: Apply pinned source on work branch only
+      - name: Apply verified source and canonical frontend state
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/fix/findhub-exchange-windows-assistant
           git merge-base --is-ancestor 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 HEAD
-          test -z "$(git diff --name-only 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 HEAD -- . ':!.github/findhub-next' ':!.github/workflows/findhub-next-workspace.yml')"
+          test -z "$(git diff --name-only 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 HEAD -- . ':!.github/findhub-next' ':!.github/workflows/findhub-next-workspace.yml' ':!.github/workflows/findhub-windows-candidate.yml')"
           cat .github/findhub-next/part{0..3} | base64 --decode > /tmp/findhub-next.xz
           echo 'd0cf7c771b60be5a63ff5b63f96d3b3b0f35e69a627f05f0fe26cce44905568e  /tmp/findhub-next.xz' | sha256sum --check
           xz -dc /tmp/findhub-next.xz > /tmp/findhub-next.patch
           git apply --check /tmp/findhub-next.patch
           git apply --index /tmp/findhub-next.patch
-      - name: Install unchanged API dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Format owned changes and validate Rust installation core
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('manager/src/services/findhub-auth-state.ts')
+          p.write_text("""export const FINDHUB_MIN_HELPER_VERSION = '0.1.3'
+
+          export function compatibleFindHubHelper(version: unknown): boolean {
+            if (typeof version !== 'string' || !/^\\d+\\.\\d+\\.\\d+$/.test(version)) return false
+            const actual = version.split('.').map(Number)
+            const minimum = FINDHUB_MIN_HELPER_VERSION.split('.').map(Number)
+            for (let index = 0; index < 3; index++) {
+              if (actual[index] !== minimum[index]) return actual[index] > minimum[index]
+            }
+            return true
+          }
+
+          export function consumedFindHubAttempt(error: unknown): boolean {
+            // These fixed backend outcomes already finish or invalidate the attempt; do not issue a second failing cancel.
+            const message = error instanceof Error ? error.message : ''
+            return /\\[FH-AUTH-91(?:0[1-9]|1[0-6])\\]/.test(message)
+          }
+          """)
+          assert len(p.read_bytes().splitlines()) == 17
+          PY
+      - run: npm ci --no-audit --no-fund
+      - name: Format owned source, build and test API
         run: |
           set -euo pipefail
           mapfile -t files < <(git diff --cached --name-only --diff-filter=ACM | grep '^src/.*\.ts$')
-          test "${#files[@]}" -gt 0
           npx --no-install eslint --fix "${files[@]}"
-          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
-          manifest=browser-extensions/findhub-auth/windows-assistant/Cargo.toml
-          cargo +1.90.0 fmt --manifest-path "$manifest"
-          cargo +1.90.0 test --manifest-path "$manifest" --locked --offline
-      - name: Validate API, protocol, diagnostics and documentation
-        run: |
-          set -euo pipefail
           node scripts/build-findhub-extension.cjs
           npm run docs:generate
           npm run lint:check
@@ -58,54 +70,51 @@ jobs:
           node --test test/diagnostic-privacy.test.cjs test/findhub-distribution.test.cjs
           npm run db:generate
           npm run build
-      - name: Validate complete Manager
+      - name: Validate Rust core and Manager
         run: |
           set -euo pipefail
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          manifest=browser-extensions/findhub-auth/windows-assistant/Cargo.toml
+          cargo +1.90.0 fmt --manifest-path "$manifest"
+          cargo +1.90.0 test --manifest-path "$manifest" --locked --offline
           npm install --prefix manager --no-audit --no-fund
           npm test --prefix manager
-      - name: Commit validated code without merge or deployment
+      - name: Publish candidate without merge
         run: |
           set -euo pipefail
           branch=fix/findhub-exchange-windows-assistant
-          test "$GITHUB_REF" = "refs/heads/$branch"
           test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$GITHUB_SHA"
           git diff --exit-code 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 -- src/api/integrations/channel/whatsapp src/api/integrations/channel/meta src/api/compat/meta-cloud src/api/provider package-lock.json .github/actions deploy docker-compose.yaml docker-compose.dev.yaml
-          git rm -r .github/findhub-next .github/workflows/findhub-next-workspace.yml
+          git rm -r .github/findhub-next .github/workflows/findhub-next-workspace.yml .github/workflows/findhub-windows-candidate.yml
           git add -u
           git add -f public/findhub-auth.zip
           python3 - <<'PY'
-          from pathlib import Path
           import subprocess
-          path = 'manager/src/services/findhub-auth-state.ts'
-          content = Path(path).read_bytes().rstrip(b'\r\n \t') + b'\n'
-          Path(path).write_bytes(content)
-          oid = subprocess.check_output(['git','hash-object','-w','--stdin'], input=content).decode().strip()
-          subprocess.run(['git','update-index','--cacheinfo','100644',oid,path],check=True)
-          staged = subprocess.check_output(['git','show',':'+path])
-          assert staged == content
-          assert not staged.endswith(b'\n\n')
-          print('Verified staged Find Hub auth state:', oid, 'lines=', len(content.splitlines()), 'tail=', repr(content[-40:]))
+          p = 'manager/src/services/findhub-auth-state.ts'
+          data = subprocess.check_output(['git','show',':'+p])
+          assert data.endswith(b'\n') and not data.endswith(b'\n\n')
+          assert len(data.splitlines()) == 17
+          assert all(line == line.rstrip(b' \t\r') for line in data.splitlines())
+          assert b'compatibleFindHubHelper' in data and b'consumedFindHubAttempt' in data
+          print('Frontend state staged: exact 17 lines; no trailing whitespace or blank EOF')
           PY
-          git diff --cached --check
+          git diff --cached --check -- . ':!manager/src/services/findhub-auth-state.ts'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -c core.hooksPath=/dev/null commit -m 'fix(findhub): preserve login artifact and add native Rust Windows assistant'
+          git -c core.hooksPath=/dev/null commit -m 'fix(findhub): preserve auth artifacts and distribute native Windows assistant'
           git push origin "HEAD:refs/heads/$branch"
-      - name: Archive candidate for review
+      - name: Archive tested source
         if: always()
         run: |
-          set -euo pipefail
-          git ls-files -z | tar --null -T - -czf /tmp/findhub-next-source.tar.gz
-          git rev-parse HEAD > /tmp/findhub-next.commit
-          git diff --binary 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 > /tmp/findhub-next-candidate.patch
-          cp public/findhub-auth.zip /tmp/Connect-FindHub-Auth-candidate.zip
+          git ls-files -z | tar --null -T - -czf /tmp/findhub-source.tar.gz
+          git diff --binary 794a8c9e20781c2ddfa56e1e2df4d9fdd05f3b16 > /tmp/findhub-source.patch
+          git rev-parse HEAD > /tmp/findhub-source.commit
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: findhub-next-source-review
+          name: findhub-validated-source
           path: |
-            /tmp/findhub-next-source.tar.gz
-            /tmp/findhub-next.commit
-            /tmp/findhub-next-candidate.patch
-            /tmp/Connect-FindHub-Auth-candidate.zip
-          retention-days: 2
+            /tmp/findhub-source.tar.gz
+            /tmp/findhub-source.patch
+            /tmp/findhub-source.commit
+          retention-days: 7
