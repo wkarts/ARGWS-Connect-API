@@ -1,0 +1,27 @@
+name: Find Hub isolated correction workspace
+on:
+  push:
+    branches: [fix/findhub-dedicated-channel-auth]
+    paths: [.github/workflows/findhub-workspace-temporary.yml]
+permissions:
+  contents: read
+jobs:
+  workspace:
+    if: github.ref == 'refs/heads/fix/findhub-dedicated-channel-auth'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: |
+          git archive HEAD | gzip > /tmp/findhub-source.tar.gz
+          git rev-parse HEAD > /tmp/findhub-source.commit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findhub-correction-source
+          path: |
+            /tmp/findhub-source.tar.gz
+            /tmp/findhub-source.commit
+          retention-days: 1
