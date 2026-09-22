@@ -19,6 +19,7 @@ execFileSync(process.execPath, [path.join(root,'scripts/build-findhub-extension.
 fs.mkdirSync(out,{recursive:true});
 const zipName = `Connect-FindHub-Auth-${version}.zip`;
 const exeName = `Connect-FindHub-Auth-Setup-${version}.exe`;
+const assistantName = `Connect-FindHub-Auth-Assistant-${version}-windows-x64.exe`;
 fs.copyFileSync(path.join(root,'public/findhub-auth.zip'),path.join(out,zipName));
 // Windows ICO directory contains the unmodified canonical PNG derivatives; no vector tracing or redesign.
 const buffers = [16,32,48,128].map(size => fs.readFileSync(path.join(root,`browser-extensions/findhub-auth/icons/icon-${size}.png`)));
@@ -27,15 +28,20 @@ let offset=header.length;
 for (let i=0;i<buffers.length;i++) { const p=6+16*i; header[p]=sizes[i];header[p+1]=sizes[i];header.writeUInt16LE(1,p+4);header.writeUInt16LE(32,p+6);header.writeUInt32LE(buffers[i].length,p+8);header.writeUInt32LE(offset,p+12);offset+=buffers[i].length; }
 fs.writeFileSync(path.join(out,'connect-findhub.ico'),Buffer.concat([header,...buffers]));
 const extensionId = sha256(Buffer.from(manifest.key,'base64')).slice(0,32).replace(/[0-9a-f]/g,c=>String.fromCharCode(97+parseInt(c,16)));
-const metadata = {schema:1,version,channel,sourceRevision:revision,extensionId,windows:{file:exeName,signed:false,scope:'current-user',browserApprovalRequired:true},zip:{file:zipName,sha256:sha256(fs.readFileSync(path.join(out,zipName)))},iconSource:'public/branding/connect-api/core/connect-api-app-icon-dark.png',iconSha256:sha256(fs.readFileSync(path.join(root,'public/branding/connect-api/core/connect-api-app-icon-dark.png')))};
+const metadata = {schema:1,version,channel,sourceRevision:revision,extensionId,windows:{file:exeName,signed:false,scope:'current-user',browserApprovalRequired:true},assistant:{file:assistantName,language:'rust',architecture:'x64',signed:false,browserApprovalRequired:true},zip:{file:zipName,sha256:sha256(fs.readFileSync(path.join(out,zipName)))},iconSource:'public/branding/connect-api/core/connect-api-app-icon-dark.png',iconSha256:sha256(fs.readFileSync(path.join(root,'public/branding/connect-api/core/connect-api-app-icon-dark.png')))};
 fs.writeFileSync(path.join(out,'extension-release.json'),JSON.stringify(metadata,null,2)+'\n');
 fs.writeFileSync(path.join(out,'build.nsh'),`!define EXT_VERSION "${version}"\n!define EXT_VERSION_NUM "${version}.0"\n!define EXT_REVISION "${revision}"\n!define EXT_ID "${extensionId}"\n!define EXT_EXE "${exeName}"\n`);
 if (args.includes('--finalize')) {
  const exe = fs.readFileSync(path.join(out,exeName));
  if(exe.length<1024 || exe[0]!==77 || exe[1]!==90) throw new Error('Windows executable is missing/invalid');
  metadata.windows.sha256=sha256(exe);
+ const assistant=fs.readFileSync(path.join(out,assistantName));
+ if(assistant.length<1024 || assistant[0]!==77 || assistant[1]!==90) throw new Error('Rust Windows assistant missing/invalid');
+ const pe=assistant.readUInt32LE(0x3c);
+ if(pe+6>assistant.length || assistant.toString('ascii',pe,pe+4)!=='PE\0\0' || assistant.readUInt16LE(pe+4)!==0x8664) throw new Error('Rust assistant is not a Windows x64 PE');
+ metadata.assistant.sha256=sha256(assistant);
  fs.writeFileSync(path.join(out,'extension-release.json'),JSON.stringify(metadata,null,2)+'\n');
- const assets=[zipName,exeName,'extension-release.json'];
+ const assets=[zipName,exeName,assistantName,'extension-release.json'];
  fs.writeFileSync(path.join(out,'SHA256SUMS.txt'),assets.map(name=>`${sha256(fs.readFileSync(path.join(out,name)))}  ${name}`).join('\n')+'\n');
 }
 console.log(JSON.stringify({version,extensionId,output:out,exe:exeName,zip:zipName,sourceRevision:revision}));

@@ -51,7 +51,7 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release immutable already exists: $tag"
           else
-            gh release create "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe extension-release.json SHA256SUMS.txt \
+            gh release create "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
               --title "Find Hub Auth ${version} - develop ${GITHUB_SHA:0:12}" \
               --notes "Extensão e instalador Windows por usuário. É necessária confirmação manual no navegador. Binário sem assinatura Authenticode. Fonte: ${GITHUB_SHA}. Homologação Google real não está implícita no build."

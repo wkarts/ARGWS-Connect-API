@@ -84,8 +84,8 @@ test('rechecking the owned tab never replays the baseline or duplicates an emitt
   c.send({type:'CANCEL',sessionId:request.sessionId}); await flush();
 });
 
-test('0.1.2 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
-  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.2');
+test('0.1.3 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
+  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.3');
   assert.equal(policy.VERSION, manifest.version);
   for (const size of [16,32,48,128]) {
     const icon = fs.readFileSync(path.join(folder,manifest.icons[size]));

@@ -437,7 +437,7 @@ jobs:
           if [[ -f "$notes" ]]; then
             notes_args=(--notes-file "$notes")
           fi
-          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/extension-release.json extension-dist/SHA256SUMS.txt \
+          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/Connect-FindHub-Auth-Assistant-*.exe extension-dist/extension-release.json extension-dist/SHA256SUMS.txt \
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
             "${notes_args[@]}"

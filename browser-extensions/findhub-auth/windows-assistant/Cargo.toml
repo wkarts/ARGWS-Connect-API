@@ -1,0 +1,14 @@
+[package]
+name = "connect-findhub-assistant"
+version = "0.1.3"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+# Native Win32 + Rust standard library. No WebView, Node, elevated privileges or runtime downloads.
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true
+panic = "abort"

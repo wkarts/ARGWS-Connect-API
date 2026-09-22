@@ -188,7 +188,7 @@ O ícone oficial é fornecido em PNG 16/32/48/128, preservando o original enviad
 
 ### Falhas corrigidas
 
-O campo `Email` da resposta de troca do Google é opcional; a ausência dele não invalida sozinha um `Token`. O cliente recusa divergência explícita de conta e exige uma solicitação de token ADM bem-sucedida para a conta informada antes de prosseguir. Isso não substitui a validação da chave `finder_hw` nem a conexão final. Cookies URI-escaped são decodificados uma vez, preservando os caracteres `+`/`=`. Nenhum token de uso único é ressubmetido automaticamente.
+O campo `Email` da resposta de troca do Google é opcional; a ausência dele não invalida sozinha um `Token`. O cliente recusa divergência explícita de conta e exige uma solicitação de token ADM bem-sucedida para a conta informada antes de prosseguir. Isso não substitui a validação da chave `finder_hw` nem a conexão final. Na versão 0.1.3, o cookie é preservado literalmente, incluindo `%`, `+` e `=`; somente o formulário faz encoding. Nenhum token de uso único é ressubmetido automaticamente.
 
 A troca usa `node:https`, com um agente **exclusivo do Find Hub**, HTTP/1.1 sem anúncio ALPN. Permanecem TLS 1.2 mínimo, autoridades certificadoras do ambiente e verificação de hostname; nenhum `rejectUnauthorized=false`, captcha bypass, atestado inventado ou alteração do `fetch` global foi introduzido. Timeout absoluto de 30 segundos por solicitação e limite de 64 KiB na resposta. A etapa de troca pode realizar duas solicitações; o Manager permite 65 segundos.
 
@@ -263,3 +263,13 @@ Referências primárias para o contrato de instalação e protocolo (consulta de
 **Atualize API/Manager e extensão juntos. Não rotacione `FINDHUB_CREDENTIALS_KEY`, não remova volumes e não desconecte WhatsApp para aplicar esta correção. Testes de CI não substituem login Google, posição real e envio Traccar com dispositivos próprios.**
 
 O registro nativo do receptor também utiliza FID Firebase de 22 caracteres Base64URL; respostas sem autorização de instalação são recusadas antes de abrir o login. Referência de formato: https://github.com/firebase/firebase-js-sdk/blob/main/packages/installations/src/helpers/generate-fid.ts.
+
+## Extensão 0.1.3 e assistente Windows Rust
+
+O release inclui adicionalmente `Connect-FindHub-Auth-Assistant-0.1.3-windows-x64.exe`, um assistente nativo Rust com o payload da extensão embutido. Ele prepara/atualiza a pasta estável por usuário, mantém backup da versão anterior, confere todos os arquivos e abre a página de extensões em Chrome/Edge. Não necessita de WebView, Rust instalado, Node, senha Google ou administrador. A ativação inicial e o Reload continuam explícitos no navegador. O instalador NSIS existente permanece disponível; ambos coordenam as gravações e não alteram políticas ou perfis. Os assets ZIP/NSIS/Rust são anexados à mesma revisão dos builds develop/stable, com checksums.
+
+Na autenticação, preserve literalmente o artefato retornado por `chrome.cookies`: ele não é uma query string e não deve passar por `decodeURIComponent`. O formulário faz o único encoding necessário. Isso corrige a mutação indevida de bytes percentuais, mas não prova isoladamente a causa de uma rejeição de uma conta real.
+
+`[etapa=exchange; http=400; campos=0010]` significa que a primeira troca retornou `Error` sem `Token`, `Auth` ou detalhe. `UNCLASSIFIED` é uma categoria local para um motivo que ainda não consta do conjunto permitido; não é a resposta literal do Google. Nenhuma credencial deve ser aceita nessa situação. As categorias conhecidas toleram diferenças de caixa/underscore; códigos 9115 identificam parâmetros recusados e 9116 identifica exigência conhecida de integridade, sem fabricar respostas de atestação. O diagnóstico preserva apenas código/etapa/HTTP/presença de campos, nunca a resposta Google bruta.
+
+Atualize API/Manager e extensão em conjunto e crie uma nova tentativa. Não altere `FINDHUB_CREDENTIALS_KEY`, volumes ou sessões WhatsApp. O assistente Windows não corrige por si só um HTTP 400 upstream. Homologação real continua necessária.
