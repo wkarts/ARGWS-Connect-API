@@ -15,7 +15,7 @@ services:
     environment:
       SERVER_URL: ${SERVER_URL:-}
       API_REFERENCE_CONFIG: >-
-        {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost"}
+        {"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/findhub.openapi.json","title":"Connect|API Google Find Hub","slug":"findhub"},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost"}
     ports:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_DOCS_HOST_PORT:-38280}:8080"
     networks: [argws-connect-docs-net]

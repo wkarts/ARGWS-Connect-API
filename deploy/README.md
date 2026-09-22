@@ -96,3 +96,7 @@ Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws
 - `deploy/docs-develop/` → `https://d.docs.connect.argws.com.br` → `127.0.0.1:38282` → `:develop`.
 
 As stacks completas mantêm DOCs integrados nas portas `38180` a `38183`. A variável `ARGWS_CONNECT_DOCS_PUBLIC_URL` define o destino público usado pela aplicação; somente o deployment `develop` usa por padrão `d.docs.connect.argws.com.br`.
+
+## Google Find Hub
+
+[Guia completo de implantação e autenticação](../docs/guides/google-find-hub.md). A chave local é preparada por `prepare-findhub-env.py`, sem rotacionar segredos existentes. O Scalar inclui o documento `openapi/findhub.openapi.json`.

@@ -11,7 +11,11 @@ function keyFromEnvironment(): Buffer {
   if (/^[0-9a-f]{64}$/i.test(raw)) return Buffer.from(raw, 'hex');
   const normalized = raw.replace(/-/g, '+').replace(/_/g, '/');
   const key = Buffer.from(normalized, 'base64');
-  if (!/^[A-Za-z0-9+/]{43}=?$/.test(normalized) || key.length !== 32 || key.toString('base64').replace(/=$/, '') !== normalized.replace(/=$/, '')) {
+  if (
+    !/^[A-Za-z0-9+/]{43}=?$/.test(normalized) ||
+    key.length !== 32 ||
+    key.toString('base64').replace(/=$/, '') !== normalized.replace(/=$/, '')
+  ) {
     throw new Error('FINDHUB_CREDENTIALS_KEY deve conter 32 bytes: 64 caracteres hex ou base64 canônico.');
   }
   return key;
