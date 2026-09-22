@@ -1,0 +1,55 @@
+name: Find Hub synthetic exchange diagnosis
+on:
+  push:
+    branches: [fix/findhub-wire-exchange]
+    paths: [.github/workflows/findhub-auth-negative-probe.yml]
+permissions:
+  contents: read
+jobs:
+  negative-protocol-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Compare two negative requests without a real account or token
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import https from 'node:https';
+          const common = {
+            accountType: 'HOSTED_OR_GOOGLE', Email: 'findhub-negative-test@example.invalid',
+            has_permission: '1', add_account: '1', ACCESS_TOKEN: '1',
+            Token: 'deliberately-invalid-token-for-negative-protocol-test',
+            service: 'ac2dm', source: 'android', androidId: '1234567890123456789',
+            device_country: 'us', operatorCountry: 'us', lang: 'en', sdk_version: '17',
+            google_play_services_version: '244433022',
+            client_sig: '38918a453d07199354f8b19af05ec6562ced5788',
+            callerSig: '38918a453d07199354f8b19af05ec6562ced5788',
+          };
+          async function negative(label, extra) {
+            const body = new URLSearchParams({...common, ...extra}).toString();
+            const result = await new Promise((resolve, reject) => {
+              const req = https.request('https://android.clients.google.com/auth', {
+                method: 'POST', agent: false, minVersion: 'TLSv1.2', rejectUnauthorized: true, ALPNProtocols: [],
+                headers: {'User-Agent':'GoogleAuth/1.4','Content-Type':'application/x-www-form-urlencoded',
+                  'Content-Length':Buffer.byteLength(body),'Accept-Encoding':'identity',Accept:'*/*'},
+              }, res => {
+                let text='';
+                res.on('data', chunk => {text += chunk; if (text.length>65536) req.destroy(new Error('Response too large'));});
+                res.on('end', () => resolve({http:res.statusCode, text}));
+                res.on('error', reject);
+              });
+              req.on('error', reject);
+              req.setTimeout(15000,()=>req.destroy(new Error('Timeout')));
+              req.end(body);
+            });
+            const data = Object.fromEntries(result.text.split(/\r?\n/).filter(x=>x.includes('=')).map(x=>[x.slice(0,x.indexOf('=')),x.slice(x.indexOf('=')+1)]));
+            if (data.Token || data.Auth) throw new Error('Unexpected acceptance of negative fixture');
+            const error = /^[A-Za-z_0-9 :.-]{1,160}$/.test(data.Error||'') ? data.Error : 'non-enum-response';
+            console.log(JSON.stringify({label,http:result.http,error,fieldNames:Object.keys(data).filter(x=>/^[A-Za-z_]{1,40}$/.test(x))}));
+          }
+          await negative('current-exchange-no-legacy-field', {});
+          await negative('reference-wire-legacy-field', {droidguard_results:'dummy123'});
+          JS
