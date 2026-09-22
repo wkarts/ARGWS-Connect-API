@@ -34,6 +34,20 @@ jobs:
           xz -dc /tmp/findhub-auth-fix.xz > /tmp/findhub-auth-fix.patch
           git apply --check /tmp/findhub-auth-fix.patch
           git apply --index /tmp/findhub-auth-fix.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/api/integrations/channel/findhub/auth/google-auth.transport.ts')
+          s = p.read_text()
+          assert s.count('    let timer: ReturnType<typeof setTimeout>;\n') == 1
+          assert s.count('    timer = setTimeout(() => {') == 1
+          p.write_text(s.replace('    let timer: ReturnType<typeof setTimeout>;\n', '').replace('    timer = setTimeout(() => {', '    const timer = setTimeout(() => {'))
+          p = Path('src/api/integrations/channel/findhub/auth/google-play-auth.client.ts')
+          s = p.read_text()
+          old = r'if (!token || /[\s\x00-\x1f\x7f]/.test(token)) throw new FindHubAuthError(9101);'
+          new = r'if (!token || /\s/.test(token) || Array.from(token).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) throw new FindHubAuthError(9101);'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new))
+          PY
       - name: Install unchanged API dependencies
         run: npm ci --no-audit --no-fund
       - name: Resize exact user-supplied official artwork and build extension
