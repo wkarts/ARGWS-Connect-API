@@ -1,25 +1,5 @@
-import { FindHubFcmCredentials } from '@api/integrations/channel/findhub/findhub.types';
-
-export class FindHubAuthStartDto {
-  email: string;
-}
-
-export class FindHubCredentialBundleDto {
-  sessionId: string;
-  bridgeToken: string;
-  email: string;
-  androidId: string;
-  accountToken: string;
-  sharedKey: string;
-  fcm?: FindHubFcmCredentials;
-}
-
-export class FindHubTrackingDto {
-  intervalSeconds?: number;
-}
-
-export class FindHubTraccarDto {
-  enabled: boolean;
-  url: string;
-  deviceId: string;
-}
+export class FindHubAuthStartDto { email: string; }
+export class FindHubAuthExchangeDto { sessionId: string; bridgeToken: string; email: string; oauthToken: string; }
+export class FindHubAuthVaultDto { sessionId: string; bridgeToken: string; sharedKey?: string; vaultKeys?: any; }
+export class FindHubTrackingDto { intervalSeconds?: number; }
+export class FindHubTraccarDto { enabled: boolean; url: string; deviceId: string; }
