@@ -114,6 +114,10 @@ model Instance {
   N8nSetting              N8nSetting[]
   ConnectAI               ConnectAI[]
   ConnectAISetting        ConnectAISetting?
+  FindHubAccount          FindHubAccount?
+  FindHubDevice           FindHubDevice[]
+  FindHubPosition         FindHubPosition[]
+  FindHubTraccarBinding   FindHubTraccarBinding[]
 }
 
 model Session {
@@ -793,4 +797,82 @@ model LocalTemplate {
 
   @@unique([instanceId, name, language])
   @@index([instanceId, deletedAt, id])
+}
+
+
+model FindHubAccount {
+  id                   String   @id @default(cuid())
+  instanceId           String   @unique
+  googleEmail          String?  @db.VarChar(320)
+  authState            String   @default("WAITING_AUTH") @db.VarChar(40)
+  encryptedCredentials String?  @db.Text
+  encryptedSharedKey   String?  @db.Text
+  clientUuid           String?  @db.VarChar(64)
+  createdAt            DateTime @default(now()) @db.Timestamp
+  updatedAt            DateTime @updatedAt @db.Timestamp
+  Instance             Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Device               FindHubDevice[]
+
+  @@index([instanceId])
+}
+
+model FindHubDevice {
+  id                      String   @id @default(cuid())
+  instanceId              String
+  accountId               String
+  googleDeviceId          String   @db.VarChar(512)
+  name                    String   @db.VarChar(255)
+  identifierType          String   @db.VarChar(32)
+  deviceType              String   @db.VarChar(32)
+  manufacturer            String?  @db.VarChar(255)
+  model                   String?  @db.VarChar(255)
+  imageUrl                String?  @db.VarChar(1000)
+  trackingEnabled         Boolean  @default(false) @db.Boolean
+  trackingIntervalSeconds Int      @default(60) @db.Integer
+  lastLocationAt          DateTime? @db.Timestamp
+  createdAt               DateTime @default(now()) @db.Timestamp
+  updatedAt               DateTime @updatedAt @db.Timestamp
+  Instance                Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  account                 FindHubAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  Position                FindHubPosition[]
+  TraccarBinding          FindHubTraccarBinding?
+
+  @@unique([instanceId, googleDeviceId])
+  @@index([instanceId])
+  @@index([accountId])
+}
+
+model FindHubPosition {
+  id               String   @id @default(cuid())
+  instanceId       String
+  deviceId         String
+  latitude         Float
+  longitude        Float
+  altitude         Int?     @db.Integer
+  accuracy         Float?
+  source           String   @db.VarChar(32)
+  ownReport        Boolean  @default(false) @db.Boolean
+  semanticLocation String?  @db.VarChar(500)
+  recordedAt       DateTime @db.Timestamp
+  createdAt        DateTime @default(now()) @db.Timestamp
+  Instance         Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Device           FindHubDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+  @@index([deviceId, recordedAt])
+}
+
+model FindHubTraccarBinding {
+  id              String   @id @default(cuid())
+  instanceId      String
+  deviceId        String   @unique
+  enabled         Boolean  @default(true) @db.Boolean
+  url             String   @db.VarChar(1000)
+  traccarDeviceId String   @db.VarChar(255)
+  createdAt       DateTime @default(now()) @db.Timestamp
+  updatedAt       DateTime @updatedAt @db.Timestamp
+  Instance        Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Device          FindHubDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
 }
