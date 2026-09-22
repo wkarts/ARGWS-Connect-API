@@ -127,12 +127,14 @@ onMounted(load)
             <option value="WHATSAPP-BAILEYS">WhatsApp — Baileys</option>
             <option value="WHATSAPP-ZAPO">WhatsApp — ZAPO</option>
             <option value="WHATSAPP-BUSINESS">WhatsApp Business / Cloud API</option>
+            <option value="GOOGLE-FIND-HUB">Google Find Hub</option>
           </select>
-          <small v-if="form.mode==='WHATSAPP-ZAPO'">Provider com suporte a chamadas de voz nesta versão.</small>
+          <small v-if="form.mode==='GOOGLE-FIND-HUB'">Canal para administrar dispositivos e localização de uma conta Google Find Hub.</small>
+          <small v-else-if="form.mode==='WHATSAPP-ZAPO'">Provider com suporte a chamadas de voz nesta versão.</small>
           <small v-else-if="form.mode==='WHATSAPP-BAILEYS'">Provider consolidado para mensagens, grupos, status e automações.</small>
           <small v-else>Conexão oficial para contas empresariais.</small>
         </label>
-        <label class="field"><span>Número</span><input v-model="form.number" inputmode="numeric" placeholder="5575999999999"/><small>Opcional. Informe DDI, DDD e número.</small></label>
+        <label v-if="form.mode!=='GOOGLE-FIND-HUB'" class="field"><span>Número</span><input v-model="form.number" inputmode="numeric" placeholder="5575999999999"/><small>Opcional. Informe DDI, DDD e número.</small></label>
         <label v-if="form.mode==='WHATSAPP-BUSINESS'" class="field"><span>Identificador da conta empresarial</span><input v-model="form.businessId"/></label>
       </form>
       <template #footer>
