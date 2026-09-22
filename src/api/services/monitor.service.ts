@@ -255,7 +255,9 @@ export class WAMonitoringService {
           profilePicUrl: data.profilePicUrl,
           connectionStatus:
             data.integration &&
-            (data.integration === Integration.WHATSAPP_BAILEYS || data.integration === Integration.WHATSAPP_ZAPO)
+            (data.integration === Integration.WHATSAPP_BAILEYS ||
+              data.integration === Integration.WHATSAPP_ZAPO ||
+              data.integration === Integration.GOOGLE_FIND_HUB)
               ? 'close'
               : (data.status ?? 'open'),
           number: data.number,
@@ -270,6 +272,8 @@ export class WAMonitoringService {
       });
     } catch (error) {
       this.logger.error(error);
+      // Find Hub creation must not publish a runtime after a failed database insert.
+      if (data.integration === Integration.GOOGLE_FIND_HUB) throw error;
     }
   }
 
@@ -444,7 +448,10 @@ export class WAMonitoringService {
 
         this.clearDelInstanceTime(instanceName);
 
-        if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) {
+        if (
+          this.waInstances[instanceName]?.integration !== Integration.GOOGLE_FIND_HUB &&
+          this.configService.get<Chatwoot>('CHATWOOT').ENABLED
+        ) {
           this.waInstances[instanceName]?.clearCacheChatwoot();
         }
 
@@ -466,7 +473,9 @@ export class WAMonitoringService {
           instance?.client?.ws?.close();
         }
 
-        instance.instance.qrcode = { count: 0 };
+        if (instance.integration !== Integration.GOOGLE_FIND_HUB) {
+          instance.instance.qrcode = { count: 0 };
+        }
         this.waInstances[instanceName].stateConnection.state = 'close';
       } catch (error) {
         this.logger.error({
