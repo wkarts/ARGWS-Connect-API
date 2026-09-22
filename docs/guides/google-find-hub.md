@@ -1,101 +1,128 @@
-# Google Find Hub channel
+# Google Find Hub — implantação e API
 
-O canal `GOOGLE-FIND-HUB` adiciona contas Google Find Hub como instâncias da Connect|API.
+O provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instância. Os dispositivos pertencem àquela instância; o Manager e as integrações externas utilizam a mesma API. O canal é nativo TypeScript, sem GoogleFindMyTools, Python de localização, VNC, Selenium ou Chromium no servidor.
 
-## Arquitetura
+> **Estado real da autenticação:** a implementação atual recebe um bundle por `CredentialProvider`. O botão de iniciar vinculação cria uma sessão; ele **não implementa um login Google OAuth com redirecionamento automático**, nem fornece um produtor desse bundle. Autenticar no Google em uma aba, sozinho, não autoriza o backend. Tokens AAS e chaves do Find Hub precisam ser obtidos por um provider compatível e autorizado. Não envie senha Google, cookies, tokens ou chaves em chamados, prints ou logs. CI aprovado não substitui a homologação com uma conta e um smartphone reais.
 
-Uma instância representa uma conta autorizada e pode administrar os dispositivos retornados por ela. O Manager usa os mesmos endpoints públicos disponíveis para clientes externos.
+## 1. Corrigir `FINDHUB_CREDENTIALS_KEY is required`
 
-O canal é nativo em TypeScript e não executa GoogleFindMyTools, FastAPI, Chromium, Selenium, VNC ou Xvfb.
+`FINDHUB_CREDENTIALS_KEY` é uma chave **local do servidor**, usada por AES-256-GCM para cifrar as credenciais no banco. Não é uma API key do Google Cloud, token do Traccar ou segredo que o usuário deva preencher no Manager.
 
-## Persistência
+Na pasta da stack que contém o `.env` efetivamente usado:
 
-O módulo adiciona:
+```bash
+# Prepara somente as configurações Find Hub. Preserva o restante do .env.
+python3 ./prepare-findhub-env.py --env-file .env
 
-- `FindHubAccount`
-- `FindHubDevice`
-- `FindHubPosition`
-- `FindHubTraccarBinding`
-
-As credenciais persistidas são cifradas com AES-256-GCM.
-
-Configure uma chave de 32 bytes:
-
-```env
-FINDHUB_CREDENTIALS_KEY=<32 bytes em base64 ou 64 caracteres hex>
+# Verifica sem mostrar o segredo.
+python3 ./prepare-findhub-env.py --env-file .env --check --require-key
 ```
 
-Configurações opcionais:
+`prepare-env.sh` também chama esse preparador nos perfis com instalador. Uma chave existente válida nunca é rotacionada. Uma chave não vazia e inválida é rejeitada, não substituída. O arquivo é gravado com permissão 0600. **Se você já possuía contas cifradas e perdeu a chave, restaure a chave do backup: gerar outra não recupera os dados antigos.**
 
-```env
-FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS=60
-FINDHUB_MIN_TRACKING_INTERVAL_SECONDS=30
-FINDHUB_LOCATION_TIMEOUT_MS=30000
-FINDHUB_STORE_POSITION_HISTORY=false
-FINDHUB_TRACCAR_TIMEOUT_MS=10000
+Para configuração manual, gere uma única vez com `openssl rand -hex 32`, guarde o resultado em `FINDHUB_CREDENTIALS_KEY` no `.env` e não exponha o valor no frontend. Aceita 64 caracteres hex ou base64 de 32 bytes.
+
+Recrie o container da API: `restart` não reaplica mudanças de ambiente. Exemplo específico do perfil `deploy/develop`:
+
+```bash
+docker compose --env-file .env -f compose.yaml up -d --no-deps --force-recreate api-argws-connect-develop
+
+docker compose --env-file .env -f compose.yaml exec -T api-argws-connect-develop \
+  node -e 'const v=process.env.FINDHUB_CREDENTIALS_KEY||"";const b=/^[0-9a-f]{64}$/i.test(v)?Buffer.from(v,"hex"):Buffer.from(v,"base64");if(b.length!==32)process.exit(1);console.log("Chave Find Hub presente: 32 bytes; valor oculto")'
 ```
 
-## Autenticação
+Nos perfis raiz, CloudPanel, Dockge e homologação, o serviço pode se chamar `api`; respeite o nome do seu Compose. No Portainer/Dockge, salve as variáveis no ambiente da stack e recrie o serviço. No Swarm, o CLI `docker stack deploy` não carrega `.env` como o Compose: forneça as variáveis no ambiente do comando ou renderize o arquivo com `docker compose --env-file ... config` para um arquivo protegido antes do deploy. Não publique o YAML renderizado com segredos.
 
-A Connect|API não coleta senha nem cookies do navegador. A autenticação é uma fronteira de `CredentialProvider`.
+## 2. Variáveis do canal
 
-1. `POST /findhub/auth/start/:instanceName` cria uma sessão temporária.
-2. O operador autentica a conta usando um provider autorizado.
-3. O provider conclui a sessão por `POST /findhub/auth/import/:instanceName`.
-4. A Connect|API cifra e persiste apenas o bundle necessário ao canal.
+| Variável | Padrão no template | Uso |
+| --- | --- | --- |
+| `FINDHUB_CREDENTIALS_KEY` | vazio; preparador gera chave dedicada | Cifra credenciais. Obrigatória ao instanciar Find Hub; não é exigida pelos providers WhatsApp. |
+| `FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS` | `60` | Intervalo inicial de novos dispositivos. |
+| `FINDHUB_MIN_TRACKING_INTERVAL_SECONDS` | `30` | Mínimo aplicado ao iniciar tracking. |
+| `FINDHUB_LOCATION_TIMEOUT_MS` | `30000` | Espera máxima da solicitação de posição. |
+| `FINDHUB_STORE_POSITION_HISTORY` | `false` | Histórico opt-in no banco. Não impede a resposta de localização ou os eventos. |
+| `FINDHUB_TRACCAR_TIMEOUT_MS` | `10000` | Timeout HTTP do adaptador Traccar. |
 
-## API
+Todos os templates de API e o modelo Swarm repassam esses parâmetros explicitamente. A documentação possui configuração própria de Scalar, **sem chave Find Hub**. O inventário versionado está em `docs/operations/findhub-deployment-coverage.json`.
 
-- `POST /findhub/auth/start/:instanceName`
-- `POST /findhub/auth/import/:instanceName`
-- `GET /findhub/auth/status/:instanceName`
-- `GET /findhub/devices/:instanceName`
-- `POST /findhub/devices/refresh/:instanceName`
-- `GET /findhub/device/:deviceId/:instanceName`
-- `POST /findhub/locate/:deviceId/:instanceName`
-- `POST /findhub/tracking/start/:deviceId/:instanceName`
-- `POST /findhub/tracking/stop/:deviceId/:instanceName`
-- `GET /findhub/positions/:deviceId/:instanceName`
-- `PUT /findhub/traccar/:deviceId/:instanceName`
-- `DELETE /findhub/traccar/:deviceId/:instanceName`
+A alteração não troca tags de imagem dos perfis estáveis/canônicos. O canal exige uma imagem que já contenha sua implementação; após a PR 118, isso corresponde ao canal `develop`, não implica promoção automática para `latest`.
 
-## Eventos
+## 3. Banco, rede e conservação da chave
 
-- `findhub.auth.update`
-- `findhub.devices.updated`
-- `findhub.location.updated`
-- `findhub.tracking.update`
-- `findhub.error`
+As migrations existentes criam `FindHubAccount`, `FindHubDevice`, `FindHubPosition` e `FindHubTraccarBinding` nos providers PostgreSQL/MySQL. Use o procedimento de migration da stack; não crie as tabelas manualmente nem apague dados para corrigir uma chave ausente.
 
-Os eventos usam o `EventManager` existente e podem chegar a WebSocket, Webhook, RabbitMQ, NATS, SQS, Kafka e Pusher.
+O tráfego é de saída: HTTPS para autenticação/Nova/Spot/FCM do Google e TLS para `mtalk.google.com:5228`. Não é necessário publicar porta 5228 na VPS nem criar um serviço Find Hub separado. O Traccar deve ser acessível pelo container da API. A frequência de posição depende do Google, da rede e do aparelho.
 
-## Traccar
+Mantenha o `.env`/secret com backup protegido e acesso restrito. Reutilize a **mesma chave** após restart, atualização e restauração de banco. Não copie a chave para Scalar, Manager, URL, webhook ou analytics.
 
-Cada dispositivo pode possuir um vínculo independente com Traccar pelo adapter HTTP/OsmAnd.
+## 4. Autenticação da API e criação da instância
 
-## Transporte de localização
+Os endpoints utilizam o header `apikey` da Connect|API: chave administrativa ou token autorizado da instância, conforme os guards existentes. Nunca confunda esse header com `FINDHUB_CREDENTIALS_KEY`.
 
-O canal implementa nativamente Nova, Spot, protobuf, E2EE e o transporte FCM/MCS usado para a resposta assíncrona de localização.
+```http
+POST /instance/create
+apikey: <CHAVE_ADMINISTRATIVA>
+Content-Type: application/json
 
-O fluxo ativo é:
+{"instanceName":"google-operador","integration":"GOOGLE-FIND-HUB","qrcode":false}
+```
 
-1. registra/mantém o receptor FCM;
-2. mantém a conexão TLS MCS com `mtalk.google.com:5228`;
-3. envia `nbe_execute_action` pela Nova com um `requestUuid`;
-4. correlaciona o `DeviceUpdate` recebido pelo FCM/MCS;
-5. descriptografa o relatório E2EE;
-6. normaliza latitude, longitude, precisão, altitude e timestamp;
-7. publica `findhub.location.updated` e, quando configurado, encaminha ao Traccar.
+Depois, com a instância existente e a chave do servidor configurada:
 
-O tracking periódico é restaurado automaticamente após reinicialização da instância.
+```http
+POST /findhub/auth/start/google-operador
+apikey: <TOKEN_DA_INSTANCIA>
+Content-Type: application/json
 
-A autenticação do usuário continua separada do transporte: a Connect|API não captura senha ou cookies do navegador e recebe somente um bundle previamente autorizado por um `CredentialProvider`.
+{"email":"operador@example.com"}
+```
 
-## Privacidade
+A resposta `201` contém `sessionId`, `bridgeToken`, `state=WAITING_AUTH`, `authMode=credential-provider` e `expiresAt`. A sessão dura dez minutos e reside em memória: uma reinicialização exige iniciar outra sessão. O `bridgeToken` não substitui o header `apikey`.
 
-- sem telemetria específica do canal;
-- sem senha Google;
-- sem captura de cookie no backend;
-- credenciais cifradas em repouso;
-- sem log de tokens ou coordenadas;
-- histórico de posição desativado por padrão.
+O provider autorizado conclui por `POST /findhub/auth/import/{instanceName}`, enviando `sessionId`, `bridgeToken`, `email`, `androidId`, `accountToken` (AAS), `sharedKey` e, opcionalmente, `fcm`. A API cifra o bundle e tenta conectar. **Não envie a chave de criptografia do servidor nesse payload.** Consulte `GET /findhub/auth/status/{instanceName}` para acompanhar o estado persistido.
+
+## 5. Dispositivos, posição, tracking e histórico
+
+| Método e rota | Comportamento |
+| --- | --- |
+| `GET /findhub/devices/{instanceName}` | Catálogo local; não força nova consulta Google. |
+| `POST /findhub/devices/refresh/{instanceName}` | Consulta Google e atualiza o catálogo da conta. |
+| `GET /findhub/device/{deviceId}/{instanceName}` | Detalha dispositivo; `deviceId` é o ID local retornado na lista. |
+| `POST /findhub/locate/{deviceId}/{instanceName}` | Solicita posição. Pode retornar `null` quando não houver relatório utilizável. |
+| `POST /findhub/tracking/start/{deviceId}/{instanceName}` | Agenda consultas; body opcional `{"intervalSeconds":60}`. |
+| `POST /findhub/tracking/stop/{deviceId}/{instanceName}` | Interrompe consultas desse dispositivo. |
+| `GET /findhub/positions/{deviceId}/{instanceName}?limit=100` | Histórico persistido, mais recente primeiro; limite 1–1000. |
+
+O resultado de localização contém `latitude`, `longitude`, `timestamp`, `source`, `ownReport` e metadados disponíveis. **Use o timestamp do relatório**, não a hora da requisição, para avaliar quão recente é a posição. Histórico usa `recordedAt`; habilitá-lo não recupera posições antigas que nunca foram salvas. Tracking é consulta periódica, não stream GPS garantido a cada segundo.
+
+## 6. Integração Traccar
+
+```http
+PUT /findhub/traccar/<ID_LOCAL>/google-operador
+apikey: <TOKEN_DA_INSTANCIA>
+Content-Type: application/json
+
+{"enabled":true,"url":"http://traccar:5055","deviceId":"android-01"}
+```
+
+O `deviceId` do body é o identificador previamente cadastrado no Traccar; não é o ID local do parâmetro de rota. Configure o receptor HTTP/OsmAnd, não a API REST de administração do Traccar. Posições recebidas são encaminhadas quando o vínculo estiver habilitado. `DELETE` na mesma rota remove apenas o vínculo local e retorna `204` sem corpo.
+
+## 7. Eventos
+
+O EventManager existente transporta os eventos segundo a configuração por instância. Consulte o contrato **Eventos** no Scalar para o envelope específico do transporte e a descrição do campo `data`.
+
+`findhub.devices.updated`, `findhub.location.updated`, `findhub.tracking.update` e `findhub.error` são emitidos pelos caminhos implementados. **`findhub.auth.update` está reservado no catálogo, mas o Auth Broker atual não o emite ao iniciar/importar; use o endpoint de status.** Nenhum evento deve conter bridgeToken, AAS ou sharedKey.
+
+## 8. Scalar e validação
+
+No seletor de documentos do Scalar, escolha **Connect|API Google Find Hub**. O contrato é servido em `openapi/findhub.openapi.json`, respeitando o mesmo `BASE_PATH` da documentação. As rotas também aparecem no REST geral sob a tag **Google Find Hub**. A imagem de docs precisa ser atualizada junto da API para receber o novo contrato.
+
+```bash
+python3 scripts/sync-findhub-deployments.py --check
+npm run docs:generate
+npm run docs:check
+npm run test:findhub
+```
+
+`docs:check` valida também o documento dedicado. Os testes cobrem templates, preparação idempotente da chave, envelope cifrado existente e schemas; não fazem login nem rastreiam aparelhos reais.
