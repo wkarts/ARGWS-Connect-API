@@ -287,6 +287,7 @@ services:
 
   # BEGIN OPTIONAL TRACCAR
   traccar-argws-connect-production:
+    container_name: traccar-argws-connect-production
     profiles: [traccar]
     image: ${ARGWS_CONNECT_TRACCAR_IMAGE:-ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine}
     restart: unless-stopped
@@ -318,6 +319,7 @@ services:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
   traccar-postgres-argws-connect-production:
+    container_name: traccar-postgres-argws-connect-production
     profiles: [traccar]
     image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
     restart: unless-stopped
@@ -334,6 +336,7 @@ services:
       timeout: 5s
       retries: 10
   traccar-bootstrap-argws-connect-production:
+    container_name: traccar-bootstrap-argws-connect-production
     profiles: [traccar]
     image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     entrypoint: ["node", "/bootstrap/traccar-bootstrap.cjs"]

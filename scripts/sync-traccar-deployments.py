@@ -90,6 +90,10 @@ def generate(root, overrides=None):
     networks: [{network}]
   # END OPTIONAL TRACCAR
 '''
+  # Preserve the explicit container-name convention of the existing named API stacks.
+  if suffix and not swarm:
+   for service_name in (tracker,db,bootstrap):
+    service=re.sub(rf'^  {re.escape(service_name)}:\n',f'  {service_name}:\n    container_name: {service_name}\n',service,count=1,flags=re.M)
   header=re.search(r'^services:\s*\n',text,re.M)
   end_services=re.search(r'^[^\s#][^\n]*:',text[header.end():],re.M)
   offset=header.end()+end_services.start() if end_services else len(text)

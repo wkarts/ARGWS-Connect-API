@@ -25,6 +25,12 @@ class TraccarDeployment(unittest.TestCase):
    if 'swarm' in name:self.assertIn('replicas: ${TRACCAR_REPLICAS:-0}',block)
    else:self.assertEqual(block.count('profiles: [traccar]'),3)
    before=text[:start];self.assertNotRegex(before,r'depends_on:[^\n]*traccar')
+ def test_named_official_stacks_preserve_container_identity(self):
+  for stack in ['production','develop','canonical']:
+   text=(ROOT/f'deploy/{stack}/compose.yaml').read_text()
+   for service in ['traccar','traccar-postgres','traccar-bootstrap']:
+    name=f'{service}-argws-connect-{stack}'
+    self.assertIn(f'  {name}:\n    container_name: {name}\n',text)
  def test_root_helper_has_correct_relative_path(self):self.assertIn('./scripts/prepare-traccar-env.py',(ROOT/'prepare-env.sh').read_text())
  def test_existing_sync_contracts_still_pass(self):
   for file in ['sync-findhub-deployments.py','sync-operations-deployments.py']:subprocess.run(['python3','scripts/'+file,'--check'],cwd=ROOT,check=True)
