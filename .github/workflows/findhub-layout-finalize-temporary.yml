@@ -1,0 +1,49 @@
+name: Find Hub final layout validation
+on:
+  push:
+    branches: [fix/findhub-map-ui-cache-interval]
+    paths: [.github/workflows/findhub-layout-finalize-temporary.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+      - name: Remove only duplicated overview hero and add layout regression
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/fix/findhub-map-ui-cache-interval
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('manager/src/views/FindHubView.vue');s=p.read_text()
+          hero=next(line for line in s.splitlines(True) if '<section class="provider-hero">' in line)
+          assert s.count(hero)==2
+          s=s.replace(hero,'',1)
+          assert 'provider-hero' not in s.split('<PageHeader',1)[1].split('</PageHeader>',1)[0]
+          p.write_text(s)
+          p=Path('manager/scripts/findhub-live.test.mjs')
+          with p.open('a') as f:f.write("\ntest('overview hero is unique and outside PageHeader actions',()=>{const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');assert.equal((source.match(/class=\"provider-hero\"/g)||[]).length,1);assert.ok(!source.split('<PageHeader')[1].split('</PageHeader>')[0].includes('provider-hero'));});\n")
+          PY
+          npm install --prefix manager --no-audit --no-fund
+          npm test --prefix manager
+      - name: Commit validated two-file correction only
+        run: |
+          set -euo pipefail
+          branch=fix/findhub-map-ui-cache-interval
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$GITHUB_SHA"
+          git add manager/src/views/FindHubView.vue
+          git add -f manager/scripts/findhub-live.test.mjs
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'fix(findhub): keep provider summary outside header actions'
+          git push origin "HEAD:refs/heads/$branch"
