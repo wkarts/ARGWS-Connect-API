@@ -533,9 +533,9 @@
                   "properties": {
                     "intervalSeconds": {
                       "type": "integer",
-                      "minimum": 15,
+                      "minimum": 0,
                       "maximum": 86400,
-                      "description": "Intervalo de espera após concluir cada consulta; limitado também pelo mínimo da instalação. Não garante que o Google forneça posição nova."
+                      "description": "Espera após cada consulta. 0 não acrescenta espera; nunca há duas consultas simultâneas para o mesmo dispositivo. 60 segundos são recomendados, não impostos. Falhas e limites do provedor usam recuo progressivo."
                     },
                     "timeoutMs": {
                       "type": "integer",

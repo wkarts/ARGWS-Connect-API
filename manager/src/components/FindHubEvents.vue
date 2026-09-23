@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import PanelCard from '@/components/PanelCard.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import type { InstanceConfigKey } from '@/types/domain'
-const props = defineProps<{ instanceId: string }>()
+const props = defineProps<{ instanceId: string; transport?: InstanceConfigKey; headerActions?: boolean }>()
 const transports = [{ key: 'webhook', label: 'Webhook' }, { key: 'websocket', label: 'WebSocket' }, { key: 'rabbitmq', label: 'RabbitMQ' }, { key: 'nats', label: 'NATS' }, { key: 'sqs', label: 'SQS' }, { key: 'kafka', label: 'Kafka' }, { key: 'pusher', label: 'Pusher' }] as const
 const events = [
   ['FINDHUB_DEVICES_UPDATED','Catálogo de dispositivos atualizado'], ['FINDHUB_LOCATION_UPDATED','Localização recebida'],
   ['FINDHUB_TRACKING_UPDATE','Rastreamento alterado'], ['FINDHUB_ERROR','Falha do canal'], ['CONNECTION_UPDATE','Conexão alterada'],
 ] as const
-const selected = ref<InstanceConfigKey>('webhook'), value = ref<any>({}), headers = ref('{}'), busy = ref(false), error = ref(''), feedback = ref('')
+const selected = ref<InstanceConfigKey>(props.transport || 'webhook'), value = ref<any>({}), headers = ref('{}'), busy = ref(false), error = ref(''), feedback = ref('')
 async function load() {
   busy.value = true; error.value = ''; feedback.value = ''
   try {
@@ -40,19 +40,21 @@ async function save() {
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
+watch(() => props.transport, value => { if (value && transports.some(t => t.key === value)) { selected.value = value; void load() } })
+defineExpose({ save, busy, ready: value })
 onMounted(load)
 </script>
 <template>
   <PanelCard title="Entrega de eventos de localização" description="Utilize somente os transportes habilitados na sua instalação. Credenciais Google nunca fazem parte dos eventos.">
     <div class="form-stack">
-      <label class="field"><span>Transporte</span><select v-model="selected" :disabled="busy" @change="load"><option v-for="item in transports" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
+      <label v-if="!transport" class="field"><span>Transporte</span><select class="select" v-model="selected" :disabled="busy" @change="load"><option v-for="item in transports" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
       <div v-if="error" class="alert error">{{ error }}</div><div v-if="feedback" class="alert success">{{ feedback }}</div>
       <label class="toggle-field"><input v-model="value.enabled" type="checkbox" :disabled="busy" /><span>Habilitar entrega neste transporte</span></label>
       <template v-if="selected==='webhook'"><label class="field"><span>Destino do Webhook</span><input v-model="value.url" type="url" placeholder="https://seu-sistema/webhooks/localizacao" /></label><label class="field"><span>Cabeçalhos (JSON)</span><textarea v-model="headers" rows="3" spellcheck="false"></textarea></label><label class="toggle-field"><input v-model="value.byEvents" type="checkbox" /><span>Adicionar o nome do evento ao caminho do destino</span></label></template>
       <template v-if="selected==='pusher'"><label v-for="key in ['appId','key','secret','cluster']" :key="key" class="field"><span>{{ key }}</span><input v-model="value[key]" :type="key==='secret' ? 'password' : 'text'" autocomplete="off" /></label></template>
-      <fieldset><legend>Eventos do Google Find Hub</legend><label v-for="[key,label] in events" :key="key" class="toggle-field"><input v-model="value.events" type="checkbox" :value="key" :disabled="busy" /><span>{{ label }}</span></label></fieldset>
+      <div class="event-selector"><div class="event-selector-head"><div><strong>Eventos do Google Find Hub</strong><small>Selecione os eventos que serão enviados neste transporte.</small></div></div><div class="event-grid"><label v-for="[key,label] in events" :key="key" :class="['event-option',{active:value.events?.includes(key)}]"><input v-model="value.events" type="checkbox" :value="key" :disabled="busy" /><span>{{ label }}</span></label></div></div>
       <p class="muted">A entrega de localização pode transmitir dados sensíveis. Autorize somente destinos de sua confiança. O estado da autenticação é consultado pela API; esta tela não oferece eventos de autenticação que o backend não emite.</p>
-      <button class="btn primary" :disabled="busy" @click="save">{{ busy ? 'Aguarde…' : 'Salvar entrega de eventos' }}</button>
+      <div v-if="!headerActions" class="toolbar"><button class="btn primary" :disabled="busy" @click="save">{{ busy ? 'Aguarde…' : 'Salvar entrega de eventos' }}</button></div>
     </div>
   </PanelCard>
 </template>

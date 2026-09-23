@@ -38,7 +38,7 @@ export const findHubTrackingSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
   properties: {
-    intervalSeconds: { type: 'integer', minimum: 15, maximum: 86400 },
+    intervalSeconds: { type: 'integer', minimum: 0, maximum: 86400 },
     timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 },
   },
   additionalProperties: false,
@@ -94,7 +94,7 @@ export const findHubSettingsSchema: JSONSchema7 = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    intervalSeconds: { type: 'integer', minimum: 15, maximum: 86400 },
+    intervalSeconds: { type: 'integer', minimum: 0, maximum: 86400 },
     timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 },
     staleAfterSeconds: { type: 'integer', minimum: 30, maximum: 604800 },
     historyEnabled: { type: 'boolean' },

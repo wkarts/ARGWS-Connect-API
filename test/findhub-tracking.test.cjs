@@ -10,7 +10,7 @@ function load(relative, overrides={},globals={},cache=new Map()) {
 const dir='src/api/integrations/channel/findhub/services/';
 const policy=load(dir+'findhub-tracking.policy.ts');const now=Date.now();const position={deviceId:'one',googleDeviceId:'g',latitude:-12,longitude:-39,timestamp:new Date(now-1000).toISOString(),source:'GOOGLE_DIRECT',ownReport:true};
 test('independent interval, timeout and history retention boundaries',()=>{const s=policy.trackingSettings({intervalSeconds:30,timeoutMs:90000,historyEnabled:true,retentionDays:0});assert.equal(s.retentionDays,0);assert.equal(s.timeoutMs,90000);assert.equal(s.intervalSeconds,30)});
-for(const values of [{intervalSeconds:0},{intervalSeconds:100000},{timeoutMs:4999},{timeoutMs:120001},{retentionDays:-1},{historyEnabled:'true'}])test('invalid tracking settings are refused '+JSON.stringify(values),()=>assert.throws(()=>policy.trackingSettings(values)));
+for(const values of [{intervalSeconds:-1},{intervalSeconds:0.5},{intervalSeconds:100000},{timeoutMs:4999},{timeoutMs:120001},{retentionDays:-1},{historyEnabled:'true'}])test('invalid tracking settings are refused '+JSON.stringify(values),()=>assert.throws(()=>policy.trackingSettings(values)));
 test('a recent position does not invent an online state',()=>{assert.equal(policy.locationAvailability(position,300,null,now),'recent');assert.equal(policy.locationAvailability(position,300,'online',now),'online');assert.equal(policy.locationAvailability(position,300,'offline',now),'offline')});
 test('missing, old, malformed and future coordinates handled truthfully',()=>{assert.equal(policy.locationAvailability(null,300),'no_location');assert.equal(policy.locationAvailability({...position,timestamp:new Date(now-600000).toISOString()},300,null,now),'stale');for(const v of [{latitude:91},{longitude:181},{timestamp:'bad'},{timestamp:new Date(now+600001).toISOString()}])assert.equal(policy.validPosition({...position,...v},now),false)});
 test('position identity stable and source-aware',()=>{assert.equal(policy.positionFingerprint(position),policy.positionFingerprint({...position}));assert.notEqual(policy.positionFingerprint(position),policy.positionFingerprint({...position,longitude:-40}))});
@@ -33,7 +33,7 @@ test('SSE snapshot and instance events; GET body completion does not close strea
 test('SSE failed authorization/snapshot releases resources before any headers',async()=>{const res=response();let stopped=0;await assert.rejects(findHubStream({params:{instanceName:'x'}},res,{subscribe(){return()=>stopped++},async snapshot(){throw Error('denied')}}));assert.equal(stopped,1);assert.equal(res.headersSent,false)});
 test('slow SSE reader is disconnected without unbounded buffer',async()=>{const res=response();let listener,stopped=0;await findHubStream({params:{instanceName:'account'}},res,{subscribe(n,fn){listener=fn;return()=>stopped++},async snapshot(){return {instanceId:'account'}}});res.writableLength=300000;listener({event:'large'});assert.equal(res.writableEnded,true);assert.equal(stopped,1)});
 
-function runtimeHarness() {
+function runtimeHarness(globals={}) {
  const emitter=new EventEmitter(), events=[], calls=[], positions=[];
  const row={id:'d-a',instanceId:'a',accountId:'a',googleDeviceId:'g-a',name:'Phone',identifierType:'ANDROID',deviceType:'PHONE',trackingIntervalSeconds:60,trackingEnabled:false,latestPosition:null,lastLocationAt:null};
  const other={...row,id:'d-b',instanceId:'b',googleDeviceId:'g-b'};const devices=[row,other];
@@ -49,7 +49,7 @@ function runtimeHarness() {
   './findhub-protocol.client':{FindHubProtocolClient:class{}},'./findhub-traccar.service':{FindHubTraccarService:class{async send(){}}},
   './traccar-client':{TraccarClient:class{close(){}start(fn,state){state('connected')}},resolveTraccarConnection:c=>c,traccarDestination:v=>new URL(v)},
  };
- const {FindHubStartupService}=load(dir+'findhub-runtime.service.ts',overrides);
+ const {FindHubStartupService}=load(dir+'findhub-runtime.service.ts',overrides,globals);
  const runtime=new FindHubStartupService({get(){return {URL:'https://connect.example.invalid'}}},emitter,db);
  runtime.setInstance({instanceName:'account-a',instanceId:'a',token:'private-api-key'});runtime.stateConnection={state:'open'};runtime.protocol={ready:true,async close(){},async locate(){return []}};
  return {runtime,db,row,other,positions,events,calls,emitter,account};
@@ -72,4 +72,18 @@ test('metadata-only push does not consume a pending location request',async()=>{
  const client=Object.create(FindHubProtocolClient.prototype);client.pending=new Map([[requestId,{timer:1,resolve:()=>resolved++}]]);
  client.handlePushPayload(Buffer.alloc(0));assert.equal(client.pending.size,1);assert.equal(resolved,0);
  report=true;client.handlePushPayload(Buffer.alloc(0));assert.equal(client.pending.size,0);assert.equal(resolved,1);assert.equal(cleared,1);
+});
+
+for (const intervalSeconds of [0,1,2,15,30,60,86400]) test('requested interval survives validation: '+intervalSeconds,()=>{assert.equal(policy.trackingSettings({intervalSeconds}).intervalSeconds,intervalSeconds);assert.equal(policy.trackingDelayMs(intervalSeconds),intervalSeconds*1000)});
+test('legacy env recommendation cannot override explicit zero',()=>{const p=load(dir+'findhub-tracking.policy.ts',{}, {process:{env:{FINDHUB_MIN_TRACKING_INTERVAL_SECONDS:'30'}}});assert.equal(p.trackingMinimum(),0);assert.equal(p.trackingSettings({intervalSeconds:0}).intervalSeconds,0)});
+test('zero interval retries yield and back off after failures',()=>{assert.equal(policy.trackingDelayMs(0,1),2000);assert.equal(policy.trackingDelayMs(0,4),16000);assert.equal(policy.trackingDelayMs(2,0),2000)});
+
+test('zero tracking persists, restores and never overlaps a pending request',async()=>{
+ const timers=[];const h=runtimeHarness({setTimeout(fn,delay){const timer={fn,delay,unref(){}};timers.push(timer);return timer},clearTimeout(){}});
+ let release,calls=0;h.runtime.locate=async()=>{calls++;return await new Promise(r=>release=r)};
+ await h.runtime.startTracking('d-a',0,30000);assert.equal(h.row.trackingIntervalSeconds,0);assert.equal(timers[0].delay,0);
+ const running=timers[0].fn();await Promise.resolve();assert.equal(calls,1);assert.equal(timers.length,1);
+ release(position);await running;assert.equal(timers[1].delay,0);
+ await h.runtime.stopTracking('d-a');await timers[1].fn();assert.equal(calls,1);
+ h.row.trackingEnabled=true;await h.runtime.restoreTracking();assert.equal(timers.at(-1).delay,0);
 });

@@ -78,7 +78,7 @@ export class FindHubController {
       connectionState: runtime.connectionStatus.state,
       pending: this.browser.pending(runtime),
       historyEnabled: (await runtime.settings()).historyEnabled,
-      minimumIntervalSeconds: Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30)),
+      minimumIntervalSeconds: 0,
       helper: {
         extensionId: FINDHUB_EXTENSION_ID,
         version: '0.1.6',
