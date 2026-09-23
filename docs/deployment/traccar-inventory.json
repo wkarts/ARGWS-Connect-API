@@ -1,0 +1,34 @@
+{
+  "apiComposeFiles": [
+    "docker-compose.dev.yaml",
+    "docker-compose.yaml",
+    "Docker/swarm/argws_connect_api_v2.yaml",
+    "deploy/canonical/compose.yaml",
+    "deploy/cloudpanel/docker-compose.yml",
+    "deploy/develop/compose.yaml",
+    "deploy/dockge/compose.yaml",
+    "deploy/homologation/compose.yaml",
+    "deploy/production/compose.yaml"
+  ],
+  "unsupportedComposeFiles": [],
+  "defaults": {
+    "TRACCAR_ENABLED": "false",
+    "TRACCAR_MODE": "disabled",
+    "TRACCAR_URL": "",
+    "TRACCAR_RECEIVER_URL": "",
+    "TRACCAR_ALLOWED_ORIGINS": "",
+    "TRACCAR_INTERNAL_URL": "http://traccar:8082",
+    "TRACCAR_INTERNAL_RECEIVER_URL": "http://traccar:5055",
+    "TRACCAR_TOKEN": "",
+    "TRACCAR_ADMIN_EMAIL": "connect-admin@localhost.invalid",
+    "TRACCAR_ADMIN_PASSWORD": "",
+    "TRACCAR_DATABASE_PASSWORD": "",
+    "TRACCAR_REPLICAS": "0",
+    "ARGWS_CONNECT_TRACCAR_IMAGE": "ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine",
+    "ARGWS_CONNECT_TRACCAR_DATA_PATH": "./volumes/traccar",
+    "ARGWS_CONNECT_TRACCAR_DB_PATH": "./volumes/traccar-postgres",
+    "FINDHUB_HISTORY_RETENTION_DAYS": "30",
+    "FINDHUB_MAP_TILE_URL": "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+  },
+  "policy": "Optional profile, independent database, no published ports, no API dependency. Swarm uses replicas=0 by default."
+}

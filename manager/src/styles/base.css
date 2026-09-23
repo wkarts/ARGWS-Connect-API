@@ -1,1 +1,8 @@
 *{box-sizing:border-box}html,body,#app{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{min-height:100vh;font-size:14px;-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit;color:inherit}button,a{outline:none}a{text-decoration:none;color:inherit}img{max-width:100%}h1,h2,h3,h4,p{margin-top:0}button{cursor:pointer}.muted-block{color:var(--muted);line-height:1.65}.mobile-only{display:none}
+
+/* Keep scrolling usable without a high-contrast rail in the Manager. */
+html{scrollbar-width:thin;scrollbar-color:rgba(120,145,170,.18) transparent}
+html::-webkit-scrollbar{width:5px;height:5px}
+html::-webkit-scrollbar-track{background:transparent}
+html::-webkit-scrollbar-thumb{background:rgba(120,145,170,.18);border-radius:8px}
+@media(forced-colors:active){html{scrollbar-width:auto;scrollbar-color:auto}}

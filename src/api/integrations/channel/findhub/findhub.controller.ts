@@ -22,6 +22,40 @@ export class FindHubController {
     return runtime as FindHubStartupService;
   }
 
+  public snapshot(instanceName: string) {
+    return this.runtime(instanceName).snapshot();
+  }
+  public subscribe(instanceName: string, listener: (event: any) => void) {
+    return this.runtime(instanceName).subscribe(listener);
+  }
+  public settings(instanceName: string) {
+    return this.runtime(instanceName).settings();
+  }
+  public async saveSettings(instanceName: string, data: any) {
+    try {
+      return await this.runtime(instanceName).saveSettings(data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Configuração inválida.');
+    }
+  }
+  public traccarConfiguration(instanceName: string) {
+    return this.runtime(instanceName).traccarConfiguration();
+  }
+  public async saveTraccarConfiguration(instanceName: string, data: any) {
+    try {
+      return await this.runtime(instanceName).saveTraccarConfiguration(data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Configuração Traccar inválida.');
+    }
+  }
+  public async provisionTraccar(instanceName: string, deviceId: string) {
+    try {
+      return await this.runtime(instanceName).provisionTraccar(deviceId);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao vincular dispositivo.');
+    }
+  }
+
   public startAuth(instanceName: string, data: any) {
     return this.runtime(instanceName).auth().start(instanceName, data.email);
   }
@@ -43,7 +77,7 @@ export class FindHubController {
       connected,
       connectionState: runtime.connectionStatus.state,
       pending: this.browser.pending(runtime),
-      historyEnabled: String(process.env.FINDHUB_STORE_POSITION_HISTORY || 'false').toLowerCase() === 'true',
+      historyEnabled: (await runtime.settings()).historyEnabled,
       minimumIntervalSeconds: Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30)),
       helper: {
         extensionId: FINDHUB_EXTENSION_ID,
@@ -95,17 +129,17 @@ export class FindHubController {
   public device(instanceName: string, deviceId: string) {
     return this.runtime(instanceName).device(deviceId);
   }
-  public locate(instanceName: string, deviceId: string) {
-    return this.runtime(instanceName).locate(deviceId);
+  public locate(instanceName: string, deviceId: string, timeoutMs?: number) {
+    return this.runtime(instanceName).locate(deviceId, timeoutMs);
   }
   public startTracking(instanceName: string, deviceId: string, data: any) {
-    return this.runtime(instanceName).startTracking(deviceId, data.intervalSeconds);
+    return this.runtime(instanceName).startTracking(deviceId, data.intervalSeconds, data.timeoutMs);
   }
   public stopTracking(instanceName: string, deviceId: string) {
     return this.runtime(instanceName).stopTracking(deviceId);
   }
-  public positions(instanceName: string, deviceId: string, limit: number) {
-    return this.runtime(instanceName).positions(deviceId, limit);
+  public positions(instanceName: string, deviceId: string, limit: number, from?: string, to?: string) {
+    return this.runtime(instanceName).positions(deviceId, limit, from, to);
   }
   public setTraccar(instanceName: string, deviceId: string, data: any) {
     return this.runtime(instanceName).setTraccar(deviceId, data);

@@ -79,7 +79,14 @@ async function logout(){ await session.logout(); router.push('/login') }
 </template>
 <style scoped>
 .sidebar{display:flex;flex-direction:column;overflow:hidden}
-.sidebar-nav{flex:1;overflow:auto}
+.sidebar-nav{flex:1;overflow:auto;scrollbar-width:thin;scrollbar-color:transparent transparent;scrollbar-gutter:stable}
+.sidebar-nav:hover,.sidebar-nav:focus-within{scrollbar-color:rgba(140,165,190,.24) transparent}
+.sidebar-nav::-webkit-scrollbar{width:4px;height:4px}
+.sidebar-nav::-webkit-scrollbar-track{background:transparent}
+.sidebar-nav::-webkit-scrollbar-thumb{background:transparent;border-radius:8px}
+.sidebar-nav:hover::-webkit-scrollbar-thumb,.sidebar-nav:focus-within::-webkit-scrollbar-thumb{background:rgba(140,165,190,.24)}
+@media(forced-colors:active){.sidebar-nav{scrollbar-color:auto;scrollbar-width:auto}}
+
 .sidebar-version{flex:0 0 auto;padding:12px 16px 14px;border-top:1px solid rgba(255,255,255,.08);background:var(--sidebar-2);color:#89a2bf;text-align:center;font-size:11px;letter-spacing:.01em}
 .sidebar-version strong{color:#c8d7e8;font-weight:700}
 </style>

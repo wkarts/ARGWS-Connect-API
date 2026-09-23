@@ -11,6 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
   packages: write
 
@@ -140,3 +141,16 @@ jobs:
           test "${#sources[@]}" -eq 2
           docker buildx imagetools create -t "${repo}:develop" "${sources[@]}"
           docker buildx imagetools inspect "${repo}:develop"
+
+  protected-retention:
+    needs: publish
+    if: >-
+      always() && needs.publish.result == 'success' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/ghcr-retention.yml
+    with:
+      publication_sha: ${{ github.sha }}
+      source_sha: ${{ github.sha }}
+      branch: ${{ github.ref_name }}
+    secrets: inherit

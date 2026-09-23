@@ -27,11 +27,19 @@ export const findHubCredentialBundleSchema: JSONSchema7 = {
   additionalProperties: false,
 };
 
+export const findHubLocateSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  properties: { timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 } },
+};
+
 export const findHubTrackingSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
   properties: {
-    intervalSeconds: { type: 'integer', minimum: 15, maximum: 3600 },
+    intervalSeconds: { type: 'integer', minimum: 15, maximum: 86400 },
+    timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 },
   },
   additionalProperties: false,
 };
@@ -79,4 +87,30 @@ export const findHubBrowserCompleteSchema: JSONSchema7 = {
   required: ['sessionId', 'bridgeToken', 'vaultKeys'],
   additionalProperties: false,
   properties: { ...browserProof, vaultKeys: { type: 'string', minLength: 1, maxLength: 65536 } },
+};
+
+export const findHubSettingsSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    intervalSeconds: { type: 'integer', minimum: 15, maximum: 86400 },
+    timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 },
+    staleAfterSeconds: { type: 'integer', minimum: 30, maximum: 604800 },
+    historyEnabled: { type: 'boolean' },
+    retentionDays: { type: 'integer', minimum: 0, maximum: 36500 },
+  },
+};
+export const findHubTraccarConnectionSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  required: ['mode'],
+  additionalProperties: false,
+  properties: {
+    mode: { type: 'string', enum: ['disabled', 'internal', 'external'] },
+    url: { type: 'string', maxLength: 2048 },
+    receiverUrl: { type: 'string', maxLength: 2048 },
+    token: { type: 'string', maxLength: 8192 },
+    timeoutMs: { type: 'integer', minimum: 1000, maximum: 60000 },
+  },
 };

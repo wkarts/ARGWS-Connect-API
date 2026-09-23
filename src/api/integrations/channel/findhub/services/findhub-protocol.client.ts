@@ -66,11 +66,11 @@ export class FindHubProtocolClient {
     return await this.nova.listDevices();
   }
 
-  public async locate(device: FindHubDevice): Promise<FindHubPosition[]> {
+  public async locate(device: FindHubDevice, timeoutMs?: number): Promise<FindHubPosition[]> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
     const requestUuid = randomUUID();
-    const metadataPromise = this.waitForLocation(requestUuid);
+    const metadataPromise = this.waitForLocation(requestUuid, timeoutMs);
     // Attach immediately: a network call can outlive the push deadline.
     void metadataPromise.catch(() => undefined);
 
@@ -114,8 +114,11 @@ export class FindHubProtocolClient {
       .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
   }
 
-  private waitForLocation(requestUuid: string): Promise<Buffer> {
-    const timeoutMs = Math.max(5_000, Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30_000));
+  private waitForLocation(requestUuid: string, requestedTimeout?: number): Promise<Buffer> {
+    const timeoutMs = Math.min(
+      120000,
+      Math.max(5000, requestedTimeout || Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30000)),
+    );
 
     return new Promise<Buffer>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -145,6 +148,13 @@ export class FindHubProtocolClient {
 
     const pending = this.pending.get(update.requestUuid);
     if (!pending) return;
+    // A command/status acknowledgement may precede the encrypted position for the same request.
+    // Keep waiting for an actual report; never consume the request on metadata-only updates.
+    try {
+      if (!decodeLocationReports(update.deviceMetadata).some((report) => report.encryptedLocation.length > 0)) return;
+    } catch {
+      return;
+    }
 
     clearTimeout(pending.timer);
     this.pending.delete(update.requestUuid);

@@ -36,7 +36,7 @@ function routing({ item = google, authenticated = true, permission = true } = {}
   return { config, reads: () => reads, check: (path, { params = {}, query = {}, meta = { permission: 'instances.read' } } = {}) => guard({ path, params, query, meta }) };
 }
 
-for (const [suffix, section] of [['', 'conta'], ['/configuracao', 'eventos'], ['/integracoes', 'integracoes'], ['/integracoes/openai', 'integracoes'], ['/modelos', 'conta']]) {
+for (const [suffix, section] of [['', 'conta'], ['/configuracao', 'configuracao'], ['/integracoes', 'integracoes'], ['/integracoes/openai', 'integracoes'], ['/modelos', 'conta']]) {
   test(`Google legacy deep link ${suffix || '/instance'} never mounts a WhatsApp view`, async () => {
     const r = routing();
     assert.deepEqual(plain(await r.check('/instancias/id' + suffix, { params: { id: google.id } })), { path: channel.findHubPath(google.id, section), replace: true });
@@ -77,7 +77,8 @@ function component(name, deps, inlineTemplate = false) {
 const Stub = { render: () => Vue.h('span') };
 test('dedicated account card renders without phone/message counts or send-test actions', async () => {
   const card = component('src/components/FindHubInstanceCard.vue', {
-    './AppIcon.vue': Stub, './InstanceToken.vue': Stub,
+    './AppIcon.vue': Stub, './InstanceToken.vue': Stub, './StatusPill.vue': Stub,
+    '@/services/connect': { connect: { findHubSnapshot: async () => ({connected:false,counts:{devices:0,tracking:0,positions:0},email:''}) } },
     '@/services/findhub-channel': channel,
     'vue-router': { useRouter: () => ({ push() {} }) },
   }, true);
@@ -86,15 +87,15 @@ test('dedicated account card renders without phone/message counts or send-test a
   assert.match(html, /Device account/);
   assert.doesNotMatch(html, /Contatos|Conversas|Mensagens|Enviar teste|Número não informado/);
 });
-test('dedicated shell renders Google navigation only, not the WhatsApp sidebar', async () => {
+test('Find Hub preserves the global platform shell instead of replacing its navigation', async () => {
   const shell = component('src/layouts/FindHubShell.vue', {
-    'vue-router': { useRoute: () => ({ params: { id: google.id } }) },
-    '@/services/findhub-channel': channel,
-    './AppShell.vue': { props: ['navigationGroups'], render() { return Vue.h('nav', this.navigationGroups.flatMap(group => group.items).map(item => Vue.h('a', { href: item.to }, item.label))); } },
+    './AppShell.vue': { props: ['navigationGroups'], render() { assert.equal(this.navigationGroups, undefined); return Vue.h('nav','GLOBAL_PLATFORM_NAVIGATION'); } },
   }, true);
   const html = await renderToString(Vue.createSSRApp(shell));
-  for (const label of ['Contas Google', 'Dispositivos', 'Histórico de posições', 'Integração Traccar', 'Eventos e webhooks']) assert.ok(html.includes(label), label);
-  assert.doesNotMatch(html, /Conversas|Mensagens|Contatos|Ramais|Filas|Typebot|Chatwoot|Proxy/);
+  assert.match(html, /GLOBAL_PLATFORM_NAVIGATION/);
+  const view = read('src/views/FindHubView.vue');
+  for(const resource of ['mapa','configuracao','historico','integracoes','eventos']) assert.ok(view.includes(resource));
+  assert.doesNotMatch(view, /rejectCall|readMessages|alwaysOnline/);
 });
 test('Google no longer inherits the WhatsApp privacy capability and is excluded from bot/message selectors', () => {
   const normalizers = load('src/services/normalizers.ts');

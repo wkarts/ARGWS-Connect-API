@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import FindHubShell from '@/layouts/FindHubShell.vue'
 import PanelCard from '@/components/PanelCard.vue'
@@ -9,6 +9,11 @@ import EmptyState from '@/components/EmptyState.vue'
 import InstanceToken from '@/components/InstanceToken.vue'
 import FindHubBrowserAuth from '@/components/FindHubBrowserAuth.vue'
 import FindHubEvents from '@/components/FindHubEvents.vue'
+import FindHubMap from '@/components/FindHubMap.vue'
+import FindHubLiveTracking from '@/components/FindHubLiveTracking.vue'
+import FindHubTrackingSettings from '@/components/FindHubTrackingSettings.vue'
+import FindHubTraccarConnection from '@/components/FindHubTraccarConnection.vue'
+import { applyFindHubUpdate } from '@/services/findhub-live-state'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import { findHubPath, isFindHub } from '@/services/findhub-channel'
@@ -17,10 +22,43 @@ const id = computed(() => String(route.params.id))
 const section = computed(() => String(route.params.section || 'conta'))
 const instance = ref<any>(null), auth = ref<any>(null), devices = ref<any[]>([]), history = ref<any[]>([])
 const busy = ref(false), error = ref(''), feedback = ref(''), chosen = ref(''), confirm = ref<'disconnect'|'delete'|null>(null)
-const binding = ref({ enabled:false, url:'', deviceId:'' })
+const snapshot = ref<any>(null), streamState = ref('Conectando atualizações…')
+const from = ref(''), to = ref('')
+let stream: AbortController | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+function stopStream() { stream?.abort(); stream=null; if(reconnectTimer) clearTimeout(reconnectTimer); reconnectTimer=null }
+function startStream() {
+  stopStream(); const currentId = id.value, abort = new AbortController(); stream=abort
+  let failures = 0
+  const open = async () => {
+    if(abort.signal.aborted) return
+    try {
+      await connect.findHubStream(currentId,abort.signal,event => {
+        if(abort.signal.aborted || currentId!==id.value) return
+        failures=0; streamState.value='Atualizações conectadas'
+        snapshot.value=applyFindHubUpdate(snapshot.value,event,currentId)
+        if(snapshot.value) { devices.value=snapshot.value.devices; if(auth.value) {auth.value.historyEnabled=snapshot.value.settings.historyEnabled; auth.value.connected=snapshot.value.connected; auth.value.ready=snapshot.value.connected} }
+        if(section.value==='historico' && event.data?.location && event.data.device?.id===chosen.value && snapshot.value?.settings.historyEnabled && !from.value && !to.value) {
+          const p=event.data.location
+          if(!history.value.some(row => row.recordedAt===p.timestamp && row.latitude===p.latitude && row.longitude===p.longitude)) history.value=[{...p,recordedAt:p.timestamp},...history.value].slice(0,1000)
+        }
+      })
+    } catch(e) {
+      if(abort.signal.aborted) return
+      streamState.value='Realtime interrompido — reconectando'
+      if((e as any)?.status===401 || (e as any)?.status===403) { streamState.value='Acesso ao realtime não autorizado'; return }
+      failures=Math.min(failures+1,5)
+    }
+    if(!abort.signal.aborted) reconnectTimer=setTimeout(() => { void open() },Math.min(60000,2000*2**failures))
+  }
+  void open()
+}
+async function reloadSnapshot() { const currentId=id.value; const data=await connect.findHubSnapshot(currentId); if(currentId===id.value) { snapshot.value=data; devices.value=data.devices; if(auth.value) auth.value.historyEnabled=data.settings.historyEnabled } }
+
+const historyTrail = computed(() => [...history.value].reverse().map(p => ({...p,timestamp:p.recordedAt})))
 const connected = computed(() => auth.value?.connected === true && auth.value?.ready === true)
 const trackingCount = computed(() => devices.value.filter(d => d.trackingEnabled).length)
-const tabs = [{key:'conta',label:'Conta e autenticação'},{key:'dispositivos',label:'Dispositivos'},{key:'historico',label:'Histórico'},{key:'integracoes',label:'Traccar'},{key:'eventos',label:'Eventos'}]
+const tabs = [{key:'conta',label:'Conta e autenticação'},{key:'dispositivos',label:'Dispositivos'},{key:'mapa',label:'Mapa realtime'},{key:'configuracao',label:'Parâmetros'},{key:'historico',label:'Histórico'},{key:'integracoes',label:'Traccar'},{key:'eventos',label:'Eventos'}]
 const stamp = (value: any) => value ? new Date(value).toLocaleString('pt-BR') : 'Não disponível'
 const deviceType = (value: string) => ({ PHONE:'Smartphone', TABLET:'Tablet', WATCH:'Relógio', HEADPHONES:'Fone', EARBUDS:'Fone', TRACKER:'Rastreador', UNKNOWN:'Não informado' }[value] || value)
 async function load() {
@@ -33,19 +71,21 @@ async function load() {
     if (currentId !== id.value) return
     instance.value = data; auth.value = status; devices.value = list
     if (!list.some(d => d.id === chosen.value)) chosen.value = list[0]?.id || ''
+    await reloadSnapshot()
     await loadSelected()
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
 async function loadSelected() {
-  history.value = []; binding.value = {enabled:false,url:'',deviceId:''}
-  if (!chosen.value) return
+  history.value = []
+  const currentId=id.value, deviceId=chosen.value, currentSection=section.value
+  if (!deviceId) return
   try {
-    if (section.value === 'historico' && auth.value?.historyEnabled) history.value = await connect.findHubPositions(id.value,chosen.value,100)
-    if (section.value === 'integracoes') {
-      const row = await connect.findHubTraccar(id.value,chosen.value)
-      binding.value = {enabled:row?.enabled ?? false,url:row?.url || '',deviceId:row?.traccarDeviceId || ''}
+    if (currentSection === 'historico') {
+      const rows = await connect.findHubPositions(currentId,deviceId,1000,from.value ? new Date(from.value).toISOString() : undefined,to.value ? new Date(to.value).toISOString() : undefined)
+      if(currentId===id.value && deviceId===chosen.value && currentSection===section.value) history.value=rows
     }
+
   } catch (e) { error.value = friendlyError(e) }
 }
 async function refreshDevices() {
@@ -57,9 +97,9 @@ async function refreshDevices() {
 async function locate(device: any) {
   device.locating = true; error.value = ''; feedback.value = ''
   try {
-    device.position = await connect.findHubLocate(id.value,device.id)
-    if (!device.position) feedback.value = 'Não houve relatório de localização utilizável para este dispositivo.'
-    else device.lastLocationAt = device.position.timestamp
+    const position = await connect.findHubLocate(id.value,device.id)
+    if (!position) feedback.value = 'Não houve relatório de localização utilizável para este dispositivo.'
+    else if (!device.latestPosition || Date.parse(position.timestamp) >= Date.parse(device.latestPosition.timestamp)) { device.latestPosition=position; device.lastLocationAt=position.timestamp }
   } catch (e) { error.value = friendlyError(e) }
   finally { device.locating = false }
 }
@@ -72,14 +112,6 @@ async function tracking(device: any) {
   } catch (e) { error.value = friendlyError(e) }
   finally { device.saving = false }
 }
-async function saveBinding(remove = false) {
-  busy.value = true; error.value = ''; feedback.value = ''
-  try {
-    await connect.findHubTraccar(id.value,chosen.value,remove ? 'DELETE' : 'PUT',remove ? undefined : binding.value)
-    await loadSelected(); feedback.value = remove ? 'Vínculo removido.' : 'Vínculo Traccar salvo.'
-  } catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
 async function accountAction() {
   busy.value = true; error.value = ''
   try {
@@ -90,7 +122,9 @@ async function accountAction() {
   finally { busy.value = false }
 }
 watch(() => [id.value,section.value], () => { error.value=''; feedback.value=''; void load() })
-onMounted(load)
+watch(id, startStream)
+onMounted(() => { void load(); startStream() })
+onBeforeUnmount(stopStream)
 </script>
 <template>
   <FindHubShell>
@@ -103,7 +137,7 @@ onMounted(load)
     <template v-else>
       <template v-if="section==='conta'">
         <div class="detail-grid">
-          <PanelCard title="Conta e conexão"><div class="detail-list"><div><span>Conta Google</span><strong>{{ auth?.email || 'Ainda não vinculada' }}</strong></div><div><span>Conexão validada</span><strong>{{ connected ? 'Conectada' : auth?.pending ? 'Vinculação em andamento' : 'Desconectada' }}</strong></div><div><span>Histórico de posições</span><strong>{{ auth?.historyEnabled ? 'Habilitado na instalação' : 'Desabilitado' }}</strong></div></div><InstanceToken :instance-id="id" :instance-name="instance.name || id" /></PanelCard>
+          <PanelCard title="Conta e conexão"><div class="detail-list"><div><span>Conta Google</span><strong>{{ auth?.email || 'Ainda não vinculada' }}</strong></div><div><span>Conexão validada</span><strong>{{ connected ? 'Conectada' : auth?.pending ? 'Vinculação em andamento' : 'Desconectada' }}</strong></div><div><span>Histórico de posições</span><strong>{{ auth?.historyEnabled ? 'Habilitado para a conta' : 'Desabilitado' }}</strong></div></div><InstanceToken :instance-id="id" :instance-name="instance.name || id" /></PanelCard>
           <PanelCard title="Dispositivos desta conta"><div class="summary-tiles"><div><b>{{ devices.length }}</b><span>Dispositivos cadastrados</span></div><div><b>{{ trackingCount }}</b><span>Rastreamentos habilitados</span></div></div><p class="muted">A disponibilidade de posições depende do aparelho, da rede e do Google. A hora do relatório indica a idade da localização.</p></PanelCard>
         </div>
         <FindHubBrowserAuth v-if="!connected" :key="id" class="top-gap" :instance-id="id" :initial-email="auth?.email" @connected="load" />
@@ -113,17 +147,17 @@ onMounted(load)
       <PanelCard v-else-if="section==='dispositivos'" title="Dispositivos" description="Somente dispositivos retornados pela conta Google vinculada.">
         <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
-        <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p><div class="detail-list"><div><span>Último relatório</span><strong>{{ stamp(device.lastLocationAt) }}</strong></div><div><span>Rastreamento</span><strong>{{ device.trackingEnabled ? 'Habilitado' : 'Desabilitado' }}</strong></div></div><label class="field top-gap"><span>Intervalo entre consultas (segundos)</span><input v-model.number="device.trackingIntervalSeconds" type="number" :min="auth?.minimumIntervalSeconds || 30" max="3600" :disabled="device.trackingEnabled" /></label><div v-if="device.position" class="alert"><strong>{{ device.position.latitude }}, {{ device.position.longitude }}</strong><p>{{ stamp(device.position.timestamp) }} · Precisão: {{ device.position.accuracy ?? '—' }} m · Origem: {{ device.position.source }}</p></div><footer class="toolbar top-gap"><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
+        <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p><div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p><div class="detail-list"><div><span>Último relatório</span><strong>{{ stamp(device.lastLocationAt) }}</strong></div><div><span>Rastreamento</span><strong>{{ device.trackingEnabled ? 'Habilitado' : 'Desabilitado' }}</strong></div></div><label class="field top-gap"><span>Intervalo entre consultas (segundos)</span><input v-model.number="device.trackingIntervalSeconds" type="number" :min="auth?.minimumIntervalSeconds || 30" max="86400" :disabled="device.trackingEnabled" /></label><div v-if="device.latestPosition" class="alert"><strong>{{ device.latestPosition.latitude }}, {{ device.latestPosition.longitude }}</strong><p>{{ stamp(device.latestPosition.timestamp) }} · Precisão: {{ device.latestPosition.accuracy ?? '—' }} m · Origem: {{ device.latestPosition.source }}</p></div><footer class="toolbar top-gap"><RouterLink class="card-link" :to="{path:findHubPath(id,'mapa'),query:{device:device.id}}">Acompanhar no mapa</RouterLink><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
       </PanelCard>
-      <PanelCard v-else-if="section==='historico'" title="Histórico de localização" description="Até 100 posições persistidas do dispositivo selecionado, mais recentes primeiro.">
-        <p v-if="!auth?.historyEnabled" class="alert">O histórico está desabilitado nesta instalação. A ativação deve ser feita pelo administrador; não há coleta retroativa.</p>
-        <label class="field"><span>Dispositivo</span><select v-model="chosen" :disabled="!devices.length" @change="loadSelected"><option v-for="device in devices" :key="device.id" :value="device.id">{{ device.name }}</option></select></label>
-        <EmptyState v-if="!history.length" icon="location" title="Nenhuma posição persistida" description="Localizações aparecem aqui somente quando o histórico está habilitado e novos relatórios são recebidos." />
-        <div v-else class="findhub-table"><table><thead><tr><th>Relatório</th><th>Latitude</th><th>Longitude</th><th>Precisão (m)</th><th>Origem</th></tr></thead><tbody><tr v-for="position in history" :key="position.id"><td>{{ stamp(position.recordedAt) }}</td><td>{{ position.latitude }}</td><td>{{ position.longitude }}</td><td>{{ position.accuracy ?? '—' }}</td><td>{{ position.source }}</td></tr></tbody></table></div>
+      <FindHubLiveTracking v-else-if="section==='mapa' && snapshot" :key="id" :instance-id="id" :snapshot="snapshot" :stream-state="streamState" :initial-device="String(route.query.device || '')" @refresh="reloadSnapshot" />
+      <FindHubTrackingSettings v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />
+      <PanelCard v-else-if="section==='historico'" title="Histórico de localização" description="Posições persistidas desta conta, com horário do relatório e retenção configurável.">
+        <p v-if="!auth?.historyEnabled" class="alert">Armazenamento desabilitado para esta conta. <RouterLink :to="findHubPath(id,'configuracao')">Configurar histórico e retenção</RouterLink>. Posições já existentes permanecem consultáveis até vencerem a retenção.</p>
+        <div class="form-stack"><label class="field"><span>Dispositivo</span><select v-model="chosen" class="select" @change="loadSelected"><option v-for="d in devices" :key="d.id" :value="d.id">{{d.name}}</option></select></label><div class="toolbar"><label class="field"><span>Início</span><input v-model="from" type="datetime-local" /></label><label class="field"><span>Fim</span><input v-model="to" type="datetime-local" /></label><button class="btn ghost" @click="loadSelected">Filtrar</button></div></div>
+        <EmptyState v-if="!history.length" icon="location" title="Nenhuma posição no período" description="Ative o histórico e o rastreamento para armazenar novos relatórios. Não há coleta retroativa." />
+        <div v-else class="findhub-table"><FindHubMap :key="chosen" :position="historyTrail[historyTrail.length-1]" :trail="historyTrail" :tile-url="snapshot?.map?.tileUrl"/><table><thead><tr><th>Relatório</th><th>Latitude</th><th>Longitude</th><th>Precisão</th><th>Origem</th></tr></thead><tbody><tr v-for="(p,index) in history" :key="p.id || index"><td>{{stamp(p.recordedAt)}}</td><td>{{p.latitude}}</td><td>{{p.longitude}}</td><td>{{p.accuracy ?? '—'}} m</td><td>{{p.source}}</td></tr></tbody></table><p class="muted">Até 1.000 posições mais recentes do período. Use intervalos menores para consultar o restante.</p></div>
       </PanelCard>
-      <PanelCard v-else-if="section==='integracoes'" title="Integração Traccar" description="Encaminhe posições para um receptor HTTP/OsmAnd explicitamente autorizado.">
-        <div class="form-stack"><label class="field"><span>Dispositivo Google</span><select v-model="chosen" :disabled="busy || !devices.length" @change="loadSelected"><option v-for="device in devices" :key="device.id" :value="device.id">{{ device.name }}</option></select></label><template v-if="chosen"><label class="toggle-field"><input v-model="binding.enabled" type="checkbox" /><span>Encaminhar posições deste dispositivo</span></label><label class="field"><span>URL do receptor Traccar</span><input v-model="binding.url" type="url" placeholder="https://seu-receptor-traccar" /></label><label class="field"><span>Identificador cadastrado no Traccar</span><input v-model="binding.deviceId" placeholder="android-equipe-01" /></label><p class="muted">Este destino recebe latitude, longitude e a hora do relatório. Use um endereço acessível pela API, não o endpoint administrativo do Traccar.</p><div class="toolbar"><button class="btn primary" :disabled="busy || !binding.url || !binding.deviceId" @click="saveBinding(false)">Salvar vínculo</button><button class="btn ghost" :disabled="busy" @click="saveBinding(true)">Remover vínculo</button></div></template><EmptyState v-else icon="location" title="Sincronize um dispositivo primeiro" description="Os vínculos são individuais por dispositivo, não por conversa ou número." /></div>
-      </PanelCard>
+      <FindHubTraccarConnection v-else-if="section==='integracoes'" :key="id" :instance-id="id" :devices="devices" />
       <FindHubEvents v-else-if="section==='eventos'" :key="id" :instance-id="id" />
     </template>
     <AppModal :open="confirm!==null" :title="confirm==='delete' ? 'Excluir instância Google Find Hub' : 'Desvincular conta Google'" subtitle="Confirme a remoção dos dados locais desta conta." @close="confirm=null"><p>Esta operação remove credenciais, catálogo, histórico e vínculos locais associados a esta conta. Nenhum dispositivo físico será apagado. As demais instâncias não serão alteradas.</p><template #footer><button class="btn ghost" :disabled="busy" @click="confirm=null">Cancelar</button><button class="btn danger" :disabled="busy" @click="accountAction">Confirmar</button></template></AppModal>

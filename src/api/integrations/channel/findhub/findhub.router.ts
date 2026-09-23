@@ -5,6 +5,9 @@ import {
   FindHubBrowserExchangeDto,
   FindHubBrowserProofDto,
   FindHubCredentialBundleDto,
+  FindHubLocateDto,
+  FindHubSettingsDto,
+  FindHubTraccarConnectionDto,
   FindHubTraccarDto,
   FindHubTrackingDto,
 } from '@api/dto/findhub.dto';
@@ -16,11 +19,16 @@ import {
   findHubBrowserExchangeSchema,
   findHubBrowserStartSchema,
   findHubCredentialBundleSchema,
+  findHubLocateSchema,
+  findHubSettingsSchema,
+  findHubTraccarConnectionSchema,
   findHubTraccarSchema,
   findHubTrackingSchema,
 } from '@validate/findhub.schema';
 import { RequestHandler, Router } from 'express';
 import { resolve } from 'path';
+
+import { findHubStream } from './services/findhub-stream';
 
 export class FindHubRouter extends RouterBroker {
   public readonly router: Router = Router();
@@ -29,6 +37,41 @@ export class FindHubRouter extends RouterBroker {
     super();
 
     this.router
+      .get('/tracking/snapshot/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.snapshot(req.params.instanceName)),
+      )
+      .get('/tracking/stream/:instanceName', ...guards, (req, res, next) => {
+        void findHubStream(req, res, findHubController).catch(next);
+      })
+      .get('/tracking/settings/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.settings(req.params.instanceName)),
+      )
+      .put('/tracking/settings/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate({
+            request: req,
+            schema: findHubSettingsSchema,
+            ClassRef: FindHubSettingsDto,
+            execute: (instance, data) => findHubController.saveSettings(instance.instanceName, data),
+          }),
+        ),
+      )
+      .get('/traccar/configuration/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.traccarConfiguration(req.params.instanceName)),
+      )
+      .put('/traccar/configuration/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate({
+            request: req,
+            schema: findHubTraccarConnectionSchema,
+            ClassRef: FindHubTraccarConnectionDto,
+            execute: (instance, data) => findHubController.saveTraccarConfiguration(instance.instanceName, data),
+          }),
+        ),
+      )
+      .post('/traccar/provision/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.provisionTraccar(req.params.instanceName, req.params.deviceId)),
+      )
       .get('/auth/extension/:instanceName', ...guards, (req, res, next) => {
         findHubController.extensionAllowed(req.params.instanceName);
         res.setHeader('Cache-Control', 'no-store');
@@ -119,7 +162,15 @@ export class FindHubRouter extends RouterBroker {
         res.json(await findHubController.device(req.params.instanceName, req.params.deviceId)),
       )
       .post('/locate/:deviceId/:instanceName', ...guards, async (req, res) =>
-        res.json(await findHubController.locate(req.params.instanceName, req.params.deviceId)),
+        res.json(
+          await this.dataValidate<FindHubLocateDto>({
+            request: req,
+            schema: findHubLocateSchema,
+            ClassRef: FindHubLocateDto,
+            execute: (instance, data) =>
+              findHubController.locate(instance.instanceName, req.params.deviceId, data.timeoutMs),
+          }),
+        ),
       )
       .post('/tracking/start/:deviceId/:instanceName', ...guards, async (req, res) =>
         res.json(
@@ -141,6 +192,8 @@ export class FindHubRouter extends RouterBroker {
             req.params.instanceName,
             req.params.deviceId,
             Number(req.query.limit || 100),
+            typeof req.query.from === 'string' ? req.query.from : undefined,
+            typeof req.query.to === 'string' ? req.query.to : undefined,
           ),
         ),
       )

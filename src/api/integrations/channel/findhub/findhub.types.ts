@@ -24,6 +24,13 @@ export interface FindHubDevice {
   trackingEnabled?: boolean;
   trackingIntervalSeconds?: number;
   lastLocationAt?: string | null;
+  latestPosition?: FindHubPosition | null;
+  lastReceivedAt?: string | null;
+  lastAttemptAt?: string | null;
+  lastErrorCode?: string | null;
+  providerStatus?: string | null;
+  locationTimeoutMs?: number | null;
+  availability?: string;
 }
 
 export interface FindHubPosition {
@@ -34,7 +41,7 @@ export interface FindHubPosition {
   altitude?: number;
   accuracy?: number;
   timestamp: string;
-  source: 'RECENT' | 'NETWORK' | 'LAST_KNOWN' | 'CROWDSOURCED' | 'AGGREGATED' | 'UNKNOWN';
+  source: 'RECENT' | 'NETWORK' | 'LAST_KNOWN' | 'CROWDSOURCED' | 'AGGREGATED' | 'TRACCAR' | 'UNKNOWN';
   semanticLocation?: string;
   ownReport: boolean;
 }

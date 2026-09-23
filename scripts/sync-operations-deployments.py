@@ -34,7 +34,7 @@ def section(text, name):
     match = re.search(r'^  ' + re.escape(name) + r':\s*\n', text, re.M)
     if not match:
         raise ValueError('Missing Compose service: ' + name)
-    tail = re.search(r'^(?:  [\w.-]+:|[^\s#][^\n]*:)', text[match.end():], re.M)
+    tail = re.search(r'^(?:  [\w.-]+:|  # BEGIN OPTIONAL TRACCAR|[^\s#][^\n]*:)', text[match.end():], re.M)
     end = match.end() + tail.start() if tail else len(text)
     return match.start(), end, text[match.start():end]
 
@@ -220,6 +220,9 @@ fi
     from runpy import run_path
     findhub = run_path(str(root / 'scripts/sync-findhub-deployments.py'))
     additions = findhub['generate'](root, overrides=outputs)
+    outputs.update({path: content for path, content in additions.items() if path in outputs})
+    traccar = run_path(str(root / 'scripts/sync-traccar-deployments.py'))
+    additions = traccar['generate'](root, overrides=outputs)
     outputs.update({path: content for path, content in additions.items() if path in outputs})
     return outputs
 

@@ -32,9 +32,9 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  // The browser producer adds six paths; GET/PUT/DELETE share the Traccar path.
-  assert.equal(implemented.length, 17);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 19);
+  // Browser authentication plus tracking/SSE/settings and native Traccar; shared-method paths count once.
+  assert.equal(implemented.length, 22);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 26);
   assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
   assert.match(dedicated.info.description, /CredentialProvider/);
   assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);

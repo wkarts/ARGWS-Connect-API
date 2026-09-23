@@ -806,6 +806,8 @@ model FindHubAccount {
   authState            String   @default("WAITING_AUTH") @db.VarChar(40)
   encryptedCredentials String?  @db.Text
   encryptedSharedKey   String?  @db.Text
+  trackingSettings     Json?
+  encryptedTraccar     String?  @db.Text
   clientUuid           String?  @db.VarChar(64)
   createdAt            DateTime @default(now()) @db.Timestamp
   updatedAt            DateTime @updatedAt @db.Timestamp
@@ -828,6 +830,12 @@ model FindHubDevice {
   imageUrl                String?  @db.VarChar(1000)
   trackingEnabled         Boolean  @default(false) @db.Boolean
   trackingIntervalSeconds Int      @default(60) @db.Integer
+  latestPosition          Json?
+  lastReceivedAt          DateTime?
+  lastAttemptAt           DateTime?
+  lastErrorCode           String?  @db.VarChar(64)
+  providerStatus          String?  @db.VarChar(32)
+  locationTimeoutMs       Int?
   lastLocationAt          DateTime? @db.Timestamp
   createdAt               DateTime @default(now()) @db.Timestamp
   updatedAt               DateTime @updatedAt @db.Timestamp
@@ -851,6 +859,7 @@ model FindHubPosition {
   accuracy         Float?
   source           String   @db.VarChar(32)
   ownReport        Boolean  @default(false) @db.Boolean
+  fingerprint      String?  @db.VarChar(64)
   semanticLocation String?  @db.VarChar(500)
   recordedAt       DateTime @db.Timestamp
   createdAt        DateTime @default(now()) @db.Timestamp
@@ -859,6 +868,8 @@ model FindHubPosition {
 
   @@index([instanceId])
   @@index([deviceId, recordedAt])
+  @@index([instanceId, recordedAt])
+  @@unique([instanceId, deviceId, fingerprint])
 }
 
 model FindHubTraccarBinding {
@@ -867,6 +878,7 @@ model FindHubTraccarBinding {
   deviceId        String   @unique
   enabled         Boolean  @default(true) @db.Boolean
   url             String   @db.VarChar(1000)
+  traccarNumericId Int?
   traccarDeviceId String   @db.VarChar(255)
   createdAt       DateTime @default(now()) @db.Timestamp
   updatedAt       DateTime @updatedAt @db.Timestamp

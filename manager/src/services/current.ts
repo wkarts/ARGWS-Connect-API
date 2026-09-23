@@ -527,6 +527,29 @@ export const current = {
   },
 
 
+  async findHubSnapshot(id: string) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/tracking/snapshot/${encodeURIComponent(name)}`, { token }))
+  },
+  async findHubSettings(id: string, data?: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/tracking/settings/${encodeURIComponent(name)}`, { token, method: data ? 'PUT' : 'GET', data }))
+  },
+  async findHubTraccarConnection(id: string, data?: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/traccar/configuration/${encodeURIComponent(name)}`, { token, method: data ? 'PUT' : 'GET', data, timeout: 65000 }))
+  },
+  async findHubTraccarProvision(id: string, deviceId: string) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/traccar/provision/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { token, method: 'POST', timeout: 125000 }))
+  },
+  async findHubStream(id: string, signal: AbortSignal, onEvent: (event: any) => void) {
+    const { readFindHubStream } = await import('./findhub-stream')
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(`${runtime.apiBaseUrl}/findhub/tracking/stream/${encodeURIComponent(name)}`, {
+        credentials: 'same-origin', headers: { apikey: token || accessCode, Accept: 'text/event-stream' }, signal,
+      })
+      if (!response.ok) throw new CurrentApiError('Não foi possível abrir o acompanhamento realtime.', response.status)
+      await readFindHubStream(response, signal, onEvent)
+    })
+  },
+
   async findHubBrowserAuth(id: string, operation: 'start' | 'exchange' | 'complete' | 'cancel', data: any) {
     return withInstance(id, async (_item, name, token) => api<any>(`/findhub/auth/browser/${operation}/${encodeURIComponent(name)}`, {
       method: 'POST', token, data, timeout: operation === 'start' ? 135000 : operation === 'complete' ? 240000 : operation === 'exchange' ? 65000 : 45000,
@@ -576,15 +599,15 @@ export const current = {
     }))
   },
 
-  async findHubLocate(id: string, deviceId: string) {
+  async findHubLocate(id: string, deviceId: string, timeoutMs?: number) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/locate/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
-      method: 'POST', token, timeout: 45000,
+      method: 'POST', token, timeout: 155000, data: { timeoutMs },
     }))
   },
 
-  async findHubStartTracking(id: string, deviceId: string, intervalSeconds = 60) {
+  async findHubStartTracking(id: string, deviceId: string, intervalSeconds = 60, timeoutMs?: number) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/tracking/start/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
-      method: 'POST', token, data: { intervalSeconds },
+      method: 'POST', token, data: { intervalSeconds, timeoutMs },
     }))
   },
 
@@ -594,9 +617,9 @@ export const current = {
     }))
   },
 
-  async findHubPositions(id: string, deviceId: string, limit = 100) {
+  async findHubPositions(id: string, deviceId: string, limit = 100, from?: string, to?: string) {
     return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/positions/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
-      token, params: { limit },
+      token, params: { limit, from, to },
     }))
   },
 

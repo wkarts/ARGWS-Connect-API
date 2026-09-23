@@ -173,6 +173,10 @@ function harness(options = {}) {
     },
     './findhub-protocol.client': { FindHubProtocolClient: class { constructor() { throw new Error('Unexpected Google connection'); } } },
     './findhub-traccar.service': { FindHubTraccarService: class {} },
+    '@prisma/client': { Prisma: { DbNull: null } },
+    '../auth/findhub-credential-vault': { FindHubCredentialVault: class { constructor() { throw new Error('Unexpected credential access in lifecycle test'); } } },
+    './findhub-tracking.policy': loadSource('src/api/integrations/channel/findhub/services/findhub-tracking.policy.ts', { crypto: require('node:crypto') }),
+    './traccar-client': { TraccarClient: class { constructor() { throw new Error('Unexpected Traccar network in lifecycle test'); } } },
   };
   const { FindHubStartupService } = loadSource('src/api/integrations/channel/findhub/services/findhub-runtime.service.ts', dependencies);
   dependencies['@api/server.module'].channelController.init = (data) => {
