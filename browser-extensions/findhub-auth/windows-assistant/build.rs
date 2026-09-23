@@ -32,6 +32,8 @@ fn main() {
         "manifest.json",
         "policy.js",
         "background.js",
+        "vault-page.js",
+        "vault-relay.js",
         "approve.html",
         "approve.js",
         "approve.css",

@@ -1,4 +1,4 @@
-export const FINDHUB_MIN_HELPER_VERSION = '0.1.4'
+export const FINDHUB_MIN_HELPER_VERSION = '0.1.6'
 
 export function compatibleFindHubHelper(version: unknown): boolean {
   if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) return false

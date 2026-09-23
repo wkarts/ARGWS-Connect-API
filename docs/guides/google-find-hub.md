@@ -301,3 +301,56 @@ Segundo o [contrato de mensagens do Chrome](https://developer.chrome.com/docs/ex
 Após implantar a imagem corrigida da API/Manager, instale/atualize a extensão 0.1.4 na pasta fixa e clique em **Recarregar** no navegador. Recarregue o Manager e inicie outra vinculação. Não reutilize artefatos da tentativa anterior, não gere outra `FINDHUB_CREDENTIALS_KEY`, não apague volumes e não desconecte WhatsApp. A mera instalação do EXE não atualiza o backend.
 
 Critério de conclusão: Google aceita a troca, a chave Find Hub é validada, a conexão é confirmada e o catálogo de dispositivos é obtido. CI aprovada, comando de consentimento aceito e teste negativo não substituem esse critério.
+
+### Helper 0.1.5 — retorno do desbloqueio criptografado
+
+O Google pode redirecionar `/encryption/unlock/android` para
+`/v3/signin/challenge/kls` dentro do fluxo `EncryptionUnlockAndroid`.
+A versão 0.1.4 só instalava/aceitava o callback no primeiro endereço; por isso
+uma tentativa podia permanecer aguardando mesmo após a página finalizar em `#close`.
+A versão 0.1.5 registra o callback em `document_start`, antes de navegar, e
+acompanha somente URLs que mantêm o `kdi` exato daquela tentativa. O relay valida
+origem, aba, frame principal, documento e nonce. As inscrições temporárias são
+removidas em cancelamento, expiração, conclusão ou reinício do worker.
+
+Somente `finder_hw` é transferido após o consentimento já dado; nenhum campo de
+senha/PIN é lido. O sinal `closeView` ou o fragmento `#close` não comprovam PIN
+aceito nem conta conectada. Se o Google encerrar sem entregar a chave, o helper
+retorna `[FH-EXT-VAULT-NOKEY]` em vez de continuar aguardando silenciosamente.
+Falha na preparação do callback retorna `[FH-EXT-VAULT-BRIDGE]`.
+
+A correção principal desta versão é na extensão. Ela funciona com o contrato
+browser-auth da API 0.1.4; o servidor ainda precisa ter as correções anteriores de
+autenticação. A atualização do repositório também sincroniza o ZIP servido pelo
+Manager, os metadados e o aviso de versão. Atualize os arquivos, clique em
+**Recarregar** na página de extensões e inicie uma tentativa nova. O assistente
+Windows não atualiza a VPS e a imagem Docker não atualiza uma extensão já carregada.
+
+Falhas de preflight em `play.google.com/log` pertencem à chamada Google→Google,
+não ao CORS do domínio da Connect|API. Elas não comprovam rejeição do PIN ou a
+causa de uma chave ausente. Não desative CORS, TLS, verificação de origem, segurança
+do navegador ou validações de conta para concluir o fluxo. Evite exportar HTML
+de campos de senha: atributos do DOM podem expor valores mesmo com o campo mascarado.
+
+Os testes de callbacks e redirecionamentos usam contas e chaves sintéticas.
+Aprovação de CI não substitui a homologação interativa de uma conta Google real.
+
+## Correção 0.1.6 — confirmação de preparo e entrega do retorno
+
+O vínculo de um documento (`VAULT_BIND`) apenas autoriza o relay. A extensão só
+considera o callback preparado depois da confirmação `BOUND` do script MAIN e
+da confirmação `VAULT_READY` pelo worker. Um documento redirecionado precisa
+concluir seu próprio preparo. Se isso não acontecer em 30 segundos, a tentativa
+é encerrada com `FH-EXT-VAULT-BRIDGE`, sem aguardar silenciosamente a expiração.
+
+Falhas na entrega da chave deixam de ser ignoradas. A extensão exige resposta
+positiva do worker; uma recusa encerra a tentativa com `FH-EXT-VAULT-DELIVERY`.
+Nenhuma chave ou credencial é reenviada automaticamente. Se a chave já foi aceita
+para verificação no backend, uma confirmação perdida não cancela essa verificação.
+Mensagens de erro transportam apenas uma categoria fixa, nunca PIN, senha ou chave.
+
+Atualize os arquivos da mesma pasta e clique em **Recarregar** na página de
+extensões antes de iniciar uma tentativa nova. O contrato REST não mudou: uma API
+com o fluxo browser-auth da PR #125 é compatível. A PR #126 também atualiza o ZIP
+servido pelo Manager e sua indicação de versão. Não altere CORS, TLS ou a chave
+`FINDHUB_CREDENTIALS_KEY`. Testes controlados não comprovam login Google real.

@@ -1,8 +1,35 @@
-import { VERSION, GOOGLE_ORIGIN, GOOGLE_PERMISSION, safeOrigin, beginRequest, unlockUrl, safeVault } from './policy.js';
+import { VERSION, GOOGLE_ORIGIN, GOOGLE_PERMISSION, safeOrigin, beginRequest, unlockUrl, safeVault, vaultPageUrl, vaultScriptMatches } from './policy.js';
 
 // Session secrets exist only in this worker and the originating authenticated page.
 // A worker restart aborts the attempt rather than persisting credentials.
 let active = null;
+const VAULT_SCRIPT_PREFIX = 'connect-findhub-vault-';
+// No registrations survive an abandoned worker/session. No credentials are persisted.
+const registrationsReady = chrome.scripting.getRegisteredContentScripts().then(scripts => {
+  const ids = scripts.filter(script => script.id.startsWith(VAULT_SCRIPT_PREFIX)).map(script => script.id);
+  return ids.length ? chrome.scripting.unregisterContentScripts({ ids }) : undefined;
+});
+function removeVaultScripts(attempt) {
+  const ids = attempt.vaultScriptIds;
+  if (ids?.length) void chrome.scripting.unregisterContentScripts({ ids }).catch(() => {});
+}
+function armVaultBridgeDeadline(attempt) {
+  clearTimeout(attempt.bridgeTimer);
+  attempt.bridgeTimer = setTimeout(() => {
+    if (active === attempt && attempt.stage === 'VAULT' && !attempt.vaultReady) {
+      cleanup(attempt, '[FH-EXT-VAULT-BRIDGE] Não foi possível preparar o retorno seguro do desbloqueio Google. Atualize a extensão e inicie novamente.');
+    }
+  }, 30000);
+}
+function vaultClosed(attempt) {
+  if (active !== attempt || attempt.stage !== 'VAULT' || attempt.closeTimer) return;
+  // closeView/#close may follow the key callback in the same task. A close signal is never authentication.
+  attempt.closeTimer = setTimeout(() => {
+    if (active === attempt && attempt.stage === 'VAULT') {
+      cleanup(attempt, '[FH-EXT-VAULT-NOKEY] O Google encerrou o desbloqueio sem entregar uma chave Find Hub válida. A conta não foi vinculada. Inicie uma nova tentativa.');
+    }
+  }, 2000);
+}
 function send(attempt, message) {
   if (active !== attempt) return;
   try { attempt.port.postMessage({ ...message, sessionId: attempt.sessionId }); } catch { cleanup(attempt); }
@@ -13,6 +40,9 @@ function cleanup(attempt, reason) {
   active = null;
   chrome.cookies?.onChanged?.removeListener(cookieChanged);
   clearTimeout(attempt.timer);
+  clearTimeout(attempt.closeTimer);
+  clearTimeout(attempt.bridgeTimer);
+  removeVaultScripts(attempt);
   attempt.baseline = undefined;
   for (const id of [attempt.googleTab, attempt.approvalTab]) {
     if (Number.isInteger(id)) chrome.tabs.remove(id).catch(() => {});
@@ -52,46 +82,29 @@ function cookieChanged(change) {
   void newCookie(attempt, change.cookie);
 }
 
-async function installVaultBridge(attempt) {
-  if (active !== attempt || attempt.stage !== 'VAULT') return;
-  const tab = await chrome.tabs.get(attempt.googleTab);
-  if (!tab.url?.startsWith(GOOGLE_ORIGIN + '/encryption/unlock/android')) return;
-  const target = { tabId: attempt.googleTab, frameIds: [0] };
-  // Isolated-world receiver: validates the page origin and forwards only finder_hw.
-  await chrome.scripting.executeScript({ target, world: 'ISOLATED', args: [attempt.nonce], func: (nonce) => {
-    if (window.__connectFindHubReceiver === nonce) return;
-    window.__connectFindHubReceiver = nonce;
-    window.addEventListener('message', (event) => {
-      if (event.source !== window || event.origin !== 'https://accounts.google.com' ||
-          event.data?.source !== 'CONNECT_FINDHUB_VAULT' || event.data.nonce !== nonce) return;
-      const vaultKeys = event.data.vaultKeys;
-      if (typeof vaultKeys !== 'string' || vaultKeys.length > 65536) return;
-      chrome.runtime.sendMessage({ type: 'VAULT_KEYS', nonce, vaultKeys }).catch(() => {});
-    });
-  }});
-  // The Google unlock page calls this native-interface-shaped callback after user approval.
-  // No password/PIN interception, no captcha bypass, no form replacement.
-  await chrome.scripting.executeScript({ target, world: 'MAIN', args: [attempt.nonce], func: (nonce) => {
-    if (window.mm?.__connectFindHubNonce === nonce) return;
-    const previous = window.mm;
-    window.mm = {
-      __connectFindHubNonce: nonce,
-      setVaultSharedKeys: (_account, value) => {
-        const text = typeof value === 'string' ? value : JSON.stringify(value);
-        window.postMessage({ source: 'CONNECT_FINDHUB_VAULT', nonce, vaultKeys: text }, 'https://accounts.google.com');
-      },
-      closeView: () => {},
-    };
-    // Restore the native interface when the linking tab is discarded.
-    window.addEventListener('pagehide', () => { window.mm = previous; }, { once: true });
-  }});
+async function prepareVaultBridge(attempt, url) {
+  await registrationsReady;
+  if (active !== attempt) return;
+  attempt.kdi = new URL(url).searchParams.get('kdi');
+  attempt.vaultScriptIds = [VAULT_SCRIPT_PREFIX + attempt.nonce + '-page', VAULT_SCRIPT_PREFIX + attempt.nonce + '-relay'];
+  const shared = { matches: vaultScriptMatches(url), runAt: 'document_start', allFrames: false, persistAcrossSessions: false };
+  // Install BEFORE navigating: executeScript on tabs.onUpdated was too late and ignored the KLS redirect.
+  await chrome.scripting.registerContentScripts([
+    { ...shared, id: attempt.vaultScriptIds[0], js: ['vault-page.js'], world: 'MAIN' },
+    { ...shared, id: attempt.vaultScriptIds[1], js: ['vault-relay.js'], world: 'ISOLATED' },
+  ]);
+  if (active !== attempt) { removeVaultScripts(attempt); return; }
+  attempt.vaultReady = false;
+  armVaultBridgeDeadline(attempt);
+  await chrome.tabs.update(attempt.googleTab, { url, active: true });
+  send(attempt, { type: 'WAITING_VAULT_KEY' });
 }
 chrome.tabs.onUpdated.addListener((id, change) => {
   const attempt = active;
   if (!attempt || id !== attempt.googleTab) return;
   if (attempt.stage === 'LOGIN' && change.status === 'complete') void readLoginCookie(attempt);
-  if (attempt.stage === 'VAULT' && (change.status === 'complete' || change.status === 'loading')) {
-    void installVaultBridge(attempt).catch(() => cleanup(attempt, 'O navegador não permitiu concluir o desbloqueio.'));
+  if (attempt.stage === 'VAULT' && change.url && vaultPageUrl(change.url, attempt.kdi) && new URL(change.url).hash === '#close') {
+    vaultClosed(attempt);
   }
 });
 chrome.tabs.onActivated?.addListener(({ tabId }) => {
@@ -126,8 +139,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       if (message.type === 'UNLOCK' && owned.stage === 'EXCHANGE') {
         const url = unlockUrl(message.unlockUrl);
         owned.stage = 'VAULT';
-        await chrome.tabs.update(owned.googleTab, { url, active: true });
-        send(owned, { type: 'WAITING_VAULT_KEY' });
+        await prepareVaultBridge(owned, url);
       }
     })().catch(() => {
       if (owned) cleanup(owned, 'Não foi possível continuar a vinculação. Inicie novamente.');
@@ -165,10 +177,42 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     })().catch(() => { cleanup(attempt, 'Não foi possível iniciar o login Google. Verifique a permissão da extensão.'); });
     return false;
   }
-  if (message.type === 'VAULT_KEYS' && sender.id === chrome.runtime.id && sender.tab?.id === attempt.googleTab && sender.frameId === 0 &&
-      sender.url?.startsWith(GOOGLE_ORIGIN + '/encryption/unlock/android') && message.nonce === attempt.nonce && attempt.stage === 'VAULT') {
-    try { const vaultKeys = safeVault(message.vaultKeys); attempt.stage = 'VERIFYING'; reply({ ok: true }); send(attempt, { type: 'VAULT_KEYS', vaultKeys }); }
-    catch { reply({ error: 'Resposta inválida.' }); cleanup(attempt, 'O Google não retornou uma chave Find Hub válida.'); }
+  const isVaultPage = sender.id === chrome.runtime.id && sender.tab?.id === attempt.googleTab && sender.frameId === 0 &&
+    typeof sender.documentId === 'string' && vaultPageUrl(sender.url, attempt.kdi);
+  if (message.type === 'VAULT_BIND' && isVaultPage && attempt.stage === 'VAULT') {
+    if (attempt.vaultDocument !== sender.documentId) {
+      attempt.vaultDocument = sender.documentId;
+      attempt.vaultReady = false;
+      // A redirected document must prove its own MAIN callback is installed. Binding ISOLATED alone is insufficient.
+      armVaultBridgeDeadline(attempt);
+    }
+    reply({ ok: true, nonce: attempt.nonce, kdi: attempt.kdi });
+    return false;
+  }
+  const isVaultDocument = isVaultPage && sender.documentId === attempt.vaultDocument && message.nonce === attempt.nonce;
+  if (message.type === 'VAULT_READY' && isVaultDocument && ['VAULT', 'VERIFYING'].includes(attempt.stage)) {
+    attempt.vaultReady = true;
+    clearTimeout(attempt.bridgeTimer);
+    reply({ ok: true });
+    return false;
+  }
+  if (message.type === 'VAULT_RELAY_ERROR' && isVaultDocument && ['VAULT', 'VERIFYING'].includes(attempt.stage)) {
+    reply({ ok: true });
+    // If keys already reached the backend, a lost acknowledgement must not cancel its final verification.
+    if (attempt.stage === 'VAULT') {
+      cleanup(attempt, '[FH-EXT-VAULT-DELIVERY] A extensão não conseguiu entregar o retorno do desbloqueio. A conta não foi vinculada. Recarregue a extensão e inicie uma nova tentativa.');
+    }
+    return false;
+  }
+  if (message.type === 'VAULT_CLOSED' && isVaultDocument && attempt.stage === 'VAULT') {
+    reply({ ok: true }); vaultClosed(attempt); return false;
+  }
+  if (message.type === 'VAULT_KEYS' && isVaultDocument && attempt.stage === 'VAULT') {
+    try {
+      const vaultKeys = safeVault(message.vaultKeys);
+      attempt.stage = 'VERIFYING'; clearTimeout(attempt.closeTimer); clearTimeout(attempt.bridgeTimer);
+      reply({ ok: true }); send(attempt, { type: 'VAULT_KEYS', vaultKeys });
+    } catch { reply({ error: 'Resposta inválida.' }); cleanup(attempt, 'O Google não retornou uma chave Find Hub válida.'); }
     return false;
   }
   reply({ error: 'Solicitação não autorizada.' });

@@ -1,6 +1,6 @@
 # Connect|API Find Hub Auth — extensão opcional
 
-ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.4.
+ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.6.
 
 Esta é uma implementação experimental própria para Chrome/Edge desktop, não um login OAuth público Google. Extraia o ZIP servido pela sua API e use Carregar sem compactação na página de extensões (modo desenvolvedor). Volte ao Manager e inicie Conectar conta. A janela **da extensão** mostra a origem solicitante, o servidor destinatário e a conta: aprove somente destinos de sua confiança.
 
@@ -37,3 +37,36 @@ Atualize a API/Manager e o helper juntos. O comando de aprovação agora é conf
 No backend, o formulário de troca segue o perfil de interoperabilidade de `gpsoauth` 2.0.0, sem instalar essa biblioteca. O marcador legado `droidguard_results=dummy123` não é uma prova de integridade. Uma exigência real do Google permanece uma falha, sem reenvio do token, bypass ou alteração de TLS. `MissingDroidguard` é classificado como `[FH-AUTH-9116]`, não `UNCLASSIFIED`.
 
 O login real continua sujeito à homologação pelo operador. A ocorrência de `message channel closed` em outra página/extensão, por si só, não comprova a causa de um HTTP 400 no backend. Preserve a chave da instalação e comece uma nova tentativa após atualizar ambos os lados.
+
+### 0.1.6 — Retorno do desbloqueio Google
+
+Corrige o callback após o redirecionamento para `/v3/signin/challenge/kls` com
+`flowName=EncryptionUnlockAndroid` e o contexto exato da tentativa. Os dois scripts
+`vault-page.js` e `vault-relay.js` entram em `document_start`, somente durante a
+vinculação consentida. Origem, aba, documento, frame e nonce são verificados.
+Não há leitura de campos de PIN/senha nem alteração de CORS/TLS.
+
+`#close`/`closeView` sem chave gera `FH-EXT-VAULT-NOKEY`, nunca sucesso de login.
+Atualize/recarregue a extensão e inicie novamente; o contrato da API 0.1.4 é
+compatível com esta correção. O PIN é o bloqueio do aparelho escolhido e deve ser
+digitado apenas na página Google, nunca enviado em capturas/logs.
+
+## Correção 0.1.6 — confirmação de preparo e entrega do retorno
+
+O vínculo de um documento (`VAULT_BIND`) apenas autoriza o relay. A extensão só
+considera o callback preparado depois da confirmação `BOUND` do script MAIN e
+da confirmação `VAULT_READY` pelo worker. Um documento redirecionado precisa
+concluir seu próprio preparo. Se isso não acontecer em 30 segundos, a tentativa
+é encerrada com `FH-EXT-VAULT-BRIDGE`, sem aguardar silenciosamente a expiração.
+
+Falhas na entrega da chave deixam de ser ignoradas. A extensão exige resposta
+positiva do worker; uma recusa encerra a tentativa com `FH-EXT-VAULT-DELIVERY`.
+Nenhuma chave ou credencial é reenviada automaticamente. Se a chave já foi aceita
+para verificação no backend, uma confirmação perdida não cancela essa verificação.
+Mensagens de erro transportam apenas uma categoria fixa, nunca PIN, senha ou chave.
+
+Atualize os arquivos da mesma pasta e clique em **Recarregar** na página de
+extensões antes de iniciar uma tentativa nova. O contrato REST não mudou: uma API
+com o fluxo browser-auth da PR #125 é compatível. A PR #126 também atualiza o ZIP
+servido pelo Manager e sua indicação de versão. Não altere CORS, TLS ou a chave
+`FINDHUB_CREDENTIALS_KEY`. Testes controlados não comprovam login Google real.

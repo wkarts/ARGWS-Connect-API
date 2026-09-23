@@ -11,7 +11,7 @@ function Run-Setup {
 try {
   Run-Setup
   $manifest = Get-Content (Join-Path $root 'extension\manifest.json') -Raw | ConvertFrom-Json
-  if($manifest.version -ne '0.1.4') { throw 'Wrong installed version' }
+  if($manifest.version -ne '0.1.6') { throw 'Wrong installed version' }
   $identity = $manifest.key
   Set-Content (Join-Path $root 'keep-user-file.txt') 'preserve'
   Set-Content (Join-Path $root 'extension\stale.js') 'obsolete'
