@@ -331,7 +331,7 @@
       }
     },
     "findhub.tracking.update": {
-      "description": "Acompanhamento ativado ou desativado por dispositivo.",
+      "description": "Alteração do acompanhamento por dispositivo, configuração da conta ou estado do Traccar. Envelope segue o transporte existente; SSE acrescenta instanceId e at.",
       "subscribe": {
         "operationId": "consume_findhub_tracking_update",
         "message": {
@@ -478,7 +478,8 @@
                         "LAST_KNOWN",
                         "CROWDSOURCED",
                         "AGGREGATED",
-                        "UNKNOWN"
+                        "UNKNOWN",
+                        "TRACCAR"
                       ]
                     },
                     "semanticLocation": {
@@ -507,10 +508,6 @@
             "instance": {},
             "data": {
               "type": "object",
-              "required": [
-                "deviceId",
-                "enabled"
-              ],
               "properties": {
                 "deviceId": {
                   "type": "string"
@@ -520,6 +517,50 @@
                 },
                 "intervalSeconds": {
                   "type": "integer"
+                },
+                "timeoutMs": {
+                  "type": "integer"
+                },
+                "providerStatus": {
+                  "type": "string"
+                },
+                "traccarState": {
+                  "type": "string"
+                },
+                "settings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "intervalSeconds": {
+                      "type": "integer",
+                      "minimum": 15,
+                      "maximum": 86400,
+                      "description": "Intervalo de espera após concluir cada consulta; limitado também pelo mínimo da instalação. Não garante que o Google forneça posição nova."
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 5000,
+                      "maximum": 120000,
+                      "description": "Prazo da espera da localização, independente do intervalo."
+                    },
+                    "staleAfterSeconds": {
+                      "type": "integer",
+                      "minimum": 30,
+                      "maximum": 604800,
+                      "default": 300
+                    },
+                    "historyEnabled": {
+                      "type": "boolean",
+                      "description": "Habilita novas gravações. Não apaga histórico previamente capturado."
+                    },
+                    "retentionDays": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36500,
+                      "default": 30,
+                      "description": "0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais."
+                    }
+                  }
                 }
               }
             }

@@ -1,0 +1,30 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import PanelCard from './PanelCard.vue'
+import FindHubMap from './FindHubMap.vue'
+import { connect } from '@/services/connect'
+import { friendlyError } from '@/services/errors'
+import { findHubAvailability } from '@/services/findhub-stream'
+const props = defineProps<{ instanceId: string; snapshot: any; streamState: string; initialDevice?: string }>()
+const emit = defineEmits<{ refresh: [] }>()
+const selected = ref(props.initialDevice || ''), interval = ref(60), timeout = ref(30000), error = ref(''), busy = ref(false), now = ref(Date.now()), trail = ref<any[]>([])
+const clock = setInterval(() => { now.value = Date.now() }, 5000)
+onBeforeUnmount(() => clearInterval(clock))
+const device = computed(() => props.snapshot.devices.find((d: any) => d.id === selected.value))
+const status = computed(() => findHubAvailability(device.value, props.snapshot.settings.staleAfterSeconds, now.value))
+const stamp = (value: string) => value ? new Date(value).toLocaleString('pt-BR') : 'Não disponível'
+watch(() => props.snapshot.devices.map((d: any) => d.id).join(','), () => { if(!props.snapshot.devices.some((d: any) => d.id === selected.value)) selected.value = props.snapshot.devices[0]?.id || '' }, { immediate: true })
+watch(selected, () => { trail.value = []; interval.value = device.value?.trackingIntervalSeconds || props.snapshot.settings.intervalSeconds; timeout.value = device.value?.locationTimeoutMs || props.snapshot.settings.timeoutMs }, { immediate:true })
+watch(() => device.value?.latestPosition, (position: any) => { if (position && !trail.value.some(p => p.timestamp===position.timestamp && p.latitude===position.latitude && p.longitude===position.longitude)) { trail.value.push(position); trail.value = trail.value.slice(-500) } }, { immediate:true })
+async function action(kind: 'locate'|'start'|'stop') {
+ if(!device.value) return; busy.value = true; error.value = ''
+ try {
+  if(kind==='locate') { const position = await connect.findHubLocate(props.instanceId, device.value.id, timeout.value); if(!position) error.value = 'O Google não forneceu uma posição utilizável nesta consulta.' }
+  else if(kind==='start') await connect.findHubStartTracking(props.instanceId, device.value.id, interval.value, timeout.value)
+  else await connect.findHubStopTracking(props.instanceId, device.value.id)
+  emit('refresh')
+ } catch(e) { error.value = friendlyError(e) } finally { busy.value=false }
+}
+</script>
+<template><PanelCard title="Localização em tempo real" description="Atualizações por eventos. A posição e o horário exibidos são os efetivamente recebidos, sem simulação de movimento."><div v-if="error" class="alert error">{{ error }}</div><div class="toolbar"><label class="field device-choice"><span>Dispositivo da conta</span><select v-model="selected" class="select"><option v-for="d in snapshot.devices" :key="d.id" :value="d.id">{{ d.name }}</option></select></label><span class="muted" role="status">{{ streamState }}</span></div><div v-if="device" class="tracking-tools"><label class="field"><span>Intervalo entre consultas (segundos)</span><input v-model.number="interval" type="number" :min="snapshot.minimumIntervalSeconds" max="86400"/></label><label class="field"><span>Timeout da consulta (milissegundos)</span><input v-model.number="timeout" type="number" min="5000" max="120000"/></label><div class="toolbar"><button class="btn ghost" :disabled="busy || !snapshot.connected" @click="action('locate')">Localizar agora</button><button class="btn ghost" :disabled="busy || !snapshot.connected" @click="action('start')">{{ device.trackingEnabled ? 'Aplicar intervalo' : 'Iniciar rastreamento' }}</button><button v-if="device.trackingEnabled" class="btn ghost" :disabled="busy" @click="action('stop')">Parar</button></div></div><div class="map-status" role="status"><strong>{{ status }}</strong><span>Relatório: {{ stamp(device?.latestPosition?.timestamp) }}</span><span>Recebido: {{ stamp(device?.lastReceivedAt) }}</span><span v-if="device?.latestPosition?.accuracy != null">Precisão: {{ device.latestPosition.accuracy }} m</span></div><div v-if="device?.lastErrorCode" class="alert">A última consulta não retornou uma nova posição. O ponto anterior foi preservado e continua com seu horário original.</div><FindHubMap :key="selected" :position="device?.latestPosition" :trail="trail" :tile-url="snapshot.map?.tileUrl"/><p class="muted top-gap">Uma posição recente não comprova que o aparelho está online. Offline/online só são indicados quando o provedor informa esse estado. O Google pode retornar a última posição conhecida; o intervalo configurado não garante novas coordenadas nesse prazo.</p><p class="muted">Os mapas usam tiles externos OpenStreetMap por padrão; o provedor recebe a área visualizada. A instalação pode configurar um servidor próprio de tiles.</p></PanelCard></template>
+<style scoped>.device-choice{min-width:220px;flex:1}.tracking-tools{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin:18px 0}.tracking-tools .field{flex:1;min-width:200px}.tracking-tools .toolbar{margin:0}.map-status{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0;color:var(--muted)}.map-status strong{color:var(--text)}</style>

@@ -141,3 +141,53 @@ export const findHubEventMessages = {
   'findhub.tracking.update': { description: 'Acompanhamento ativado ou desativado por dispositivo.', data: findHubSchemas.FindHubTrackingResult },
   'findhub.error': { description: 'Erro de acompanhamento, sem credenciais.', data: { type: 'object', properties: { operation: text, deviceId: text, message: text }, additionalProperties: true } },
 };
+
+// Native location tracking: independent of messaging providers and optional Traccar.
+const trackingProperties = {
+  intervalSeconds: {type:'integer',minimum:15,maximum:86400,description:'Intervalo de espera após concluir cada consulta; limitado também pelo mínimo da instalação. Não garante que o Google forneça posição nova.'},
+  timeoutMs: {type:'integer',minimum:5000,maximum:120000,description:'Prazo da espera da localização, independente do intervalo.'},
+  staleAfterSeconds: {type:'integer',minimum:30,maximum:604800,default:300},
+  historyEnabled: {type:'boolean',description:'Habilita novas gravações. Não apaga histórico previamente capturado.'},
+  retentionDays: {type:'integer',minimum:0,maximum:36500,default:30,description:'0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais.'},
+};
+Object.assign(findHubSchemas, {
+  FindHubTrackingSettings: {type:'object',additionalProperties:false,properties:trackingProperties},
+  FindHubTraccarConnectionRequest: {type:'object',additionalProperties:false,required:['mode'],properties:{
+    mode:{type:'string',enum:['disabled','internal','external']}, url:{type:'string',format:'uri'}, receiverUrl:{type:'string',format:'uri'},
+    token:{type:'string',writeOnly:true,maxLength:8192,description:'Somente modo externo. Omissão preserva o segredo anterior apenas para o mesmo servidor.'},
+    timeoutMs:{type:'integer',minimum:1000,maximum:60000},
+  }},
+  FindHubTraccarConnection: {type:'object',properties:{mode:{type:'string',enum:['disabled','internal','external']},url:text,receiverUrl:text,hasToken:{type:'boolean'},timeoutMs:{type:'integer'},state:text,available:{type:'boolean'},internalAvailable:{type:'boolean'}}},
+  FindHubTrackingSnapshot:{type:'object',required:['instanceId','connected','settings','devices','counts'],properties:{
+    instanceId:text,name:text,email:text,connected:{type:'boolean'},settings:ref('FindHubTrackingSettings'),minimumIntervalSeconds:{type:'integer'},
+    devices:{type:'array',items:ref('FindHubDevice')}, counts:{type:'object',properties:{devices:{type:'integer'},tracking:{type:'integer'},positions:{type:'integer'}}},
+    map:{type:'object',properties:{tileUrl:text}},catalogue:{type:'object',properties:{limitation:text}},traccar:ref('FindHubTraccarConnection'),
+  }},
+});
+Object.assign(findHubSchemas.FindHubDevice.properties, {
+  latestPosition:{oneOf:[ref('FindHubPosition'),{type:'null'}]}, lastReceivedAt:{type:['string','null'],format:'date-time'}, lastAttemptAt:{type:['string','null'],format:'date-time'},
+  lastErrorCode:{type:['string','null']}, locationTimeoutMs:{type:['integer','null']}, availability:{type:'string',enum:['offline','online','recent','stale','no_location']},
+});
+findHubSchemas.FindHubPosition.properties.source.enum.push('TRACCAR');
+findHubSchemas.FindHubTrackingRequest.properties={intervalSeconds:trackingProperties.intervalSeconds,timeoutMs:trackingProperties.timeoutMs};
+findHubSchemas.FindHubTrackingResult.properties.timeoutMs=trackingProperties.timeoutMs;
+findHubSchemas.FindHubTraccarBinding.properties.traccarNumericId={type:['integer','null']};
+Object.assign(findHubOperations, {
+ 'GET /findhub/tracking/snapshot/{instanceName}':operation('Consultar estado do mapa e da conta','Snapshot autorizado, posições mais recentes, estado do acompanhamento, configurações e contadores reais. Nunca contém credenciais Google/Traccar. Posição recente não é prova de aparelho online.',ref('FindHubTrackingSnapshot')),
+ 'GET /findhub/tracking/stream/{instanceName}':operation('Acompanhar posições por SSE','Usa o mesmo apikey e guards de instância. Cliente fetch com header, nunca token em query. Evento inicial snapshot seguido de updates do barramento Find Hub. Reautoriza a cada reconexão (até 120 segundos); heartbeat a cada 15 segundos. Máximo de 20 assinaturas por conta, fila inicial 100 eventos e buffer de saída limitado. Não efetua polling Google adicional por assinante.',{}, {responses:{'200':{description:'Stream text/event-stream: event: update; data contém {event,instanceId,at,data}. Snapshot inicial contém {event:"snapshot",data:FindHubTrackingSnapshot}.',content:{'text/event-stream':{schema:{type:'string'}}}},...errors}}),
+ 'GET /findhub/tracking/settings/{instanceName}':operation('Consultar parâmetros do rastreamento','Configuração efetiva desta conta. O ambiente fornece somente os valores iniciais.',ref('FindHubTrackingSettings')),
+ 'PUT /findhub/tracking/settings/{instanceName}':operation('Salvar parâmetros e retenção da conta','Mescla somente campos permitidos. Histórico habilitado é independente do Traccar. Reduzir retenção autoriza descarte das posições locais anteriores ao prazo; 0 preserva. Os intervalos já salvos por dispositivo são alterados na ação de acompanhamento daquele dispositivo.',ref('FindHubTrackingSettings'),{requestBody:body('FindHubTrackingSettings',{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30})}),
+ 'GET /findhub/traccar/configuration/{instanceName}':operation('Consultar integração oficial Traccar','Retorna modo, disponibilidade e hasToken. Segredo e endereço interno não são enviados ao frontend.',ref('FindHubTraccarConnection')),
+ 'PUT /findhub/traccar/configuration/{instanceName}':operation('Configurar Traccar interno ou externo','No modo interno a API resolve URL e credenciais da instalação. Externo exige origens HTTPS previamente autorizadas pelo administrador e token protegido. Valida sessão oficial antes de salvar; alteração de destino invalida somente vínculos locais de forma transacional, preservando dispositivos e históricos remotos. Desabilitar não afeta o canal Google.',ref('FindHubTraccarConnection'),{requestBody:body('FindHubTraccarConnectionRequest',{mode:'internal',timeoutMs:10000})}),
+ 'POST /findhub/traccar/provision/{deviceId}/{instanceName}':operation('Provisionar dispositivo no Traccar e vincular','Consulta/cria dispositivo pela API oficial usando identificador estável derivado de conta + dispositivo e valida a associação. Retorna vínculo local. Posições usam OsmAnd; eventos retornam por /api/socket com sessão exclusiva do backend e são filtrados por vínculo/conta.',ref('FindHubTraccarBinding')),
+});
+findHubOperations['GET /findhub/positions/{deviceId}/{instanceName}'].description='Histórico local desta conta/dispositivo, mais recente primeiro. Gravação controlada nas configurações da conta; posições anteriores continuam legíveis ao desabilitar novas gravações. Sem recuperar histórico que nunca foi coletado. Retenção 0 é indefinida; valores positivos permitem limpeza em lotes.';
+findHubOperations['GET /findhub/positions/{deviceId}/{instanceName}'].parameters.push(...['from','to'].map(name=>({name,in:'query',required:false,schema:timestamp})));
+findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].description='Solicita posição pelo protocolo Google. Timeout efetivo por dispositivo (5 a 120 segundos), independente do intervalo. A última posição é preservada mesmo com histórico desabilitado; não é substituída por relatório mais antigo. Integração Traccar opcional não impede a gravação nem a entrega do evento local quando indisponível.';
+findHubOperations['POST /findhub/devices/refresh/{instanceName}'].description='Consulta os catálogos SPOT e Android disponíveis à conta e une identificadores canônicos, sem descartar acessórios quando coexistirem com identificadores de telefone. O catálogo principal é preservado se a consulta complementar for recusada. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.';
+findHubOperations['PUT /findhub/traccar/{deviceId}/{instanceName}'].description='Modo legado: vínculo manual com receptor OsmAnd explicitamente autorizado em TRACCAR_ALLOWED_ORIGINS. Não provisiona cadastro remoto nem altera a configuração global; use provision para a integração oficial automática. Destino interno só é aceito quando habilitado.';
+findHubEventMessages['findhub.tracking.update']={description:'Alteração do acompanhamento por dispositivo, configuração da conta ou estado do Traccar. Envelope segue o transporte existente; SSE acrescenta instanceId e at.',data:{type:'object',properties:{deviceId:text,enabled:{type:'boolean'},intervalSeconds:{type:'integer'},timeoutMs:{type:'integer'},providerStatus:text,traccarState:text,settings:findHubSchemas.FindHubTrackingSettings}}};
+
+findHubSchemas.FindHubLocateRequest={type:'object',additionalProperties:false,properties:{timeoutMs:trackingProperties.timeoutMs}};
+findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].requestBody={required:false,content:{'application/json':{schema:ref('FindHubLocateRequest'),example:{timeoutMs:45000}}}};
+findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].description+=' Corpo opcional timeoutMs sobrepõe o prazo somente nesta consulta, sem ativar acompanhamento ou alterar parâmetros persistidos.';

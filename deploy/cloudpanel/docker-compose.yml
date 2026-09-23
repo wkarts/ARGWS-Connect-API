@@ -15,6 +15,18 @@ services:
     env_file:
       - .env
     environment:
+      TRACCAR_ENABLED: "${TRACCAR_ENABLED:-false}"
+      TRACCAR_MODE: "${TRACCAR_MODE:-disabled}"
+      TRACCAR_URL: "${TRACCAR_URL:-}"
+      TRACCAR_RECEIVER_URL: "${TRACCAR_RECEIVER_URL:-}"
+      TRACCAR_TOKEN: "${TRACCAR_TOKEN:-}"
+      TRACCAR_ALLOWED_ORIGINS: "${TRACCAR_ALLOWED_ORIGINS:-}"
+      TRACCAR_INTERNAL_URL: "${TRACCAR_INTERNAL_URL:-http://traccar:8082}"
+      TRACCAR_INTERNAL_RECEIVER_URL: "${TRACCAR_INTERNAL_RECEIVER_URL:-http://traccar:5055}"
+      TRACCAR_ADMIN_EMAIL: "${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}"
+      TRACCAR_ADMIN_PASSWORD: "${TRACCAR_ADMIN_PASSWORD:-}"
+      FINDHUB_HISTORY_RETENTION_DAYS: "${FINDHUB_HISTORY_RETENTION_DAYS:-30}"
+      FINDHUB_MAP_TILE_URL: "${FINDHUB_MAP_TILE_URL:-}"
       FINDHUB_CREDENTIALS_KEY: "${FINDHUB_CREDENTIALS_KEY:-}"
       FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS: "${FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS:-60}"
       FINDHUB_MIN_TRACKING_INTERVAL_SECONDS: "${FINDHUB_MIN_TRACKING_INTERVAL_SECONDS:-30}"
@@ -298,6 +310,67 @@ services:
       retries: 20
       start_period: 40s
     logging: *default-logging
+
+  # BEGIN OPTIONAL TRACCAR
+  traccar:
+    profiles: [traccar]
+    image: ${ARGWS_CONNECT_TRACCAR_IMAGE:-ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine}
+    restart: unless-stopped
+    depends_on:
+      traccar-postgres:
+        condition: service_healthy
+    environment:
+      CONFIG_USE_ENVIRONMENT_VARIABLES: "true"
+      DATABASE_DRIVER: org.postgresql.Driver
+      DATABASE_URL: jdbc:postgresql://traccar-postgres:5432/traccar
+      DATABASE_USER: traccar
+      DATABASE_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+      WEB_PORT: "8082"
+      OSMAND_PORT: "5055"
+      OSMAND_ADDRESS: 0.0.0.0
+      PROTOCOLS_ENABLE: osmand
+      SERVER_STATISTICS: ""
+      GEOCODER_ENABLE: "false"
+      TZ: ${TZ:-America/Bahia}
+    expose: ["8082", "5055"]
+    volumes:
+      - ${ARGWS_CONNECT_TRACCAR_DATA_PATH:-./volumes/traccar}:/opt/traccar/data
+    networks:
+      argws-connect-net:
+        aliases: [traccar]
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+  traccar-postgres:
+    profiles: [traccar]
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: traccar
+      POSTGRES_USER: traccar
+      POSTGRES_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+    volumes:
+      - ${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data
+    networks: [argws-connect-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traccar -d traccar"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  traccar-bootstrap:
+    profiles: [traccar]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    entrypoint: ["node", "/bootstrap/traccar-bootstrap.cjs"]
+    environment:
+      TRACCAR_INTERNAL_URL: http://traccar:8082
+      TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
+      TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
+    volumes:
+      - ./traccar-bootstrap.cjs:/bootstrap/traccar-bootstrap.cjs:ro
+    networks: [argws-connect-net]
+  # END OPTIONAL TRACCAR
 
 networks:
   argws-connect-net:

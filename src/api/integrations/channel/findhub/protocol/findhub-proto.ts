@@ -18,8 +18,8 @@ import {
 export const DeviceType = { ANDROID: 1, SPOT: 2 } as const;
 export const IdentifierType = { ANDROID: 1, SPOT: 2 } as const;
 
-export function encodeDeviceListRequest(requestId = randomUUID()): Buffer {
-  const payload = concat(fieldVarint(1, DeviceType.SPOT), fieldString(3, requestId));
+export function encodeDeviceListRequest(requestId = randomUUID(), deviceType: number = DeviceType.SPOT): Buffer {
+  const payload = concat(fieldVarint(1, deviceType), fieldString(3, requestId));
   return fieldMessage(1, payload);
 }
 
@@ -62,11 +62,15 @@ export function encodeSecurityUnlockExtras(sessionId: string = randomUUID()): Bu
 function canonicIds(identifier: Buffer): string[] {
   const direct = bytes(identifier, 3);
   const phone = bytes(identifier, 1);
-  const container = phone ? bytes(phone, 2) : direct;
-  if (!container) return [];
-  return repeatedBytes(container, 1)
-    .map((item) => string(item, 1))
-    .filter(Boolean) as string[];
+  const containers = [phone ? bytes(phone, 2) : undefined, direct].filter((value): value is Buffer => Boolean(value));
+  return [
+    ...new Set(
+      containers
+        .flatMap((container) => repeatedBytes(container, 1))
+        .map((item) => string(item, 1))
+        .filter(Boolean),
+    ),
+  ] as string[];
 }
 
 function normalizeDeviceType(type: number | undefined): FindHubDevice['deviceType'] {

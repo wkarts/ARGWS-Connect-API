@@ -74,6 +74,13 @@ def profiles(env):
             selected.append('operations')
     else:
         selected = [item for item in selected if item != 'operations']
+    traccar_enabled = os.environ.get('TRACCAR_ENABLED', env.get('TRACCAR_ENABLED', 'false'))
+    traccar_mode = os.environ.get('TRACCAR_MODE', env.get('TRACCAR_MODE', 'disabled'))
+    if traccar_enabled == 'true' and traccar_mode == 'internal':
+        if 'traccar' not in selected:
+            selected.append('traccar')
+    else:
+        selected = [item for item in selected if item != 'traccar']
     return ','.join(selected)
 
 

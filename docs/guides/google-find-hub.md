@@ -354,3 +354,7 @@ extensões antes de iniciar uma tentativa nova. O contrato REST não mudou: uma 
 com o fluxo browser-auth da PR #125 é compatível. A PR #126 também atualiza o ZIP
 servido pelo Manager e sua indicação de versão. Não altere CORS, TLS ou a chave
 `FINDHUB_CREDENTIALS_KEY`. Testes controlados não comprovam login Google real.
+
+## Mapa nativo, parâmetros, Traccar opcional e retenção
+
+Consulte [Rastreamento e integração Traccar](findhub-realtime-traccar-retention.md) para mapa em tempo real, SSE autenticado, histórico por conta, retenção, catálogo Android/SPOT, deploy interno/externo e proteção permanente da versão GHCR1.1.3. A autenticação que já funciona não foi substituída. O guia distingue intervalo de consulta, timeout e idade da posição, e registra os limites de compatibilidade Family Link/tags.

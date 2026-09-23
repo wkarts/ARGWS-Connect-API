@@ -28,7 +28,16 @@ export class FindHubNovaClient {
   }
 
   public async listDevices() {
-    return decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest()));
+    const primary = decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest()));
+    // The SPOT catalogue remains authoritative. An unsupported complementary catalogue must not erase it.
+    let android: typeof primary = [];
+    try {
+      android = decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, 1)));
+    } catch {
+      /* Not all Google accounts expose the complementary Android catalogue. */
+    }
+    const devices = new Map([...android, ...primary].map((device) => [device.googleDeviceId, device]));
+    return [...devices.values()];
   }
 
   public async locate(args: {

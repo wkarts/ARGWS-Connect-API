@@ -14,8 +14,13 @@ export class FindHubCredentialBundleDto {
   fcm?: FindHubFcmCredentials;
 }
 
+export class FindHubLocateDto {
+  timeoutMs?: number;
+}
+
 export class FindHubTrackingDto {
   intervalSeconds?: number;
+  timeoutMs?: number;
 }
 
 export class FindHubTraccarDto {
@@ -33,4 +38,19 @@ export class FindHubBrowserExchangeDto extends FindHubBrowserProofDto {
 }
 export class FindHubBrowserCompleteDto extends FindHubBrowserProofDto {
   vaultKeys: string;
+}
+
+export class FindHubSettingsDto {
+  intervalSeconds?: number;
+  timeoutMs?: number;
+  staleAfterSeconds?: number;
+  historyEnabled?: boolean;
+  retentionDays?: number;
+}
+export class FindHubTraccarConnectionDto {
+  mode: 'disabled' | 'internal' | 'external';
+  url?: string;
+  receiverUrl?: string;
+  token?: string;
+  timeoutMs?: number;
 }

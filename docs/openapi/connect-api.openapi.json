@@ -7254,7 +7254,7 @@
         ],
         "summary": "Atualizar catálogo pelo Google Find Hub",
         "operationId": "post_findhub_devices_refresh_instancename",
-        "description": "Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.",
+        "description": "Consulta os catálogos SPOT e Android disponíveis à conta e une identificadores canônicos, sem descartar acessórios quando coexistirem com identificadores de telefone. O catálogo principal é preservado se a consulta complementar for recusada. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.",
         "parameters": [
           {
             "name": "instanceName",
@@ -7375,7 +7375,7 @@
         ],
         "summary": "Solicitar localização do dispositivo",
         "operationId": "post_findhub_locate_deviceid_instancename",
-        "description": "Solicitação ativa via Nova e resposta assíncrona FCM/MCS. Pode retornar null quando não há posição; respeita FINDHUB_LOCATION_TIMEOUT_MS. Timestamp é a data do relatório, não a hora da chamada. Não há promessa de GPS em tempo real ou de localização nova a cada requisição.",
+        "description": "Solicita posição pelo protocolo Google. Timeout efetivo por dispositivo (5 a 120 segundos), independente do intervalo. A última posição é preservada mesmo com histórico desabilitado; não é substituída por relatório mais antigo. Integração Traccar opcional não impede a gravação nem a entrega do evento local quando indisponível. Corpo opcional timeoutMs sobrepõe o prazo somente nesta consulta, sem ativar acompanhamento ou alterar parâmetros persistidos.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7441,7 +7441,20 @@
             }
           }
         },
-        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubLocateRequest"
+              },
+              "example": {
+                "timeoutMs": 45000
+              }
+            }
+          }
+        }
       }
     },
     "/findhub/positions/{deviceId}/{instanceName}": {
@@ -7451,7 +7464,7 @@
         ],
         "summary": "Consultar histórico de posições",
         "operationId": "get_findhub_positions_deviceid_instancename",
-        "description": "Retorna somente posições persistidas. FINDHUB_STORE_POSITION_HISTORY=false por padrão; nesse caso novas posições não são inseridas no histórico. Usa recordedAt no registro persistido e ordena da mais recente para a mais antiga.",
+        "description": "Histórico local desta conta/dispositivo, mais recente primeiro. Gravação controlada nas configurações da conta; posições anteriores continuam legíveis ao desabilitar novas gravações. Sem recuperar histórico que nunca foi coletado. Retenção 0 é indefinida; valores positivos permitem limpeza em lotes.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7482,6 +7495,24 @@
               "minimum": 1,
               "maximum": 1000,
               "default": 100
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
         ],
@@ -7668,7 +7699,7 @@
         ],
         "summary": "Configurar vínculo com o Traccar",
         "operationId": "put_findhub_traccar_deviceid_instancename",
-        "description": "Salva vínculo individual via HTTP/OsmAnd. Não cria automaticamente o dispositivo no Traccar. url deve ser alcançável pelo container da API; localhost no container não é o host da VPS.",
+        "description": "Modo legado: vínculo manual com receptor OsmAnd explicitamente autorizado em TRACCAR_ALLOWED_ORIGINS. Não provisiona cadastro remoto nem altera a configuração global; use provision para a integração oficial automática. Destino interno só é aceito quando habilitado.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7743,6 +7774,397 @@
             }
           }
         }
+      }
+    },
+    "/findhub/traccar/configuration/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar integração oficial Traccar",
+        "operationId": "get_findhub_traccar_configuration_instancename",
+        "description": "Retorna modo, disponibilidade e hasToken. Segredo e endereço interno não são enviados ao frontend.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar integração oficial Traccar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Configurar Traccar interno ou externo",
+        "operationId": "put_findhub_traccar_configuration_instancename",
+        "description": "No modo interno a API resolve URL e credenciais da instalação. Externo exige origens HTTPS previamente autorizadas pelo administrador e token protegido. Valida sessão oficial antes de salvar; alteração de destino invalida somente vínculos locais de forma transacional, preservando dispositivos e históricos remotos. Desabilitar não afeta o canal Google.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configurar Traccar interno ou externo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubTraccarConnectionRequest"
+              },
+              "example": {
+                "mode": "internal",
+                "timeoutMs": 10000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/traccar/provision/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Provisionar dispositivo no Traccar e vincular",
+        "operationId": "post_findhub_traccar_provision_deviceid_instancename",
+        "description": "Consulta/cria dispositivo pela API oficial usando identificador estável derivado de conta + dispositivo e valida a associação. Retorna vínculo local. Posições usam OsmAnd; eventos retornam por /api/socket com sessão exclusiva do backend e são filtrados por vínculo/conta.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provisionar dispositivo no Traccar e vincular",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarBinding"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/tracking/settings/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar parâmetros do rastreamento",
+        "operationId": "get_findhub_tracking_settings_instancename",
+        "description": "Configuração efetiva desta conta. O ambiente fornece somente os valores iniciais.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar parâmetros do rastreamento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Salvar parâmetros e retenção da conta",
+        "operationId": "put_findhub_tracking_settings_instancename",
+        "description": "Mescla somente campos permitidos. Histórico habilitado é independente do Traccar. Reduzir retenção autoriza descarte das posições locais anteriores ao prazo; 0 preserva. Os intervalos já salvos por dispositivo são alterados na ação de acompanhamento daquele dispositivo.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Salvar parâmetros e retenção da conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubTrackingSettings"
+              },
+              "example": {
+                "intervalSeconds": 60,
+                "timeoutMs": 30000,
+                "staleAfterSeconds": 300,
+                "historyEnabled": true,
+                "retentionDays": 30
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/tracking/snapshot/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar estado do mapa e da conta",
+        "operationId": "get_findhub_tracking_snapshot_instancename",
+        "description": "Snapshot autorizado, posições mais recentes, estado do acompanhamento, configurações e contadores reais. Nunca contém credenciais Google/Traccar. Posição recente não é prova de aparelho online.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar estado do mapa e da conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
     "/findhub/tracking/start/{deviceId}/{instanceName}": {
@@ -7869,6 +8291,65 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FindHubTrackingResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/tracking/stream/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Acompanhar posições por SSE",
+        "operationId": "get_findhub_tracking_stream_instancename",
+        "description": "Usa o mesmo apikey e guards de instância. Cliente fetch com header, nunca token em query. Evento inicial snapshot seguido de updates do barramento Find Hub. Reautoriza a cada reconexão (até 120 segundos); heartbeat a cada 15 segundos. Máximo de 20 assinaturas por conta, fila inicial 100 eventos e buffer de saída limitado. Não efetua polling Google adicional por assinante.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stream text/event-stream: event: update; data contém {event,instanceId,at,data}. Snapshot inicial contém {event:\"snapshot\",data:FindHubTrackingSnapshot}.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -17500,6 +17981,52 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "latestPosition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FindHubPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastErrorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationTimeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "online",
+              "recent",
+              "stale",
+              "no_location"
+            ]
           }
         }
       },
@@ -17545,7 +18072,8 @@
               "LAST_KNOWN",
               "CROWDSOURCED",
               "AGGREGATED",
-              "UNKNOWN"
+              "UNKNOWN",
+              "TRACCAR"
             ]
           },
           "semanticLocation": {
@@ -17612,8 +18140,14 @@
           "intervalSeconds": {
             "type": "integer",
             "minimum": 15,
-            "maximum": 3600,
-            "description": "A API respeita também FINDHUB_MIN_TRACKING_INTERVAL_SECONDS; trata-se de consulta periódica, não GPS contínuo."
+            "maximum": 86400,
+            "description": "Intervalo de espera após concluir cada consulta; limitado também pelo mínimo da instalação. Não garante que o Google forneça posição nova."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 120000,
+            "description": "Prazo da espera da localização, independente do intervalo."
           }
         }
       },
@@ -17632,6 +18166,12 @@
           },
           "intervalSeconds": {
             "type": "integer"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 120000,
+            "description": "Prazo da espera da localização, independente do intervalo."
           }
         }
       },
@@ -17680,6 +18220,12 @@
           },
           "traccarDeviceId": {
             "type": "string"
+          },
+          "traccarNumericId": {
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         }
       },
@@ -17878,6 +18424,192 @@
           },
           "connected": {
             "const": false
+          }
+        }
+      },
+      "FindHubTrackingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 86400,
+            "description": "Intervalo de espera após concluir cada consulta; limitado também pelo mínimo da instalação. Não garante que o Google forneça posição nova."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 120000,
+            "description": "Prazo da espera da localização, independente do intervalo."
+          },
+          "staleAfterSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 604800,
+            "default": 300
+          },
+          "historyEnabled": {
+            "type": "boolean",
+            "description": "Habilita novas gravações. Não apaga histórico previamente capturado."
+          },
+          "retentionDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36500,
+            "default": 30,
+            "description": "0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais."
+          }
+        }
+      },
+      "FindHubTraccarConnectionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "internal",
+              "external"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "receiverUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "token": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 8192,
+            "description": "Somente modo externo. Omissão preserva o segredo anterior apenas para o mesmo servidor."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 60000
+          }
+        }
+      },
+      "FindHubTraccarConnection": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "internal",
+              "external"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "receiverUrl": {
+            "type": "string"
+          },
+          "hasToken": {
+            "type": "boolean"
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "internalAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubTrackingSnapshot": {
+        "type": "object",
+        "required": [
+          "instanceId",
+          "connected",
+          "settings",
+          "devices",
+          "counts"
+        ],
+        "properties": {
+          "instanceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/FindHubTrackingSettings"
+          },
+          "minimumIntervalSeconds": {
+            "type": "integer"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindHubDevice"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "devices": {
+                "type": "integer"
+              },
+              "tracking": {
+                "type": "integer"
+              },
+              "positions": {
+                "type": "integer"
+              }
+            }
+          },
+          "map": {
+            "type": "object",
+            "properties": {
+              "tileUrl": {
+                "type": "string"
+              }
+            }
+          },
+          "catalogue": {
+            "type": "object",
+            "properties": {
+              "limitation": {
+                "type": "string"
+              }
+            }
+          },
+          "traccar": {
+            "$ref": "#/components/schemas/FindHubTraccarConnection"
+          }
+        }
+      },
+      "FindHubLocateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 120000,
+            "description": "Prazo da espera da localização, independente do intervalo."
           }
         }
       },

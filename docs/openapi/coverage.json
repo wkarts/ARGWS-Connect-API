@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-23T00:49:44.041Z",
+  "generatedAt": "2026-09-23T05:16:14.859Z",
   "version": "1.1.3",
-  "sourceDigest": "6893841566d0b899f18d640d59f5e1e3e762f725cbca8659417241ebc52b0ff4",
+  "sourceDigest": "36b4287cf9ed79b660ecca7e275de270741638774b1c3ebdc4412bb74f247ec4",
   "operations": [
     {
       "method": "GET",
@@ -509,6 +509,36 @@
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {
+      "method": "GET",
+      "path": "/findhub/traccar/configuration/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/findhub/traccar/configuration/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/traccar/provision/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/tracking/settings/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/findhub/tracking/settings/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/tracking/snapshot/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/findhub/tracking/start/{deviceId}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
@@ -516,6 +546,11 @@
     {
       "method": "POST",
       "path": "/findhub/tracking/stop/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/tracking/stream/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {

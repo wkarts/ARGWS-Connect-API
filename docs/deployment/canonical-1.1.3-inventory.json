@@ -1,0 +1,36 @@
+{
+  "recorded_at": "2026-09-23T04:06:52Z",
+  "workflow_run": 35816976399,
+  "packages": {
+    "argws-connect-api": {
+      "digest": "sha256:434b3d0f467b1fea301ad3d40fec059339afd517739c8fdc6acb43ccbbc29e3c",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "children": [
+        "sha256:3a03dbf149f14d5d5d8cd61257185dcf7e46c44fca8f995410d7ef98f4905f57",
+        "sha256:e364d3a6c0973d75c864b98c0da6b03b0d3c84092eab1c1e7938428a9f97b483",
+        "sha256:343f5fe6cc4c246c3f939be032e2a970da41f016dbaa23260715d547275d955f",
+        "sha256:e90ed693361736f2627e0b0b1005b131efba04f9db08ce46d95d34ee211297b4"
+      ]
+    },
+    "argws-connect-manager": {
+      "digest": "sha256:ebc21714f956afe1aa869c0c490f6fcf81d9f019e1c84a13fc1e820e358d82ee",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "children": [
+        "sha256:a6573f1627b19a806b6f5ab2dc9b47512ccfa475e068900b87b36fdd2298087e",
+        "sha256:369dcf00e8b8cd1aedf03d997492e271044be106655e1b71944a5ee9d2f80eb3",
+        "sha256:ed6939d6a9df1779c7a7ccb3454f52087734b34de88238a025d425591ee7802a",
+        "sha256:cbe160b09548a631054f944445c519ee8234631b968f69a834f09c77e88fb103"
+      ]
+    },
+    "argws-connect-docs": {
+      "digest": "sha256:a3f5d082f6ddd5885cf4d299001beb6bde6af20ce39b2763ed94328984d21bb6",
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "children": [
+        "sha256:fe0804aa0b4950a093c56395b693741bf20739e1bfa8cdcf3942f0d3b0f86915",
+        "sha256:a0a0ff01489f9a1fba44494bd8c3e46c04797ab30fea5e60070e76228218950a",
+        "sha256:89ec57bd7a18387236d25d0de2d561d6c7cc785306494e3d776971d97ec85a17",
+        "sha256:9fb04f359012d2589e944827a60cf011ac21d6d70c961d7ac7efa5712b736698"
+      ]
+    }
+  }
+}

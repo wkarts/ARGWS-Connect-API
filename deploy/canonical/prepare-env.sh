@@ -50,3 +50,4 @@ echo "Stack ${STACK_NAME} preparada."
 if ! python3 ./prepare-findhub-env.py --env-file .env "$@"; then
   echo "AVISO: Find Hub requer ajuste de configuracao; outros canais nao foram bloqueados. Nenhuma chave invalida foi substituida." >&2
 fi
+python3 ./prepare-traccar-env.py --env-file .env "$@"

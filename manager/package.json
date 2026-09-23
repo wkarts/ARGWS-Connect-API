@@ -11,12 +11,13 @@
     "check:sfc": "node scripts/check-sfc-structure.mjs",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test:operations-auth": "node --test scripts/operations-auth.test.mjs",
-    "test": "npm run test:findhub-channel && npm run test:video-media && npm run test:diagnostics && npm run test:operations-auth && npm run test:communication-privacy && npm run test:instance-token && npm run check:language && npm run check:sfc && npm run build",
+    "test": "npm run test:findhub-live && npm run test:findhub-channel && npm run test:video-media && npm run test:diagnostics && npm run test:operations-auth && npm run test:communication-privacy && npm run test:instance-token && npm run check:language && npm run check:sfc && npm run build",
     "test:video-media": "node --test scripts/video-media.test.mjs",
     "test:communication-privacy": "node --test scripts/privacy-test-message.test.mjs",
     "test:instance-token": "node --test scripts/instance-token.test.mjs",
     "test:diagnostics": "node --test scripts/diagnostics.test.mjs",
-    "test:findhub-channel": "node --test scripts/findhub-channel.test.mjs scripts/findhub-auth-flow.test.mjs"
+    "test:findhub-channel": "node --test scripts/findhub-channel.test.mjs scripts/findhub-auth-flow.test.mjs",
+    "test:findhub-live": "node --test scripts/findhub-live.test.mjs"
   },
   "dependencies": {
     "pinia": "3.0.3",

@@ -2,14 +2,25 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { eventManager } from '@api/server.module';
 import { ConfigService, HttpServer } from '@config/env.config';
 import { Logger } from '@config/logger.config';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
+import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
 import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
 import { FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
+import {
+  FindHubTrackingSettings,
+  locationAvailability,
+  positionFingerprint,
+  trackingMinimum,
+  trackingSettings,
+  validPosition,
+} from './findhub-tracking.policy';
+import { resolveTraccarConnection, TraccarClient, TraccarConnection, traccarDestination } from './traccar-client';
 
 export class FindHubStartupService {
   public readonly integration = FINDHUB_INTEGRATION;
@@ -46,6 +57,12 @@ export class FindHubStartupService {
   private readonly authBroker: FindHubAuthBrokerService;
   private readonly traccar = new FindHubTraccarService();
   private protocol?: FindHubProtocolClient;
+  private options?: FindHubTrackingSettings;
+  private traccarClient?: TraccarClient;
+  private traccarState = 'disabled';
+  private retentionTimer?: NodeJS.Timeout;
+  private pruning = false;
+  private subscribers = 0;
   private readonly locating = new Set<string>();
   private generation = 0;
   private tracking = new Map<string, NodeJS.Timeout>();
@@ -100,6 +117,8 @@ export class FindHubStartupService {
       };
     }
 
+    clearInterval(this.retentionTimer);
+    this.retentionTimer = undefined;
     await this.protocol?.close().catch(() => undefined);
     let clientUuid = loaded.account.clientUuid;
     if (!clientUuid) {
@@ -119,7 +138,20 @@ export class FindHubStartupService {
       await this.refreshDevices();
       await this.authBroker.setAuthState(this.instance.id, 'READY');
       await this.setState('open');
+      await this.settings();
       await this.restoreTracking();
+      this.retentionTimer = setInterval(
+        () => {
+          void this.pruneHistory().catch(() => undefined);
+        },
+        60 * 60 * 1000,
+      );
+      this.retentionTimer.unref?.();
+      void this.pruneHistory().catch(() => undefined);
+      // Optional infrastructure cannot make a validated Google account fail authentication.
+      void this.connectTraccar().catch(() => {
+        this.traccarState = 'degraded';
+      });
     } catch {
       await this.closeClient();
       await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
@@ -135,6 +167,10 @@ export class FindHubStartupService {
 
   public async closeClient(): Promise<void> {
     this.generation++;
+    clearInterval(this.retentionTimer);
+    this.retentionTimer = undefined;
+    this.traccarClient?.close();
+    this.traccarClient = undefined;
     for (const timer of this.tracking.values()) clearInterval(timer);
     this.tracking.clear();
     await this.protocol?.close().catch(() => undefined);
@@ -145,6 +181,7 @@ export class FindHubStartupService {
   public async logoutInstance(): Promise<void> {
     await this.closeClient();
     await this.authBroker.clear(this.instance.id);
+    this.options = undefined;
     await (this.prisma as any).findHubDevice.deleteMany({ where: { instanceId: this.instance.id } });
   }
 
@@ -190,7 +227,7 @@ export class FindHubStartupService {
           manufacturer: device.manufacturer,
           model: device.model,
           imageUrl: device.imageUrl,
-          trackingIntervalSeconds: Number(process.env.FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS || 60),
+          trackingIntervalSeconds: (await this.settings()).intervalSeconds,
         },
       });
       result.push(this.toDevice(stored));
@@ -219,40 +256,66 @@ export class FindHubStartupService {
     return this.toDevice(row);
   }
 
-  public async locate(deviceId: string): Promise<FindHubPosition | null> {
+  public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     const device = await this.device(deviceId);
+    const settings = trackingSettings({
+      ...(await this.settings()),
+      timeoutMs: timeoutMs ?? device.locationTimeoutMs ?? (await this.settings()).timeoutMs,
+    });
     if (this.locating.has(deviceId)) throw new Error('Uma localização deste dispositivo já está em andamento.');
     const generation = this.generation;
     const protocol = this.protocol;
     this.locating.add(deviceId);
     let positions: FindHubPosition[];
     try {
-      positions = await protocol.locate(device);
+      await (this.prisma as any).findHubDevice.update({
+        where: { id: deviceId },
+        data: { lastAttemptAt: new Date(), lastErrorCode: null },
+      });
+      positions = await protocol.locate(device, settings.timeoutMs);
+    } catch (error) {
+      if (generation === this.generation) {
+        await (this.prisma as any).findHubDevice.updateMany({
+          where: { id: deviceId, instanceId: this.instance.id },
+          data: { lastErrorCode: 'LOCATION_UNAVAILABLE' },
+        });
+        await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'locate', code: 'LOCATION_UNAVAILABLE' });
+      }
+      throw error;
     } finally {
       this.locating.delete(deviceId);
     }
     if (generation !== this.generation || protocol !== this.protocol)
       throw new Error('A conexão de localização foi encerrada.');
+    positions = positions
+      .filter((position) => validPosition(position))
+      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
     if (!positions.length) return null;
     const position = positions[0];
-    await this.persistPosition(device, position);
+    for (const report of positions) await this.persistPosition(device, report);
     await this.emit(FINDHUB_EVENTS.LOCATION_UPDATED, {
       device: this.publicDevice(device),
       location: position,
     });
-    await this.forwardTraccar(device, position);
+    await this.forwardTraccar(device, position).catch(async () => {
+      await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'traccar', code: 'TRACCAR_FORWARD_FAILED' });
+    });
     return position;
   }
 
-  public async startTracking(deviceId: string, intervalSeconds?: number): Promise<any> {
+  public async startTracking(deviceId: string, intervalSeconds?: number, timeoutMs?: number): Promise<any> {
     const device = await this.device(deviceId);
-    const minimum = Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30));
-    const interval = Math.max(minimum, Number(intervalSeconds || device.trackingIntervalSeconds || 60));
+    const selected = trackingSettings({
+      ...(await this.settings()),
+      intervalSeconds: intervalSeconds ?? device.trackingIntervalSeconds ?? (await this.settings()).intervalSeconds,
+      timeoutMs: timeoutMs ?? device.locationTimeoutMs ?? (await this.settings()).timeoutMs,
+    });
+    const interval = selected.intervalSeconds;
 
     await (this.prisma as any).findHubDevice.update({
       where: { id: device.id },
-      data: { trackingEnabled: true, trackingIntervalSeconds: interval },
+      data: { trackingEnabled: true, trackingIntervalSeconds: interval, locationTimeoutMs: selected.timeoutMs },
     });
 
     this.installTracking(device.id, interval);
@@ -260,9 +323,10 @@ export class FindHubStartupService {
       deviceId: device.id,
       enabled: true,
       intervalSeconds: interval,
+      timeoutMs: selected.timeoutMs,
     });
 
-    return { deviceId: device.id, enabled: true, intervalSeconds: interval };
+    return { deviceId: device.id, enabled: true, intervalSeconds: interval, timeoutMs: selected.timeoutMs };
   }
 
   public async stopTracking(deviceId: string): Promise<any> {
@@ -284,10 +348,23 @@ export class FindHubStartupService {
     return { deviceId: device.id, enabled: false };
   }
 
-  public async positions(deviceId: string, limit = 100): Promise<any[]> {
+  public async positions(deviceId: string, limit = 100, from?: string, to?: string): Promise<any[]> {
     await this.device(deviceId);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Limite de histórico inválido.');
+    if (
+      (from && !Number.isFinite(Date.parse(from))) ||
+      (to && !Number.isFinite(Date.parse(to))) ||
+      (from && to && Date.parse(from) > Date.parse(to))
+    )
+      throw new Error('Período de histórico inválido.');
     return await (this.prisma as any).findHubPosition.findMany({
-      where: { instanceId: this.instance.id, deviceId },
+      where: {
+        instanceId: this.instance.id,
+        deviceId,
+        ...(from || to
+          ? { recordedAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }
+          : {}),
+      },
       orderBy: { recordedAt: 'desc' },
       take: Math.min(Math.max(1, limit), 1000),
     });
@@ -302,11 +379,17 @@ export class FindHubStartupService {
 
   public async setTraccar(deviceId: string, config: FindHubTraccarConfig): Promise<any> {
     const device = await this.device(deviceId);
+    const internal =
+      process.env.TRACCAR_ENABLED === 'true' &&
+      process.env.TRACCAR_MODE === 'internal' &&
+      config.url === (process.env.TRACCAR_INTERNAL_RECEIVER_URL || 'http://traccar:5055');
+    traccarDestination(config.url, internal, true);
     return await (this.prisma as any).findHubTraccarBinding.upsert({
       where: { deviceId: device.id },
       update: {
         enabled: config.enabled,
         url: config.url,
+        traccarNumericId: null,
         traccarDeviceId: config.deviceId,
       },
       create: {
@@ -314,6 +397,7 @@ export class FindHubStartupService {
         instanceId: this.instance.id,
         enabled: config.enabled,
         url: config.url,
+        traccarNumericId: null,
         traccarDeviceId: config.deviceId,
       },
     });
@@ -345,47 +429,320 @@ export class FindHubStartupService {
 
   private installTracking(deviceId: string, intervalSeconds: number): void {
     const previous = this.tracking.get(deviceId);
-    if (previous) clearInterval(previous);
-
-    const timer = setInterval(() => {
-      if (this.locating.has(deviceId)) return;
-      void this.locate(deviceId)
-        .catch(async () => {
-          await this.emit(FINDHUB_EVENTS.ERROR, {
-            operation: 'tracking',
-            deviceId,
-            message: 'Location refresh failed',
-          });
-        })
-        .catch(() => undefined);
-    }, intervalSeconds * 1000);
-
-    timer.unref?.();
-    this.tracking.set(deviceId, timer);
+    if (previous) clearTimeout(previous);
+    const generation = this.generation;
+    let failures = 0;
+    const schedule = (delay: number) => {
+      const timer = setTimeout(async () => {
+        if (this.tracking.get(deviceId) !== timer || generation !== this.generation) return;
+        try {
+          if (!this.locating.has(deviceId)) await this.locate(deviceId);
+          failures = 0;
+        } catch {
+          failures = Math.min(failures + 1, 4);
+        }
+        if (this.tracking.get(deviceId) === timer && generation === this.generation) {
+          schedule(Math.min(86400000, Math.max(trackingMinimum(), intervalSeconds) * 1000 * 2 ** failures));
+        }
+      }, delay);
+      timer.unref?.();
+      this.tracking.set(deviceId, timer);
+    };
+    // First request is immediate; following requests wait AFTER the previous one finishes.
+    schedule(0);
   }
 
   private async persistPosition(device: FindHubDevice, position: FindHubPosition): Promise<void> {
-    await (this.prisma as any).findHubDevice.update({
-      where: { id: device.id },
-      data: { lastLocationAt: new Date(position.timestamp) },
+    if (!validPosition(position)) return;
+    const recordedAt = new Date(position.timestamp);
+    const db = this.prisma as any;
+    // Monotonic latest position, even when history is disabled or the upstream report is old.
+    await db.findHubDevice.updateMany({
+      where: {
+        id: device.id,
+        instanceId: this.instance.id,
+        OR: [
+          { latestPosition: { equals: Prisma.DbNull } },
+          { lastLocationAt: null },
+          { lastLocationAt: { lte: recordedAt } },
+        ],
+      },
+      data: { lastLocationAt: recordedAt, latestPosition: position, lastReceivedAt: new Date(), lastErrorCode: null },
     });
-
-    if (String(process.env.FINDHUB_STORE_POSITION_HISTORY || 'false').toLowerCase() !== 'true') return;
-
-    await (this.prisma as any).findHubPosition.create({
-      data: {
+    const settings = await this.settings();
+    if (!settings.historyEnabled) return;
+    if (settings.retentionDays && Date.now() - recordedAt.getTime() > settings.retentionDays * 86400000) return;
+    const fingerprint = positionFingerprint(position);
+    await db.findHubPosition.upsert({
+      where: { instanceId_deviceId_fingerprint: { instanceId: this.instance.id, deviceId: device.id, fingerprint } },
+      update: {},
+      create: {
         instanceId: this.instance.id,
         deviceId: device.id,
+        fingerprint,
         latitude: position.latitude,
         longitude: position.longitude,
-        altitude: position.altitude,
+        altitude: position.altitude == null ? undefined : Math.round(position.altitude),
         accuracy: position.accuracy,
         source: position.source,
         ownReport: position.ownReport,
         semanticLocation: position.semanticLocation,
-        recordedAt: new Date(position.timestamp),
+        recordedAt,
       },
     });
+  }
+
+  public async settings(): Promise<FindHubTrackingSettings> {
+    if (!this.options) {
+      const account = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: this.instance.id } });
+      this.options = trackingSettings(account?.trackingSettings || {});
+    }
+    return { ...this.options };
+  }
+
+  public async saveSettings(input: any): Promise<FindHubTrackingSettings> {
+    const allowed = ['intervalSeconds', 'timeoutMs', 'staleAfterSeconds', 'historyEnabled', 'retentionDays'];
+    if (!input || typeof input !== 'object' || Object.keys(input).some((key) => !allowed.includes(key)))
+      throw new Error('Configuração inválida.');
+    const options = trackingSettings({ ...(await this.settings()), ...input });
+    await (this.prisma as any).findHubAccount.update({
+      where: { instanceId: this.instance.id },
+      data: { trackingSettings: options },
+    });
+    this.options = options;
+    await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { settings: options });
+    return options;
+  }
+
+  public async snapshot(): Promise<any> {
+    const settings = await this.settings();
+    const devices = (await this.devices()).map((device) => ({
+      ...this.publicDevice(device),
+      latestPosition: device.latestPosition,
+      lastReceivedAt: device.lastReceivedAt,
+      lastAttemptAt: device.lastAttemptAt,
+      lastErrorCode: device.lastErrorCode,
+      locationTimeoutMs: device.locationTimeoutMs || settings.timeoutMs,
+      availability: locationAvailability(
+        device.latestPosition,
+        settings.staleAfterSeconds,
+        device.latestPosition?.source === 'TRACCAR' ? device.providerStatus : undefined,
+      ),
+    }));
+    const account = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: this.instance.id } });
+    return {
+      instanceId: this.instance.id,
+      name: this.instance.name,
+      email: account?.googleEmail || '',
+      connected: this.transportReady,
+      settings,
+      minimumIntervalSeconds: trackingMinimum(),
+      devices,
+      counts: {
+        devices: devices.length,
+        tracking: devices.filter((x) => x.trackingEnabled).length,
+        positions: await (this.prisma as any).findHubPosition.count({ where: { instanceId: this.instance.id } }),
+      },
+      map: { tileUrl: process.env.FINDHUB_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' },
+      catalogue: {
+        limitation:
+          'Somente dispositivos que o protocolo Google disponibiliza à conta. Compartilhamento Family Link e acessórios podem exigir permissões não expostas por este protocolo.',
+      },
+      traccar: await this.traccarConfiguration(),
+    };
+  }
+
+  public subscribe(listener: (event: any) => void): () => void {
+    if (this.subscribers >= 20) throw new Error('Limite de assinaturas realtime desta conta atingido.');
+    const key = 'findhub:stream:' + this.instance.id;
+    this.subscribers++;
+    this._eventEmitter.on(key, listener);
+    let closed = false;
+    return () => {
+      if (!closed) {
+        closed = true;
+        this.subscribers--;
+        this._eventEmitter.off(key, listener);
+      }
+    };
+  }
+
+  public async pruneHistory(): Promise<number> {
+    const settings = await this.settings();
+    if (!settings.retentionDays || this.pruning) return 0;
+    this.pruning = true;
+    try {
+      const db = this.prisma as any;
+      let total = 0;
+      // Bounded batches keep retention from monopolizing the database on large accounts.
+      for (let batch = 0; batch < 10; batch++) {
+        const rows = await db.findHubPosition.findMany({
+          where: {
+            instanceId: this.instance.id,
+            recordedAt: { lt: new Date(Date.now() - settings.retentionDays * 86400000) },
+          },
+          select: { id: true },
+          take: 1000,
+        });
+        if (!rows.length) break;
+        const result = await db.findHubPosition.deleteMany({
+          where: { instanceId: this.instance.id, id: { in: rows.map((x) => x.id) } },
+        });
+        total += result.count;
+        if (rows.length < 1000) break;
+      }
+      return total;
+    } finally {
+      this.pruning = false;
+    }
+  }
+
+  private async storedTraccar(): Promise<TraccarConnection> {
+    const account = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: this.instance.id } });
+    if (!account?.encryptedTraccar) {
+      if (process.env.TRACCAR_ENABLED === 'true' && process.env.TRACCAR_MODE === 'internal')
+        return { mode: 'internal' };
+      if (
+        process.env.TRACCAR_ENABLED === 'true' &&
+        process.env.TRACCAR_MODE === 'external' &&
+        process.env.TRACCAR_URL &&
+        process.env.TRACCAR_RECEIVER_URL &&
+        process.env.TRACCAR_TOKEN
+      ) {
+        return {
+          mode: 'external',
+          url: process.env.TRACCAR_URL,
+          receiverUrl: process.env.TRACCAR_RECEIVER_URL,
+          token: process.env.TRACCAR_TOKEN,
+        };
+      }
+      return { mode: 'disabled' };
+    }
+    return new FindHubCredentialVault().decrypt<TraccarConnection>(account.encryptedTraccar) || { mode: 'disabled' };
+  }
+  public async traccarConfiguration(): Promise<any> {
+    const config = await this.storedTraccar();
+    return {
+      mode: config.mode,
+      url: config.mode === 'external' ? config.url || '' : '',
+      receiverUrl: config.mode === 'external' ? config.receiverUrl || '' : '',
+      hasToken: Boolean(config.token),
+      timeoutMs: config.timeoutMs || 10000,
+      state: this.traccarState,
+      available: process.env.TRACCAR_ENABLED === 'true',
+      internalAvailable: process.env.TRACCAR_ENABLED === 'true' && process.env.TRACCAR_MODE === 'internal',
+    };
+  }
+  public async saveTraccarConfiguration(input: TraccarConnection): Promise<any> {
+    const old = await this.storedTraccar();
+    const config = resolveTraccarConnection({
+      ...input,
+      token:
+        input.mode === 'external'
+          ? input.token || (old.mode === 'external' && old.url === input.url ? old.token : '')
+          : undefined,
+    });
+    if (config.mode !== 'disabled') {
+      const probe = new TraccarClient(config);
+      try {
+        await probe.session();
+      } finally {
+        probe.close();
+      }
+    }
+    // Store the endpoint and invalidate bindings atomically; never reuse IDs from another server.
+    const saved = { ...config, ...(config.mode === 'internal' ? { token: undefined } : {}) };
+    const encryptedTraccar = new FindHubCredentialVault().encrypt(saved);
+    await (this.prisma as any).$transaction(async (db: any) => {
+      if (config.mode !== old.mode || config.url !== old.url || config.receiverUrl !== old.receiverUrl) {
+        await db.findHubTraccarBinding.deleteMany({ where: { instanceId: this.instance.id } });
+      }
+      await db.findHubAccount.update({ where: { instanceId: this.instance.id }, data: { encryptedTraccar } });
+    });
+    await this.connectTraccar();
+    return this.traccarConfiguration();
+  }
+  public async provisionTraccar(deviceId: string): Promise<any> {
+    const device = await this.device(deviceId);
+    const config = resolveTraccarConnection(await this.storedTraccar());
+    if (config.mode === 'disabled') throw new Error('Configure o Traccar desta conta antes de vincular.');
+    const client = new TraccarClient(config);
+    const remote = await client.provision(this.instance.id, deviceId, device.name);
+    return (this.prisma as any).findHubTraccarBinding.upsert({
+      where: { deviceId },
+      create: {
+        instanceId: this.instance.id,
+        deviceId,
+        enabled: true,
+        url: config.receiverUrl,
+        traccarDeviceId: remote.uniqueId,
+        traccarNumericId: remote.id,
+      },
+      update: { enabled: true, url: config.receiverUrl, traccarDeviceId: remote.uniqueId, traccarNumericId: remote.id },
+    });
+  }
+  private async connectTraccar(): Promise<void> {
+    this.traccarClient?.close();
+    this.traccarClient = undefined;
+    this.traccarState = 'disabled';
+    const config = await this.storedTraccar();
+    if (config.mode === 'disabled' || process.env.TRACCAR_ENABLED !== 'true') return;
+    const client = new TraccarClient(config);
+    this.traccarClient = client;
+    client.start(
+      async (data) => {
+        if (this.traccarClient !== client) return;
+        const bindings = await (this.prisma as any).findHubTraccarBinding.findMany({
+          where: { instanceId: this.instance.id, enabled: true },
+        });
+        const allowed = new Map<number, any>(
+          bindings.filter((x) => x.traccarNumericId).map((x) => [x.traccarNumericId, x]),
+        );
+        for (const remote of Array.isArray(data.devices) ? data.devices.slice(0, 1000) : []) {
+          const binding = allowed.get(remote.id);
+          if (!binding) continue;
+          const status = ['online', 'offline', 'unknown'].includes(remote.status) ? remote.status : 'unknown';
+          await (this.prisma as any).findHubDevice.updateMany({
+            where: { id: binding.deviceId, instanceId: this.instance.id },
+            data: { providerStatus: status },
+          });
+          await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { deviceId: binding.deviceId, providerStatus: status });
+        }
+        for (const remote of Array.isArray(data.positions) ? data.positions.slice(0, 1000) : []) {
+          const binding = allowed.get(remote.deviceId);
+          if (!binding || this.traccarClient !== client) continue;
+          const device = await this.device(binding.deviceId);
+          const position: FindHubPosition = {
+            deviceId: device.id,
+            googleDeviceId: device.googleDeviceId,
+            latitude: remote.latitude,
+            longitude: remote.longitude,
+            altitude: remote.altitude,
+            accuracy: remote.accuracy,
+            timestamp: remote.fixTime,
+            source: 'TRACCAR',
+            ownReport: true,
+          };
+          if (!validPosition(position)) continue;
+          const latest = device.latestPosition;
+          if (
+            latest &&
+            Date.parse(latest.timestamp) === Date.parse(position.timestamp) &&
+            latest.latitude === position.latitude &&
+            latest.longitude === position.longitude
+          )
+            continue;
+          await this.persistPosition(device, position);
+          await this.emit(FINDHUB_EVENTS.LOCATION_UPDATED, { device: this.publicDevice(device), location: position });
+        }
+      },
+      (state) => {
+        if (this.traccarClient === client) {
+          this.traccarState = state;
+          void this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { traccarState: state }).catch(() => undefined);
+        }
+      },
+    );
   }
 
   private async forwardTraccar(device: FindHubDevice, position: FindHubPosition): Promise<void> {
@@ -393,7 +750,11 @@ export class FindHubStartupService {
       where: { deviceId: device.id },
     });
     if (!binding?.enabled) return;
-
+    if (binding.traccarNumericId) {
+      const config = await this.storedTraccar();
+      if (config.mode !== 'disabled') await new TraccarClient(config).send(binding.traccarDeviceId, position);
+      return;
+    }
     await this.traccar.send(
       {
         enabled: true,
@@ -422,6 +783,12 @@ export class FindHubStartupService {
   }
 
   private async emit(event: string, data: object): Promise<void> {
+    this._eventEmitter.emit('findhub:stream:' + this.instance.id, {
+      event,
+      instanceId: this.instance.id,
+      at: new Date().toISOString(),
+      data,
+    });
     const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
     await eventManager.emit({
       instanceName: this.instance.name,
@@ -449,6 +816,12 @@ export class FindHubStartupService {
       trackingEnabled: Boolean(row.trackingEnabled),
       trackingIntervalSeconds: row.trackingIntervalSeconds,
       lastLocationAt: row.lastLocationAt?.toISOString?.() || row.lastLocationAt || null,
+      latestPosition: row.latestPosition || null,
+      lastReceivedAt: row.lastReceivedAt?.toISOString?.() || row.lastReceivedAt || null,
+      lastAttemptAt: row.lastAttemptAt?.toISOString?.() || row.lastAttemptAt || null,
+      lastErrorCode: row.lastErrorCode || null,
+      providerStatus: row.providerStatus || null,
+      locationTimeoutMs: row.locationTimeoutMs || null,
     };
   }
 
