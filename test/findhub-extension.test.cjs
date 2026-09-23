@@ -206,7 +206,7 @@ test('document_start native callback can precede relay binding without losing fi
  const w=vaultWorld();w.load('vault-page.js');assert.equal(typeof w.window.mm?.setVaultSharedKeys,'function');
  // This simulates the Google callback during initial page scripts, before the async worker handshake.
  w.window.mm.setVaultSharedKeys('synthetic-account',JSON.stringify({finder_hw:[{key:[1,2,3]}],other_vault:[{key:'DO-NOT-EXPORT'}]}));
- w.window.mm.closeView();assert.equal(w.posted.length,0);
+ w.window.mm.closeView();assert.equal(w.posted.some(m=>m.type==='KEYS'),false);
  w.load('vault-relay.js');await flush();await flush();
  assert.equal(w.outgoing.filter(m=>m.type==='VAULT_KEYS').length,1);
  assert.equal(w.outgoing.find(m=>m.type==='VAULT_KEYS').vaultKeys.includes('other_vault'),false);
@@ -233,4 +233,14 @@ test('both bridge worlds are embedded in ZIP, Rust payload and native installer 
   const source=fs.readFileSync(path.join(folder,'../..',file),'utf8');
   assert.ok(source.includes('vault-page.js'));assert.ok(source.includes('vault-relay.js'));
  }
+});
+
+test('relay authorized before MAIN starts still binds the later native callback',async()=>{
+ const w=vaultWorld();w.load('vault-relay.js');await flush();await flush();
+ assert.equal(w.window.mm,undefined);
+ w.load('vault-page.js');
+ w.window.mm.setVaultSharedKeys('synthetic-account',{finder_hw:[{key:[3,4,5]}]});
+ await flush();await flush();
+ assert.equal(w.outgoing.filter(m=>m.type==='VAULT_KEYS').length,1);
+ w.fire('pagehide');
 });

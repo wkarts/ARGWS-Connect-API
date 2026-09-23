@@ -10,7 +10,12 @@
   const closed = () => {
     if (nonce && !disposed) void chrome.runtime.sendMessage({ type: 'VAULT_CLOSED', nonce }).catch(() => {});
   };
+  const bindPage = () => {
+    if (nonce && !disposed) window.postMessage({ source: 'CONNECT_FINDHUB_VAULT_BIND', kdi, nonce }, origin);
+  };
   const receive = event => {
+    if (!disposed && event.source === window && event.origin === origin &&
+        event.data?.source === 'CONNECT_FINDHUB_VAULT_READY' && event.data.kdi === kdi) { bindPage(); return; }
     if (disposed || !nonce || event.source !== window || event.origin !== origin ||
         event.data?.source !== 'CONNECT_FINDHUB_VAULT' || event.data.nonce !== nonce || event.data.kdi !== kdi) return;
     if (event.data.type === 'CLOSED') { closed(); return; }
@@ -28,7 +33,7 @@
   chrome.runtime.sendMessage({ type: 'VAULT_BIND' }).then(reply => {
     if (disposed || !reply?.ok || reply.kdi !== kdi || typeof reply.nonce !== 'string') return;
     nonce = reply.nonce;
-    window.postMessage({ source: 'CONNECT_FINDHUB_VAULT_BIND', kdi, nonce }, origin);
+    bindPage();
     hashChanged();
   }).catch(() => { /* Closed or unowned documents must not send any data. */ });
 })();

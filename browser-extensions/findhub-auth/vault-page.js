@@ -43,6 +43,8 @@
   };
   window.addEventListener('message', receive);
   Object.defineProperty(window, 'mm', { configurable: true, writable: true, value: native });
+  // MAIN and ISOLATED scripts have no cross-world execution-order guarantee.
+  window.postMessage({ source: 'CONNECT_FINDHUB_VAULT_READY', kdi }, origin);
   window.addEventListener('pagehide', () => {
     disposed = true; pending = null; nonce = null; window.removeEventListener('message', receive);
     if (window.mm === native) {
