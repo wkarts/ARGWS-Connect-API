@@ -148,7 +148,6 @@ onBeforeUnmount(stopStream)
   <FindHubShell>
     <PageHeader :title="section==='conta' ? instance?.name || 'Google Find Hub' : editableSection ? 'Configurações da instância' : activeNavigation?.label || 'Google Find Hub'" :description="section==='conta' ? 'Conexão, dispositivos, integrações e configurações desta instância.' : `${instance?.name || 'Google Find Hub'} · Google Find Hub`">
       <template v-if="section==='conta'">
-        <section class="provider-hero"><div class="provider-hero-icon"><AppIcon name="location" :size="22"/></div><div><small>Provider atual</small><strong>Google Find Hub</strong><p>Canal de localização · {{ connected ? 'Conectado' : 'Aguardando conexão' }}</p></div></section>
         <button class="btn primary" :disabled="!connected" @click="router.push(findHubPath(id,'mapa'))"><AppIcon name="location" :size="16"/>Rastrear em tempo real</button>
         <button class="btn ghost" :disabled="busy" @click="load"><AppIcon name="refresh" :size="16"/>Atualizar</button>
         <button class="btn ghost" @click="router.push(findHubPath(id,'dispositivos'))">Dispositivos</button>

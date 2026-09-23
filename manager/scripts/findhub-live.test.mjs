@@ -30,3 +30,5 @@ test('zero input is not converted into sixty seconds by UI fallback',()=>{
   assert.match(source,/min="0"/);assert.doesNotMatch(source,/trackingIntervalSeconds \|\|/);
  }
 });
+
+test('overview hero is unique and outside PageHeader actions',()=>{const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');assert.equal((source.match(/class="provider-hero"/g)||[]).length,1);assert.ok(!source.split('<PageHeader')[1].split('</PageHeader>')[0].includes('provider-hero'));});
