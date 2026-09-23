@@ -1,0 +1,55 @@
+name: Find Hub performance audit (read only)
+on:
+  push:
+    branches: [fix/findhub-map-manager-cadence-cache]
+    paths: [.github/workflows/findhub-performance-audit-temporary.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 18b9f548554d0a262931212ea720fa04f7fd3aa6
+          persist-credentials: false
+      - name: Archive exact baseline and read timings and cache metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz HEAD > /tmp/connect-performance-baseline.tar.gz
+          python3 - <<'PY'
+          import os,json,urllib.request,datetime
+          from pathlib import Path
+          root='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          def get(path):
+            req=urllib.request.Request(root+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+            with urllib.request.urlopen(req,timeout=30) as r:return json.load(r)
+          sha='18b9f548554d0a262931212ea720fa04f7fd3aa6'
+          runs=get('/actions/runs?head_sha='+sha+'&per_page=100')['workflow_runs']
+          summary=[]
+          for r in runs:
+            out={k:r.get(k) for k in ('id','name','path','event','status','conclusion','created_at','run_started_at','updated_at','run_attempt','html_url')}
+            jobs=get('/actions/runs/'+str(r['id'])+'/jobs?per_page=100')['jobs']
+            out['jobs']=[{**{k:j.get(k) for k in ('id','name','status','conclusion','started_at','completed_at')},'steps':[{k:s.get(k) for k in ('name','conclusion','started_at','completed_at')} for s in j.get('steps',[])]} for j in jobs]
+            summary.append(out)
+          caches=[]
+          for page in range(1,101):
+            data=get('/actions/caches?per_page=100&page='+str(page))
+            caches.extend(data['actions_caches'])
+            if len(data['actions_caches'])<100:break
+          else:raise RuntimeError('Incomplete cache inventory')
+          report={'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'sha':sha,'runs':summary,'cache_count':len(caches),'cache_bytes':sum(c['size_in_bytes'] for c in caches),'caches':caches,'read_only':True}
+          Path('/tmp/connect-performance-audit.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps({'runs':len(summary),'cache_count':len(caches),'cache_bytes':report['cache_bytes'],'read_only':True}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findhub-performance-baseline-audit
+          path: |
+            /tmp/connect-performance-baseline.tar.gz
+            /tmp/connect-performance-audit.json
+          retention-days: 3
