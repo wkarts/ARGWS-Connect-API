@@ -10,6 +10,9 @@ on:
       - .github/workflows/ghcr-publish-docs.yml
   workflow_dispatch:
 
+env:
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
+
 permissions:
   actions: write
   contents: read

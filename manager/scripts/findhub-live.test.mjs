@@ -9,3 +9,26 @@ test('projection preserves actual coordinates and zoom',()=>{for(const z of [2,5
 test('SSE frames tolerate chunk boundaries and keepalives',async()=>{const encoder=new TextEncoder(),values=[];const stream=new ReadableStream({start(c){for(const chunk of [': heartbeat\r','\n\r\n','event: update\r\ndata: {"instance','Id":"a"}\r','\n\r\n'])c.enqueue(encoder.encode(chunk));c.close()}});await readFindHubStream(new Response(stream,{headers:{'Content-Type':'text/event-stream'}}),new AbortController().signal,e=>values.push(e));assert.equal(values.length,1);assert.equal(values[0].instanceId,'a')});
 test('non-SSE response rejected without consuming opaque payload',async()=>{await assert.rejects(readFindHubStream(new Response('{}',{headers:{'Content-Type':'application/json'}}),new AbortController().signal,()=>{}))});
 test('Google location freshness is not falsely inferred from Traccar proxy socket status',()=>{const d={providerStatus:'offline',latestPosition:{timestamp:new Date().toISOString(),source:'GOOGLE_DIRECT'}};assert.equal(findHubAvailability(d,300),'Posição recente');d.latestPosition.source='TRACCAR';assert.equal(findHubAvailability(d,300),'Offline')});
+
+test('Find Hub map complies with tile identification without changing platform privacy',()=>{
+ const source=readFileSync(new URL('../src/components/FindHubMap.vue',import.meta.url),'utf8');
+ assert.match(source,/referrerpolicy="strict-origin"/);
+ assert.match(source,/@error="tileError=true"/);
+ assert.match(source,/!props.position \|\| tileError.value/);
+ assert.doesNotMatch(source,/no-cache|cacheBust|Date.now\(\).*tile/);
+ assert.match(source,/OpenStreetMap contributors/);
+});
+test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{
+ const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
+ for(const name of ['config-layout','config-nav','config-nav-item','config-workspace','PageHeader','shortcut-card'])assert.ok(source.includes(name));
+ assert.doesNotMatch(source,/findhub-tabs|rejectCall|alwaysOnline|readMessages|chatwoot/);
+ assert.match(source,/header-actions/);
+});
+test('zero input is not converted into sixty seconds by UI fallback',()=>{
+ for(const file of ['components/FindHubLiveTracking.vue','views/FindHubView.vue']){
+  const source=readFileSync(new URL('../src/'+file,import.meta.url),'utf8');
+  assert.match(source,/min="0"/);assert.doesNotMatch(source,/trackingIntervalSeconds \|\|/);
+ }
+});
+
+test('overview hero is unique and outside PageHeader actions',()=>{const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');assert.equal((source.match(/class="provider-hero"/g)||[]).length,1);assert.ok(!source.split('<PageHeader')[1].split('</PageHeader>')[0].includes('provider-hero'));});

@@ -192,6 +192,9 @@ def main():
  args=parser.parse_args();policy=validate_policy(json.loads(Path(args.policy).read_text()),json.loads(Path(args.previous_policy).read_text()) if args.previous_policy else None)
  if args.validate_policy:print('Canonical protection policy validated.');return
  now=dt.datetime.now(UTC);out=Path(args.output);out.mkdir(parents=True,exist_ok=True)
+ if args.apply and not verify_gate(os.environ.get('GITHUB_REPOSITORY',''),args.verified_sha,args.branch,args.source_sha):
+  (out/'report.json').write_text(json.dumps({'mode':'blocked','reason':'Publication or quiescence not proven before inventory; images preserved.','deleted':[]})+'\n')
+  print('Image retention deferred without waiting; cache cleanup is independent.');return
  repo=os.environ.get('GITHUB_REPOSITORY','');owner=repo.split('/')[0]
  if not re.fullmatch(r'[\w.-]+/[\w.-]+',repo) and not args.inventory_file:raise ValueError('Explicit GitHub repository is required.')
  if args.inventory_file:

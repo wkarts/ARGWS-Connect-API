@@ -16,6 +16,7 @@ import {
   FindHubTrackingSettings,
   locationAvailability,
   positionFingerprint,
+  trackingDelayMs,
   trackingMinimum,
   trackingSettings,
   validPosition,
@@ -423,7 +424,7 @@ export class FindHubStartupService {
     });
 
     for (const row of rows) {
-      this.installTracking(row.id, row.trackingIntervalSeconds || 60);
+      this.installTracking(row.id, row.trackingIntervalSeconds ?? 60);
     }
   }
 
@@ -435,14 +436,19 @@ export class FindHubStartupService {
     const schedule = (delay: number) => {
       const timer = setTimeout(async () => {
         if (this.tracking.get(deviceId) !== timer || generation !== this.generation) return;
+        // A manual request may already own this device. Yield without sending another request.
+        if (this.locating.has(deviceId)) {
+          schedule(100);
+          return;
+        }
         try {
-          if (!this.locating.has(deviceId)) await this.locate(deviceId);
-          failures = 0;
+          const position = await this.locate(deviceId);
+          failures = position ? 0 : Math.min(failures + 1, 4);
         } catch {
           failures = Math.min(failures + 1, 4);
         }
         if (this.tracking.get(deviceId) === timer && generation === this.generation) {
-          schedule(Math.min(86400000, Math.max(trackingMinimum(), intervalSeconds) * 1000 * 2 ** failures));
+          schedule(trackingDelayMs(intervalSeconds, failures));
         }
       }, delay);
       timer.unref?.();

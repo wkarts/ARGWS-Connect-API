@@ -73,7 +73,7 @@ export const findHubSchemas = {
   },
   FindHubTrackingRequest: {
     type: 'object', additionalProperties: false,
-    properties: { intervalSeconds: { type: 'integer', minimum: 15, maximum: 3600, description: 'A API respeita também FINDHUB_MIN_TRACKING_INTERVAL_SECONDS; trata-se de consulta periódica, não GPS contínuo.' } },
+    properties: { intervalSeconds: { type: 'integer', minimum: 0, maximum: 86400, description: '0 agenda a próxima consulta após concluir a atual, sem paralelismo. 1, 2 ou mais segundos são aceitos; 60 é recomendação, não limite. Falhas usam recuo progressivo.' } },
   },
   FindHubTrackingResult: { type: 'object', required: ['deviceId', 'enabled'], properties: { deviceId: text, enabled: { type: 'boolean' }, intervalSeconds: { type: 'integer' } } },
   FindHubTraccarRequest: {
@@ -94,7 +94,7 @@ export const findHubOperations = {
   'POST /findhub/devices/refresh/{instanceName}': operation('Atualizar catálogo pelo Google Find Hub', 'Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.', { type: 'array', items: ref('FindHubDevice') }),
   'GET /findhub/device/{deviceId}/{instanceName}': operation('Consultar um dispositivo', 'Use o id local retornado na listagem, não googleDeviceId. A consulta permanece restrita à instância autorizada.', ref('FindHubDevice')),
   'POST /findhub/locate/{deviceId}/{instanceName}': operation('Solicitar localização do dispositivo', 'Solicitação ativa via Nova e resposta assíncrona FCM/MCS. Pode retornar null quando não há posição; respeita FINDHUB_LOCATION_TIMEOUT_MS. Timestamp é a data do relatório, não a hora da chamada. Não há promessa de GPS em tempo real ou de localização nova a cada requisição.', { oneOf: [ref('FindHubPosition'), { type: 'null' }] }),
-  'POST /findhub/tracking/start/{deviceId}/{instanceName}': operation('Iniciar acompanhamento periódico', 'Persiste a configuração por dispositivo e agenda consultas periódicas. O intervalo efetivo respeita o mínimo do ambiente. Frequência e disponibilidade de novas posições dependem do Google e do smartphone.', ref('FindHubTrackingResult'), { requestBody: { ...body('FindHubTrackingRequest', { intervalSeconds: 60 }), required: false } }),
+  'POST /findhub/tracking/start/{deviceId}/{instanceName}': operation('Iniciar acompanhamento periódico', 'Persiste a configuração por dispositivo e agenda consultas periódicas. O intervalo aceita zero (consultas serializadas sem espera adicional) e valores inteiros positivos. Frequência e disponibilidade de novas posições dependem do Google e do smartphone.', ref('FindHubTrackingResult'), { requestBody: { ...body('FindHubTrackingRequest', { intervalSeconds: 60 }), required: false } }),
   'POST /findhub/tracking/stop/{deviceId}/{instanceName}': operation('Parar acompanhamento periódico', 'Interrompe o agendamento e persiste trackingEnabled=false; não remove o aparelho da conta Google.', ref('FindHubTrackingResult')),
   'GET /findhub/positions/{deviceId}/{instanceName}': operation('Consultar histórico de posições', 'Retorna somente posições persistidas. FINDHUB_STORE_POSITION_HISTORY=false por padrão; nesse caso novas posições não são inseridas no histórico. Usa recordedAt no registro persistido e ordena da mais recente para a mais antiga.', { type: 'array', items: ref('FindHubStoredPosition') }, { parameters: [{ name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 1000, default: 100 } }] }),
   'PUT /findhub/traccar/{deviceId}/{instanceName}': operation('Configurar vínculo com o Traccar', 'Salva vínculo individual via HTTP/OsmAnd. Não cria automaticamente o dispositivo no Traccar. url deve ser alcançável pelo container da API; localhost no container não é o host da VPS.', ref('FindHubTraccarBinding'), { requestBody: body('FindHubTraccarRequest', { enabled: true, url: 'http://traccar:5055', deviceId: 'android-01' }) }),
@@ -144,7 +144,7 @@ export const findHubEventMessages = {
 
 // Native location tracking: independent of messaging providers and optional Traccar.
 const trackingProperties = {
-  intervalSeconds: {type:'integer',minimum:15,maximum:86400,description:'Intervalo de espera após concluir cada consulta; limitado também pelo mínimo da instalação. Não garante que o Google forneça posição nova.'},
+  intervalSeconds: {type:'integer',minimum:0,maximum:86400,description:'Espera após cada consulta. 0 não acrescenta espera; nunca há duas consultas simultâneas para o mesmo dispositivo. 60 segundos são recomendados, não impostos. Falhas e limites do provedor usam recuo progressivo.'},
   timeoutMs: {type:'integer',minimum:5000,maximum:120000,description:'Prazo da espera da localização, independente do intervalo.'},
   staleAfterSeconds: {type:'integer',minimum:30,maximum:604800,default:300},
   historyEnabled: {type:'boolean',description:'Habilita novas gravações. Não apaga histórico previamente capturado.'},

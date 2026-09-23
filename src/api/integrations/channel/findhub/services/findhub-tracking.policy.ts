@@ -17,7 +17,8 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
   return number;
 }
 export function trackingMinimum(): number {
-  return integer(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS, 30, 15, 86400);
+  // Compatibility field: the installation recommendation is no longer a mandatory floor.
+  return 0;
 }
 export function trackingSettings(value: any = {}): FindHubTrackingSettings {
   const minimum = trackingMinimum();
@@ -36,6 +37,11 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
       value.historyEnabled ?? String(process.env.FINDHUB_STORE_POSITION_HISTORY ?? 'true').toLowerCase() === 'true',
     retentionDays: integer(value.retentionDays, Number(process.env.FINDHUB_HISTORY_RETENTION_DAYS || 30), 0, 36500),
   };
+}
+/** Delay after a completed request. Zero is continuous serialized tracking, not parallel requests. */
+export function trackingDelayMs(intervalSeconds: number, failures = 0): number {
+  const interval = integer(intervalSeconds, 60, 0, 86400) * 1000;
+  return failures > 0 ? Math.min(86400000, Math.max(1000, interval) * 2 ** Math.min(failures, 4)) : interval;
 }
 export function positionFingerprint(position: FindHubPosition): string {
   return createHash('sha256')

@@ -67,8 +67,8 @@ def validate(env, require_key=False):
     elif require_key:
         raise ValueError(KEY + ' ausente. Execute prepare-findhub-env.py antes de usar o canal.')
     ranges = {
-        'FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS': (15, 3600),
-        'FINDHUB_MIN_TRACKING_INTERVAL_SECONDS': (15, 3600),
+        'FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS': (0, 86400),
+        'FINDHUB_MIN_TRACKING_INTERVAL_SECONDS': (0, 86400),
         'FINDHUB_LOCATION_TIMEOUT_MS': (1000, 300000),
         'FINDHUB_TRACCAR_TIMEOUT_MS': (1000, 300000),
     }
