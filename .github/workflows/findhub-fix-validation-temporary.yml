@@ -1,0 +1,113 @@
+name: Find Hub map UI interval correction validation
+on:
+  push:
+    branches: [fix/findhub-map-ui-cache-interval]
+    paths: [.github/workflows/findhub-fix-validation-temporary.yml]
+permissions:
+  contents: write
+  actions: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_PROVIDER: postgresql
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Apply checked candidate only on requested work branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/fix/findhub-map-ui-cache-interval
+          git merge-base --is-ancestor 18b9f548554d0a262931212ea720fa04f7fd3aa6 HEAD
+          python3 - <<'PY'
+          import base64,hashlib,lzma
+          from pathlib import Path
+          parts=sorted(Path('.github/findhub-fix-source').glob('part*'))
+          assert len(parts)==3
+          data=base64.b64decode(''.join(p.read_text() for p in parts),validate=True)
+          assert hashlib.sha256(data).hexdigest()=='ff80827ee81a95898c4639e92061d6210cd0bfb1091213e57a05afaede2eba79'
+          Path('/tmp/findhub-correction.patch').write_bytes(lzma.decompress(data))
+          PY
+          git apply --check --unidiff-zero /tmp/findhub-correction.patch
+          git apply --index --unidiff-zero /tmp/findhub-correction.patch
+      - name: Install original dependencies and check changed TypeScript
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          mapfile -t changed < <(git diff --cached --name-only --diff-filter=ACM | grep '^src/.*\.ts$')
+          if [ "${#changed[@]}" -gt 0 ]; then npx --no-install eslint --fix "${changed[@]}"; fi
+          npm run lint:check
+      - name: Complete API build, compatibility, cache safety and documentation
+        run: |
+          set -euo pipefail
+          python3 scripts/sync-findhub-deployments.py --check
+          npm run docs:check
+          npm run test:compat
+          npm run db:generate
+          npm run build
+          python3 test/actions-cache-retention.test.py
+          python3 test/ghcr-retention.test.py
+      - name: Complete Manager tests, types and build
+        run: |
+          set -euo pipefail
+          npm install --prefix manager --no-audit --no-fund
+          npm test --prefix manager
+      - name: Verify protected WhatsApp, authentication and canonical sources unchanged
+        run: |
+          set -euo pipefail
+          git diff --exit-code 18b9f548554d0a262931212ea720fa04f7fd3aa6 -- src/api/integrations/channel/whatsapp src/api/integrations/channel/meta src/api/compat/meta-cloud src/api/provider src/api/integrations/channel/findhub/auth extensions/findhub-auth .github/retention-policy.json package-lock.json prisma manager/nginx.conf
+          python3 scripts/check-traccar-compose.py
+          git diff --check
+      - name: Preserve reviewed workflow source for authorized publication
+        run: |
+          set -euo pipefail
+          mkdir -p .github/findhub-validated-workflows
+          for file in ghcr-retention ghcr-publish-application ghcr-publish-docs; do
+            cp ".github/workflows/$file.yml" ".github/findhub-validated-workflows/$file.yml.txt"
+          done
+          git add -u
+          git add -f .github/findhub-validated-workflows
+          git restore --staged -- .github/workflows
+          git diff --cached --check
+      - name: Commit validated source to feature branch only
+        run: |
+          set -euo pipefail
+          branch=fix/findhub-map-ui-cache-interval
+          test "$GITHUB_REF" = "refs/heads/$branch"
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'fix(findhub): restore map policy and Manager parity, accept operator intervals, decouple cache cleanup'
+          git push origin "HEAD:refs/heads/$branch"
+          git rev-parse HEAD > /tmp/findhub-validated.commit
+      - name: Execute requested stale cache cleanup after successful existing develop publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/actions-cache-retention.py --apply --verified-sha 18b9f548554d0a262931212ea720fa04f7fd3aa6 --branch develop --output /tmp/findhub-cache-cleanup.json
+      - name: Archive exact candidate and audit
+        if: always()
+        run: |
+          set -euo pipefail
+          git ls-files -z | tar --null -T - -czf /tmp/findhub-validated-source.tar.gz
+          git diff --binary 18b9f548554d0a262931212ea720fa04f7fd3aa6 > /tmp/findhub-validated.patch
+          if [ ! -f /tmp/findhub-validated.commit ]; then git rev-parse HEAD > /tmp/findhub-validated.commit; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: findhub-map-ui-interval-cache-validated
+          path: |
+            /tmp/findhub-validated-source.tar.gz
+            /tmp/findhub-validated.patch
+            /tmp/findhub-validated.commit
+            /tmp/findhub-cache-cleanup.json
+          retention-days: 7
