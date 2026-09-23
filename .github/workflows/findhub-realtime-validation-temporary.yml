@@ -45,6 +45,13 @@ jobs:
           s=p.read_text()
           assert s.count('while (true)') == 1
           p.write_text(s.replace('while (true)', 'while (size <= 4 * 1024 * 1024)'))
+          p=Path('test/findhub-deployment.contract.test.cjs')
+          s=p.read_text()
+          assert 'assert.equal(implemented.length, 17);' in s
+          s=s.replace('// The browser producer adds six paths; GET/PUT/DELETE share the Traccar path.', '// Browser authentication plus tracking/SSE/settings and native Traccar; shared-method paths count once.')
+          s=s.replace('assert.equal(implemented.length, 17);','assert.equal(implemented.length, 22);')
+          s=s.replace('Object.keys(general.paths[route]).length, 0), 19);','Object.keys(general.paths[route]).length, 0), 26);')
+          p.write_text(s)
           PY
           python3 scripts/sync-operations-deployments.py
           python3 scripts/sync-findhub-deployments.py
