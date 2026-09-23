@@ -13,6 +13,7 @@ on:
         default: auto
 
 permissions:
+  actions: write
   contents: write
   packages: write
   pull-requests: read
@@ -476,3 +477,16 @@ jobs:
           gh workflow run ghcr-publish-application.yml --ref develop
           gh workflow run ghcr-publish-docs.yml --ref develop
           gh workflow run findhub-extension-release.yml --ref develop
+
+  protected-retention:
+    needs: [release, sync-develop, version-source]
+    if: >-
+      always() && needs.release.result == 'success' && needs.sync-develop.result == 'success' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/ghcr-retention.yml
+    with:
+      publication_sha: ${{ needs.version-source.outputs.release_sha }}
+      source_sha: ${{ github.sha }}
+      branch: ${{ github.ref_name }}
+    secrets: inherit

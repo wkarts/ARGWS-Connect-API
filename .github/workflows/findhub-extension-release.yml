@@ -12,6 +12,8 @@ on:
       - '.github/workflows/auto-version-release.yml'
   workflow_dispatch:
 permissions:
+  packages: write
+  actions: write
   contents: read
 concurrency:
   group: findhub-extension-${{ github.ref }}
@@ -56,3 +58,16 @@ jobs:
               --title "Find Hub Auth ${version} - develop ${GITHUB_SHA:0:12}" \
               --notes "Extensão e instalador Windows por usuário. É necessária confirmação manual no navegador. Binário sem assinatura Authenticode. Fonte: ${GITHUB_SHA}. Homologação Google real não está implícita no build."
           fi
+
+  protected-retention:
+    needs: publish
+    if: >-
+      always() && needs.publish.result == 'success' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') &&
+      github.event_name != 'pull_request'
+    uses: ./.github/workflows/ghcr-retention.yml
+    with:
+      publication_sha: ${{ github.sha }}
+      source_sha: ${{ github.sha }}
+      branch: ${{ github.ref_name }}
+    secrets: inherit

@@ -1,0 +1,83 @@
+name: GHCR - Protected retention after publication
+on:
+  workflow_call:
+    inputs:
+      publication_sha:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      branch:
+        type: string
+        required: true
+  workflow_run:
+    workflows: ["GHCR - Publish Development Images", "GHCR - Publish Connect API Docs", "Release - Auto Version, Build and Publish", "Find Hub - Validate and publish development extension"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Executar exclusões após validar publicação, inventário e proteções"
+        type: boolean
+        default: false
+      publication_sha:
+        description: "Commit publicado a validar; obrigatório no modo apply manual"
+        required: false
+permissions:
+  contents: read
+  actions: write
+  packages: write
+concurrency:
+  group: argws-connect-protected-retention
+  cancel-in-progress: false
+jobs:
+  retention:
+    if: >-
+      (inputs.branch == 'develop' || inputs.branch == 'main') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       (github.event.workflow_run.head_branch == 'develop' || github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Never execute PR code with package write credentials.
+          ref: ${{ inputs.publication_sha || github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Validate trusted source and canonical policy
+        env:
+          BRANCH: ${{ inputs.branch || github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$BRANCH" == develop || "$BRANCH" == main ]]
+          python3 scripts/ghcr-retention.py --validate-policy
+          python3 test/ghcr-retention.test.py
+      - name: Install registry reader
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+      - name: Authenticate inventory reader
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Inventory and dry run (always before deletion)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/ghcr-retention.py --output retention-dry-run
+      - name: Apply only explicitly armed policy after full publication verification
+        if: (github.event_name == 'workflow_dispatch' && inputs.apply) || (inputs.branch != '' && vars.ARGWS_RETENTION_APPLY != 'false') || (github.event_name == 'workflow_run' && vars.ARGWS_RETENTION_APPLY != 'false')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_SHA: ${{ inputs.publication_sha || github.event.workflow_run.head_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.event.workflow_run.head_sha || inputs.publication_sha }}
+          BRANCH: ${{ inputs.branch || github.event.workflow_run.head_branch || github.ref_name }}
+        run: python3 scripts/ghcr-retention.py --apply --verified-sha "$PUBLISHED_SHA" --branch "$BRANCH" --source-sha "$SOURCE_SHA" --wait-seconds 600 --output retention-applied
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retention-audit-${{ github.run_id }}
+          path: |
+            retention-dry-run/*.json
+            retention-applied/*.json
+          retention-days: 30
