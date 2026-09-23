@@ -1,0 +1,58 @@
+name: Find Hub repair audit (read only)
+on:
+  push:
+    branches: [fix/findhub-manager-map-cadence-ci]
+    paths: [.github/workflows/findhub-repair-audit-temporary.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 18b9f548554d0a262931212ea720fa04f7fd3aa6
+          persist-credentials: false
+      - name: Read source, execution timing and cache inventory without mutations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/findhub-repair-audit
+          git archive HEAD | gzip > /tmp/findhub-repair-audit/source.tar.gz
+          git rev-parse HEAD > /tmp/findhub-repair-audit/source.commit
+          python3 - <<'PY'
+          import json, os, subprocess, concurrent.futures
+          from pathlib import Path
+          out=Path('/tmp/findhub-repair-audit')
+          repo=os.environ['GITHUB_REPOSITORY']
+          def api(path):
+            p=subprocess.run(['gh','api',path],capture_output=True,text=True,timeout=45)
+            if p.returncode: return {'unavailable':p.returncode}
+            return json.loads(p.stdout)
+          runs=api(f'/repos/{repo}/actions/runs?head_sha=18b9f548554d0a262931212ea720fa04f7fd3aa6&per_page=100').get('workflow_runs',[])
+          def job_info(run):
+            r={k:run.get(k) for k in ['id','name','path','event','status','conclusion','created_at','updated_at','run_started_at','head_sha','head_branch','html_url']}
+            jobs=api(f'/repos/{repo}/actions/runs/{run["id"]}/jobs?per_page=100').get('jobs',[])
+            r['jobs']=[{k:j.get(k) for k in ['id','name','status','conclusion','started_at','completed_at','steps']} for j in jobs]
+            return r
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            data=list(pool.map(job_info,runs))
+          (out/'runs.json').write_text(json.dumps(data,indent=2))
+          cache=api(f'/repos/{repo}/actions/caches?per_page=100&sort=last_accessed_at&direction=asc')
+          (out/'caches.json').write_text(json.dumps(cache,indent=2))
+          for run in data:
+            if 'retention' in str(run['path']) or 'publish-application' in str(run['path']):
+              for job in run['jobs']:
+                if job['status']!='completed':continue
+                p=subprocess.run(['gh','api',f'/repos/{repo}/actions/jobs/{job["id"]}/logs'],capture_output=True,text=True,timeout=45)
+                if p.returncode==0:(out/f'job-{job["id"]}.log').write_text(p.stdout)
+          print(json.dumps({'runs':len(data),'cache_total':cache.get('total_count'),'read_only':True}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findhub-repair-audit
+          path: /tmp/findhub-repair-audit/
+          retention-days: 3
