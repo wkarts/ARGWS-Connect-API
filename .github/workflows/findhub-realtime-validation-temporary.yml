@@ -39,6 +39,13 @@ jobs:
           PY
           git apply --check --unidiff-zero /tmp/tracking.patch
           git apply --index --unidiff-zero /tmp/tracking.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/api/integrations/channel/findhub/services/traccar-client.ts')
+          s=p.read_text()
+          assert s.count('while (true)') == 1
+          p.write_text(s.replace('while (true)', 'while (size <= 4 * 1024 * 1024)'))
+          PY
           python3 scripts/sync-operations-deployments.py
           python3 scripts/sync-findhub-deployments.py
           python3 scripts/sync-traccar-deployments.py
@@ -95,6 +102,7 @@ jobs:
           node test/traccar-live.integration.cjs
       - name: Archive candidate before separating workflow publication
         run: |
+          git add -- deploy Docker/swarm docs
           git diff --binary HEAD > /tmp/validated-tracking.patch
           git ls-files -z | tar --null -T - -czf /tmp/validated-tracking-source.tar.gz
       - name: Commit validated non-workflow source only to feature branch
@@ -123,7 +131,7 @@ jobs:
       - name: Archive diagnostic candidate if validation failed
         if: always()
         run: |
-          if [ ! -f /tmp/validated-tracking-source.tar.gz ]; then git ls-files -z | tar --null -T - -czf /tmp/validated-tracking-source.tar.gz; fi
+          if [ ! -f /tmp/validated-tracking-source.tar.gz ]; then git add -- deploy Docker/swarm docs; git ls-files -z | tar --null -T - -czf /tmp/validated-tracking-source.tar.gz; fi
           if [ ! -f /tmp/validated-tracking.patch ]; then git diff --binary HEAD > /tmp/validated-tracking.patch; fi
           if [ ! -f /tmp/validated-tracking.commit ]; then git rev-parse HEAD > /tmp/validated-tracking.commit; fi
       - uses: actions/upload-artifact@v4
