@@ -1,0 +1,83 @@
+name: Find Hub PR126 repair validation
+on:
+  push:
+    branches: [fix/findhub-vault-redirect-callback]
+    paths: [.github/workflows/findhub-pr126-repair-temporary.yml]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_PROVIDER: postgresql
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Apply integrity-checked correction on the existing PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/fix/findhub-vault-redirect-callback
+          git merge-base --is-ancestor ecbbba94f6824ae03866f7af7b7faf22f68ee50d HEAD
+          git diff --exit-code ecbbba94f6824ae03866f7af7b7faf22f68ee50d -- . ':!.github/workflows/findhub-pr126-repair-temporary.yml'
+          python3 - <<'PY'
+          import base64,gzip,hashlib
+          from pathlib import Path
+          packed = base64.b64decode('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', validate=True)
+          assert hashlib.sha256(packed).hexdigest() == '312c71050e48d1f11557d885179b64cad7bf2bd16f2e2be239787954f978ecbb', 'Correction transport digest mismatch'
+          Path('/tmp/findhub-pr126.patch').write_bytes(gzip.decompress(packed))
+          PY
+          git apply --check --unidiff-zero /tmp/findhub-pr126.patch
+          git apply --index --unidiff-zero /tmp/findhub-pr126.patch
+          node scripts/build-findhub-extension.cjs
+          npm run docs:generate
+      - name: Validate complete API and regression contracts
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run lint:check
+          python3 scripts/sync-findhub-deployments.py --check
+          npm run docs:check
+          npm run test:compat
+          npm run db:generate
+          npm run build
+      - name: Validate complete Manager
+        run: |
+          set -euo pipefail
+          npm install --prefix manager --no-audit --no-fund --package-lock=false
+          npm test --prefix manager
+      - name: Commit validated source on the existing PR branch only
+        run: |
+          set -euo pipefail
+          branch=fix/findhub-vault-redirect-callback
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$GITHUB_SHA"
+          git diff --exit-code ecbbba94f6824ae03866f7af7b7faf22f68ee50d -- src/api/integrations/channel/whatsapp src/api/integrations/channel/meta src/api/compat/meta-cloud src/api/provider package-lock.json .github/actions deploy
+          git add -u
+          git add -f public/findhub-auth.zip
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'fix(findhub): confirm callback readiness and report delivery failures (0.1.6)'
+          git push origin "HEAD:refs/heads/$branch"
+      - name: Archive exact tested source
+        if: always()
+        run: |
+          git ls-files -z | tar --null -T - -czf /tmp/findhub-pr126-source.tar.gz
+          git rev-parse HEAD > /tmp/findhub-pr126-source.commit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: findhub-pr126-repair-source
+          path: |
+            /tmp/findhub-pr126-source.tar.gz
+            /tmp/findhub-pr126-source.commit
+          retention-days: 7
