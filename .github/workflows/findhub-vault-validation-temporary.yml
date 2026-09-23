@@ -31,7 +31,14 @@ jobs:
           python3 - <<'PY'
           import base64,gzip,hashlib
           from pathlib import Path
-          data=base64.b64decode(Path('.github/findhub-vault-correction.b64').read_text(),validate=True)
+          text=Path('.github/findhub-vault-correction.b64').read_text()
+          assert hashlib.sha256(text.encode()).hexdigest() == '5d70206697f15762f75a66d6c6b728b73eaf88cb0fe047088db91b3335c5a51e', 'Unexpected staged transport'
+          # Repair five transcription errors in transport; the tested payload digest remains unchanged.
+          repairs=[(350,351,'W','S'),(2389,2390,'s',''),(2624,2625,'H','m'),(11496,11498,'DF',''),(13394,13394,'','9')]
+          for start,end,old,new in reversed(repairs):
+              assert text[start:end] == old
+              text=text[:start]+new+text[end:]
+          data=base64.b64decode(text,validate=True)
           assert hashlib.sha256(data).hexdigest() == '14ad585c73638e673a99276ae67d16a484fb4183a26ed98cc2a1b00c883a9596', 'Staged patch differs from tested source'
           Path('/tmp/findhub-vault.patch').write_bytes(gzip.decompress(data))
           PY
