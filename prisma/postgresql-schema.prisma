@@ -800,6 +800,8 @@ model LocalTemplate {
 
 
 model FindHubAccount {
+  settings             Json?    @db.JsonB
+  catalogStatus        Json?    @db.JsonB
   id                   String   @id @default(cuid())
   instanceId           String   @unique
   googleEmail          String?  @db.VarChar(320)
@@ -816,6 +818,10 @@ model FindHubAccount {
 }
 
 model FindHubDevice {
+  catalogMetadata         Json?    @db.JsonB
+  lastPosition            Json?    @db.JsonB
+  lastReceivedAt          DateTime? @db.Timestamp(3)
+  locationTimeoutMs       Int?      @db.Integer
   id                      String   @id @default(cuid())
   instanceId              String
   accountId               String
@@ -842,6 +848,7 @@ model FindHubDevice {
 }
 
 model FindHubPosition {
+  deduplicationKey String?  @unique @db.VarChar(64)
   id               String   @id @default(cuid())
   instanceId       String
   deviceId         String
@@ -858,6 +865,7 @@ model FindHubPosition {
   Device           FindHubDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([instanceId])
+  @@index([instanceId, recordedAt])
   @@index([deviceId, recordedAt])
 }
 

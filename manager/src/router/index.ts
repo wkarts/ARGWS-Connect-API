@@ -6,7 +6,7 @@ import { findHubPath, isFindHub } from '@/services/findhub-channel'
 
 const routes = [
   { path: '/findhub', component: () => import('@/views/findhub/FindHubAccountsView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
-  { path: '/findhub/:id/:section(conta|dispositivos|historico|integracoes|eventos)?', component: () => import('@/views/FindHubView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
+  { path: '/findhub/:id/:section(conta|dispositivos|historico|integracoes|eventos|configuracao)?', component: () => import('@/views/FindHubView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
   { path: '/login', component: () => import('@/views/auth/LoginView.vue'), meta: { public: true } },
   { path: '/primeiro-acesso', component: () => import('@/views/auth/SetupView.vue'), meta: { public: true, feature: 'users' } },
   { path: '/confirmacao', component: () => import('@/views/auth/VerifyView.vue'), meta: { public: true, feature: 'security' } },
@@ -64,7 +64,7 @@ router.beforeEach(async (to) => {
     try {
       const instance = await connect.connection(scopedId)
       if (isFindHub(instance) && to.meta.channel !== 'findhub') {
-        const section = to.path.includes('/configuracao') ? 'eventos' : to.path.includes('/integracoes') ? 'integracoes' : 'conta'
+        const section = to.path.includes('/configuracao') ? 'configuracao' : to.path.includes('/integracoes') ? 'integracoes' : 'conta'
         return { path: findHubPath(scopedId, section), replace: true }
       }
       if (!isFindHub(instance) && to.meta.channel === 'findhub') return { path: '/findhub', replace: true }

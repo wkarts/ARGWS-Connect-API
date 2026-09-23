@@ -21,6 +21,19 @@ export interface FindHubDevice {
   imageUrl?: string;
   encryptedIdentityKey?: string;
   ownerKeyVersion?: number;
+  aliases?: string[];
+  catalogTypes?: number[];
+  locationSupported?: boolean;
+  lastReceivedAt?: string | null;
+  position?: FindHubPosition | null;
+  locationTimeoutMs?: number | null;
+  trackingStatus?: {
+    inProgress: boolean;
+    lastAttemptAt?: string;
+    nextAttemptAt?: string;
+    failures: number;
+    lastError?: string;
+  };
   trackingEnabled?: boolean;
   trackingIntervalSeconds?: number;
   lastLocationAt?: string | null;

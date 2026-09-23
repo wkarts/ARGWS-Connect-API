@@ -141,3 +141,61 @@ export const findHubEventMessages = {
   'findhub.tracking.update': { description: 'Acompanhamento ativado ou desativado por dispositivo.', data: findHubSchemas.FindHubTrackingResult },
   'findhub.error': { description: 'Erro de acompanhamento, sem credenciais.', data: { type: 'object', properties: { operation: text, deviceId: text, message: text }, additionalProperties: true } },
 };
+
+// Monitoring is a per-account policy; the Google credential/bootstrap contract remains unchanged.
+Object.assign(findHubSchemas, {
+  FindHubMonitoringSettings: {
+    type: 'object', additionalProperties: false,
+    required: ['historyEnabled', 'historyRetentionDays', 'defaultIntervalSeconds', 'locationTimeoutMs', 'uiRefreshSeconds'],
+    properties: {
+      historyEnabled: { type: 'boolean', description: 'Persiste os próximos relatórios válidos. A configuração salva prevalece sobre o padrão do ambiente.' },
+      historyRetentionDays: { type: 'integer', minimum: 0, maximum: 3650, default: 0, description: '0 conserva indefinidamente. Maior que zero remove registros antigos desta conta em lotes; não afeta a última posição.' },
+      defaultIntervalSeconds: { type: 'integer', minimum: 15, maximum: 86400, description: 'Padrão de novos dispositivos. Mínimo efetivo também limitado pelo ambiente.' },
+      locationTimeoutMs: { type: 'integer', minimum: 5000, maximum: 180000, description: 'Espera máxima de resposta por solicitação; independente do intervalo entre solicitações.' },
+      uiRefreshSeconds: { type: 'integer', minimum: 1, maximum: 60, default: 5, description: 'Polling visual de segurança quando o fluxo de eventos não estiver disponível; não solicita novas coordenadas ao Google.' },
+    },
+  },
+  FindHubDeviceSettingsRequest: { type: 'object', additionalProperties: false, required: ['intervalSeconds', 'timeoutMs'], properties: {
+    intervalSeconds: { type: 'integer', minimum: 15, maximum: 86400 },
+    timeoutMs: { type: ['integer', 'null'], minimum: 5000, maximum: 180000, description: 'null herda o padrão da conta.' },
+  } },
+  FindHubLocateRequest: { type: 'object', additionalProperties: false, properties: { timeoutMs: { type: 'integer', minimum: 5000, maximum: 180000 } } },
+  FindHubHistoryPage: { type: 'object', required: ['items', 'hasMore', 'nextCursor'], properties: {
+    items: { type: 'array', items: ref('FindHubStoredPosition') }, hasMore: { type: 'boolean' }, nextCursor: { type: ['string', 'null'] },
+  } },
+  FindHubCatalogStatus: { type: ['object', 'null'], properties: {
+    updatedAt: timestamp, complete: { type: 'boolean', description: 'Todas as fontes solicitadas responderam e seus registros foram decodificados. Não garante visibilidade de todo item apresentado por outros produtos Google.' },
+    sources: { type: 'array', items: { type: 'object', properties: { type: { type: 'integer', enum: [1,2,5,7] }, status: { enum: ['OK','UNAVAILABLE'] }, returned: { type: 'integer' }, decoded: { type: 'integer' } } } },
+  } },
+});
+Object.assign(findHubSchemas.FindHubDevice.properties, {
+  catalogTypes: { type: 'array', items: { type: 'integer' } },
+  locationSupported: { type: 'boolean', description: 'Indica a presença de material de localização no catálogo; não garante uma posição atual. Pode não estar informado em registros anteriores.' },
+  locationTimeoutMs: { type: ['integer', 'null'] },
+  lastReceivedAt: { type: ['string','null'], format: 'date-time', description: 'Hora de recepção na API, distinta da medição lastLocationAt.' },
+  position: { oneOf: [ref('FindHubPosition'),{ type:'null' }], description: 'Última posição persistida independentemente da gravação do histórico.' },
+  trackingStatus: { type:'object', properties: { inProgress:{type:'boolean'}, lastAttemptAt:timestamp, nextAttemptAt:timestamp, failures:{type:'integer'}, lastError:text } },
+});
+Object.assign(findHubSchemas.FindHubAuthStatus.properties, { settings:ref('FindHubMonitoringSettings'), catalog:ref('FindHubCatalogStatus') });
+findHubSchemas.FindHubTrackingRequest.properties.intervalSeconds.maximum = 86400;
+Object.assign(findHubOperations, {
+  'GET /findhub/settings/{instanceName}': operation('Consultar configurações de rastreamento e histórico', 'Retorna a política efetiva da conta. Não requer nova autenticação Google. Uma conta sem configuração salva herda o ambiente, preservando retenção indefinida e histórico opt-in.', ref('FindHubMonitoringSettings')),
+  'PUT /findhub/settings/{instanceName}': operation('Salvar configurações da conta', 'Substitui a política completa desta conta. Habilitar o histórico não recupera dados nunca coletados. Reduzir retenção autoriza a remoção de registros antigos desta conta: até cinco lotes de mil linhas por ciclo, na gravação da configuração e a cada dez minutos enquanto a instância está ativa. 0 desabilita a remoção automática. Desabilitar a gravação não cancela a política de retenção. Nenhuma tabela WhatsApp é afetada.', ref('FindHubMonitoringSettings'), { requestBody:body('FindHubMonitoringSettings',{historyEnabled:true,historyRetentionDays:30,defaultIntervalSeconds:60,locationTimeoutMs:30000,uiRefreshSeconds:5}) }),
+  'PUT /findhub/device/{deviceId}/settings/{instanceName}': operation('Configurar intervalo e espera de um dispositivo', 'Persiste intervalo de 15 a 86400 segundos, respeitando o mínimo do ambiente, e timeout de 5000 a 180000 milissegundos. timeoutMs=null herda a conta. Reprograma um rastreamento ativo sem duplicar solicitações.', ref('FindHubDevice'), {requestBody:body('FindHubDeviceSettingsRequest',{intervalSeconds:60,timeoutMs:45000})}),
+  'GET /findhub/location/{deviceId}/{instanceName}': operation('Consultar última posição persistida', 'Lê a última posição local, mesmo com histórico desabilitado. Não consulta Google e não transforma a hora de recepção em hora de medição. Retorna null sem relatório.', {oneOf:[ref('FindHubPosition'),{type:'null'}]}),
+  'GET /findhub/history/{deviceId}/{instanceName}': operation('Consultar histórico paginado e filtrado', 'Consulta somente o dispositivo da instância autorizada. Ordena por recordedAt e id, ambos decrescentes. O cursor pertence ao mesmo dispositivo e período; mantenha os filtros ao solicitar a próxima página. Não existe coleta retroativa. Registros existentes continuam consultáveis se a gravação for desabilitada.',ref('FindHubHistoryPage'), {parameters:[
+    {name:'limit',in:'query',schema:{type:'integer',minimum:1,maximum:1000,default:100}},
+    {name:'cursor',in:'query',schema:{type:'string'},description:'nextCursor da página anterior.'},
+    {name:'from',in:'query',schema:timestamp,description:'Limite inicial inclusivo da hora de medição (ISO 8601).'},
+    {name:'to',in:'query',schema:timestamp,description:'Limite final inclusivo da hora de medição (ISO 8601).'},
+  ]}),
+  'GET /findhub/events/stream/{instanceName}': operation('Receber eventos ao vivo da instância', 'Fluxo SSE autenticado pelo mesmo header apikey. Cada mensagem é data: {event,data,receivedAt}. Emite findhub.stream.ready ao conectar e comentários heartbeat a cada 15 segundos. Sem replay nem Last-Event-ID: após reconectar, consulte o snapshot REST/histórico. Conexões são encerradas após quinze minutos para renovação da autenticação. Máximo de 16 leitores por runtime; consumidores lentos são desconectados. Não coloca tokens em URLs, não inicia rastreamento e não promete GPS contínuo. O Manager usa fetch streaming e polling de segurança quando a conexão/proxy não permite streaming.', {}, {responses:{'200':{description:'Fluxo de eventos da instância, sem credenciais.',content:{'text/event-stream':{schema:{type:'string'}}}},...errors}}),
+});
+findHubOperations['POST /findhub/devices/refresh/{instanceName}'].description = 'Consulta separadamente catálogos Nova de rede/Spot (2), Android (1), supervisionados (7) e Fast Pair (5). Une aliases canônicos sem duplicar dispositivos. Falha parcial não exclui cadastro, vínculos, histórico ou rastreamento. Consulte catalog no status para verificar fontes indisponíveis/itens não decodificados. Um item visível no Family Link pode não ser disponibilizado por este protocolo. Até 30 segundos por fonte; clientes devem permitir 150 segundos para esta sincronização. Nenhum catálogo adicional usa senha ou conta de terceiros.';
+findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].description = 'Solicita posição ao Google. Respostas iniciais sem relatório de localização não encerram a espera. Timeout: body.timeoutMs, configuração individual ou padrão da conta, nessa ordem. A resposta é a posição mais recente do conjunto recebido ou null quando nenhuma é utilizável. Todos os relatórios válidos são deduplicados e gravados se o histórico estiver habilitado; última posição persiste independentemente dele. Requisições simultâneas do mesmo dispositivo compartilham a consulta já ativa. Erro de encaminhamento Traccar não elimina a posição. Timestamp pertence à medição, não ao instante desta consulta.';
+findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].requestBody = {...body('FindHubLocateRequest',{timeoutMs:45000}),required:false};
+findHubOperations['POST /findhub/tracking/start/{deviceId}/{instanceName}'].description = 'Persiste configuração, consulta imediatamente e agenda o próximo ciclo somente após a conclusão. Sem solicitações sobrepostas por dispositivo. Erros consecutivos aplicam backoff limitado; o intervalo configurado permanece salvo. Reinícios restauram os rastreamentos habilitados. O navegador pode ser fechado; as consultas continuam no backend. A idade/frequência das posições depende do Google.';
+findHubOperations['GET /findhub/positions/{deviceId}/{instanceName}'].description = 'Endpoint compatível: array das posições persistidas, mais recentes primeiro. A política salva por conta prevalece sobre FINDHUB_STORE_POSITION_HISTORY. Para filtros por período e cursor, use /findhub/history. Desabilitar novas gravações não apaga registros existentes; retenção é uma configuração separada.';
+findHubEventMessages['findhub.tracking.update'].description = 'Ativação, interrupção e conclusão de cada consulta periódica. Pode conter lastAttemptAt, nextAttemptAt, failures e lastError sanitizado. Não contém credenciais.';
+Object.assign(findHubSchemas.FindHubTrackingResult.properties,{lastAttemptAt:timestamp,nextAttemptAt:timestamp,failures:{type:'integer'},lastError:text});
+findHubEventMessages['findhub.devices.updated'].data.properties.catalog = findHubSchemas.FindHubCatalogStatus;

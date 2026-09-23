@@ -2,7 +2,7 @@
 
 O provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instância. Os dispositivos pertencem àquela instância; o Manager e as integrações externas utilizam a mesma API. O canal é nativo TypeScript, sem GoogleFindMyTools, Python de localização, VNC, Selenium ou Chromium no servidor.
 
-> **Autenticação assistida e limites:** o Manager oferece agora a opção de vinculação por uma extensão própria, com aprovação explícita da origem, do servidor e da conta. Ela obtém somente o artefato de login e a chave `finder_hw`, sem copiar tokens manualmente. A implementação **não implementa um login Google OAuth público** nem garante login puramente web em PC/mobile: exige Chrome/Edge desktop com a extensão e permanece sem homologação com conta Google real. O modo `CredentialProvider` por importação continua como alternativa avançada. Não informe senha/PIN à API; digite-os somente no Google.
+> **Autenticação assistida e limites:** o Manager oferece agora a opção de vinculação por uma extensão própria, com aprovação explícita da origem, do servidor e da conta. Ela obtém somente o artefato de login e a chave `finder_hw`, sem copiar tokens manualmente. A implementação **não implementa um login Google OAuth público** nem garante login puramente web em PC/mobile: exige Chrome/Edge desktop com a extensão e requer homologação com cada conta/ambiente; a vinculação já foi confirmada pelo operador neste projeto, sem implicar compatibilidade universal. O modo `CredentialProvider` por importação continua como alternativa avançada. Não informe senha/PIN à API; digite-os somente no Google.
 
 ## 1. Corrigir `FINDHUB_CREDENTIALS_KEY is required`
 
@@ -41,7 +41,7 @@ Nos perfis raiz, CloudPanel, Dockge e homologação, o serviço pode se chamar `
 | `FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS` | `60` | Intervalo inicial de novos dispositivos. |
 | `FINDHUB_MIN_TRACKING_INTERVAL_SECONDS` | `30` | Mínimo aplicado ao iniciar tracking. |
 | `FINDHUB_LOCATION_TIMEOUT_MS` | `30000` | Espera máxima da solicitação de posição. |
-| `FINDHUB_STORE_POSITION_HISTORY` | `false` | Histórico opt-in no banco. Não impede a resposta de localização ou os eventos. |
+| `FINDHUB_STORE_POSITION_HISTORY` | `false` | Padrão de histórico para contas sem política própria; pode ser substituído em Configurações da conta. Não impede última posição ou eventos. |
 | `FINDHUB_TRACCAR_TIMEOUT_MS` | `10000` | Timeout HTTP do adaptador Traccar. |
 
 Todos os templates de API e o modelo Swarm repassam esses parâmetros explicitamente. A documentação possui configuração própria de Scalar, **sem chave Find Hub**. O inventário versionado está em `docs/operations/findhub-deployment-coverage.json`.
@@ -130,7 +130,7 @@ npm run test:findhub
 
 ## 9. Área dedicada e autenticação assistida
 
-A rota `/manager/findhub` lista somente contas Google. Dentro da conta, as seções são **Conta e autenticação**, **Dispositivos**, **Histórico**, **Traccar** e **Eventos**. Os links antigos de detalhe, configurações e bots redirecionam para a seção correta **antes de carregar a tela WhatsApp**. Os seletores de mensagens, chamadas e bots não incluem Find Hub. O cartão Google não exibe número, contatos, conversas, mensagens ou teste de envio.
+A rota `/manager/findhub` lista somente contas Google. Dentro da conta, as seções são **Conta**, **Dispositivos**, **Configurações**, **Histórico**, **Traccar** e **Eventos**, mantendo o menu global do Manager visível. Os links antigos de detalhe, configurações e bots redirecionam para a seção correta **antes de carregar a tela WhatsApp**. Os seletores de mensagens, chamadas e bots não incluem Find Hub. O cartão Google não exibe número, contatos, conversas, mensagens ou teste de envio.
 
 O canal compartilha infraestrutura administrativa da Connect|API (controle de acesso, registro de instâncias, banco e transportes). Isso não o torna um provider de mensagens. A barreira após o guard de autenticação recusa endpoints específicos de WhatsApp/bots quando a instância é Google; a resolução Meta Compatible existente continua restrita aos providers WhatsApp. Não se trata de isolamento em processos/containers diferentes.
 
@@ -354,3 +354,129 @@ extensões antes de iniciar uma tentativa nova. O contrato REST não mudou: uma 
 com o fluxo browser-auth da PR #125 é compatível. A PR #126 também atualiza o ZIP
 servido pelo Manager e sua indicação de versão. Não altere CORS, TLS ou a chave
 `FINDHUB_CREDENTIALS_KEY`. Testes controlados não comprovam login Google real.
+
+## Monitoramento, histórico e navegação integrada
+
+A autenticação assistida 0.1.6 permanece inalterada. Esta evolução não exige nova
+vinculação, outra chave de cofre, mudança de permissões Google ou reinstalação da extensão.
+A área Find Hub usa o mesmo shell/menu global, tokens visuais, cards, links de ação e
+layout de configurações da plataforma; os recursos de negócio continuam separados do WhatsApp.
+As barras de rolagem são discretas, sem impedir teclado, roda do mouse, toque ou alto contraste.
+
+### Atualização das imagens e extensão
+
+O merge em `develop` executa os workflows de imagem e de distribuição já existentes.
+A extensão só ganha uma prerelease depois do merge; artefatos de uma PR não são releases.
+Uma versão intermediária substituída antes do merge (por exemplo, 0.1.5) pode existir
+apenas como artefato de revisão. A versão 0.1.6 está publicada como
+`findhub-extension-0.1.6-develop-727479848a9a`, com ZIP, assistente Rust, NSIS e checksums.
+Não se altera uma versão da extensão quando sua fonte não mudou.
+
+### Configurar pela interface ou API
+
+Em **Conta → Configurações**, salve a política da conta. O mesmo recurso é acessível por
+`GET`/`PUT /findhub/settings/{instanceName}`, com o header `apikey` usual:
+
+```json
+{
+  "historyEnabled": true,
+  "historyRetentionDays": 30,
+  "defaultIntervalSeconds": 60,
+  "locationTimeoutMs": 45000,
+  "uiRefreshSeconds": 5
+}
+```
+
+O `PUT` substitui a política completa. Retenção `0` significa conservar indefinidamente;
+`1..3650` remove os registros com medição mais antiga que esse período. A interface pede
+confirmação ao reduzir a retenção. O backend aplica até cinco lotes de mil registros ao
+salvar e a cada dez minutos enquanto o runtime estiver ativo. Uma base grande pode
+necessitar de vários ciclos. Contas anteriores sem política não sofrem uma limpeza implícita:
+a retenção inicial é `0` e a habilitação de histórico continua herdando o ambiente até ser salva.
+Desabilitar a gravação não apaga o histórico por si só, mas uma retenção não zero permanece ativa.
+
+O intervalo padrão só é aplicado a novos cadastros. Em **Dispositivos**, ajuste e salve
+cada intervalo (mínimo configurado no ambiente, padrão 30 s, até 86400 s) e tempo máximo
+(5 a 180 s) mesmo quando houver rastreamento habilitado. O contrato correspondente é:
+
+```http
+PUT /findhub/device/{deviceId}/settings/{instanceName}
+apikey: <TOKEN_DA_INSTANCIA>
+Content-Type: application/json
+
+{"intervalSeconds":60,"timeoutMs":45000}
+```
+
+`timeoutMs:null` herda a configuração da conta. A consulta manual pode sobrescrever
+esse valor no body de `POST /findhub/locate/{deviceId}/{instanceName}`. A ordem é:
+requisição → dispositivo → conta → padrão do ambiente. Alterar o intervalo de consulta
+não transforma o aparelho em GPS contínuo. A próxima consulta começa após a anterior
+terminar; falhas consecutivas aumentam temporariamente a espera, sem modificar o valor salvo.
+O rastreamento continua no backend quando o Manager fecha; abrir uma tela não inicia
+rastreamento adicional. Parar impede novas consultas, mas um relatório já em processamento pode terminar.
+
+### Última posição e histórico consultável
+
+`GET /findhub/location/{deviceId}/{instanceName}` e os campos `position`, `lastLocationAt`
+e `lastReceivedAt` dos dispositivos sobrevivem a recargas/reinícios mesmo sem histórico.
+`lastLocationAt` é a medição; `lastReceivedAt` é a recepção pela API. A interface mostra
+ambos e a idade do relatório para não apresentar uma posição antiga como medição nova.
+Uma resposta preliminar Google sem coordenadas não encerra a espera por localização.
+Todos os relatórios válidos do conjunto recebido são processados; repetições idênticas não
+criam posições duplicadas e relatórios antigos não substituem a última posição mais recente.
+
+O histórico é acessível com `GET /findhub/history/{deviceId}/{instanceName}`:
+`limit=1..1000`, `from` e `to` ISO 8601 inclusivos, e `cursor` opcional. A resposta contém
+`items`, `hasMore` e `nextCursor`. Reutilize o cursor com os mesmos filtros; não pode ser
+usado entre dispositivos/instâncias. O endpoint antigo `/positions` continua retornando array.
+Não é uma importação da Linha do Tempo Google: contém somente relatórios recebidos com
+gravação habilitada e ainda retidos. Novos eventos não movem a página de histórico que o
+operador está consultando; um aviso permite atualizar explicitamente.
+
+### Eventos ao vivo sem outra infraestrutura
+
+O Manager consome `GET /findhub/events/stream/{instanceName}` por fetch streaming/SSE,
+usando `apikey` no header (nunca na URL). O mesmo fluxo está disponível para clientes API.
+Não cria outra porta, servidor, serviço Docker ou canal WhatsApp. O fluxo inicial é:
+
+```text
+data: {"event":"findhub.stream.ready","data":{},"receivedAt":"2026-09-23T02:00:00.000Z"}
+
+```
+
+As atualizações usam `{event,data,receivedAt}` e nomes `findhub.location.updated`,
+`findhub.devices.updated`, `findhub.tracking.update` e `connection.update`. Eventos
+recebidos não são novas solicitações Google. Há heartbeat de quinze segundos, limite de
+16 leitores por runtime, renovação autenticada a cada quinze minutos e encerramento de consumidores lentos. Não existe replay nesse
+fluxo: após reconectar, o cliente consulta snapshot/histórico. O Manager também faz polling
+visual conforme `uiRefreshSeconds` em caso de falha; com SSE funcionando, verifica o snapshot
+no máximo a cada 30 segundos ou no intervalo maior configurado. Abas ocultas pausam apenas
+a atualização visual, não o rastreamento do backend. WebSocket, webhooks e brokers existentes
+continuam recebendo os eventos pelo barramento anterior; SSE não exige alterar sua configuração.
+
+### Catálogo Android, tags, acessórios e supervisionados
+
+A sincronização consulta separadamente os tipos Nova 2, 1, 7 e 5 e une os IDs canônicos
+retornados. O estado `catalog` informa sucesso/indisponibilidade, registros retornados e
+registros decodificados por fonte. Falha parcial não apaga cadastros, histórico, vínculo
+Traccar ou rastreamento. Se todas as fontes falharem, a API retorna erro, não uma lista vazia
+apresentada como catálogo completo. Cada fonte tem prazo total de 30 segundos; um cliente
+de sincronização deve admitir 150 segundos para a sequência completa.
+
+Isso remove a restrição artificial de consultar um único catálogo, mas **não garante que
+todo aparelho visível no Family Link seja autorizado por esse protocolo privado**. Um
+aparelho supervisionado pode não ser retornado para a credencial da conta do responsável.
+Nenhuma credencial de terceiros é solicitada, nenhum controle parental é contornado e
+nenhum dispositivo é fabricado. `locationSupported` indica material de localização no
+catálogo; sua ausência não deve ser apresentada como medição válida. A homologação com o
+segundo dispositivo ou uma tag exige sincronização real na conta do operador.
+
+### Banco e implantação
+
+A migration aditiva `20260923022000_findhub_monitoring_policy` está presente para MySQL e
+PostgreSQL: política/catálogo da conta, última posição e timeout do dispositivo e chave
+opcional de deduplicação do histórico. As linhas e credenciais anteriores são preservadas.
+Execute a atualização normal da stack/migrations antes de iniciar a nova API, com backup
+válido. Não remova volumes, não rotacione `FINDHUB_CREDENTIALS_KEY`, não desconecte WhatsApp.
+Não há nova variável obrigatória ou novo serviço nos Compose; as preferências pertencem
+à conta e são persistidas no banco.

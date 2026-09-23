@@ -566,19 +566,42 @@ export const current = {
     }))
   },
 
+  async findHubSettings(id: string, data?: any) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/settings/${encodeURIComponent(name)}`, {
+      method: data ? 'PUT' : 'GET', token, data,
+    }))
+  },
+  async findHubConfigureDevice(id: string, deviceId: string, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/device/${encodeURIComponent(deviceId)}/settings/${encodeURIComponent(name)}`, {
+      method: 'PUT', token, data,
+    }))
+  },
+  async findHubHistory(id: string, deviceId: string, params: Record<string, unknown> = {}) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/history/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { token, params }))
+  },
+  async findHubStream(id: string, receive: (message: any) => void, signal: AbortSignal) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(`${runtime.apiBaseUrl}/findhub/events/stream/${encodeURIComponent(name)}`, {
+        headers: { apikey: token || accessCode, Accept: 'text/event-stream' }, credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal,
+      })
+      if (!response.ok || !response.body) throw new Error('Fluxo de eventos indisponível; usando atualização periódica.')
+      const { readFindHubEvents } = await import('./findhub-monitoring')
+      await readFindHubEvents(response.body, receive, signal)
+    })
+  },
   async findHubDevices(id: string) {
     return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/devices/${encodeURIComponent(name)}`, { token }))
   },
 
   async findHubRefreshDevices(id: string) {
     return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/devices/refresh/${encodeURIComponent(name)}`, {
-      method: 'POST', token,
+      method: 'POST', token, timeout: 150000,
     }))
   },
 
-  async findHubLocate(id: string, deviceId: string) {
+  async findHubLocate(id: string, deviceId: string, timeoutMs = 30000) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/locate/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
-      method: 'POST', token, timeout: 45000,
+      method: 'POST', token, data: { timeoutMs }, timeout: timeoutMs + 35000,
     }))
   },
 

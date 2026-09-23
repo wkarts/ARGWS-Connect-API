@@ -7185,6 +7185,89 @@
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
+    "/findhub/device/{deviceId}/settings/{instanceName}": {
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Configurar intervalo e espera de um dispositivo",
+        "operationId": "put_findhub_device_deviceid_settings_instancename",
+        "description": "Persiste intervalo de 15 a 86400 segundos, respeitando o mínimo do ambiente, e timeout de 5000 a 180000 milissegundos. timeoutMs=null herda a conta. Reprograma um rastreamento ativo sem duplicar solicitações.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configurar intervalo e espera de um dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDevice"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubDeviceSettingsRequest"
+              },
+              "example": {
+                "intervalSeconds": 60,
+                "timeoutMs": 45000
+              }
+            }
+          }
+        }
+      }
+    },
     "/findhub/devices/{instanceName}": {
       "get": {
         "tags": [
@@ -7254,7 +7337,7 @@
         ],
         "summary": "Atualizar catálogo pelo Google Find Hub",
         "operationId": "post_findhub_devices_refresh_instancename",
-        "description": "Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.",
+        "description": "Consulta separadamente catálogos Nova de rede/Spot (2), Android (1), supervisionados (7) e Fast Pair (5). Une aliases canônicos sem duplicar dispositivos. Falha parcial não exclui cadastro, vínculos, histórico ou rastreamento. Consulte catalog no status para verificar fontes indisponíveis/itens não decodificados. Um item visível no Family Link pode não ser disponibilizado por este protocolo. Até 30 segundos por fonte; clientes devem permitir 150 segundos para esta sincronização. Nenhum catálogo adicional usa senha ou conta de terceiros.",
         "parameters": [
           {
             "name": "instanceName",
@@ -7368,6 +7451,170 @@
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
+    "/findhub/events/stream/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Receber eventos ao vivo da instância",
+        "operationId": "get_findhub_events_stream_instancename",
+        "description": "Fluxo SSE autenticado pelo mesmo header apikey. Cada mensagem é data: {event,data,receivedAt}. Emite findhub.stream.ready ao conectar e comentários heartbeat a cada 15 segundos. Sem replay nem Last-Event-ID: após reconectar, consulte o snapshot REST/histórico. Conexões são encerradas após quinze minutos para renovação da autenticação. Máximo de 16 leitores por runtime; consumidores lentos são desconectados. Não coloca tokens em URLs, não inicia rastreamento e não promete GPS contínuo. O Manager usa fetch streaming e polling de segurança quando a conexão/proxy não permite streaming.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fluxo de eventos da instância, sem credenciais.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/history/{deviceId}/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar histórico paginado e filtrado",
+        "operationId": "get_findhub_history_deviceid_instancename",
+        "description": "Consulta somente o dispositivo da instância autorizada. Ordena por recordedAt e id, ambos decrescentes. O cursor pertence ao mesmo dispositivo e período; mantenha os filtros ao solicitar a próxima página. Não existe coleta retroativa. Registros existentes continuam consultáveis se a gravação for desabilitada.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "nextCursor da página anterior."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Limite inicial inclusivo da hora de medição (ISO 8601)."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Limite final inclusivo da hora de medição (ISO 8601)."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar histórico paginado e filtrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubHistoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/findhub/locate/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
@@ -7375,7 +7622,7 @@
         ],
         "summary": "Solicitar localização do dispositivo",
         "operationId": "post_findhub_locate_deviceid_instancename",
-        "description": "Solicitação ativa via Nova e resposta assíncrona FCM/MCS. Pode retornar null quando não há posição; respeita FINDHUB_LOCATION_TIMEOUT_MS. Timestamp é a data do relatório, não a hora da chamada. Não há promessa de GPS em tempo real ou de localização nova a cada requisição.",
+        "description": "Solicita posição ao Google. Respostas iniciais sem relatório de localização não encerram a espera. Timeout: body.timeoutMs, configuração individual ou padrão da conta, nessa ordem. A resposta é a posição mais recente do conjunto recebido ou null quando nenhuma é utilizável. Todos os relatórios válidos são deduplicados e gravados se o histórico estiver habilitado; última posição persiste independentemente dele. Requisições simultâneas do mesmo dispositivo compartilham a consulta já ativa. Erro de encaminhamento Traccar não elimina a posição. Timestamp pertence à medição, não ao instante desta consulta.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7441,6 +7688,95 @@
             }
           }
         },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubLocateRequest"
+              },
+              "example": {
+                "timeoutMs": 45000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/location/{deviceId}/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar última posição persistida",
+        "operationId": "get_findhub_location_deviceid_instancename",
+        "description": "Lê a última posição local, mesmo com histórico desabilitado. Não consulta Google e não transforma a hora de recepção em hora de medição. Retorna null sem relatório.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar última posição persistida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindHubPosition"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
@@ -7451,7 +7787,7 @@
         ],
         "summary": "Consultar histórico de posições",
         "operationId": "get_findhub_positions_deviceid_instancename",
-        "description": "Retorna somente posições persistidas. FINDHUB_STORE_POSITION_HISTORY=false por padrão; nesse caso novas posições não são inseridas no histórico. Usa recordedAt no registro persistido e ordena da mais recente para a mais antiga.",
+        "description": "Endpoint compatível: array das posições persistidas, mais recentes primeiro. A política salva por conta prevalece sobre FINDHUB_STORE_POSITION_HISTORY. Para filtros por período e cursor, use /findhub/history. Desabilitar novas gravações não apaga registros existentes; retenção é uma configuração separada.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7525,6 +7861,139 @@
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/settings/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar configurações de rastreamento e histórico",
+        "operationId": "get_findhub_settings_instancename",
+        "description": "Retorna a política efetiva da conta. Não requer nova autenticação Google. Uma conta sem configuração salva herda o ambiente, preservando retenção indefinida e histórico opt-in.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar configurações de rastreamento e histórico",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubMonitoringSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Salvar configurações da conta",
+        "operationId": "put_findhub_settings_instancename",
+        "description": "Substitui a política completa desta conta. Habilitar o histórico não recupera dados nunca coletados. Reduzir retenção autoriza a remoção de registros antigos desta conta: até cinco lotes de mil linhas por ciclo, na gravação da configuração e a cada dez minutos enquanto a instância está ativa. 0 desabilita a remoção automática. Desabilitar a gravação não cancela a política de retenção. Nenhuma tabela WhatsApp é afetada.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Salvar configurações da conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubMonitoringSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubMonitoringSettings"
+              },
+              "example": {
+                "historyEnabled": true,
+                "historyRetentionDays": 30,
+                "defaultIntervalSeconds": 60,
+                "locationTimeoutMs": 30000,
+                "uiRefreshSeconds": 5
+              }
+            }
+          }
+        }
       }
     },
     "/findhub/traccar/{deviceId}/{instanceName}": {
@@ -7752,7 +8221,7 @@
         ],
         "summary": "Iniciar acompanhamento periódico",
         "operationId": "post_findhub_tracking_start_deviceid_instancename",
-        "description": "Persiste a configuração por dispositivo e agenda consultas periódicas. O intervalo efetivo respeita o mínimo do ambiente. Frequência e disponibilidade de novas posições dependem do Google e do smartphone.",
+        "description": "Persiste configuração, consulta imediatamente e agenda o próximo ciclo somente após a conclusão. Sem solicitações sobrepostas por dispositivo. Erros consecutivos aplicam backoff limitado; o intervalo configurado permanece salvo. Reinícios restauram os rastreamentos habilitados. O navegador pode ser fechado; as consultas continuam no backend. A idade/frequência das posições depende do Google.",
         "parameters": [
           {
             "name": "deviceId",
@@ -17436,6 +17905,12 @@
             "type": "object",
             "additionalProperties": true,
             "description": "ID público e versão da extensão opcional; indica mobileSupported=false e caminho de download autenticado."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/FindHubMonitoringSettings"
+          },
+          "catalog": {
+            "$ref": "#/components/schemas/FindHubCatalogStatus"
           }
         }
       },
@@ -17500,6 +17975,63 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "catalogTypes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "locationSupported": {
+            "type": "boolean",
+            "description": "Indica a presença de material de localização no catálogo; não garante uma posição atual. Pode não estar informado em registros anteriores."
+          },
+          "locationTimeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Hora de recepção na API, distinta da medição lastLocationAt."
+          },
+          "position": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FindHubPosition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Última posição persistida independentemente da gravação do histórico."
+          },
+          "trackingStatus": {
+            "type": "object",
+            "properties": {
+              "inProgress": {
+                "type": "boolean"
+              },
+              "lastAttemptAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "nextAttemptAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "failures": {
+                "type": "integer"
+              },
+              "lastError": {
+                "type": "string"
+              }
+            }
           }
         }
       },
@@ -17612,7 +18144,7 @@
           "intervalSeconds": {
             "type": "integer",
             "minimum": 15,
-            "maximum": 3600,
+            "maximum": 86400,
             "description": "A API respeita também FINDHUB_MIN_TRACKING_INTERVAL_SECONDS; trata-se de consulta periódica, não GPS contínuo."
           }
         }
@@ -17632,6 +18164,20 @@
           },
           "intervalSeconds": {
             "type": "integer"
+          },
+          "lastAttemptAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "failures": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string"
           }
         }
       },
@@ -17878,6 +18424,154 @@
           },
           "connected": {
             "const": false
+          }
+        }
+      },
+      "FindHubMonitoringSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "historyEnabled",
+          "historyRetentionDays",
+          "defaultIntervalSeconds",
+          "locationTimeoutMs",
+          "uiRefreshSeconds"
+        ],
+        "properties": {
+          "historyEnabled": {
+            "type": "boolean",
+            "description": "Persiste os próximos relatórios válidos. A configuração salva prevalece sobre o padrão do ambiente."
+          },
+          "historyRetentionDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3650,
+            "default": 0,
+            "description": "0 conserva indefinidamente. Maior que zero remove registros antigos desta conta em lotes; não afeta a última posição."
+          },
+          "defaultIntervalSeconds": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 86400,
+            "description": "Padrão de novos dispositivos. Mínimo efetivo também limitado pelo ambiente."
+          },
+          "locationTimeoutMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 180000,
+            "description": "Espera máxima de resposta por solicitação; independente do intervalo entre solicitações."
+          },
+          "uiRefreshSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "default": 5,
+            "description": "Polling visual de segurança quando o fluxo de eventos não estiver disponível; não solicita novas coordenadas ao Google."
+          }
+        }
+      },
+      "FindHubDeviceSettingsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intervalSeconds",
+          "timeoutMs"
+        ],
+        "properties": {
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 86400
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 5000,
+            "maximum": 180000,
+            "description": "null herda o padrão da conta."
+          }
+        }
+      },
+      "FindHubLocateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 5000,
+            "maximum": 180000
+          }
+        }
+      },
+      "FindHubHistoryPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "hasMore",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindHubStoredPosition"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FindHubCatalogStatus": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "Todas as fontes solicitadas responderam e seus registros foram decodificados. Não garante visibilidade de todo item apresentado por outros produtos Google."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    2,
+                    5,
+                    7
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "OK",
+                    "UNAVAILABLE"
+                  ]
+                },
+                "returned": {
+                  "type": "integer"
+                },
+                "decoded": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         }
       },

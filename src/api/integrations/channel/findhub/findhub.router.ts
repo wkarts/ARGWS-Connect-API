@@ -5,10 +5,14 @@ import {
   FindHubBrowserExchangeDto,
   FindHubBrowserProofDto,
   FindHubCredentialBundleDto,
+  FindHubDeviceSettingsDto,
+  FindHubLocateDto,
+  FindHubMonitoringDto,
   FindHubTraccarDto,
   FindHubTrackingDto,
 } from '@api/dto/findhub.dto';
 import { findHubController } from '@api/server.module';
+import { BadRequestException } from '@exceptions';
 import {
   findHubAuthStartSchema,
   findHubBrowserCancelSchema,
@@ -16,6 +20,9 @@ import {
   findHubBrowserExchangeSchema,
   findHubBrowserStartSchema,
   findHubCredentialBundleSchema,
+  findHubDeviceSettingsSchema,
+  findHubLocateSchema,
+  findHubMonitoringSchema,
   findHubTraccarSchema,
   findHubTrackingSchema,
 } from '@validate/findhub.schema';
@@ -28,7 +35,84 @@ export class FindHubRouter extends RouterBroker {
   constructor(...guards: RequestHandler[]) {
     super();
 
+    this.router.use((req, _res, next) => {
+      if (
+        Object.prototype.hasOwnProperty.call(req.query, 'instanceName') ||
+        Object.prototype.hasOwnProperty.call(req.query, 'deviceId')
+      ) {
+        throw new BadRequestException('A instância e o dispositivo devem ser definidos no caminho, não na query.');
+      }
+      next();
+    });
+
     this.router
+      .get('/settings/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.settings(req.params.instanceName)),
+      )
+      .put('/settings/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubMonitoringDto>({
+            request: req,
+            schema: findHubMonitoringSchema,
+            ClassRef: FindHubMonitoringDto,
+            execute: (instance, data) => findHubController.saveSettings(instance.instanceName, data),
+          }),
+        ),
+      )
+      .put('/device/:deviceId/settings/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubDeviceSettingsDto>({
+            request: req,
+            schema: findHubDeviceSettingsSchema,
+            ClassRef: FindHubDeviceSettingsDto,
+            execute: (instance, data) =>
+              findHubController.configureDevice(instance.instanceName, req.params.deviceId, data),
+          }),
+        ),
+      )
+      .get('/location/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(await findHubController.latestPosition(req.params.instanceName, req.params.deviceId)),
+      )
+      .get('/history/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await findHubController.history(req.params.instanceName, req.params.deviceId, {
+            limit: Number(req.query.limit || 100),
+            cursor: req.query.cursor ? String(req.query.cursor) : undefined,
+            from: req.query.from ? String(req.query.from) : undefined,
+            to: req.query.to ? String(req.query.to) : undefined,
+          }),
+        ),
+      )
+      .get('/events/stream/:instanceName', ...guards, (req, res) => {
+        // Same instance authorization as REST. Never put credentials in a query string.
+        let closed = false;
+        const release = findHubController.subscribe(req.params.instanceName, (message) => {
+          if (closed) return;
+          if (!res.write(`data: ${JSON.stringify(message)}\n\n`)) res.destroy();
+          (res as any).flush?.();
+        });
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+        res.write(
+          `data: ${JSON.stringify({ event: 'findhub.stream.ready', data: {}, receivedAt: new Date().toISOString() })}\n\n`,
+        );
+        (res as any).flush?.();
+        const heartbeat = setInterval(() => {
+          if (!closed && !res.write(': heartbeat\n\n')) res.destroy();
+          (res as any).flush?.();
+        }, 15000);
+        heartbeat.unref?.();
+        const lifetime = setTimeout(() => res.end(), 900000);
+        lifetime.unref?.();
+        res.on('close', () => {
+          closed = true;
+          clearInterval(heartbeat);
+          clearTimeout(lifetime);
+          release();
+        });
+      })
       .get('/auth/extension/:instanceName', ...guards, (req, res, next) => {
         findHubController.extensionAllowed(req.params.instanceName);
         res.setHeader('Cache-Control', 'no-store');
@@ -119,7 +203,15 @@ export class FindHubRouter extends RouterBroker {
         res.json(await findHubController.device(req.params.instanceName, req.params.deviceId)),
       )
       .post('/locate/:deviceId/:instanceName', ...guards, async (req, res) =>
-        res.json(await findHubController.locate(req.params.instanceName, req.params.deviceId)),
+        res.json(
+          await this.dataValidate<FindHubLocateDto>({
+            request: req,
+            schema: findHubLocateSchema,
+            ClassRef: FindHubLocateDto,
+            execute: (instance, data) =>
+              findHubController.locate(instance.instanceName, req.params.deviceId, data.timeoutMs),
+          }),
+        ),
       )
       .post('/tracking/start/:deviceId/:instanceName', ...guards, async (req, res) =>
         res.json(

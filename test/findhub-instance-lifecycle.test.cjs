@@ -174,6 +174,7 @@ function harness(options = {}) {
     './findhub-protocol.client': { FindHubProtocolClient: class { constructor() { throw new Error('Unexpected Google connection'); } } },
     './findhub-traccar.service': { FindHubTraccarService: class {} },
   };
+  dependencies['./findhub-monitoring'] = loadSource('src/api/integrations/channel/findhub/services/findhub-monitoring.ts', dependencies);
   const { FindHubStartupService } = loadSource('src/api/integrations/channel/findhub/services/findhub-runtime.service.ts', dependencies);
   dependencies['@api/server.module'].channelController.init = (data) => {
     calls.push(['channel.init', data.integration]);

@@ -15,11 +15,12 @@ import {
   string,
 } from './protobuf';
 
-export const DeviceType = { ANDROID: 1, SPOT: 2 } as const;
+export const DeviceType = { ANDROID: 1, SPOT: 2, FASTPAIR: 5, SUPERVISED: 7 } as const;
 export const IdentifierType = { ANDROID: 1, SPOT: 2 } as const;
 
-export function encodeDeviceListRequest(requestId = randomUUID()): Buffer {
-  const payload = concat(fieldVarint(1, DeviceType.SPOT), fieldString(3, requestId));
+export function encodeDeviceListRequest(requestId: string = randomUUID(), type: number = DeviceType.SPOT): Buffer {
+  if (!Object.values(DeviceType).includes(type as any)) throw new Error('Unsupported Find Hub catalog type');
+  const payload = concat(fieldVarint(1, type), fieldString(3, requestId));
   return fieldMessage(1, payload);
 }
 
@@ -62,11 +63,16 @@ export function encodeSecurityUnlockExtras(sessionId: string = randomUUID()): Bu
 function canonicIds(identifier: Buffer): string[] {
   const direct = bytes(identifier, 3);
   const phone = bytes(identifier, 1);
-  const container = phone ? bytes(phone, 2) : direct;
-  if (!container) return [];
-  return repeatedBytes(container, 1)
-    .map((item) => string(item, 1))
-    .filter(Boolean) as string[];
+  const containers = [phone ? bytes(phone, 2) : undefined, direct].filter((item): item is Buffer => !!item);
+  return [
+    ...new Set(
+      containers.flatMap((container) =>
+        repeatedBytes(container, 1)
+          .map((item) => string(item, 1))
+          .filter((item): item is string => !!item),
+      ),
+    ),
+  ];
 }
 
 function normalizeDeviceType(type: number | undefined): FindHubDevice['deviceType'] {
@@ -102,7 +108,12 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
         : identifierType === IdentifierType.SPOT
           ? 'SPOT'
           : 'UNKNOWN',
-    deviceType: normalizeDeviceType(deviceType),
+    deviceType: deviceType
+      ? normalizeDeviceType(deviceType)
+      : identifierType === IdentifierType.ANDROID
+        ? 'PHONE'
+        : 'UNKNOWN',
+    aliases: ids,
     manufacturer: string(registration, 20),
     model: string(registration, 34),
     imageUrl: image ? string(image, 1) : undefined,

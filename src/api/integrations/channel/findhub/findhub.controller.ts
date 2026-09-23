@@ -6,6 +6,7 @@ import { FindHubAuthError } from './auth/findhub-auth.error';
 import { FindHubBrowserAuthService } from './auth/findhub-browser-auth.service';
 import { FINDHUB_EXTENSION_ID } from './auth/findhub-extension.constants';
 import { FINDHUB_INTEGRATION } from './findhub.constants';
+import { minimumTrackingInterval } from './services/findhub-monitoring';
 import { FindHubStartupService } from './services/findhub-runtime.service';
 
 export class FindHubController {
@@ -43,8 +44,10 @@ export class FindHubController {
       connected,
       connectionState: runtime.connectionStatus.state,
       pending: this.browser.pending(runtime),
-      historyEnabled: String(process.env.FINDHUB_STORE_POSITION_HISTORY || 'false').toLowerCase() === 'true',
-      minimumIntervalSeconds: Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30)),
+      historyEnabled: (await runtime.settings()).historyEnabled,
+      settings: await runtime.settings(),
+      catalog: await runtime.catalogStatus(),
+      minimumIntervalSeconds: minimumTrackingInterval(),
       helper: {
         extensionId: FINDHUB_EXTENSION_ID,
         version: '0.1.6',
@@ -86,6 +89,39 @@ export class FindHubController {
     await runtime.logoutInstance();
     return { state: 'WAITING_AUTH', connected: false };
   }
+  public settings(instanceName: string) {
+    return this.runtime(instanceName).settings();
+  }
+  public async saveSettings(instanceName: string, data: any) {
+    const runtime = this.runtime(instanceName);
+    try {
+      return await runtime.saveSettings(data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao salvar configurações.');
+    }
+  }
+  public async configureDevice(instanceName: string, deviceId: string, data: any) {
+    const runtime = this.runtime(instanceName);
+    try {
+      return await runtime.configureDevice(deviceId, data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Parâmetros de dispositivo inválidos.');
+    }
+  }
+  public latestPosition(instanceName: string, deviceId: string) {
+    return this.runtime(instanceName).latestPosition(deviceId);
+  }
+  public async history(instanceName: string, deviceId: string, options: any) {
+    const runtime = this.runtime(instanceName);
+    try {
+      return await runtime.history(deviceId, options);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Parâmetros de histórico inválidos.');
+    }
+  }
+  public subscribe(instanceName: string, listener: (message: any) => void) {
+    return this.runtime(instanceName).subscribe(listener);
+  }
   public devices(instanceName: string) {
     return this.runtime(instanceName).devices();
   }
@@ -95,8 +131,8 @@ export class FindHubController {
   public device(instanceName: string, deviceId: string) {
     return this.runtime(instanceName).device(deviceId);
   }
-  public locate(instanceName: string, deviceId: string) {
-    return this.runtime(instanceName).locate(deviceId);
+  public locate(instanceName: string, deviceId: string, timeoutMs?: number) {
+    return this.runtime(instanceName).locate(deviceId, timeoutMs);
   }
   public startTracking(instanceName: string, deviceId: string, data: any) {
     return this.runtime(instanceName).startTracking(deviceId, data.intervalSeconds);

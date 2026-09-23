@@ -34,3 +34,18 @@ export class FindHubBrowserExchangeDto extends FindHubBrowserProofDto {
 export class FindHubBrowserCompleteDto extends FindHubBrowserProofDto {
   vaultKeys: string;
 }
+
+export class FindHubMonitoringDto {
+  historyEnabled: boolean;
+  historyRetentionDays: number;
+  defaultIntervalSeconds: number;
+  locationTimeoutMs: number;
+  uiRefreshSeconds: number;
+}
+export class FindHubLocateDto {
+  timeoutMs?: number;
+}
+export class FindHubDeviceSettingsDto {
+  intervalSeconds: number;
+  timeoutMs: number | null;
+}

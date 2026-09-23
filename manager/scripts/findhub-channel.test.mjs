@@ -36,7 +36,7 @@ function routing({ item = google, authenticated = true, permission = true } = {}
   return { config, reads: () => reads, check: (path, { params = {}, query = {}, meta = { permission: 'instances.read' } } = {}) => guard({ path, params, query, meta }) };
 }
 
-for (const [suffix, section] of [['', 'conta'], ['/configuracao', 'eventos'], ['/integracoes', 'integracoes'], ['/integracoes/openai', 'integracoes'], ['/modelos', 'conta']]) {
+for (const [suffix, section] of [['', 'conta'], ['/configuracao', 'configuracao'], ['/integracoes', 'integracoes'], ['/integracoes/openai', 'integracoes'], ['/modelos', 'conta']]) {
   test(`Google legacy deep link ${suffix || '/instance'} never mounts a WhatsApp view`, async () => {
     const r = routing();
     assert.deepEqual(plain(await r.check('/instancias/id' + suffix, { params: { id: google.id } })), { path: channel.findHubPath(google.id, section), replace: true });
@@ -86,15 +86,19 @@ test('dedicated account card renders without phone/message counts or send-test a
   assert.match(html, /Device account/);
   assert.doesNotMatch(html, /Contatos|Conversas|Mensagens|Enviar teste|Número não informado/);
 });
-test('dedicated shell renders Google navigation only, not the WhatsApp sidebar', async () => {
+test('Find Hub retains the global shell without replacing the platform navigation', async () => {
   const shell = component('src/layouts/FindHubShell.vue', {
-    'vue-router': { useRoute: () => ({ params: { id: google.id } }) },
-    '@/services/findhub-channel': channel,
-    './AppShell.vue': { props: ['navigationGroups'], render() { return Vue.h('nav', this.navigationGroups.flatMap(group => group.items).map(item => Vue.h('a', { href: item.to }, item.label))); } },
+    './AppShell.vue': { props: ['navigationGroups'], render() {
+      assert.equal(this.navigationGroups, undefined, 'Find Hub must not override global navigation');
+      return Vue.h('div', [Vue.h('nav', 'Instâncias Conversas Mensagens Google Find Hub Configurações'), this.$slots.default?.()]);
+    } },
   }, true);
   const html = await renderToString(Vue.createSSRApp(shell));
-  for (const label of ['Contas Google', 'Dispositivos', 'Histórico de posições', 'Integração Traccar', 'Eventos e webhooks']) assert.ok(html.includes(label), label);
-  assert.doesNotMatch(html, /Conversas|Mensagens|Contatos|Ramais|Filas|Typebot|Chatwoot|Proxy/);
+  for (const label of ['Instâncias', 'Conversas', 'Mensagens', 'Google Find Hub', 'Configurações']) assert.ok(html.includes(label));
+  const view = read('src/views/FindHubView.vue');
+  assert.match(view, /class="config-layout"/);
+  assert.match(view, /class="config-nav"/);
+  assert.doesNotMatch(view, /rejectCall|readMessages|alwaysOnline|TestMessageModal/);
 });
 test('Google no longer inherits the WhatsApp privacy capability and is excluded from bot/message selectors', () => {
   const normalizers = load('src/services/normalizers.ts');

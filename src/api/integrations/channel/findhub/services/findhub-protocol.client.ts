@@ -21,6 +21,11 @@ export class FindHubProtocolClient {
   private readonly fcm: FindHubFcmClient;
   private readonly pending = new Map<string, PendingLocation>();
   private ownerKey?: Buffer;
+  private readonly deviceKeys = new Map<string, { encryptedIdentityKey: Buffer; ownerKeyVersion: number }>();
+
+  public get catalogStatus() {
+    return this.nova.catalogStatus;
+  }
 
   constructor(
     private credentials: FindHubStoredCredentials,
@@ -63,31 +68,50 @@ export class FindHubProtocolClient {
   }
 
   public async listDevices(): Promise<Array<Omit<FindHubDevice, 'id'>>> {
-    return await this.nova.listDevices();
+    const devices = await this.nova.listDevices();
+    for (const device of devices) {
+      if (device.encryptedIdentityKey)
+        for (const id of device.aliases || [device.googleDeviceId])
+          this.deviceKeys.set(id, {
+            encryptedIdentityKey: Buffer.from(device.encryptedIdentityKey, 'base64'),
+            ownerKeyVersion: device.ownerKeyVersion || 0,
+          });
+    }
+    return devices;
   }
 
-  public async locate(device: FindHubDevice): Promise<FindHubPosition[]> {
+  public async locate(device: FindHubDevice, timeoutMs?: number): Promise<FindHubPosition[]> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
     const requestUuid = randomUUID();
-    const metadataPromise = this.waitForLocation(requestUuid);
+    const metadataPromise = this.waitForLocation(requestUuid, timeoutMs);
     // Attach immediately: a network call can outlive the push deadline.
     void metadataPromise.catch(() => undefined);
 
     try {
-      await this.nova.locate({
-        googleDeviceId: device.googleDeviceId,
-        fcmRegistrationId: this.fcm.registrationToken,
-        requestUuid,
-        clientUuid: this.clientUuid,
-      });
+      await this.nova.locate(
+        {
+          googleDeviceId: device.googleDeviceId,
+          fcmRegistrationId: this.fcm.registrationToken,
+          requestUuid,
+          clientUuid: this.clientUuid,
+        },
+        timeoutMs,
+      );
     } catch (error) {
       this.rejectPending(requestUuid, error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
 
     const metadata = await metadataPromise;
-    const registration = decodeDeviceRegistration(metadata);
+    let registration: ReturnType<typeof decodeDeviceRegistration>;
+    try {
+      registration = decodeDeviceRegistration(metadata);
+    } catch {
+      const cached = this.deviceKeys.get(device.googleDeviceId);
+      if (!cached) throw new Error('O Google não forneceu a chave deste dispositivo para esta conta.');
+      registration = cached;
+    }
     const ownerKey = await this.ensureOwnerKey();
     const identityKey = decryptIdentityKey(ownerKey, registration.encryptedIdentityKey);
 
@@ -114,8 +138,10 @@ export class FindHubProtocolClient {
       .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
   }
 
-  private waitForLocation(requestUuid: string): Promise<Buffer> {
-    const timeoutMs = Math.max(5_000, Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30_000));
+  private waitForLocation(requestUuid: string, requestedTimeout?: number): Promise<Buffer> {
+    const timeoutMs = requestedTimeout ?? Math.max(5_000, Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30_000));
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 5000 || timeoutMs > 180000)
+      throw new Error('Timeout de localização inválido.');
 
     return new Promise<Buffer>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -146,6 +172,13 @@ export class FindHubProtocolClient {
     const pending = this.pending.get(update.requestUuid);
     if (!pending) return;
 
+    // Google may first acknowledge the action with metadata but no usable position.
+    // Keep listening until a location report arrives or the configured deadline expires.
+    try {
+      if (!decodeLocationReports(update.deviceMetadata).some((report) => report.encryptedLocation.length > 0)) return;
+    } catch {
+      return;
+    }
     clearTimeout(pending.timer);
     this.pending.delete(update.requestUuid);
     pending.resolve(update.deviceMetadata);

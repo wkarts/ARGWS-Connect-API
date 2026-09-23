@@ -32,9 +32,9 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  // The browser producer adds six paths; GET/PUT/DELETE share the Traccar path.
-  assert.equal(implemented.length, 17);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 19);
+  // Monitoring adds five paths and six operations; settings and Traccar share method paths.
+  assert.equal(implemented.length, 22);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 25);
   assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
   assert.match(dedicated.info.description, /CredentialProvider/);
   assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);
@@ -48,6 +48,16 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
       assert.ok(!JSON.stringify(operation.responses).includes('GenericResponse'), route);
       assert.deepEqual(operation.security, [{ apiKey: [] }]);
     }
+  }
+  for (const [route, methods] of [
+    ['/findhub/settings/{instanceName}', ['get', 'put']],
+    ['/findhub/device/{deviceId}/settings/{instanceName}', ['put']],
+    ['/findhub/location/{deviceId}/{instanceName}', ['get']],
+    ['/findhub/history/{deviceId}/{instanceName}', ['get']],
+    ['/findhub/events/stream/{instanceName}', ['get']],
+  ]) {
+    assert.deepEqual(Object.keys(dedicated.paths[route]).sort(), methods, route);
+    for (const method of methods) assert.deepEqual(dedicated.paths[route][method], general.paths[route][method], route);
   }
   const start = dedicated.paths['/findhub/auth/start/{instanceName}'].post;
   assert.ok(start.responses['201']);

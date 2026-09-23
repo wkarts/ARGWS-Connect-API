@@ -331,7 +331,7 @@
       }
     },
     "findhub.tracking.update": {
-      "description": "Acompanhamento ativado ou desativado por dispositivo.",
+      "description": "Ativação, interrupção e conclusão de cada consulta periódica. Pode conter lastAttemptAt, nextAttemptAt, failures e lastError sanitizado. Não contém credenciais.",
       "subscribe": {
         "operationId": "consume_findhub_tracking_update",
         "message": {
@@ -411,6 +411,51 @@
                       }
                     },
                     "additionalProperties": true
+                  }
+                },
+                "catalog": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "complete": {
+                      "type": "boolean",
+                      "description": "Todas as fontes solicitadas responderam e seus registros foram decodificados. Não garante visibilidade de todo item apresentado por outros produtos Google."
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "integer",
+                            "enum": [
+                              1,
+                              2,
+                              5,
+                              7
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "OK",
+                              "UNAVAILABLE"
+                            ]
+                          },
+                          "returned": {
+                            "type": "integer"
+                          },
+                          "decoded": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -520,6 +565,20 @@
                 },
                 "intervalSeconds": {
                   "type": "integer"
+                },
+                "lastAttemptAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "nextAttemptAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "failures": {
+                  "type": "integer"
+                },
+                "lastError": {
+                  "type": "string"
                 }
               }
             }
