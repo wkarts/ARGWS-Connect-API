@@ -1,0 +1,36 @@
+name: Find Hub review workspace
+on:
+  push:
+    branches: [fix/findhub-map-ui-cache-interval]
+    paths: [.github/workflows/findhub-review-workspace.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Export current source and safe CI inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/findhub-review
+          git archive --format=tar.gz HEAD > /tmp/findhub-review/source.tar.gz
+          git rev-parse HEAD > /tmp/findhub-review/commit.txt
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?per_page=100" --jq '.actions_caches[] | {id,key,ref,created_at,last_accessed_at,size_in_bytes}' > /tmp/findhub-review/caches.jsonl
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=develop&per_page=50" --jq '.workflow_runs[] | {id,name,path,head_sha,status,conclusion,created_at,run_started_at,updated_at,event}' > /tmp/findhub-review/runs.jsonl
+          for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=develop&per_page=50" --jq '.workflow_runs[] | select(.name | test("GHCR|Retention|Quality";"i")) | .id' | head -12); do
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" --jq '.jobs[] | {id,run_id,name,status,conclusion,started_at,completed_at,steps}' > "/tmp/findhub-review/jobs-$run.jsonl"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findhub-current-review
+          path: /tmp/findhub-review
+          retention-days: 2
