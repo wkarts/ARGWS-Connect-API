@@ -6863,7 +6863,7 @@
         ],
         "summary": "Obter extensão própria de autenticação",
         "operationId": "get_findhub_auth_extension_instancename",
-        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional 0.1.5, com ícone oficial e o mesmo ID público. Ao atualizar, substitua os arquivos da pasta já carregada, recarregue a extensão e o Manager. A atualização do backend também é necessária. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
+        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional 0.1.6, com ícone oficial e o mesmo ID público. Ao atualizar, substitua os arquivos da pasta já carregada, recarregue a extensão e o Manager. A atualização do backend também é necessária. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
         "parameters": [
           {
             "name": "instanceName",

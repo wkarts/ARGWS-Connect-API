@@ -39,7 +39,10 @@
     if (event.source !== window || event.origin !== origin || event.data?.source !== 'CONNECT_FINDHUB_VAULT_BIND' ||
         event.data.kdi !== kdi || typeof event.data.nonce !== 'string' || !/^[a-f0-9-]{36}$/i.test(event.data.nonce)) return;
     if (nonce && nonce !== event.data.nonce) return;
-    nonce = event.data.nonce; flush();
+    nonce = event.data.nonce;
+    // Acknowledge installation before flushing an early callback; ISOLATED may bind before MAIN exists.
+    post('BOUND');
+    flush();
   };
   window.addEventListener('message', receive);
   Object.defineProperty(window, 'mm', { configurable: true, writable: true, value: native });

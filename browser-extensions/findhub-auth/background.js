@@ -13,6 +13,14 @@ function removeVaultScripts(attempt) {
   const ids = attempt.vaultScriptIds;
   if (ids?.length) void chrome.scripting.unregisterContentScripts({ ids }).catch(() => {});
 }
+function armVaultBridgeDeadline(attempt) {
+  clearTimeout(attempt.bridgeTimer);
+  attempt.bridgeTimer = setTimeout(() => {
+    if (active === attempt && attempt.stage === 'VAULT' && !attempt.vaultReady) {
+      cleanup(attempt, '[FH-EXT-VAULT-BRIDGE] Não foi possível preparar o retorno seguro do desbloqueio Google. Atualize a extensão e inicie novamente.');
+    }
+  }, 30000);
+}
 function vaultClosed(attempt) {
   if (active !== attempt || attempt.stage !== 'VAULT' || attempt.closeTimer) return;
   // closeView/#close may follow the key callback in the same task. A close signal is never authentication.
@@ -86,11 +94,8 @@ async function prepareVaultBridge(attempt, url) {
     { ...shared, id: attempt.vaultScriptIds[1], js: ['vault-relay.js'], world: 'ISOLATED' },
   ]);
   if (active !== attempt) { removeVaultScripts(attempt); return; }
-  attempt.bridgeTimer = setTimeout(() => {
-    if (active === attempt && attempt.stage === 'VAULT' && !attempt.vaultDocument) {
-      cleanup(attempt, '[FH-EXT-VAULT-BRIDGE] Não foi possível preparar o retorno seguro do desbloqueio Google. Atualize a extensão e inicie novamente.');
-    }
-  }, 30000);
+  attempt.vaultReady = false;
+  armVaultBridgeDeadline(attempt);
   await chrome.tabs.update(attempt.googleTab, { url, active: true });
   send(attempt, { type: 'WAITING_VAULT_KEY' });
 }
@@ -175,12 +180,30 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const isVaultPage = sender.id === chrome.runtime.id && sender.tab?.id === attempt.googleTab && sender.frameId === 0 &&
     typeof sender.documentId === 'string' && vaultPageUrl(sender.url, attempt.kdi);
   if (message.type === 'VAULT_BIND' && isVaultPage && attempt.stage === 'VAULT') {
-    attempt.vaultDocument = sender.documentId;
-    clearTimeout(attempt.bridgeTimer);
+    if (attempt.vaultDocument !== sender.documentId) {
+      attempt.vaultDocument = sender.documentId;
+      attempt.vaultReady = false;
+      // A redirected document must prove its own MAIN callback is installed. Binding ISOLATED alone is insufficient.
+      armVaultBridgeDeadline(attempt);
+    }
     reply({ ok: true, nonce: attempt.nonce, kdi: attempt.kdi });
     return false;
   }
   const isVaultDocument = isVaultPage && sender.documentId === attempt.vaultDocument && message.nonce === attempt.nonce;
+  if (message.type === 'VAULT_READY' && isVaultDocument && ['VAULT', 'VERIFYING'].includes(attempt.stage)) {
+    attempt.vaultReady = true;
+    clearTimeout(attempt.bridgeTimer);
+    reply({ ok: true });
+    return false;
+  }
+  if (message.type === 'VAULT_RELAY_ERROR' && isVaultDocument && ['VAULT', 'VERIFYING'].includes(attempt.stage)) {
+    reply({ ok: true });
+    // If keys already reached the backend, a lost acknowledgement must not cancel its final verification.
+    if (attempt.stage === 'VAULT') {
+      cleanup(attempt, '[FH-EXT-VAULT-DELIVERY] A extensão não conseguiu entregar o retorno do desbloqueio. A conta não foi vinculada. Recarregue a extensão e inicie uma nova tentativa.');
+    }
+    return false;
+  }
   if (message.type === 'VAULT_CLOSED' && isVaultDocument && attempt.stage === 'VAULT') {
     reply({ ok: true }); vaultClosed(attempt); return false;
   }

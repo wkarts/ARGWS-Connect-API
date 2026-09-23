@@ -18,7 +18,7 @@ try {
     Invoke-Assistant '--verify-files'
     $manifestPath = Join-Path $root 'extension\manifest.json'
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.version -ne '0.1.5') { throw 'Incorrect Rust embedded payload version' }
+    if ($manifest.version -ne '0.1.6') { throw 'Incorrect Rust embedded payload version' }
     $key = $manifest.key
     Set-Content (Join-Path $root 'keep-user-file.txt') 'preserve'
     Set-Content (Join-Path $root 'extension\background.js') 'corrupted'

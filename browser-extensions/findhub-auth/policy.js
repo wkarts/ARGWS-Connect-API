@@ -1,5 +1,5 @@
 // Pure validation functions shared by the worker and its tests.
-export const VERSION = '0.1.5';
+export const VERSION = '0.1.6';
 export const GOOGLE_ORIGIN = 'https://accounts.google.com';
 export const GOOGLE_PERMISSION = GOOGLE_ORIGIN + '/*';
 export function safeOrigin(value) {

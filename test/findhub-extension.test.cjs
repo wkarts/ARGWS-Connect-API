@@ -7,7 +7,7 @@ function evaluate(name,dependencies={},globals={}) { const module={exports:{}}; 
 const policy=evaluate('policy.js');
 class Hook {listeners=[];addListener=(fn)=>this.listeners.push(fn);removeListener=(fn)=>{this.listeners=this.listeners.filter(v=>v!==fn);};fire(...args){return this.listeners.map(fn=>fn(...args));}}
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
-function harness(permission=true, fastCookie=false) {
+function harness(permission=true, fastCookie=false, timers={}) {
  let nextId=20,cookieReads=0; let cookie={value:'previous-session'}; const tabs=new Map(),removed=[],scripts=[],registrations=[],ports=[];
  const chrome={runtime:{id:'dcnejnlafhanlldafkijledmonimkgng',getURL:name=>'chrome-extension://dcnejnlafhanlldafkijledmonimkgng/'+name,onConnectExternal:new Hook(),onMessage:new Hook()},
   permissions:{contains:async()=>permission},windows:{get:async()=>({focused:true}),onFocusChanged:new Hook()},
@@ -16,7 +16,7 @@ function harness(permission=true, fastCookie=false) {
    registerContentScripts:async entries=>registrations.push(...entries),unregisterContentScripts:async({ids})=>{for(let i=registrations.length-1;i>=0;i--)if(ids.includes(registrations[i].id))registrations.splice(i,1);}},
   tabs:{onUpdated:new Hook(),onActivated:new Hook(),onRemoved:new Hook(),create:async({url})=>{const row={id:nextId++,url,active:true,windowId:1};tabs.set(row.id,row);if(fastCookie && url.includes('EmbeddedSetup')){cookie={name:'oauth_token',domain:'accounts.google.com',value:'fast-new'};chrome.cookies.onChanged.fire({removed:false,cookie});}return row;},get:async id=>tabs.get(id),update:async(id,data)=>Object.assign(tabs.get(id),data),remove:async id=>{removed.push(id);tabs.delete(id);}},
  };
- evaluate('background.js',{'./policy.js':policy},{chrome});
+ evaluate('background.js',{'./policy.js':policy},{chrome,...timers});
  function connect(url='https://manager.example.com/manager/findhub/unit/conta',frameId=0){const messages=[];const port={name:'connect-findhub-auth-v1',sender:{url,frameId,tab:{id:10}},onMessage:new Hook(),onDisconnect:new Hook(),postMessage:m=>messages.push(m),disconnect(){this.disconnected=true;this.onDisconnect.fire();}};chrome.runtime.onConnectExternal.fire(port);ports.push(port);return {port,messages,send:m=>port.onMessage.fire(m)};}
  function approvalSender(){const tab=[...tabs.values()].find(t=>t.url.endsWith('/approve.html'));return {id:chrome.runtime.id,url:chrome.runtime.getURL('approve.html'),frameId:0,tab:{id:tab?.id}};}
  async function command(message,sender=approvalSender()) {let answer;chrome.runtime.onMessage.fire(message,sender,data=>answer=data);await flush();return answer;}
@@ -86,8 +86,8 @@ test('rechecking the owned tab never replays the baseline or duplicates an emitt
   c.send({type:'CANCEL',sessionId:request.sessionId}); await flush();
 });
 
-test('0.1.5 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
-  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.5');
+test('0.1.6 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
+  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.6');
   assert.equal(policy.VERSION, manifest.version);
   for (const size of [16,32,48,128]) {
     const icon = fs.readFileSync(path.join(folder,manifest.icons[size]));
@@ -191,14 +191,14 @@ test('cancellation during script registration removes late registrations and nev
  assert.equal(c.messages.some(m=>m.type==='WAITING_VAULT_KEY'),false);
 });
 
-function vaultWorld(href=kls, authorize=true) {
+function vaultWorld(href=kls, authorize=true, keyResponse=null) {
  const listeners=new Map(), outgoing=[], posted=[];
  const location=new URL(href);const window={location,addEventListener(type,fn,options){const list=listeners.get(type)||[];list.push({fn,once:options?.once});listeners.set(type,list);},removeEventListener(type,fn){listeners.set(type,(listeners.get(type)||[]).filter(row=>row.fn!==fn));}};
  window.top=window;
  function fire(type,event={}){for(const row of [...(listeners.get(type)||[])]){row.fn(event);if(row.once)window.removeEventListener(type,row.fn);}}
  window.postMessage=(data,origin)=>{posted.push(data);queueMicrotask(()=>fire('message',{data,origin,source:window}));};
  const nonce='22222222-2222-4222-8222-222222222222';
- const chrome={runtime:{sendMessage:async data=>{outgoing.push(data);if(data.type==='VAULT_BIND')return authorize?{ok:true,nonce,kdi:location.searchParams.get('kdi')}:{error:'not-owned'};return {ok:true};}}};
+ const chrome={runtime:{sendMessage:async data=>{outgoing.push(data);if(data.type==='VAULT_BIND')return authorize?{ok:true,nonce,kdi:location.searchParams.get('kdi')}:{error:'not-owned'};if(data.type==='VAULT_KEYS' && keyResponse)return keyResponse();return {ok:true};}}};
  function load(name){vm.runInNewContext(read(name),{window,location,URL,chrome});}
  return {window,location,load,fire,outgoing,posted,nonce};
 }
@@ -243,4 +243,77 @@ test('relay authorized before MAIN starts still binds the later native callback'
  await flush();await flush();
  assert.equal(w.outgoing.filter(m=>m.type==='VAULT_KEYS').length,1);
  w.fire('pagehide');
+});
+
+
+// These regressions exercise the readiness handshake itself, not only a successful key callback.
+function testClock() {
+ let now=0, next=0; const pending=new Map();
+ return {timers:{setTimeout(fn,delay){const id=++next;pending.set(id,{fn,at:now+delay});return id;},clearTimeout(id){pending.delete(id);}},
+  async advance(ms){now+=ms;for(const [id,timer] of [...pending]){if(timer.at<=now){pending.delete(id);timer.fn();}}await flush();}};
+}
+test('binding a document alone does not disarm the MAIN readiness deadline',async()=>{
+ const clock=testClock(),h=harness(true,false,clock.timers),{c,sender}=await vaultAttempt(h);
+ const bind=await h.command({type:'VAULT_BIND'},sender);assert.equal(bind.ok,true);
+ await clock.advance(30001);
+ assert.ok(c.messages.some(m=>m.type==='ERROR' && m.message.includes('FH-EXT-VAULT-BRIDGE')));
+ assert.equal(c.port.disconnected,true);assert.equal(h.registrations.length,0);
+});
+test('only acknowledgement from the bound MAIN document completes bridge preparation',async()=>{
+ const clock=testClock(),h=harness(true,false,clock.timers),{c,sender}=await vaultAttempt(h);
+ const bind=await h.command({type:'VAULT_BIND'},sender);
+ assert.ok((await h.command({type:'VAULT_READY',nonce:bind.nonce},{...sender,documentId:'old-document'})).error);
+ assert.equal((await h.command({type:'VAULT_READY',nonce:bind.nonce},sender)).ok,true);
+ await clock.advance(30001);assert.equal(c.messages.some(m=>m.type==='ERROR'),false);
+ c.send({type:'CANCEL',sessionId:request.sessionId});await flush();
+});
+test('a redirected document gets a new readiness deadline after an earlier document was ready',async()=>{
+ const clock=testClock(),h=harness(true,false,clock.timers),{c,sender}=await vaultAttempt(h);
+ const first=await h.command({type:'VAULT_BIND'},sender);await h.command({type:'VAULT_READY',nonce:first.nonce},sender);
+ const next={...sender,documentId:'next-document'};assert.equal((await h.command({type:'VAULT_BIND'},next)).ok,true);
+ await clock.advance(30001);
+ assert.ok(c.messages.some(m=>m.type==='ERROR' && m.message.includes('FH-EXT-VAULT-BRIDGE')));
+});
+test('a rejected relay delivery ends the owned attempt instead of waiting for expiration',async(t)=>{
+ const h=harness(),{c,sender}=await vaultAttempt(h),{nonce}=await h.command({type:'VAULT_BIND'},sender);
+ t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ assert.ok((await h.command({type:'VAULT_RELAY_ERROR',nonce},{...sender,tab:{id:999}})).error);
+ assert.equal((await h.command({type:'VAULT_RELAY_ERROR',nonce},sender)).ok,true);
+ assert.ok(c.messages.some(m=>m.type==='ERROR' && m.message.includes('FH-EXT-VAULT-DELIVERY')));
+ assert.equal(c.port.disconnected,true);assert.equal(h.registrations.length,0);
+});
+test('late relay errors cannot cancel keys already accepted for backend verification',async(t)=>{
+ const h=harness(),{c,sender}=await vaultAttempt(h),{nonce}=await h.command({type:'VAULT_BIND'},sender);
+ t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ await h.command({type:'VAULT_KEYS',nonce,vaultKeys:JSON.stringify({finder_hw:[{key:[1,2,3]}]})},sender);
+ assert.equal((await h.command({type:'VAULT_RELAY_ERROR',nonce},sender)).ok,true);
+ assert.equal((await h.command({type:'VAULT_READY',nonce},sender)).ok,true);
+ assert.equal(c.messages.some(m=>m.type==='ERROR'),false);assert.equal(c.messages.filter(m=>m.type==='VAULT_KEYS').length,1);
+ c.send({type:'DONE',sessionId:request.sessionId});await flush();
+});
+test('MAIN acknowledgement is required before the relay reports readiness',async()=>{
+ const w=vaultWorld();w.load('vault-relay.js');await flush();
+ assert.equal(w.outgoing.some(m=>m.type==='VAULT_READY'),false);
+ w.load('vault-page.js');await flush();await flush();
+ assert.equal(w.outgoing.filter(m=>m.type==='VAULT_READY').length,1);w.fire('pagehide');
+});
+
+
+test('relay reports rejected key replies without marking delivery or replaying the key',async()=>{
+ for(const reject of [()=>({error:'not accepted'}),()=>Promise.reject(new Error('synthetic channel closed'))]) {
+  const w=vaultWorld(kls,true,reject);w.load('vault-page.js');w.load('vault-relay.js');await flush();
+  w.window.mm.setVaultSharedKeys('unused',{finder_hw:[{key:[5,6,7]}]});await flush();await flush();
+  assert.equal(w.outgoing.filter(m=>m.type==='VAULT_KEYS').length,1);
+  const failures=w.outgoing.filter(m=>m.type==='VAULT_RELAY_ERROR');assert.equal(failures.length,1);
+  assert.deepEqual(Object.keys(failures[0]).sort(),['nonce','type']);
+  w.window.mm.setVaultSharedKeys('unused',{finder_hw:[{key:[5,6,7]}]});await flush();
+  assert.equal(w.outgoing.filter(m=>m.type==='VAULT_KEYS').length,1);w.fire('pagehide');
+ }
+});
+test('an unrelated MAIN origin or nonce cannot acknowledge readiness',async()=>{
+ const w=vaultWorld();w.load('vault-relay.js');await flush();
+ const message={source:'CONNECT_FINDHUB_VAULT',kdi:'a',nonce:w.nonce,type:'BOUND'};
+ w.fire('message',{source:w.window,origin:'https://other.example',data:message});
+ w.fire('message',{source:w.window,origin:'https://accounts.google.com',data:{...message,nonce:'wrong'}});
+ await flush();assert.equal(w.outgoing.some(m=>m.type==='VAULT_READY'),false);w.fire('pagehide');
 });

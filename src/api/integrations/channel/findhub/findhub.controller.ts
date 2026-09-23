@@ -47,7 +47,7 @@ export class FindHubController {
       minimumIntervalSeconds: Math.max(15, Number(process.env.FINDHUB_MIN_TRACKING_INTERVAL_SECONDS || 30)),
       helper: {
         extensionId: FINDHUB_EXTENSION_ID,
-        version: '0.1.5',
+        version: '0.1.6',
         required: true,
         mobileSupported: false,
         downloadPath: `/findhub/auth/extension/${encodeURIComponent(instanceName)}`,

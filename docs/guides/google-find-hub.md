@@ -334,3 +334,23 @@ de campos de senha: atributos do DOM podem expor valores mesmo com o campo masca
 
 Os testes de callbacks e redirecionamentos usam contas e chaves sintéticas.
 Aprovação de CI não substitui a homologação interativa de uma conta Google real.
+
+## Correção 0.1.6 — confirmação de preparo e entrega do retorno
+
+O vínculo de um documento (`VAULT_BIND`) apenas autoriza o relay. A extensão só
+considera o callback preparado depois da confirmação `BOUND` do script MAIN e
+da confirmação `VAULT_READY` pelo worker. Um documento redirecionado precisa
+concluir seu próprio preparo. Se isso não acontecer em 30 segundos, a tentativa
+é encerrada com `FH-EXT-VAULT-BRIDGE`, sem aguardar silenciosamente a expiração.
+
+Falhas na entrega da chave deixam de ser ignoradas. A extensão exige resposta
+positiva do worker; uma recusa encerra a tentativa com `FH-EXT-VAULT-DELIVERY`.
+Nenhuma chave ou credencial é reenviada automaticamente. Se a chave já foi aceita
+para verificação no backend, uma confirmação perdida não cancela essa verificação.
+Mensagens de erro transportam apenas uma categoria fixa, nunca PIN, senha ou chave.
+
+Atualize os arquivos da mesma pasta e clique em **Recarregar** na página de
+extensões antes de iniciar uma tentativa nova. O contrato REST não mudou: uma API
+com o fluxo browser-auth da PR #125 é compatível. A PR #126 também atualiza o ZIP
+servido pelo Manager e sua indicação de versão. Não altere CORS, TLS ou a chave
+`FINDHUB_CREDENTIALS_KEY`. Testes controlados não comprovam login Google real.
