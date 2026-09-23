@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const root = path.resolve(__dirname, '..');
 const folder = path.join(root, 'browser-extensions/findhub-auth');
-const names = ['manifest.json', 'policy.js', 'background.js', 'approve.html', 'approve.js', 'approve.css', 'README.md', 'icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png'];
+const names = ['manifest.json', 'policy.js', 'background.js', 'vault-page.js', 'vault-relay.js', 'approve.html', 'approve.js', 'approve.css', 'README.md', 'icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png'];
 const crc32 = (buffer) => { let crc = -1; for (const byte of buffer) { crc ^= byte; for (let i=0;i<8;i++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); } return (crc ^ -1) >>> 0; };
 const parts = [], central = []; let offset = 0;
 for (const name of names) {

@@ -1,6 +1,6 @@
 # Connect|API Find Hub Auth — extensão opcional
 
-ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.4.
+ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.5.
 
 Esta é uma implementação experimental própria para Chrome/Edge desktop, não um login OAuth público Google. Extraia o ZIP servido pela sua API e use Carregar sem compactação na página de extensões (modo desenvolvedor). Volte ao Manager e inicie Conectar conta. A janela **da extensão** mostra a origem solicitante, o servidor destinatário e a conta: aprove somente destinos de sua confiança.
 
@@ -37,3 +37,16 @@ Atualize a API/Manager e o helper juntos. O comando de aprovação agora é conf
 No backend, o formulário de troca segue o perfil de interoperabilidade de `gpsoauth` 2.0.0, sem instalar essa biblioteca. O marcador legado `droidguard_results=dummy123` não é uma prova de integridade. Uma exigência real do Google permanece uma falha, sem reenvio do token, bypass ou alteração de TLS. `MissingDroidguard` é classificado como `[FH-AUTH-9116]`, não `UNCLASSIFIED`.
 
 O login real continua sujeito à homologação pelo operador. A ocorrência de `message channel closed` em outra página/extensão, por si só, não comprova a causa de um HTTP 400 no backend. Preserve a chave da instalação e comece uma nova tentativa após atualizar ambos os lados.
+
+### 0.1.5 — Retorno do desbloqueio Google
+
+Corrige o callback após o redirecionamento para `/v3/signin/challenge/kls` com
+`flowName=EncryptionUnlockAndroid` e o contexto exato da tentativa. Os dois scripts
+`vault-page.js` e `vault-relay.js` entram em `document_start`, somente durante a
+vinculação consentida. Origem, aba, documento, frame e nonce são verificados.
+Não há leitura de campos de PIN/senha nem alteração de CORS/TLS.
+
+`#close`/`closeView` sem chave gera `FH-EXT-VAULT-NOKEY`, nunca sucesso de login.
+Atualize/recarregue a extensão e inicie novamente; o contrato da API 0.1.4 é
+compatível com esta correção. O PIN é o bloqueio do aparelho escolhido e deve ser
+digitado apenas na página Google, nunca enviado em capturas/logs.
