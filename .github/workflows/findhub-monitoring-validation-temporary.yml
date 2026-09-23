@@ -66,6 +66,12 @@ jobs:
           """
           assert source.count(marker) == 1
           path.write_text(source.replace(marker, extra + marker))
+          path = Path('src/api/integrations/channel/findhub/services/findhub-runtime.service.ts')
+          source = path.read_text()
+          for before, after in {'valid.at(-1)': 'valid[valid.length - 1]', 'items.at(-1).id': 'items[items.length - 1].id'}.items():
+            assert source.count(before) == 1, before
+            source = source.replace(before, after)
+          path.write_text(source)
           PY
       - name: Install existing API dependencies
         run: npm ci --no-audit --no-fund
@@ -81,16 +87,20 @@ jobs:
           python3 scripts/sync-findhub-deployments.py --check
           npm run docs:check
       - name: Validate API contracts, isolation, tracking and build
+        shell: bash
         run: |
           set -euo pipefail
-          npm run test:compat
+          npm run test:compat > /tmp/findhub-api-tests.log 2>&1 || { tail -n 100 /tmp/findhub-api-tests.log; exit 1; }
+          tail -n 12 /tmp/findhub-api-tests.log
           npm run db:generate
           npm run build
       - name: Validate complete Manager
+        shell: bash
         run: |
           set -euo pipefail
           npm install --prefix manager --no-audit --no-fund
-          npm test --prefix manager
+          npm test --prefix manager > /tmp/findhub-manager-tests.log 2>&1 || { tail -n 100 /tmp/findhub-manager-tests.log; exit 1; }
+          tail -n 20 /tmp/findhub-manager-tests.log
       - name: Commit validated source only to isolated feature branch
         shell: bash
         run: |
@@ -120,4 +130,6 @@ jobs:
             /tmp/findhub-monitoring-candidate.tar.gz
             /tmp/findhub-monitoring-candidate.commit
             /tmp/findhub-monitoring-candidate.patch
+            /tmp/findhub-api-tests.log
+            /tmp/findhub-manager-tests.log
           retention-days: 7
