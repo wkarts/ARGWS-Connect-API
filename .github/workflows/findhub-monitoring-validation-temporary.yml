@@ -40,6 +40,33 @@ jobs:
           PY
           git apply --check /tmp/findhub-monitoring.patch
           git apply --index /tmp/findhub-monitoring.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/findhub-deployment.contract.test.cjs')
+          source = path.read_text()
+          changes = {
+            '// The browser producer adds six paths; GET/PUT/DELETE share the Traccar path.': '// Monitoring adds five paths and six operations; settings and Traccar share method paths.',
+            'assert.equal(implemented.length, 17);': 'assert.equal(implemented.length, 22);',
+            'Object.keys(general.paths[route]).length, 0), 19);': 'Object.keys(general.paths[route]).length, 0), 25);',
+          }
+          for before, after in changes.items():
+            assert source.count(before) == 1, before
+            source = source.replace(before, after)
+          marker = "  const start = dedicated.paths['/findhub/auth/start/{instanceName}'].post;"
+          extra = """  for (const [route, methods] of [
+              ['/findhub/settings/{instanceName}', ['get', 'put']],
+              ['/findhub/device/{deviceId}/settings/{instanceName}', ['put']],
+              ['/findhub/location/{deviceId}/{instanceName}', ['get']],
+              ['/findhub/history/{deviceId}/{instanceName}', ['get']],
+              ['/findhub/events/stream/{instanceName}', ['get']],
+            ]) {
+              assert.deepEqual(Object.keys(dedicated.paths[route]).sort(), methods, route);
+              for (const method of methods) assert.deepEqual(dedicated.paths[route][method], general.paths[route][method], route);
+            }
+          """
+          assert source.count(marker) == 1
+          path.write_text(source.replace(marker, extra + marker))
+          PY
       - name: Install existing API dependencies
         run: npm ci --no-audit --no-fund
       - name: Format changed owned TypeScript and validate all source
