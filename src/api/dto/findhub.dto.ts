@@ -47,6 +47,9 @@ export class FindHubSettingsDto {
   historyEnabled?: boolean;
   retentionDays?: number;
   reconciliationEnabled?: boolean;
+  reconciliationOnBoot?: boolean;
+  reconciliationPeriodicEnabled?: boolean;
+  reconciliationPeriodSeconds?: number;
   reconciliationMinGapSeconds?: number;
   reconciliationAttempts?: number;
 }
