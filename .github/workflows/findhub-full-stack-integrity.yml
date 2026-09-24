@@ -5,6 +5,7 @@ on:
     paths:
       - 'deploy/*/full-stack/**'
       - 'scripts/*full-stack*'
+      - 'test/full-stack-runtime.test.py'
       - 'test/full-stack-deployment.test.py'
       - 'src/api/integrations/channel/findhub/**'
       - 'manager/src/components/FindHub*'
@@ -27,6 +28,7 @@ jobs:
           set -euo pipefail
           python3 scripts/sync-full-stack-deployments.py --check
           python3 test/full-stack-deployment.test.py
+          python3 test/full-stack-runtime.test.py
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -44,28 +46,16 @@ jobs:
         working-directory: deploy/develop/full-stack
         run: |
           set -euo pipefail
-          docker compose --env-file .env -f compose.yaml up -d
-          for i in $(seq 1 90); do
-            if curl -fsS --max-time 3 http://127.0.0.1:38082/health >/dev/null &&
-              test "$(docker inspect -f '{{.State.Status}}:{{.State.ExitCode}}' traccar-bootstrap-argws-connect-develop)" = exited:0; then break; fi
-            sleep 3
-          done
-          curl -fsS --max-time 5 http://127.0.0.1:38082/health >/dev/null
-          python3 - <<'PY'
-          import json, subprocess
-          ids=subprocess.check_output(['docker','compose','--env-file','.env','-f','compose.yaml','ps','-a','-q'],text=True).split()
-          assert len(ids)==14, f'Expected 14 services, found {len(ids)}'
-          for container in json.loads(subprocess.check_output(['docker','inspect',*ids])):
-              name=container['Name'].lstrip('/');state=container['State']
-              if name.startswith('traccar-bootstrap-'):
-                  assert state['Status']=='exited' and state['ExitCode']==0, f'{name}: bootstrap did not complete'
-              else:
-                  assert state['Running'] and not state.get('Restarting'), f'{name}: not running'
-                  assert state.get('Health',{}).get('Status','healthy')=='healthy', f'{name}: unhealthy'
-              print(name, state['Status'])
-          PY
-          docker exec nats-argws-connect-develop wget -q -O /dev/null http://127.0.0.1:8222/healthz
-          docker exec kafka-argws-connect-develop kafka-topics --bootstrap-server localhost:9092 --list >/dev/null
+          docker compose --env-file .env -f compose.yaml up -d --pull never
+          python3 ../../../scripts/check-full-stack-runtime.py --expected 14 --timeout 270
+      - name: Preserve sanitized readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-stack-readiness-${{ github.run_id }}
+          path: deploy/develop/full-stack/full-stack-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Remove only disposable full stack
         if: always()
         working-directory: deploy/develop/full-stack
