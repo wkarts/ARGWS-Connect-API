@@ -648,10 +648,6 @@ export class FindHubStartupService {
       attemptsCompleted++;
       const reports = (await this.protocol.locate(device, timeoutMs))
         .filter((position) => validPosition(position))
-        .filter((position) => {
-          const time = Date.parse(position.timestamp);
-          return time > from.getTime() && time <= to.getTime();
-        })
         .sort(comparePositionPreference);
 
       let discovered = 0;
@@ -660,6 +656,8 @@ export class FindHubStartupService {
         if (seen.has(fingerprint)) continue;
         seen.add(fingerprint);
         discovered++;
+        // Import everything the Google provider actually returned. The requested gap is
+        // only the reconciliation target used for coverage metrics, never a discard filter.
         await this.persistPosition(device, report);
       }
       if (!discovered) emptyAttempts++;
@@ -690,12 +688,13 @@ export class FindHubStartupService {
       positionsBefore: before,
       positionsAfter: after,
       recoveredPositions: recovered,
+      providerReportsObserved: seen.size,
       firstRecoveredAt: rows[0]?.recordedAt?.toISOString?.() || rows[0]?.recordedAt || null,
       lastRecoveredAt: rows.at(-1)?.recordedAt?.toISOString?.() || rows.at(-1)?.recordedAt || null,
       sources: [...new Set(rows.map((row: any) => row.source).filter(Boolean))],
       completenessGuaranteed: false,
       note:
-        'O Google Find Hub pode devolver relatórios RECENT/NETWORK antigos, mas não oferece uma API de histórico arbitrário. Pontos não devolvidos pelo Google não podem ser fabricados.',
+        'Foram importados todos os relatórios válidos devolvidos pelo Google nesta reconciliação, com deduplicação local. O Google Find Hub não oferece uma API de histórico arbitrário; pontos que ele não devolver não podem ser fabricados.',
     };
     this.reconciliationStatus.set(deviceId, result);
     await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { deviceId, reconciliation: result });
