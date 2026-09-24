@@ -3,13 +3,14 @@ import { eventManager } from '@api/server.module';
 import { ConfigService, HttpServer } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
 import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
 import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
+import { normalizeFindHubAvatar } from './findhub-avatar';
 import { FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
 import {
@@ -255,6 +256,20 @@ export class FindHubStartupService {
     });
     if (!row) throw new Error('Find Hub device not found');
     return this.toDevice(row);
+  }
+
+  public async setDeviceAvatar(deviceId: string, avatar: unknown): Promise<FindHubDevice> {
+    await this.device(deviceId); // Instance ownership must be checked before decoding or writing.
+    const avatarData = normalizeFindHubAvatar(avatar);
+    const result = await (this.prisma as any).findHubDevice.updateMany({
+      where: { id: deviceId, instanceId: this.instance.id },
+      data: { avatarData },
+    });
+    if (result.count !== 1) throw new Error('Find Hub device not found');
+    await this.emit(FINDHUB_EVENTS.DEVICES_UPDATED, {
+      devices: (await this.devices()).map((device) => this.publicDevice(device)),
+    });
+    return this.device(deviceId);
   }
 
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
@@ -819,6 +834,7 @@ export class FindHubStartupService {
       manufacturer: row.manufacturer || undefined,
       model: row.model || undefined,
       imageUrl: row.imageUrl || undefined,
+      avatarData: row.avatarData || null,
       trackingEnabled: Boolean(row.trackingEnabled),
       trackingIntervalSeconds: row.trackingIntervalSeconds,
       lastLocationAt: row.lastLocationAt?.toISOString?.() || row.lastLocationAt || null,
@@ -840,6 +856,9 @@ export class FindHubStartupService {
       manufacturer: device.manufacturer,
       model: device.model,
       imageUrl: device.imageUrl,
+      avatarVersion: device.avatarData
+        ? createHash('sha256').update(device.avatarData).digest('hex').slice(0, 16)
+        : null,
       trackingEnabled: device.trackingEnabled,
       trackingIntervalSeconds: device.trackingIntervalSeconds,
       lastLocationAt: device.lastLocationAt,

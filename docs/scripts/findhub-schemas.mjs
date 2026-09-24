@@ -145,7 +145,7 @@ export const findHubEventMessages = {
 // Native location tracking: independent of messaging providers and optional Traccar.
 const trackingProperties = {
   intervalSeconds: {type:'integer',minimum:0,maximum:86400,description:'Espera após cada consulta. 0 não acrescenta espera; nunca há duas consultas simultâneas para o mesmo dispositivo. 60 segundos são recomendados, não impostos. Falhas e limites do provedor usam recuo progressivo.'},
-  timeoutMs: {type:'integer',minimum:5000,maximum:120000,description:'Prazo da espera da localização, independente do intervalo.'},
+  timeoutMs: {type:'integer',minimum:1,maximum:2147483647,description:'Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google.'},
   staleAfterSeconds: {type:'integer',minimum:30,maximum:604800,default:300},
   historyEnabled: {type:'boolean',description:'Habilita novas gravações. Não apaga histórico previamente capturado.'},
   retentionDays: {type:'integer',minimum:0,maximum:36500,default:30,description:'0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais.'},
@@ -191,3 +191,9 @@ findHubEventMessages['findhub.tracking.update']={description:'Alteração do aco
 findHubSchemas.FindHubLocateRequest={type:'object',additionalProperties:false,properties:{timeoutMs:trackingProperties.timeoutMs}};
 findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].requestBody={required:false,content:{'application/json':{schema:ref('FindHubLocateRequest'),example:{timeoutMs:45000}}}};
 findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].description+=' Corpo opcional timeoutMs sobrepõe o prazo somente nesta consulta, sem ativar acompanhamento ou alterar parâmetros persistidos.';
+
+findHubSchemas.FindHubDevice.properties.avatarData = {type:['string','null'],description:'PNG normalizado. O snapshot/SSE contém apenas avatarVersion; use GET device/avatar para buscar a imagem.'};
+findHubSchemas.FindHubDevice.properties.avatarVersion = {type:['string','null'],description:'Revisão opaca do avatar, sem expor a imagem em atualizações de posição.'};
+findHubSchemas.FindHubDeviceAvatarRequest = {type:'object',additionalProperties:false,required:['avatar'],properties:{avatar:{type:['string','null'],maxLength:174786,description:'Data URL PNG RGB/RGBA de até 256x256 e 128 KiB. null remove o avatar. Sem URLs externas ou SVG.'}}};
+findHubOperations['PUT /findhub/device/avatar/{deviceId}/{instanceName}'] = operation('Definir ou remover avatar do dispositivo','Valida propriedade da instância e PNG; remove metadados. Não modifica o dispositivo Google nem é sobrescrito na sincronização.',ref('FindHubDevice'),{requestBody:body('FindHubDeviceAvatarRequest',{avatar:null})});
+findHubOperations['GET /findhub/device/avatar/{deviceId}/{instanceName}'] = operation('Obter avatar privado do dispositivo','Mesma autenticação por instância; não inclua tokens em URLs. Resposta sem cache compartilhado.',{type:'object',properties:{avatarData:{type:['string','null']}}});

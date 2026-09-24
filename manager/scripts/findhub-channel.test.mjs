@@ -77,7 +77,7 @@ function component(name, deps, inlineTemplate = false) {
 const Stub = { render: () => Vue.h('span') };
 test('dedicated account card renders without phone/message counts or send-test actions', async () => {
   const card = component('src/components/FindHubInstanceCard.vue', {
-    './AppIcon.vue': Stub, './InstanceToken.vue': Stub, './StatusPill.vue': Stub,
+    './AppIcon.vue': Stub, './InstanceToken.vue': Stub, './StatusPill.vue': Stub, './FindHubTrackingModal.vue': Stub,
     '@/services/connect': { connect: { findHubSnapshot: async () => ({connected:false,counts:{devices:0,tracking:0,positions:0},email:''}) } },
     '@/services/findhub-channel': channel,
     'vue-router': { useRouter: () => ({ push() {} }) },

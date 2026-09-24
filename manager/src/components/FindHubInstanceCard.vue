@@ -4,11 +4,13 @@ import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import InstanceToken from './InstanceToken.vue'
 import StatusPill from './StatusPill.vue'
+import FindHubTrackingModal from './FindHubTrackingModal.vue'
 import { connect } from '@/services/connect'
 import { findHubPath } from '@/services/findhub-channel'
 import type { ConnectionItem } from '@/types/domain'
 const props = defineProps<{ item: ConnectionItem }>()
 const router = useRouter(), snapshot = ref<any>(null)
+const trackingOpen = ref(false)
 const status = computed(() => snapshot.value ? snapshot.value.connected ? 'connected' : 'disconnected' : 'unknown')
 watch(() => [props.item.id, props.item.updatedAt], async () => {
   const id = props.item.id; snapshot.value = null
@@ -32,10 +34,11 @@ const count = (key: string) => snapshot.value?.counts?.[key]?.toLocaleString('pt
       <div><b>{{ count('positions') }}</b><span>Posições salvas</span></div>
     </div>
     <footer class="instance-card-actions" @click.stop>
-      <button class="card-link" type="button" @click="router.push(findHubPath(item.id,'mapa'))">Rastrear Real Time</button>
+      <button class="card-link" type="button" @click="trackingOpen=true">Rastrear Real Time</button>
       <button class="card-link" type="button" @click="router.push(findHubPath(item.id))">Abrir <AppIcon name="arrow" :size="15" /></button>
     </footer>
   </article>
+  <FindHubTrackingModal :open="trackingOpen" :instance-id="item.id" @close="trackingOpen=false" />
 </template>
 <style scoped>
 .findhub-card{display:flex;flex-direction:column}.instance-card-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:auto;padding-top:13px}.card-link{border:0;background:transparent;padding:0;min-height:24px;line-height:1.4;margin-top:0}.card-link:hover{text-decoration:underline}.card-link:focus-visible{outline:2px solid var(--primary);outline-offset:4px}

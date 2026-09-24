@@ -69,7 +69,7 @@ def validate(env, require_key=False):
     ranges = {
         'FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS': (0, 86400),
         'FINDHUB_MIN_TRACKING_INTERVAL_SECONDS': (0, 86400),
-        'FINDHUB_LOCATION_TIMEOUT_MS': (1000, 300000),
+        'FINDHUB_LOCATION_TIMEOUT_MS': (1, 2147483647),
         'FINDHUB_TRACCAR_TIMEOUT_MS': (1000, 300000),
     }
     for name, (low, high) in ranges.items():

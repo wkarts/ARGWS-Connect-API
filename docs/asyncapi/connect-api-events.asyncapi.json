@@ -539,9 +539,9 @@
                     },
                     "timeoutMs": {
                       "type": "integer",
-                      "minimum": 5000,
-                      "maximum": 120000,
-                      "description": "Prazo da espera da localização, independente do intervalo."
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
                     },
                     "staleAfterSeconds": {
                       "type": "integer",

@@ -19,6 +19,7 @@ export interface FindHubDevice {
   manufacturer?: string;
   model?: string;
   imageUrl?: string;
+  avatarData?: string | null;
   encryptedIdentityKey?: string;
   ownerKeyVersion?: number;
   trackingEnabled?: boolean;

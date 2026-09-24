@@ -5,6 +5,7 @@ import {
   FindHubBrowserExchangeDto,
   FindHubBrowserProofDto,
   FindHubCredentialBundleDto,
+  FindHubDeviceAvatarDto,
   FindHubLocateDto,
   FindHubSettingsDto,
   FindHubTraccarConnectionDto,
@@ -19,6 +20,7 @@ import {
   findHubBrowserExchangeSchema,
   findHubBrowserStartSchema,
   findHubCredentialBundleSchema,
+  findHubDeviceAvatarSchema,
   findHubLocateSchema,
   findHubSettingsSchema,
   findHubTraccarConnectionSchema,
@@ -157,6 +159,22 @@ export class FindHubRouter extends RouterBroker {
       )
       .post('/devices/refresh/:instanceName', ...guards, async (req, res) =>
         res.json(await findHubController.refreshDevices(req.params.instanceName)),
+      )
+      .get('/device/avatar/:deviceId/:instanceName', ...guards, async (req, res) => {
+        const device = await findHubController.device(req.params.instanceName, req.params.deviceId);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json({ avatarData: device.avatarData ?? null });
+      })
+      .put('/device/avatar/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubDeviceAvatarDto>({
+            request: req,
+            schema: findHubDeviceAvatarSchema,
+            ClassRef: FindHubDeviceAvatarDto,
+            execute: (instance, data) =>
+              findHubController.setDeviceAvatar(instance.instanceName, req.params.deviceId, data.avatar),
+          }),
+        ),
       )
       .get('/device/:deviceId/:instanceName', ...guards, async (req, res) =>
         res.json(await findHubController.device(req.params.instanceName, req.params.deviceId)),

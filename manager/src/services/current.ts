@@ -527,6 +527,9 @@ export const current = {
   },
 
 
+  async findHubAvatar(id: string, deviceId: string, avatar?: string | null) {
+    return withInstance(id, async (_item, name, token) => api<{avatarData: string | null}>(`/findhub/device/avatar/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { token, method: avatar === undefined ? 'GET' : 'PUT', data: avatar === undefined ? undefined : { avatar } }))
+  },
   async findHubSnapshot(id: string) {
     return withInstance(id, async (_item, name, token) => api<any>(`/findhub/tracking/snapshot/${encodeURIComponent(name)}`, { token }))
   },
@@ -601,7 +604,7 @@ export const current = {
 
   async findHubLocate(id: string, deviceId: string, timeoutMs?: number) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/locate/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
-      method: 'POST', token, timeout: 155000, data: { timeoutMs },
+      method: 'POST', token, timeout: Math.min(2147483647, (timeoutMs ?? 120000) + 10000), data: { timeoutMs },
     }))
   },
 

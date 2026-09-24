@@ -129,6 +129,13 @@ export class FindHubController {
   public device(instanceName: string, deviceId: string) {
     return this.runtime(instanceName).device(deviceId);
   }
+  public async setDeviceAvatar(instanceName: string, deviceId: string, avatar: unknown) {
+    try {
+      return await this.runtime(instanceName).setDeviceAvatar(deviceId, avatar);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Avatar inválido.');
+    }
+  }
   public locate(instanceName: string, deviceId: string, timeoutMs?: number) {
     return this.runtime(instanceName).locate(deviceId, timeoutMs);
   }

@@ -9,11 +9,13 @@ export class FindHubNovaClient {
     private readonly credentials: FindHubAasCredentials,
   ) {}
 
-  private async request(scope: string, payload: Buffer): Promise<Buffer> {
+  private async request(scope: string, payload: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    signal?.throwIfAborted();
     const token = await this.auth.serviceToken(this.credentials, 'adm');
+    signal?.throwIfAborted();
     const response = await fetch(`${GOOGLE_ENDPOINTS.novaBase}/${scope}`, {
       method: 'POST',
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ?? AbortSignal.timeout(30_000),
       redirect: 'error',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
@@ -40,12 +42,15 @@ export class FindHubNovaClient {
     return [...devices.values()];
   }
 
-  public async locate(args: {
-    googleDeviceId: string;
-    fcmRegistrationId: string;
-    requestUuid: string;
-    clientUuid: string;
-  }) {
-    await this.request(NOVA_SCOPES.executeAction, encodeExecuteLocateRequest(args));
+  public async locate(
+    args: {
+      googleDeviceId: string;
+      fcmRegistrationId: string;
+      requestUuid: string;
+      clientUuid: string;
+    },
+    signal?: AbortSignal,
+  ) {
+    await this.request(NOVA_SCOPES.executeAction, encodeExecuteLocateRequest(args), signal);
   }
 }

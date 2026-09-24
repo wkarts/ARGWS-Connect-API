@@ -106,6 +106,7 @@ export const connect = {
   updateUser: (id: string, data: any): Promise<any> => invoke('updateUser', id, data),
   removeUser: (id: string): Promise<any> => invoke('removeUser', id),
   audit: (): Promise<AuditItem[]> => invoke('audit'),
+  findHubAvatar: (id: string, deviceId: string, avatar?: string | null): Promise<any> => invoke('findHubAvatar', id, deviceId, avatar),
   findHubSnapshot: (id: string): Promise<any> => invoke('findHubSnapshot', id),
   findHubSettings: (id: string, data?: any): Promise<any> => invoke('findHubSettings', id, data),
   findHubTraccarConnection: (id: string, data?: any): Promise<any> => invoke('findHubTraccarConnection', id, data),

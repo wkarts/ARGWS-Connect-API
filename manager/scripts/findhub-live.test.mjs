@@ -32,3 +32,19 @@ test('zero input is not converted into sixty seconds by UI fallback',()=>{
 });
 
 test('overview hero is unique and outside PageHeader actions',()=>{const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');assert.equal((source.match(/class="provider-hero"/g)||[]).length,1);assert.ok(!source.split('<PageHeader')[1].split('</PageHeader>')[0].includes('provider-hero'));});
+
+test('zero interval from realtime is not discarded',()=>{const s=snapshot();s.devices[0].trackingIntervalSeconds=60;applyFindHubUpdate(s,{instanceId:'a',data:{deviceId:'one',intervalSeconds:0}},'a');assert.equal(s.devices[0].trackingIntervalSeconds,0)});
+test('mouse wheel zoom preserves the point beneath the cursor',()=>{
+ const {zoomAt}=load('findhub-map.ts');const center={latitude:-13,longitude:-39},z=12,x=127,y=214,w=800,h=430;
+ const c=project(center.latitude,center.longitude,z),anchor=unproject(c.x+x-w/2,c.y+y-h/2,z);
+ const after=zoomAt(center,z,z+1,x,y,w,h),ca=project(after.center.latitude,after.center.longitude,after.zoom),p=project(anchor.latitude,anchor.longitude,after.zoom);
+ assert.ok(Math.abs(p.x-ca.x-(x-w/2))<1e-7);assert.ok(Math.abs(p.y-ca.y-(y-h/2))<1e-7);
+ assert.equal(zoomAt(center,19,20,x,y,w,h).zoom,19);
+});
+test('popup stays account scoped and closing releases stream without stopping tracking',()=>{
+ const source=readFileSync(new URL('../src/components/FindHubTrackingModal.vue',import.meta.url),'utf8');
+ assert.match(source,/applyFindHubUpdate\(snapshot.value, event, id\)/);assert.match(source,/abort\?\.abort/);
+ assert.match(source,/onBeforeUnmount/);assert.doesNotMatch(source,/findHubStopTracking|window.open|localStorage/);
+ const map=readFileSync(new URL('../src/components/FindHubMap.vue',import.meta.url),'utf8');
+ assert.match(map,/addEventListener\('wheel', wheel, \{ passive: false \}/);assert.match(map,/removeEventListener\('wheel'/);assert.match(map,/map-device-avatar/);
+});

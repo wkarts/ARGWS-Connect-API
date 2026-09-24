@@ -829,6 +829,7 @@ model FindHubDevice {
   manufacturer            String?  @db.VarChar(255)
   model                   String?  @db.VarChar(255)
   imageUrl                String?  @db.VarChar(1000)
+  avatarData              String?  @db.Text
   trackingEnabled         Boolean  @default(false) @db.Boolean
   trackingIntervalSeconds Int      @default(60) @db.Integer
   latestPosition          Json?
