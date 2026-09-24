@@ -58,7 +58,7 @@ jobs:
             devices.value = snapshot.value.devices
           }'''.replace('ACCOUNT',account)
           assert text.count(original)==1
-          path.write_text(text.replace(original,replacement,1))
+          path.write_text(text.replace(original,replacement,1).rstrip() + '\n')
           print('Snapshot refresh now rejects superseded requests and account lifecycle changes.')
           PY
           rm -r .github/findhub-observations-source
