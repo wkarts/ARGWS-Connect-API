@@ -43,7 +43,7 @@ class CacheTests(unittest.TestCase):
  def test_publisher_workflow_has_no_duplicate_workflow_run_or_long_sleep(self):
   source=(ROOT/'.github/workflows/ghcr-retention.yml').read_text()
   self.assertNotIn('  workflow_run:',source);self.assertNotIn('--wait-seconds 600',source)
-  self.assertLess(source.index('scripts/actions-cache-retention.py'),source.index('Install registry reader'))
+  self.assertLess(source.index('scripts/actions-cache-retention.py'),source.index('Single image inventory with protected plan before application'))
   self.assertNotIn('retention-dry-run',source)
  def test_whatsapp_sources_and_canonical_manifest_untouched(self):
   # The new worker has no DELETE endpoint for packages, refs, releases or official assets.

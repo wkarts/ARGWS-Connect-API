@@ -1,5 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$Exe)
 $ErrorActionPreference = 'Stop'
+$sourceManifest = Get-Content (Join-Path $PSScriptRoot '..\manifest.json') -Raw | ConvertFrom-Json
+if ($sourceManifest.version -notmatch '^\d+\.\d+\.\d+$' -or !$sourceManifest.key) { throw 'Invalid source extension manifest' }
 $Exe = (Resolve-Path $Exe).Path
 $previousLocal = $env:LOCALAPPDATA
 $temporary = Join-Path $env:RUNNER_TEMP ("findhub-rust-smoke-" + [guid]::NewGuid().ToString('N'))
@@ -18,7 +20,7 @@ try {
     Invoke-Assistant '--verify-files'
     $manifestPath = Join-Path $root 'extension\manifest.json'
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.version -ne '0.1.6') { throw 'Incorrect Rust embedded payload version' }
+    if ($manifest.version -ne $sourceManifest.version -or $manifest.key -ne $sourceManifest.key) { throw 'Incorrect Rust embedded payload version' }
     $key = $manifest.key
     Set-Content (Join-Path $root 'keep-user-file.txt') 'preserve'
     Set-Content (Join-Path $root 'extension\background.js') 'corrupted'

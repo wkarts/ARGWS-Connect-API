@@ -1,10 +1,10 @@
 # Connect|API Find Hub Auth — extensão opcional
 
-ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.6.
+ID estável: `dcnejnlafhanlldafkijledmonimkgng`. Versão 0.1.7.
 
 Esta é uma implementação experimental própria para Chrome/Edge desktop, não um login OAuth público Google. Extraia o ZIP servido pela sua API e use Carregar sem compactação na página de extensões (modo desenvolvedor). Volte ao Manager e inicie Conectar conta. A janela **da extensão** mostra a origem solicitante, o servidor destinatário e a conta: aprove somente destinos de sua confiança.
 
-`externally_connectable` aceita páginas self-hosted; isso não concede acesso a cookies. A permissão opcional fica limitada a `accounts.google.com` e é solicitada na janela de consentimento. Nenhum site recebe artefatos sem autorização explícita por tentativa. O canal original permanece aberto; fechar a interface ou a aba Google cancela. Não usa armazenamento, analytics, VNC, servidor intermediário, debugger ou senha Google.
+`externally_connectable` aceita páginas self-hosted; isso não concede acesso a cookies. As permissões opcionais ficam limitadas a `accounts.google.com` e `myaccount.google.com`, solicitadas na janela de consentimento. O segundo domínio é usado apenas para observar o retorno da navegação de login, sem ler conteúdo da página. Nenhum site recebe artefatos sem autorização explícita por tentativa. O canal original permanece aberto; fechar a interface ou a aba Google cancela. Não usa armazenamento, analytics, VNC, servidor intermediário, debugger ou senha Google.
 
 O protocolo privado pode entregar credenciais Google de alcance amplo. Tokens não são exibidos ou copiados manualmente e não devem aparecer nos logs. A página destinatária já autorizada recebe os artefatos e os envia ao backend próprio por HTTPS. XSS nessa página comprometeria os dados; não vincule contas em instalações não confiáveis.
 
@@ -70,3 +70,59 @@ extensões antes de iniciar uma tentativa nova. O contrato REST não mudou: uma 
 com o fluxo browser-auth da PR #125 é compatível. A PR #126 também atualiza o ZIP
 servido pelo Manager e sua indicação de versão. Não altere CORS, TLS ou a chave
 `FINDHUB_CREDENTIALS_KEY`. Testes controlados não comprovam login Google real.
+
+
+## 0.1.7 — Sessão web antes do desbloqueio e erro Google explícito
+
+Esta revisão é uma correção candidata, testada localmente com respostas controladas.
+Não é uma homologação de autenticação real nem afirma que um erro 401 específico do
+Google tenha sido eliminado. Não modifica o pedido inicial de token no backend.
+
+O resultado do login nativo `EmbeddedSetup` é trocado pela API como anteriormente.
+Antes de abrir o endereço do cofre recebido da API, a extensão conduz a **mesma aba
+consentida** pelo login web oficial do Google, com retorno fixo a
+`https://myaccount.google.com/`. Ela aguarda uma navegação concluída nessa aba;
+origens parecidas, `/intro`, outras abas ou navegação pendente não liberam o cofre.
+Chegar à página da conta é somente uma etapa de navegação: a API ainda precisa
+validar a chave e a conexão para declarar a vinculação concluída.
+
+A permissão adicional para `myaccount.google.com` permite consultar endereço e
+estado dessa aba. O código não injeta scripts nem lê conteúdo, formulários ou
+cookies desse domínio. A autorização do navegador continua sendo explícita.
+Os callbacks continuam limitados ao `kdi`, nonce, aba e documento da tentativa.
+Não há captura de PIN, senha, desafio de segurança ou resposta da notificação.
+
+O Google pode solicitar confirmação em duas etapas e, depois, o bloqueio de tela
+do aparelho. A extensão não escolhe nem substitui esses fatores. Uma página de
+confirmação normal sem o contexto do cofre não ganha autorização para entregar
+chaves, e a espera pela ação do usuário não é confundida com o prazo de preparo
+do callback. O limite global de expiração permanece.
+
+Uma página de erro Google no cofre, com título padronizado de erro 4xx/5xx, encerra
+a espera com `FH-EXT-GOOGLE-HTTP`. A extensão consulta apenas o título fornecido
+pelo navegador, não o HTML ou a resposta bruta. Não tenta repetir a URL, falsificar
+cookies, alterar cabeçalhos de segurança ou contornar a exigência do Google.
+
+### Aplicação
+
+1. Cancele a tentativa antiga e feche apenas as abas abertas por ela.
+2. Extraia o ZIP 0.1.7 na mesma pasta de sua extensão, preservando o perfil do navegador.
+3. Clique em **Recarregar** na página de extensões e recarregue o Manager.
+4. Inicie uma vinculação nova e confira os dois destinos Google na autorização.
+5. Conclua os fatores que o próprio Google oferecer, sem compartilhar códigos, PIN
+   ou URLs de sessão. Não continue repetindo uma notificação já expirada.
+
+O contrato REST continua compatível com o browser-auth existente da PR #125 em
+diante. Uma interface anterior exibirá instrução genérica de login; o componente
+Manager desta revisão diferencia a etapa web e o desbloqueio. O instalador 0.1.6
+antigo não deve ser executado por cima destes arquivos, pois os substituiria pelos
+arquivos daquela versão. Nenhum binário Windows 0.1.7 foi compilado nesta entrega local.
+
+Falha `FH-AUTH-9114` ocorre **antes** do login, no registro Google do receptor feito
+pelo servidor. Este ZIP não resolve essa falha de backend; os logs anteriores não
+contêm a etapa remota e o motivo originais. `FH-AUTH-9110` indica uma tentativa que
+já não pode ser utilizada. Reiniciar a API elimina suas tentativas em memória;
+sempre inicie outra vinculação após uma atualização/reinício do servidor.
+
+Não regenere `FINDHUB_CREDENTIALS_KEY`, não apague volumes e não faça downgrade da
+API inteira. A preservação das credenciais já cifradas exige conservar sua chave.
