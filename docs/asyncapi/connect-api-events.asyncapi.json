@@ -489,6 +489,41 @@
                       "type": "boolean"
                     }
                   }
+                },
+                "query": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "startedAt",
+                    "completedAt",
+                    "timeoutMs"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "new_report",
+                        "known_position",
+                        "no_position",
+                        "timeout",
+                        "failed"
+                      ]
+                    },
+                    "startedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "completedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+                    }
+                  }
                 }
               }
             }
@@ -561,6 +596,41 @@
                       "description": "0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais."
                     }
                   }
+                },
+                "query": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "startedAt",
+                    "completedAt",
+                    "timeoutMs"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "new_report",
+                        "known_position",
+                        "no_position",
+                        "timeout",
+                        "failed"
+                      ]
+                    },
+                    "startedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "completedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+                    }
+                  }
                 }
               }
             }
@@ -589,6 +659,41 @@
                 },
                 "message": {
                   "type": "string"
+                },
+                "query": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "startedAt",
+                    "completedAt",
+                    "timeoutMs"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "new_report",
+                        "known_position",
+                        "no_position",
+                        "timeout",
+                        "failed"
+                      ]
+                    },
+                    "startedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "completedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+                    }
+                  }
                 }
               },
               "additionalProperties": true

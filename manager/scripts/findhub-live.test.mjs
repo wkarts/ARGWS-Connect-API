@@ -48,3 +48,40 @@ test('popup stays account scoped and closing releases stream without stopping tr
  const map=readFileSync(new URL('../src/components/FindHubMap.vue',import.meta.url),'utf8');
  assert.match(map,/addEventListener\('wheel', wheel, \{ passive: false \}/);assert.match(map,/removeEventListener\('wheel'/);assert.match(map,/map-device-avatar/);
 });
+
+test('delayed snapshot cannot replace a newer SSE position or another account',()=>{
+ const s=snapshot();s.devices[0].latestPosition={latitude:1,longitude:2,timestamp:'2026-09-23T10:00:00Z'};
+ s.devices[0].lastQuery={status:'new_report',completedAt:'2026-09-23T10:01:00Z'};
+ const next=snapshot();next.devices[0].latestPosition={latitude:3,longitude:4,timestamp:'2026-09-23T09:00:00Z'};
+ const result=applyFindHubUpdate(s,{event:'snapshot',data:next},'a');assert.equal(result.devices[0].latestPosition.latitude,1);assert.equal(result.devices[0].lastQuery.status,'new_report');
+ const wrong=applyFindHubUpdate(s,{event:'snapshot',data:{...next,instanceId:'b'}},'a');assert.equal(wrong,s);
+});
+test('known report event preserves original position time and records the real query outcome',()=>{
+ const s=snapshot();const position={latitude:0,longitude:0,timestamp:'2026-09-23T09:00:00Z'};
+ applyFindHubUpdate(s,{instanceId:'a',at:'2026-09-23T10:00:00Z',data:{deviceId:'one',location:position,query:{status:'known_position',completedAt:'2026-09-23T10:00:00Z'}}},'a');
+ assert.equal(s.devices[0].lastLocationAt,position.timestamp);assert.equal(s.devices[0].lastQuery.status,'known_position');
+ assert.equal(s.devices[0].latestPosition.latitude,0);
+});
+test('coordinates and timeout messages are factual, including latitude/longitude zero',()=>{
+ const {coordinate,locateResultMessage,locateErrorMessage,queryMessage}=load('findhub-position.ts');
+ assert.equal(coordinate(0),'0.0000000');assert.equal(coordinate(undefined),'—');
+ const p={latitude:1,longitude:2,timestamp:'2026-09-23T09:00:00Z'};
+ assert.match(locateResultMessage(p,p),/não uma nova posição/);assert.match(locateResultMessage(null,p),/preservado/);
+ assert.match(locateErrorMessage('Google Find Hub location request timed out',1),/1 ms/);
+ assert.match(queryMessage({status:'known_position'}),/Sem novo relatório/);
+});
+test('integration device button navigates to map and only overview/card tracking keeps modal',()=>{
+ const view=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
+ assert.match(view,/@click="openDeviceMap\(device.id\)"/);assert.match(view,/query: \{ device: deviceId \}/);
+ assert.doesNotMatch(view,/@click="showTracking\(device.id\)"/);assert.match(view,/class="device-actions"><button class="btn ghost"/);
+ const card=readFileSync(new URL('../src/components/FindHubInstanceCard.vue',import.meta.url),'utf8');
+ assert.match(card,/FindHubTrackingModal/);assert.match(card,/connect.findHubStream/);assert.match(card,/onBeforeUnmount\(stopStream\)/);
+});
+test('map/modal, instance card and overview render labeled real coordinates',()=>{
+ for(const file of ['components/FindHubLiveTracking.vue','components/FindHubInstanceCard.vue','views/FindHubView.vue']){
+  const source=readFileSync(new URL('../src/'+file,import.meta.url),'utf8');assert.match(source,/<FindHubPositionDetails/);
+ }
+ const details=readFileSync(new URL('../src/components/FindHubPositionDetails.vue',import.meta.url),'utf8');
+ assert.match(details,/<dt>Latitude<\/dt>/);assert.match(details,/<dt>Longitude<\/dt>/);assert.match(details,/position\?\.timestamp/);
+ assert.doesNotMatch(details,/Math.random|setInterval/);
+});

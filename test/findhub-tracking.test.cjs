@@ -66,12 +66,10 @@ test('snapshot reports verified status, real counters, settings and no provider 
 
 test('manual locate honors its timeout without enabling tracking',async()=>{const h=runtimeHarness();let selected;h.runtime.protocol={locate:async(d,t)=>{selected=t;return []}};await h.runtime.locate('d-a',90000);assert.equal(selected,90000);assert.equal(h.row.trackingEnabled,false);await assert.rejects(h.runtime.locate('d-a',0));});
 test('metadata-only push does not consume a pending location request',async()=>{
- const requestId='request-test';let report=false,resolved=0,cleared=0;
- const fake={decodeDeviceUpdate:()=>({requestUuid:requestId,deviceMetadata:Buffer.from('metadata')}),decodeLocationReports:()=>report?[{encryptedLocation:Buffer.from('ciphertext')}]:[]};
- const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',{'../auth/google-play-auth.client':{},'../crypto/findhub-crypto':{},'../protocol/fcm.client':{},'../protocol/findhub-proto':fake,'../protocol/nova.client':{},'../protocol/spot.client':{}},{clearTimeout:()=>cleared++});
- const client=Object.create(FindHubProtocolClient.prototype);client.pending=new Map([[requestId,{timer:1,resolve:()=>resolved++}]]);
- client.handlePushPayload(Buffer.alloc(0));assert.equal(client.pending.size,1);assert.equal(resolved,0);
- report=true;client.handlePushPayload(Buffer.alloc(0));assert.equal(client.pending.size,0);assert.equal(resolved,1);assert.equal(cleared,1);
+ const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g'},30000);
+ h.finish();await Promise.resolve();await Promise.resolve();
+ h.push([]);assert.equal(h.client.pending.size,1);
+ h.push([position]);const rows=await waiting;assert.equal(rows.length,1);assert.equal(h.client.pending.size,0);
 });
 
 for (const intervalSeconds of [0,1,2,15,30,60,86400]) test('requested interval survives validation: '+intervalSeconds,()=>{assert.equal(policy.trackingSettings({intervalSeconds}).intervalSeconds,intervalSeconds);assert.equal(policy.trackingDelayMs(intervalSeconds),intervalSeconds*1000)});
@@ -128,17 +126,22 @@ function protocolDeadlineHarness(){
   '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='fixture'}},
   '../protocol/nova.client':{FindHubNovaClient:class{locate(args,signal){calls.push({args,signal});return new Promise(resolve=>finish=resolve)}}},
   '../protocol/spot.client':{FindHubSpotClient:class{}},
-  '../crypto/findhub-crypto':{decryptIdentityKey:()=>Buffer.alloc(32)},
-  '../protocol/findhub-proto':{decodeDeviceRegistration:()=>({encryptedIdentityKey:Buffer.alloc(32)}),decodeLocationReports:()=>[]},
+  '../crypto/findhub-crypto':{decryptIdentityKey:()=>Buffer.alloc(32),decryptLocationReport:(_key,report)=>report.location},
+  '../protocol/findhub-proto':{
+   decodeDeviceRegistration:()=>({encryptedIdentityKey:Buffer.alloc(32)}),
+   decodeLocationReports:metadata=>JSON.parse(metadata.toString()).map(p=>({encryptedLocation:Buffer.from('fixture'),location:p,timestampSeconds:Date.parse(p.timestamp)/1000,ownReport:true})),
+   decodeDeviceUpdate:payload=>{const value=JSON.parse(payload.toString());return {requestUuid:value.id,deviceMetadata:Buffer.from(JSON.stringify(value.positions))}},
+  },
  };
  const globals={setTimeout(fn,ms){const timer={fn,ms,unref(){},cleared:false};timers.push(timer);return timer},clearTimeout(t){if(t)t.cleared=true}};
  const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',overrides,globals);
- return {client:new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{}),timers,calls,finish:()=>finish()};
+ const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{});
+ return {client,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
 }
 test('1 ms deadline bounds HTTP even when Google push arrives first',async()=>{
  const h=protocolDeadlineHarness();const pending=h.client.locate({id:'one',googleDeviceId:'g'},1);
- assert.equal(h.timers[0].ms,1);assert.equal(h.timers[1].ms,1);
- [...h.client.pending.values()][0].resolve(Buffer.alloc(1));h.timers[1].fn();
+ assert.equal(h.timers.length,1);assert.equal(h.timers[0].ms,1);
+ h.push([position]);h.timers[0].fn();
  await assert.rejects(pending,/timed out/);assert.equal(h.calls[0].signal.aborted,true);h.finish();
  assert.equal(h.client.pending.size,0);assert.ok(h.timers.every(t=>t.cleared));
 });
@@ -152,4 +155,50 @@ test('Nova abort before token resolution cannot submit a late location command',
  const {FindHubNovaClient}=load('src/api/integrations/channel/findhub/protocol/nova.client.ts',{'../auth/google-play-auth.client':{},'./findhub-proto':{encodeExecuteLocateRequest:()=>Buffer.alloc(0)}},{fetch:()=>{calls++;throw Error('late network')}});
  const controller=new AbortController(),client=new FindHubNovaClient(auth,{});
  const pending=client.locate({},controller.signal);controller.abort();resolveToken('fixture');await assert.rejects(pending);assert.equal(calls,0);
+});
+
+
+test('cached FCM report cannot consume the request before a newer real report',async()=>{
+ const h=protocolDeadlineHarness(),old={...position,timestamp:new Date(now-600000).toISOString()};
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g',latestPosition:old},5000);
+ h.finish();await Promise.resolve();await Promise.resolve();
+ h.push([old]);assert.equal(h.client.pending.size,1);
+ h.push([position]);const rows=await waiting;
+ assert.equal(rows[0].timestamp,position.timestamp);assert.equal(h.client.pending.size,0);
+ assert.equal(h.calls.length,1);assert.ok(h.timers.every(t=>t.cleared));
+});
+test('only correlated cached reports are returned at deadline, not a fabricated new fix',async()=>{
+ const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g',latestPosition:position},10);
+ h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);
+ assert.equal(h.client.pending.size,1);h.timers[0].fn();const rows=await waiting;
+ assert.equal(rows[0].timestamp,position.timestamp);assert.equal(rows[0].latitude,position.latitude);
+ assert.equal(h.client.pending.size,0);
+});
+test('an unrelated request cannot satisfy the lookup and timeout never falls back to DB position',async()=>{
+ const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g',latestPosition:position},1);
+ h.finish();await Promise.resolve();await Promise.resolve();h.push([position],'another-request');
+ h.timers[0].fn();await assert.rejects(waiting,/timed out/);assert.equal(h.client.pending.size,0);
+ h.push([position]);assert.equal(h.client.pending.size,0);
+});
+test('invalid report does not prevent a later valid report in the same request',async()=>{
+ const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g'},30);
+ h.finish();await Promise.resolve();await Promise.resolve();h.push([{...position,latitude:999}]);
+ assert.equal(h.client.pending.size,1);h.push([position]);assert.equal((await waiting)[0].latitude,position.latitude);
+});
+test('same coordinates with a newer upstream timestamp are a genuine new observation',async()=>{
+ const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g',latestPosition:{...position,timestamp:new Date(now-50000).toISOString()}},30);
+ h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);assert.equal((await waiting)[0].timestamp,position.timestamp);
+});
+test('runtime exposes cached versus new observation without changing location response shape',async()=>{
+ const h=runtimeHarness(),seen=[];h.runtime.subscribe(event=>seen.push(event));h.row.latestPosition={...position,deviceId:'d-a'};
+ h.runtime.protocol.locate=async()=>[{...position,deviceId:'d-a'}];
+ const response=await h.runtime.locate('d-a',10);assert.equal(response.latitude,position.latitude);
+ assert.equal(seen.at(-1).data.query.status,'known_position');assert.equal((await h.runtime.snapshot()).devices[0].lastQuery.timeoutMs,10);
+ assert.equal(h.row.lastLocationAt.getTime(),Date.parse(position.timestamp));
+});
+test('timeout state is localized by UI but backend preserves existing position and report time',async()=>{
+ const h=runtimeHarness();h.row.latestPosition=position;h.runtime.protocol.locate=async()=>{throw Error('Google Find Hub location request timed out')};
+ await assert.rejects(h.runtime.locate('d-a',1));const snap=await h.runtime.snapshot();
+ assert.equal(h.row.latestPosition,position);assert.equal(snap.devices[0].lastQuery.status,'timeout');
+ assert.equal(h.row.lastErrorCode,'LOCATION_TIMEOUT');assert.equal(h.positions.length,0);
 });

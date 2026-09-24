@@ -77,8 +77,9 @@ function component(name, deps, inlineTemplate = false) {
 const Stub = { render: () => Vue.h('span') };
 test('dedicated account card renders without phone/message counts or send-test actions', async () => {
   const card = component('src/components/FindHubInstanceCard.vue', {
-    './AppIcon.vue': Stub, './InstanceToken.vue': Stub, './StatusPill.vue': Stub, './FindHubTrackingModal.vue': Stub,
-    '@/services/connect': { connect: { findHubSnapshot: async () => ({connected:false,counts:{devices:0,tracking:0,positions:0},email:''}) } },
+    './AppIcon.vue': Stub, './InstanceToken.vue': Stub, './StatusPill.vue': Stub, './FindHubTrackingModal.vue': Stub, './FindHubPositionDetails.vue': Stub,
+    '@/services/findhub-live-state': load('src/services/findhub-live-state.ts'),
+    '@/services/connect': { connect: { findHubStream: () => new Promise(() => {}) } },
     '@/services/findhub-channel': channel,
     'vue-router': { useRouter: () => ({ push() {} }) },
   }, true);
@@ -125,4 +126,14 @@ test('event options are channel events, with no messaging/bot/proxy settings', (
 });
 test('Find Hub creation refreshes the cache before the router resolves its new account', () => {
   assert.match(read('src/services/current.ts'), /await rawInstances\(payload.integration === 'GOOGLE-FIND-HUB'\)/);
+});
+
+
+test('position panel renders numeric coordinates including zero and the upstream timestamp', async () => {
+  const details = component('src/components/FindHubPositionDetails.vue', {
+    '@/services/findhub-position': load('src/services/findhub-position.ts'),
+  }, true);
+  const html = await renderToString(Vue.createSSRApp(details, { device: { latestPosition: {latitude:0,longitude:-39.2421233,timestamp:'2026-09-24T06:19:10Z',source:'RECENT',accuracy:100} } }));
+  assert.match(html, /Latitude/); assert.match(html, /Longitude/);
+  assert.match(html, /0\.0000000/); assert.match(html, /-39\.2421233/); assert.match(html, /24\/09\/2026/);
 });
