@@ -12,7 +12,13 @@ import {
 } from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
-import { comparePositionPreference, isNewPositionObservation, locationTimeoutMs, positionFingerprint, validPosition } from './findhub-tracking.policy';
+import {
+  comparePositionPreference,
+  isNewPositionObservation,
+  locationTimeoutMs,
+  positionFingerprint,
+  validPosition,
+} from './findhub-tracking.policy';
 
 type PendingLocation = {
   device: FindHubDevice;
@@ -230,9 +236,7 @@ export class FindHubProtocolClient {
       // Bound per-request memory while retaining the newest reports.
       if (pending.reports.size > 128) {
         pending.reports = new Map(
-          [...pending.reports.entries()]
-            .sort((a, b) => comparePositionPreference(a[1], b[1]))
-            .slice(0, 128),
+          [...pending.reports.entries()].sort((a, b) => comparePositionPreference(a[1], b[1])).slice(0, 128),
         );
       }
       if (
