@@ -82,14 +82,6 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as stream:stream.write('ready='+str(ready).lower()+'\n')
           print('Image retention gate:',ready,'(no waiting and no registry scan when blocked)')
           PYGATE
-      - name: Install registry reader
-        if: steps.image-gate.outputs.ready == 'true'
-        run: command -v skopeo || (sudo apt-get update && sudo apt-get install -y skopeo)
-      - name: Authenticate inventory reader
-        if: steps.image-gate.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "$GH_TOKEN" | skopeo login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
       - name: Single image inventory with protected plan before application
         if: steps.image-gate.outputs.ready == 'true'
         env:
@@ -100,9 +92,24 @@ jobs:
           APPLY: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply) || (inputs.branch != '' && vars.ARGWS_RETENTION_APPLY != 'false') }}
         run: |
           set -euo pipefail
-          args=(--verified-sha "$PUBLISHED_SHA" --branch "$BRANCH" --source-sha "$SOURCE_SHA" --output retention-applied)
+          args=(--verified-sha "$PUBLISHED_SHA" --branch "$BRANCH" --source-sha "$SOURCE_SHA" --output retention-applied --images-only --max-seconds 480 --max-image-deletions 20)
           if [[ "$APPLY" == true ]]; then args+=(--apply); fi
-          python3 scripts/ghcr-retention.py "${args[@]}"
+          python3 -u scripts/ghcr-retention.py "${args[@]}"
+      - name: Report maintenance outcome without hiding deferred work
+        if: always()
+        run: |
+          python3 - <<'PYREPORT'
+          import json, os
+          from pathlib import Path
+          report = Path('retention-applied/report.json')
+          if report.exists():
+            data = json.loads(report.read_text())
+            line = f"GHCR retention: **{data.get('mode', 'unknown')}**, confirmed deletions: **{len(data.get('deleted', []))}**. " + data.get('reason', '')
+          else:
+            line = 'GHCR retention: gate blocked or execution failed before report. No completion claimed.'
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+            summary.write(line + '\n\nActions cache has an independent report. Canonical images, Git tags and Releases remain protected.\n')
+          PYREPORT
       - uses: actions/upload-artifact@v4
         if: always()
         with:
