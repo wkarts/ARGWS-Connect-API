@@ -56,7 +56,6 @@ jobs:
             if (requestId !== sequence || refreshId !== snapshotRefreshSequence || currentId !== ACCOUNT.value) return
             snapshot.value = applyFindHubUpdate(snapshot.value, { event: 'snapshot', data: incoming }, currentId)
             devices.value = snapshot.value.devices
-            if (auth.value) auth.value.historyEnabled = snapshot.value.settings.historyEnabled
           }'''.replace('ACCOUNT',account)
           assert text.count(original)==1
           path.write_text(text.replace(original,replacement,1))
