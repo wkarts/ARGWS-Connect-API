@@ -23,11 +23,45 @@ jobs:
       - name: Apply reviewed correction and remove temporary workspace
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = e7c3120ba0f1798bbe0cc9005d309b936a374f4a
+          git merge-base --is-ancestor e7c3120ba0f1798bbe0cc9005d309b936a374f4a HEAD
           cat .github/findhub-observations-source/part* | base64 -d | xz -d > /tmp/findhub-correction.patch
           echo '035809bb1c3d3ff79761f86ee67b34249d69af1b77fd3f099b7bde306d9edea6  /tmp/findhub-correction.patch' | sha256sum -c -
           git apply --check /tmp/findhub-correction.patch
           git apply /tmp/findhub-correction.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path=Path('manager/src/views/FindHubView.vue')
+          text=path.read_text()
+          start=text.index('async function reloadSnapshot()')
+          end=text.index('\n\n',start)
+          original=text[start:end]
+          account='instanceName' if 'instanceName.value' in original else 'id'
+          assert f'{account}.value' in original and 'applyFindHubUpdate' in original
+          if not re.search(r'\b(?:let|const) sequence\b',text):
+              hook=f'watch({account}, () => {{ trackingOpen.value = false }})'
+              assert hook in text and 'onBeforeUnmount(stopStream)' in text
+              text=text.replace(hook,f'watch({account}, () => {{ sequence++; trackingOpen.value = false }})',1)
+              text=text.replace('onBeforeUnmount(stopStream)','onBeforeUnmount(() => { sequence++; stopStream() })',1)
+              declaration='let sequence = 0\n'
+          else:
+              declaration=''
+          replacement=declaration+'''let snapshotRefreshSequence = 0
+          async function reloadSnapshot() {
+            const requestId = sequence
+            const refreshId = ++snapshotRefreshSequence
+            const currentId = ACCOUNT.value
+            if (!currentId) return
+            const incoming = await connect.findHubSnapshot(currentId)
+            if (requestId !== sequence || refreshId !== snapshotRefreshSequence || currentId !== ACCOUNT.value) return
+            snapshot.value = applyFindHubUpdate(snapshot.value, { event: 'snapshot', data: incoming }, currentId)
+            devices.value = snapshot.value.devices
+            if (auth.value) auth.value.historyEnabled = snapshot.value.settings.historyEnabled
+          }'''.replace('ACCOUNT',account)
+          assert text.count(original)==1
+          path.write_text(text.replace(original,replacement,1))
+          print('Snapshot refresh now rejects superseded requests and account lifecycle changes.')
+          PY
           rm -r .github/findhub-observations-source
           rm .github/workflows/findhub-observations-workspace.yml
       - name: Install locked dependencies
