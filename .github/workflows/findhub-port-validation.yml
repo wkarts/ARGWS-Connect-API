@@ -1,0 +1,92 @@
+name: Find Hub - Validate supplied-reference port correction
+on:
+  push:
+    branches: [fix/findhub-push-crypto-parity]
+    paths: [.github/workflows/findhub-port-validation.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HUSKY: '0'
+      DATABASE_PROVIDER: postgresql
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Apply reviewed patch and remove temporary workspace
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor bc7d61a066e6859634c867beb6a56c57e9b87097 HEAD
+          cat .github/findhub-port-source/part* | base64 -d | xz -d > /tmp/findhub-port.patch
+          echo 'db0d40b63e22990fb36f8dc34ec8bfa178684ada711d456fae15e01cbae0924b  /tmp/findhub-port.patch' | sha256sum -c -
+          git apply --check /tmp/findhub-port.patch
+          git apply /tmp/findhub-port.patch
+          rm -r .github/findhub-port-source
+          rm .github/workflows/findhub-port-validation.yml
+      - name: Install locked API dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Validate TypeScript API, protocol fixtures and compatibility
+        run: |
+          set -euo pipefail
+          {
+            npm run db:generate
+            npm run lint:check
+            npm run docs:check
+            npm run test:compat
+            npm run build
+          } > /tmp/findhub-port-api.log 2>&1 || { tail -n 120 /tmp/findhub-port-api.log; exit 1; }
+          grep -E '# (tests|pass|fail)|scenarios passed|regression:|compatibility:|Ran [0-9]+ tests|Build success|synchronized' /tmp/findhub-port-api.log || true
+      - name: Validate complete Manager without changing dependencies
+        working-directory: manager
+        run: |
+          set -euo pipefail
+          npm install --no-package-lock --no-audit --no-fund
+          npm test > /tmp/findhub-port-manager.log 2>&1 || { tail -n 120 /tmp/findhub-port-manager.log; exit 1; }
+          grep -E '# (tests|pass|fail)|built in' /tmp/findhub-port-manager.log || true
+      - name: Publish validated correction on isolated branch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+          allowed = '''docs/guides/findhub-portability-review.md
+          manager/scripts/findhub-live.test.mjs
+          manager/src/components/FindHubLiveTracking.vue
+          manager/src/services/findhub-position.ts
+          manager/src/views/ChannelsView.vue
+          src/api/integrations/channel/findhub/crypto/findhub-crypto.ts
+          src/api/integrations/channel/findhub/protocol/fcm.client.ts
+          src/api/integrations/channel/findhub/protocol/findhub-proto.ts
+          src/api/integrations/channel/findhub/services/findhub-protocol.client.ts
+          src/api/integrations/channel/findhub/services/findhub-runtime.service.ts
+          test/findhub-tracking.test.cjs
+          test/fixtures/findhub-port-vectors.json'''.split()
+          subprocess.run(['git','add','-u'],check=True)
+          subprocess.run(['git','add','-f','--',*allowed],check=True)
+          changed = subprocess.check_output(['git','diff','--cached','--name-only','bc7d61a066e6859634c867beb6a56c57e9b87097'],text=True).splitlines()
+          assert set(changed)==set(allowed), f'Unexpected changed files: {set(changed)^set(allowed)}'
+          print('Validated changes:',len(changed),'files. Authentication, WhatsApp, deploy and retention sources unchanged.')
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(findhub): correct network decryption and preserve live push observations'
+          git push origin HEAD:refs/heads/fix/findhub-push-crypto-parity
+          mkdir -p /tmp/findhub-port-validated
+          git rev-parse HEAD | tee /tmp/findhub-port-validated/commit.txt
+          git rev-parse HEAD^{tree} | tee /tmp/findhub-port-validated/tree.txt
+          git diff --binary bc7d61a066e6859634c867beb6a56c57e9b87097 HEAD > /tmp/findhub-port-validated/correction.patch
+          git archive --format=tar.gz HEAD > /tmp/findhub-port-validated/source.tar.gz
+          cp /tmp/findhub-port-api.log /tmp/findhub-port-manager.log /tmp/findhub-port-validated/
+      - name: Export source and validation logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: findhub-port-correction-validated
+          path: /tmp/findhub-port-validated
+          retention-days: 7
