@@ -82,7 +82,7 @@ test('zero tracking dispatches continuously without blocking a manual locate',as
  h.runtime.protocol.requestLocation=async()=>{dispatchCalls++;return await new Promise(r=>release=r)};
  h.runtime.protocol.locate=async()=>{manualCalls++;return [{...position,deviceId:'d-a',googleDeviceId:'g-a'}]};
  await h.runtime.startTracking('d-a',0,30000);assert.equal(h.row.trackingIntervalSeconds,0);assert.equal(timers[0].delay,0);
- const running=timers[0].fn();await Promise.resolve();await Promise.resolve();assert.equal(dispatchCalls,1);
+ const running=timers[0].fn();for(let i=0;i<10 && dispatchCalls===0;i++) await Promise.resolve();assert.equal(dispatchCalls,1);
  const manual=await h.runtime.locate('d-a',10);assert.equal(manual.latitude,position.latitude);assert.equal(manualCalls,1);
  release('request');await running;assert.equal(timers.at(-1).delay,0);
  await h.runtime.stopTracking('d-a');const before=dispatchCalls;await timers.at(-1).fn();assert.equal(dispatchCalls,before);
@@ -143,7 +143,7 @@ function protocolDeadlineHarness(metadataIds=[]){
  return {client,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
 }
 test('1 ms operator wait starts after command submission and never cancels the command',async()=>{
- const h=protocolDeadlineHarness();const pending=h.client.locate({id:'one',googleDeviceId:'g'},1);
+ const h=protocolDeadlineHarness();h.client.onObservation=async()=>{};const pending=h.client.locate({id:'one',googleDeviceId:'g'},1);
  assert.equal(h.timers.length,0);assert.equal(h.calls.length,1);assert.equal(h.calls[0].signal.aborted,false);
  h.finish();await Promise.resolve();await Promise.resolve();
  assert.equal(h.timers.length,1);assert.equal(h.timers[0].ms,1);h.timers[0].fn();
@@ -189,6 +189,10 @@ test('invalid report does not prevent a later valid report in the same request',
  const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g'},30);
  h.finish();await Promise.resolve();await Promise.resolve();h.push([{...position,latitude:999}]);
  assert.equal(h.client.pending.size,1);h.push([position]);assert.equal((await waiting)[0].latitude,position.latitude);
+});
+test('same timestamp with better accuracy is accepted as a refined observation',()=>{
+ assert.equal(policy.isNewPositionObservation({...position,accuracy:10},{...position,accuracy:100}),true);
+ assert.equal(policy.isNewPositionObservation({...position,source:'RECENT'},{...position,source:'NETWORK'}),false);
 });
 test('same coordinates with a newer upstream timestamp are a genuine new observation',async()=>{
  const h=protocolDeadlineHarness();const waiting=h.client.locate({id:'one',googleDeviceId:'g',latestPosition:{...position,timestamp:new Date(now-50000).toISOString()}},30);
@@ -285,8 +289,8 @@ test('concurrent delivery is serialized and emits a new observation only once',a
 // Independent encrypted fixtures and transport liveness run in the normal tracking suite.
 require('./findhub-live-parity.test.cjs');
 
-test('correlated metadata belonging to another Google device is rejected',async()=>{
+test('correlated metadata belonging to another Google device is ignored without fabricating a timeout error',async()=>{
  const h=protocolDeadlineHarness(['another-device']),received=[];h.client.onObservation=async(d,p)=>received.push(p);
  const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);
- h.timers[0].fn();await assert.rejects(waiting,/timed out/);h.push([position]);assert.equal(received.length,0);
+ h.timers[0].fn();assert.equal((await waiting).length,0);h.push([position]);assert.equal(received.length,0);
 });
