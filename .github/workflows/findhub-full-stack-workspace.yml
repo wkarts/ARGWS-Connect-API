@@ -38,6 +38,14 @@ jobs:
           xz -dc /tmp/full-stack-source.xz > /tmp/full-stack-source.patch
           git apply --unidiff-zero --check /tmp/full-stack-source.patch
           git apply --unidiff-zero --index /tmp/full-stack-source.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/api/integrations/channel/findhub/findhub.router.ts')
+          s=p.read_text()
+          before='await this.dataValidate({\n            request: req,\n            schema: findHubDeviceAvatarSchema,'
+          assert s.count(before)==1
+          p.write_text(s.replace(before,before.replace('this.dataValidate({','this.dataValidate<FindHubDeviceAvatarDto>({')))
+          PY
           python3 scripts/sync-full-stack-deployments.py
           npm run docs:generate
       - name: Install existing dependencies and check TypeScript
@@ -110,6 +118,7 @@ jobs:
           git ls-files -z | tar --null -T - -czf /tmp/full-stack-review/source.tar.gz
           git diff --binary 47147e11cdb862a23404e89e37cf82ee2a773223 > /tmp/full-stack-review/source.patch
           git rev-parse HEAD > /tmp/full-stack-review/source.commit
+          if [ -d manager/dist ]; then tar -czf /tmp/full-stack-review/manager-dist.tar.gz -C manager/dist .; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
