@@ -1,0 +1,79 @@
+{
+  "provenance": "Synthetic vectors derived independently from uploaded GoogleFindMyTools-main(2).zip formulas; AES/CMAC/HKDF via Python cryptography. No operator data.",
+  "vectors": [
+    {
+      "identityKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "publicKeyRandom": "a871f7e9269211db1655bf72b831474f41ce80ec",
+      "encryptedLocation": "c6fa3ae12572b808daef61c88a333722723074a84d6e87a1772aed19e58a10eb",
+      "deviceTimeOffset": 2048,
+      "timestampSeconds": 1700000000,
+      "ownReport": false,
+      "status": 2,
+      "accuracy": 4,
+      "expected": {
+        "latitude": 12.3456789,
+        "longitude": -45.6789012,
+        "altitude": 8
+      },
+      "name": "network-aligned-counter"
+    },
+    {
+      "identityKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "publicKeyRandom": "a871f7e9269211db1655bf72b831474f41ce80ec",
+      "encryptedLocation": "c6fa3ae12572b808daef61c83c63660259d08ae947215f8e8ba11834",
+      "deviceTimeOffset": 2048,
+      "timestampSeconds": 1700000000,
+      "ownReport": false,
+      "status": 2,
+      "accuracy": 4,
+      "expected": {
+        "latitude": 12.3456789,
+        "longitude": -45.6789012,
+        "altitude": 8
+      },
+      "name": "network-padded-cmac"
+    },
+    {
+      "identityKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "publicKeyRandom": "a871f7e9269211db1655bf72b831474f41ce80ec",
+      "encryptedLocation": "a58742f49aeb31a1b6f0a8f2e387d42db90cce00204e555f9ced116d",
+      "deviceTimeOffset": 987654,
+      "timestampSeconds": 1700000000,
+      "ownReport": true,
+      "status": 2,
+      "accuracy": 4,
+      "expected": {
+        "latitude": 12.3456789,
+        "longitude": -45.6789012,
+        "altitude": 8
+      },
+      "name": "network-own-flag"
+    },
+    {
+      "name": "own-report-gcm",
+      "identityKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "publicKeyRandom": "",
+      "encryptedLocation": "000102030405060708090a0b5ce5d048ddf7a5f2e8b3acf442b63994de6239421545d226826130ce",
+      "deviceTimeOffset": 2048,
+      "timestampSeconds": 1700000000,
+      "ownReport": true,
+      "status": 1,
+      "accuracy": 10,
+      "expected": {
+        "latitude": 12.3456789,
+        "longitude": -45.6789012,
+        "altitude": 8
+      }
+    }
+  ],
+  "command": {
+    "args": {
+      "googleDeviceId": "synthetic-device",
+      "fcmRegistrationId": "synthetic-fcm",
+      "requestUuid": "synthetic-request",
+      "clientUuid": "synthetic-client"
+    },
+    "hex": "0a1810021a140a120a1073796e7468657469632d646576696365120df2010a120608fc9bf8b90618021a3a0802121173796e7468657469632d726571756573741a1073796e7468657469632d636c69656e74220f0a0d73796e7468657469632d66636d3001",
+    "provenance": "Serialized using the ProtoDecoders.DeviceUpdate_pb2 module from the supplied ZIP; no Google network call."
+  }
+}

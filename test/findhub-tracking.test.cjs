@@ -119,15 +119,16 @@ test('Google synchronization never overwrites operator avatar',async()=>{
  h.db.findHubDevice.upsert=async({update})=>{assert.equal(Object.hasOwn(update,'avatarData'),false);Object.assign(h.row,update);return h.row};
  await h.runtime.refreshDevices();assert.equal(h.row.avatarData,image);
 });
-function protocolDeadlineHarness(){
+function protocolDeadlineHarness(metadataIds=[]){
  const timers=[],calls=[];let finish;
  const overrides={
   '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
-  '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='fixture'}},
+  '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='fixture';async stop(){this.ready=false}}},
   '../protocol/nova.client':{FindHubNovaClient:class{locate(args,signal){calls.push({args,signal});return new Promise(resolve=>finish=resolve)}}},
   '../protocol/spot.client':{FindHubSpotClient:class{}},
   '../crypto/findhub-crypto':{decryptIdentityKey:()=>Buffer.alloc(32),decryptLocationReport:(_key,report)=>report.location},
   '../protocol/findhub-proto':{
+   decodeDeviceMetadata:()=>metadataIds.map(googleDeviceId=>({googleDeviceId})),
    decodeDeviceRegistration:()=>({encryptedIdentityKey:Buffer.alloc(32)}),
    decodeLocationReports:metadata=>JSON.parse(metadata.toString()).map(p=>({encryptedLocation:Buffer.from('fixture'),location:p,timestampSeconds:Date.parse(p.timestamp)/1000,ownReport:true})),
    decodeDeviceUpdate:payload=>{const value=JSON.parse(payload.toString());return {requestUuid:value.id,deviceMetadata:Buffer.from(JSON.stringify(value.positions))}},
@@ -201,4 +202,83 @@ test('timeout state is localized by UI but backend preserves existing position a
  await assert.rejects(h.runtime.locate('d-a',1));const snap=await h.runtime.snapshot();
  assert.equal(h.row.latestPosition,position);assert.equal(snap.devices[0].lastQuery.status,'timeout');
  assert.equal(h.row.lastErrorCode,'LOCATION_TIMEOUT');assert.equal(h.positions.length,0);
+});
+
+
+// Live receiver regressions: a caller deadline is not the lifetime of an issued observation.
+test('late correlated push is delivered after the caller timeout without extending its deadline',async()=>{
+ const h=protocolDeadlineHarness(),received=[];h.client.onObservation=async(d,p)=>received.push({d,p});
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);
+ h.finish();await Promise.resolve();await Promise.resolve();h.timers[0].fn();await assert.rejects(waiting,/timed out/);
+ assert.equal(h.calls[0].signal.aborted,true);assert.equal(h.client.pending.size,0);
+ h.push([position]);assert.equal(received.length,1);assert.equal(received[0].p[0].timestamp,position.timestamp);
+ h.push([position]);h.push([position],'never-issued');assert.equal(received.length,1);
+});
+test('subsequent fixes for the same issued command continue after its first successful result',async()=>{
+ const h=protocolDeadlineHarness(),received=[];h.client.onObservation=async(d,p)=>received.push({d,p});
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},30000);h.finish();await Promise.resolve();await Promise.resolve();
+ h.push([position]);await waiting;h.push([position]);assert.equal(received.length,0);
+ const newer={...position,timestamp:new Date(now).toISOString()};h.push([newer]);assert.equal(received.length,1);
+ assert.equal(received[0].p[0].timestamp,newer.timestamp);
+});
+test('expiry and stopping a device revoke the recent correlation without accepting unsolicited updates',async()=>{
+ const h=protocolDeadlineHarness(),received=[];h.client.onObservation=async(d,p)=>received.push(p);
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();
+ h.timers[0].fn();await assert.rejects(waiting);h.client.recent.values().next().value.expiresAt=0;
+ h.push([position]);assert.equal(received.length,0);assert.equal(h.client.recent.size,0);
+ const second=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();
+ h.client.stopObserving('one');h.timers[1].fn();await assert.rejects(second);assert.equal(h.client.recent.size,0);
+});
+test('closing the receiver discards pending and recent device contexts',async()=>{
+ const h=protocolDeadlineHarness(),received=[];h.client.onObservation=async(d,p)=>received.push(p);
+ const first=h.client.locate({id:'one',googleDeviceId:'g'},30000);h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);await first;
+ const second=h.client.locate({id:'two',googleDeviceId:'g2'},30000);const rejected=assert.rejects(second,/closed/);
+ await h.client.close();await rejected;h.push([{...position,timestamp:new Date(now).toISOString()}]);
+ assert.equal(received.length,0);assert.equal(h.client.pending.size,0);assert.equal(h.client.recent.size,0);
+ assert.ok(h.timers.every(t=>t.cleared));
+});
+test('recent request correlation has a fixed memory bound',async()=>{
+ const h=protocolDeadlineHarness();h.client.onObservation=async()=>{};
+ for(let n=0;n<260;n++){
+  const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();
+  h.timers.at(-1).fn();await assert.rejects(waiting);
+ }
+ assert.equal(h.client.pending.size,0);assert.equal(h.client.recent.size,256);
+ assert.equal(h.client.recent.has(h.calls[0].args.requestUuid),false);
+});
+test('late real observation recovers timeout, persists history and reaches SSE and Traccar',async()=>{
+ const h=runtimeHarness(),seen=[],forwarded=[];h.runtime.subscribe(e=>seen.push(e));
+ h.runtime.forwardTraccar=async(d,p)=>forwarded.push(p);h.runtime.protocol.locate=async()=>{throw Error('Google Find Hub location request timed out')};
+ await assert.rejects(h.runtime.locate('d-a',1));
+ const incoming={...position,deviceId:'d-a',googleDeviceId:'g-a'};
+ await h.runtime.receiveObservation('d-a',[incoming],0);
+ assert.equal(h.row.latestPosition.timestamp,incoming.timestamp);assert.equal(h.row.lastErrorCode,null);
+ assert.equal(h.positions.length,1);assert.equal(forwarded.length,1);assert.equal(seen.at(-1).data.query.status,'new_report');
+ assert.equal(seen.at(-1).data.location.latitude,incoming.latitude);assert.equal(seen.at(-1).instanceId,'a');
+ assert.equal((await h.runtime.snapshot()).devices[0].lastQuery.status,'new_report');
+});
+test('late observations are monotonic, deduplicated and scoped to the owning account/device',async()=>{
+ const h=runtimeHarness(),seen=[];h.runtime.subscribe(e=>seen.push(e));const incoming={...position,deviceId:'d-a',googleDeviceId:'g-a'};
+ await h.runtime.receiveObservation('d-a',[incoming],0);const count=seen.length;
+ await h.runtime.receiveObservation('d-a',[incoming,{...incoming,timestamp:new Date(now-90000).toISOString()}],0);
+ await h.runtime.receiveObservation('d-a',[{...incoming,googleDeviceId:'g-b',timestamp:new Date(now).toISOString()}],0);
+ await assert.rejects(h.runtime.receiveObservation('d-b',[{...incoming,deviceId:'d-b',googleDeviceId:'g-b'}],0));
+ await h.runtime.receiveObservation('d-a',[{...incoming,timestamp:new Date(now).toISOString()}],-1);
+ assert.equal(seen.length,count);assert.equal(h.positions.length,1);assert.equal(h.other.latestPosition,null);
+ assert.equal(h.row.latestPosition.timestamp,incoming.timestamp);
+});
+test('concurrent delivery is serialized and emits a new observation only once',async()=>{
+ const h=runtimeHarness(),seen=[];h.runtime.subscribe(e=>seen.push(e));const incoming={...position,deviceId:'d-a',googleDeviceId:'g-a'};
+ await Promise.all([h.runtime.receiveObservation('d-a',[incoming],0),h.runtime.receiveObservation('d-a',[incoming],0)]);
+ assert.equal(h.positions.length,1);assert.equal(seen.filter(e=>e.data.location).length,1);
+ await Promise.resolve();assert.equal(h.runtime.observationQueues.size,0);assert.equal(h.runtime.observationQueueSizes.size,0);
+});
+
+// Independent encrypted fixtures and transport liveness run in the normal tracking suite.
+require('./findhub-live-parity.test.cjs');
+
+test('correlated metadata belonging to another Google device is rejected',async()=>{
+ const h=protocolDeadlineHarness(['another-device']),received=[];h.client.onObservation=async(d,p)=>received.push(p);
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);
+ h.timers[0].fn();await assert.rejects(waiting,/timed out/);h.push([position]);assert.equal(received.length,0);
 });

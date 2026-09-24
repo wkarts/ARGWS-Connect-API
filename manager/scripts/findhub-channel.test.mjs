@@ -137,3 +137,27 @@ test('position panel renders numeric coordinates including zero and the upstream
   assert.match(html, /Latitude/); assert.match(html, /Longitude/);
   assert.match(html, /0\.0000000/); assert.match(html, /-39\.2421233/); assert.match(html, /24\/09\/2026/);
 });
+
+test('channel list renders the location icon for Find Hub while retaining WhatsApp and generic icons', async () => {
+  const Slot = { render() { return Vue.h('section', this.$slots.default?.()); } };
+  const channels = component('src/views/ChannelsView.vue', {
+    vue: { ...Vue, onMounted: Vue.onServerPrefetch },
+    '@/layouts/AppShell.vue': Slot,
+    '@/components/PageHeader.vue': Stub,
+    '@/components/PanelCard.vue': Slot,
+    '@/components/StatusPill.vue': Stub,
+    '@/components/AppIcon.vue': { props:['name','size'], render() { return Vue.h('i', { 'data-icon':this.name }); } },
+    '@/services/findhub-channel': channel,
+    '@/services/connect': { connect: { connections: async () => [
+      { ...google, channel:'Google Find Hub', status:'connected' },
+      { ...whatsapp, channel:'WhatsApp', status:'connected' },
+      { id:'other', channel:'Other', integration:'OTHER', status:'disconnected' },
+    ] } },
+  }, true);
+  const html = await renderToString(Vue.createSSRApp(channels));
+  assert.match(html, /data-icon="location"/);
+  assert.match(html, /data-icon="whatsapp"/);
+  assert.match(html, /data-icon="channels"/);
+  assert.match(html, /location-brand/);
+  assert.match(html, /whatsapp-brand/);
+});
