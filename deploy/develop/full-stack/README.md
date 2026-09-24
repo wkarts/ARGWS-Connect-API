@@ -33,6 +33,12 @@ Instalacoes com dados anteriores devem importar o ambiente correspondente, nao c
 14 servicos: API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO, Operations,
 NATS/JetStream, Kafka, ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL Traccar e bootstrap Traccar.
 O bootstrap e uma tarefa finita; terminar com codigo 0 e o resultado correto, nao um container quebrado.
+O deploy prepara os binds vazios de MySQL/Kafka/ZooKeeper para o UID/GID real das imagens antes do start.
+Nao usa chmod 777, chown recursivo, volumes nomeados novos ou banco em root. Diretorios com dados
+ja gravados nunca tem dono alterado automaticamente; permissoes incompativeis interrompem o deploy.
+Execute `python3 prepare-volumes.py` antes de um `docker compose up` manual.
+`check-runtime.py` aguarda todos os servicos selecionados e testa API, MySQL, Kafka e NATS.
+Se falhar, `full-stack-diagnostics.json` preserva o diagnostico sanitizado sem exportar o .env.
 PostgreSQL permanece o banco principal; subir MySQL nao migra o banco da API.
 
 `COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar`. Cada recurso pode ser desabilitado

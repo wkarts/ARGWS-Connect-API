@@ -46,6 +46,8 @@ def generate():
         for script in ('prepare-operations-env.py','prepare-findhub-env.py','prepare-traccar-env.py','traccar-bootstrap.cjs'):
             result[folder/script] = (ROOT/'scripts'/script).read_text()
         result[folder/'prepare-env.py'] = (ROOT/'scripts/prepare-full-stack-env.py').read_text()
+        result[folder/'prepare-volumes.py'] = (ROOT/'scripts/prepare-full-stack-volumes.py').read_text()
+        result[folder/'check-runtime.py'] = (ROOT/'scripts/check-full-stack-runtime.py').read_text()
         result[folder/'prepare-env.sh'] = '#!/usr/bin/env bash\nset -euo pipefail\ncd "$(dirname "$0")"\npython3 ./prepare-env.py "$@"\n'
         result[folder/'deploy.sh'] = '''#!/usr/bin/env bash
 set -euo pipefail
@@ -53,7 +55,9 @@ cd "$(dirname "$0")"
 python3 ./prepare-env.py --check
 docker compose --env-file .env -f compose.yaml config --quiet
 docker compose --env-file .env -f compose.yaml pull
-docker compose --env-file .env -f compose.yaml up -d
+python3 ./prepare-volumes.py
+docker compose --env-file .env -f compose.yaml up -d --pull never
+python3 ./check-runtime.py
 '''
         result[folder/'README.md'] = f'''# Full stack — {channel}
 
@@ -90,6 +94,12 @@ Instalacoes com dados anteriores devem importar o ambiente correspondente, nao c
 14 servicos: API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO, Operations,
 NATS/JetStream, Kafka, ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL Traccar e bootstrap Traccar.
 O bootstrap e uma tarefa finita; terminar com codigo 0 e o resultado correto, nao um container quebrado.
+O deploy prepara os binds vazios de MySQL/Kafka/ZooKeeper para o UID/GID real das imagens antes do start.
+Nao usa chmod 777, chown recursivo, volumes nomeados novos ou banco em root. Diretorios com dados
+ja gravados nunca tem dono alterado automaticamente; permissoes incompativeis interrompem o deploy.
+Execute `python3 prepare-volumes.py` antes de um `docker compose up` manual.
+`check-runtime.py` aguarda todos os servicos selecionados e testa API, MySQL, Kafka e NATS.
+Se falhar, `full-stack-diagnostics.json` preserva o diagnostico sanitizado sem exportar o .env.
 PostgreSQL permanece o banco principal; subir MySQL nao migra o banco da API.
 
 `COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar`. Cada recurso pode ser desabilitado
