@@ -16,6 +16,7 @@ export function locateErrorMessage(error: unknown, timeoutMs?: number): string {
   return message || 'Não foi possível consultar a localização.'
 }
 export function queryMessage(query: any): string {
+  if (query?.status === 'late_report') return 'Uma nova observação chegou pelo canal Google após o encerramento da espera. Coordenadas e horário do relatório foram atualizados.'
   if (query?.status === 'known_position') return 'Sem novo relatório: o Google devolveu uma posição já conhecida. O horário original foi preservado.'
   if (query?.status === 'no_position') return 'Esta consulta não retornou uma posição utilizável. O último ponto conhecido foi preservado.'
   if (query?.status === 'timeout') return locateErrorMessage(new Error('Google Find Hub location request timed out'), query.timeoutMs)

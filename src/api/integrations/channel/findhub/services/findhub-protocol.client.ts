@@ -4,7 +4,12 @@ import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
 import { decryptIdentityKey, decryptLocationReport, decryptOwnerKey } from '../crypto/findhub-crypto';
 import { FindHubDevice, FindHubPosition, FindHubStoredCredentials } from '../findhub.types';
 import { FindHubFcmClient } from '../protocol/fcm.client';
-import { decodeDeviceRegistration, decodeDeviceUpdate, decodeLocationReports } from '../protocol/findhub-proto';
+import {
+  decodeDeviceMetadata,
+  decodeDeviceRegistration,
+  decodeDeviceUpdate,
+  decodeLocationReports,
+} from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
 import { locationTimeoutMs, positionFingerprint, validPosition } from './findhub-tracking.policy';
@@ -19,12 +24,30 @@ type PendingLocation = {
   timer: NodeJS.Timeout;
 };
 
+export type FindHubPushObservation = {
+  device: FindHubDevice;
+  positions: FindHubPosition[];
+  startedAt: string;
+  timeoutMs: number;
+};
+
+type ObservationContext = {
+  device: FindHubDevice;
+  startedAt: string;
+  timeoutMs: number;
+  expiresAt: number;
+  newestTimestamp: number;
+};
+
 export class FindHubProtocolClient {
   private readonly auth = new GooglePlayAuthClient();
   private readonly nova: FindHubNovaClient;
   private readonly spot: FindHubSpotClient;
   private readonly fcm: FindHubFcmClient;
   private readonly pending = new Map<string, PendingLocation>();
+  // A local HTTP waiter is not the lifetime of an already dispatched Google action.
+  // Keep a bounded, short-lived correlation ledger for subsequent/late FCM fixes.
+  private readonly observations = new Map<string, ObservationContext>();
   private ownerKey?: Buffer;
 
   constructor(
@@ -32,6 +55,7 @@ export class FindHubProtocolClient {
     private readonly sharedKey: Buffer,
     private readonly clientUuid: string,
     private readonly persistCredentials: (credentials: FindHubStoredCredentials) => Promise<void>,
+    private readonly onObservation?: (observation: FindHubPushObservation) => Promise<void>,
   ) {
     this.nova = new FindHubNovaClient(this.auth, credentials.aas);
     this.spot = new FindHubSpotClient(this.auth, credentials.aas);
@@ -62,6 +86,37 @@ export class FindHubProtocolClient {
 
     for (const pending of this.pending.values()) pending.reject(new Error('Find Hub connection closed'));
     this.pending.clear();
+    this.observations.clear();
+  }
+
+  public forgetDevice(deviceId: string): void {
+    for (const pending of this.pending.values()) {
+      if (pending.device.id === deviceId) pending.reject(new Error('Find Hub tracking stopped'));
+    }
+    for (const [uuid, context] of this.observations) {
+      if (context.device.id === deviceId) this.observations.delete(uuid);
+    }
+  }
+
+  private rememberObservation(requestUuid: string, device: FindHubDevice, timeoutMs: number): void {
+    if (!this.onObservation) return;
+    const now = Date.now();
+    for (const [uuid, context] of this.observations) {
+      if (context.expiresAt <= now) this.observations.delete(uuid);
+    }
+    // Active waiters are already capped at 128. Never evict one while pruning the ledger.
+    while (this.observations.size >= 512) {
+      const oldest = [...this.observations.keys()].find((uuid) => !this.pending.has(uuid));
+      if (!oldest) return;
+      this.observations.delete(oldest);
+    }
+    this.observations.set(requestUuid, {
+      device,
+      startedAt: new Date(now).toISOString(),
+      timeoutMs,
+      expiresAt: Number.POSITIVE_INFINITY,
+      newestTimestamp: Date.parse(device.latestPosition?.timestamp || '') || 0,
+    });
   }
 
   public async listDevices(): Promise<Array<Omit<FindHubDevice, 'id'>>> {
@@ -74,6 +129,7 @@ export class FindHubProtocolClient {
     const requestUuid = randomUUID();
     const timeout = locationTimeoutMs(timeoutMs);
     const controller = new AbortController();
+    this.rememberObservation(requestUuid, device, timeout);
     const afterTimestamp = Date.parse(device.latestPosition?.timestamp || '') || 0;
 
     // One absolute deadline covers both command submission and the correlated push response.
@@ -84,6 +140,15 @@ export class FindHubProtocolClient {
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pending.delete(requestUuid);
+        const context = this.observations.get(requestUuid);
+        if (context) {
+          context.expiresAt = Date.now() + 120_000;
+          if (!error) {
+            for (const report of pending.reports.values()) {
+              context.newestTimestamp = Math.max(context.newestTimestamp, Date.parse(report.timestamp));
+            }
+          }
+        }
         controller.abort();
         if (error) reject(error);
         else resolve([...pending.reports.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)));
@@ -125,6 +190,9 @@ export class FindHubProtocolClient {
   }
 
   private decodePositions(device: FindHubDevice, metadata: Buffer): FindHubPosition[] {
+    const identities = decodeDeviceMetadata(metadata);
+    if (identities.length && !identities.some((identity) => identity.googleDeviceId === device.googleDeviceId))
+      return [];
     const registration = decodeDeviceRegistration(metadata);
     // connect() loads this key before starting the authenticated push receiver.
     const ownerKey = this.ownerKey || (this.credentials.ownerKey && Buffer.from(this.credentials.ownerKey, 'base64'));
@@ -161,7 +229,28 @@ export class FindHubProtocolClient {
       const update = decodeDeviceUpdate(payload);
       if (!update.requestUuid || !update.deviceMetadata) return;
       const pending = this.pending.get(update.requestUuid);
-      if (!pending) return;
+      if (!pending) {
+        const context = this.observations.get(update.requestUuid);
+        if (!context || !this.onObservation) return;
+        if (context.expiresAt <= Date.now()) {
+          this.observations.delete(update.requestUuid);
+          return;
+        }
+        const positions = this.decodePositions(context.device, update.deviceMetadata)
+          .filter((position) => Date.parse(position.timestamp) > context.newestTimestamp)
+          .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+          .slice(0, 128);
+        if (!positions.length) return;
+        context.newestTimestamp = Date.parse(positions[0].timestamp);
+        // The runtime revalidates ownership and serializes persistence before emitting events.
+        void this.onObservation({
+          device: context.device,
+          positions,
+          startedAt: context.startedAt,
+          timeoutMs: context.timeoutMs,
+        }).catch(() => undefined);
+        return;
+      }
       for (const position of this.decodePositions(pending.device, update.deviceMetadata)) {
         pending.reports.set(positionFingerprint(position), position);
       }

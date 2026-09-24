@@ -137,3 +137,9 @@ test('position panel renders numeric coordinates including zero and the upstream
   assert.match(html, /Latitude/); assert.match(html, /Longitude/);
   assert.match(html, /0\.0000000/); assert.match(html, /-39\.2421233/); assert.match(html, /24\/09\/2026/);
 });
+
+test('channels list uses the shared location icon for Find Hub and preserves WhatsApp icon',()=>{
+ const view=read('src/views/ChannelsView.vue');
+ assert.match(view,/item.name === 'Google Find Hub' \? 'location'/);
+ assert.match(view,/item.name === 'WhatsApp' \? 'whatsapp'/);
+});

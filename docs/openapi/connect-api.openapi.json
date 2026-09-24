@@ -18825,6 +18825,7 @@
             "type": "string",
             "enum": [
               "new_report",
+              "late_report",
               "known_position",
               "no_position",
               "timeout",

@@ -199,7 +199,7 @@ findHubOperations['PUT /findhub/device/avatar/{deviceId}/{instanceName}'] = oper
 findHubOperations['GET /findhub/device/avatar/{deviceId}/{instanceName}'] = operation('Obter avatar privado do dispositivo','Mesma autenticação por instância; não inclua tokens em URLs. Resposta sem cache compartilhado.',{type:'object',properties:{avatarData:{type:['string','null']}}});
 
 // Additive diagnostics: no authentication material and no breaking change to locate response.
-findHubSchemas.FindHubLocationQuery = {type:'object',required:['status','startedAt','completedAt','timeoutMs'],properties:{status:{type:'string',enum:['new_report','known_position','no_position','timeout','failed']},startedAt:timestamp,completedAt:timestamp,timeoutMs:trackingProperties.timeoutMs}};
+findHubSchemas.FindHubLocationQuery = {type:'object',required:['status','startedAt','completedAt','timeoutMs'],properties:{status:{type:'string',enum:['new_report', 'late_report','known_position','no_position','timeout','failed']},startedAt:timestamp,completedAt:timestamp,timeoutMs:trackingProperties.timeoutMs}};
 findHubSchemas.FindHubDevice.properties.lastQuery={oneOf:[ref('FindHubLocationQuery'),{type:'null'}],description:'Resultado da última consulta nesta execução do servidor. Não transforma uma posição antiga em atual.'};
 for (const event of ['findhub.location.updated','findhub.tracking.update','findhub.error']) {
   if (findHubEventMessages[event]?.data?.properties) findHubEventMessages[event].data.properties.query=findHubSchemas.FindHubLocationQuery;

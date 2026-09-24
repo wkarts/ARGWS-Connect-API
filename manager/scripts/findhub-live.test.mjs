@@ -85,3 +85,13 @@ test('map/modal, instance card and overview render labeled real coordinates',()=
  assert.match(details,/<dt>Latitude<\/dt>/);assert.match(details,/<dt>Longitude<\/dt>/);assert.match(details,/position\?\.timestamp/);
  assert.doesNotMatch(details,/Math.random|setInterval/);
 });
+
+test('late correlated position updates displayed coordinates and clears stale lookup alerts',()=>{
+ const state=snapshot();state.devices[0].latestPosition={latitude:1,longitude:2,timestamp:'2026-09-23T09:00:00Z'};
+ state.devices[0].lastQuery={status:'timeout',completedAt:'2026-09-23T10:00:00Z'};
+ applyFindHubUpdate(state,{instanceId:'a',data:{deviceId:'one',location:{latitude:3,longitude:4,timestamp:'2026-09-23T10:01:00Z'},query:{status:'late_report',completedAt:'2026-09-23T10:01:01Z'}}},'a');
+ assert.equal(state.devices[0].latestPosition.latitude,3);assert.equal(state.devices[0].lastQuery.status,'late_report');
+ assert.match(load('findhub-position.ts').queryMessage(state.devices[0].lastQuery),/nova observação/);
+ const source=readFileSync(new URL('../src/components/FindHubLiveTracking.vue',import.meta.url),'utf8');
+ assert.match(source,/\['new_report',\s*'late_report'\]/);assert.match(source,/lastQueryMessage && !error && !feedback/);
+});

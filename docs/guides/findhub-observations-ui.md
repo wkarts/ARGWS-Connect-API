@@ -33,3 +33,22 @@ Os campos `startedAt`, `completedAt` e `timeoutMs` distinguem a duração da con
 ## Validação
 
 Testes cobrem relatório em cache seguido de novo, somente cache até o deadline, ausência de resposta, UUID diferente, posição inválida seguida de válida, mesmo ponto com timestamp novo, timeout de 1 ms, limpeza dos waiters, isolamento, snapshot atrasado, coordenada zero, navegação e renderização SSR das coordenadas. Testes sintéticos não substituem a homologação com Google e aparelhos reais.
+
+## Receptor contínuo e respostas posteriores ao prazo local
+
+A comparação com o `GoogleFindMyTools` fornecido para auditoria confirmou que o comando Nova `locateTracker` já tinha o mesmo conteúdo de wire: um teste independente serializado pelo protobuf Python compara todos os bytes do pedido TypeScript. Não foram trocados opcodes, autenticação, scopes ou chaves para tentar forçar uma frequência de GPS.
+
+Dois pontos do ciclo de recepção foram corrigidos:
+
+1. O receptor TypeScript respondia a heartbeats do servidor, mas não detectava ativamente uma conexão MCS silenciosamente interrompida. Agora envia heartbeat após 20 segundos sem frame, aguarda atividade por 5 segundos e usa a reconexão existente em caso de falha. São parâmetros do transporte presentes na referência, não intervalos de localização.
+2. Encerrar a espera HTTP ou receber o primeiro relatório retirava o UUID da tabela e descartava observações seguintes. Agora uma correlação originada por esta conta é conservada por até 120 segundos após encerrar a espera, com no máximo 512 contextos por conexão. Isso permite receber e validar fixes posteriores sem estender o timeout escolhido ou manter requisições HTTP abertas. UUID desconhecido, documento de outro aparelho, observação antiga, contexto expirado ou conexão encerrada são rejeitados.
+
+Uma observação posterior é desserializada e descriptografada no próprio cliente TypeScript. O runtime revalida conta/dispositivo, serializa as gravações, deduplica e publica latitude/longitude nos eventos e no SSE existentes. O status adicional `late_report` identifica a atualização posterior; não é uma resposta HTTP de sucesso retroativa. A correlação é removida ao parar o rastreamento, desconectar ou encerrar o runtime. Trabalho de persistência enfileirado antes de uma parada é invalidado. A observação não volta a ligar o rastreamento.
+
+O timeout de 1 ms continua sendo respeitado e pode abortar o comando antes de ele chegar ao Google. Não existe uma nova coordenada para recuperar quando nenhum comando foi recebido e nenhum relatório foi enviado pelo provedor. Para distinguir essa condição de um defeito de recepção, um teste útil mantém o intervalo desejado (por exemplo 1 segundo), mas usa um prazo de espera suficiente para a comunicação (por exemplo 30000 ms). Isso não muda a frequência configurada nem exige esperar 30 segundos quando a resposta chega antes.
+
+A referência fornecida mantém um listener de notificações em background e oferece consultas; ela não documenta garantia de nova coordenada por segundo. Realtime no Manager é a entrega por evento de cada observação validada. Disponibilidade, horário e precisão continuam vindo do provedor. Não se coleta PIN, senha, sessão de outro usuário ou dados que não tenham sido autorizados.
+
+## Regressões adicionais
+
+Foram incluídos cenários de perda silenciosa da conexão, ACK do heartbeat, falha de escrita no socket, resposta depois do timeout, segunda observação depois do primeiro resultado, correlação expirada/desconhecida, parada com trabalho enfileirado, concorrência com consulta manual e um payload protobuf/AES-GCM sintético completo que percorre desserialização, descriptografia, persistência e emissão para o assinante da conta. Um teste da lista de canais mantém o ramo visual WhatsApp e usa o ícone de localização existente para Google Find Hub. Nenhum teste sintético representa um ensaio de GPS com aparelho real.

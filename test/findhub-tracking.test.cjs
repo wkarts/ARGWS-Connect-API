@@ -119,15 +119,16 @@ test('Google synchronization never overwrites operator avatar',async()=>{
  h.db.findHubDevice.upsert=async({update})=>{assert.equal(Object.hasOwn(update,'avatarData'),false);Object.assign(h.row,update);return h.row};
  await h.runtime.refreshDevices();assert.equal(h.row.avatarData,image);
 });
-function protocolDeadlineHarness(){
+function protocolDeadlineHarness(observer){
  const timers=[],calls=[];let finish;
  const overrides={
   '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
-  '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='fixture'}},
+  '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='fixture';async stop(){}}},
   '../protocol/nova.client':{FindHubNovaClient:class{locate(args,signal){calls.push({args,signal});return new Promise(resolve=>finish=resolve)}}},
   '../protocol/spot.client':{FindHubSpotClient:class{}},
   '../crypto/findhub-crypto':{decryptIdentityKey:()=>Buffer.alloc(32),decryptLocationReport:(_key,report)=>report.location},
   '../protocol/findhub-proto':{
+   decodeDeviceMetadata:metadata=>JSON.parse(metadata.toString()).filter(p=>p.googleDeviceId).map(p=>({googleDeviceId:p.googleDeviceId})),
    decodeDeviceRegistration:()=>({encryptedIdentityKey:Buffer.alloc(32)}),
    decodeLocationReports:metadata=>JSON.parse(metadata.toString()).map(p=>({encryptedLocation:Buffer.from('fixture'),location:p,timestampSeconds:Date.parse(p.timestamp)/1000,ownReport:true})),
    decodeDeviceUpdate:payload=>{const value=JSON.parse(payload.toString());return {requestUuid:value.id,deviceMetadata:Buffer.from(JSON.stringify(value.positions))}},
@@ -135,7 +136,7 @@ function protocolDeadlineHarness(){
  };
  const globals={setTimeout(fn,ms){const timer={fn,ms,unref(){},cleared:false};timers.push(timer);return timer},clearTimeout(t){if(t)t.cleared=true}};
  const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',overrides,globals);
- const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{});
+ const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{},observer);
  return {client,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
 }
 test('1 ms deadline bounds HTTP even when Google push arrives first',async()=>{
@@ -201,4 +202,113 @@ test('timeout state is localized by UI but backend preserves existing position a
  await assert.rejects(h.runtime.locate('d-a',1));const snap=await h.runtime.snapshot();
  assert.equal(h.row.latestPosition,position);assert.equal(snap.devices[0].lastQuery.status,'timeout');
  assert.equal(h.row.lastErrorCode,'LOCATION_TIMEOUT');assert.equal(h.positions.length,0);
+});
+
+// Wire fixture generated independently with the uploaded GoogleFindMyTools .proto schema.
+test('TypeScript Nova locate bytes match uploaded reference protobuf exactly',()=>{
+ const {encodeExecuteLocateRequest}=load('src/api/integrations/channel/findhub/protocol/findhub-proto.ts');
+ const payload=encodeExecuteLocateRequest({googleDeviceId:'fixture-device',fcmRegistrationId:'fixture-fcm',requestUuid:'fixture-request',clientUuid:'fixture-client'});
+ assert.equal(payload.toString('hex'),'0a1610021a120a100a0e666978747572652d646576696365120df2010a120608fc9bf8b90618021a340802120f666978747572652d726571756573741a0e666978747572652d636c69656e74220d0a0b666978747572652d66636d3001');
+});
+test('correlated fix arriving after HTTP timeout reaches the independent observer',async()=>{
+ const observed=[],h=protocolDeadlineHarness(async p=>observed.push(p));
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();
+ h.timers[0].fn();await assert.rejects(waiting,/timed out/);
+ assert.equal(h.calls[0].signal.aborted,true);assert.equal(h.client.pending.size,0);
+ h.push([position]);await Promise.resolve();
+ assert.equal(observed.length,1);assert.equal(observed[0].positions[0].timestamp,position.timestamp);assert.equal(observed[0].timeoutMs,1);
+});
+test('subsequent observations after a successful first fix are not discarded',async()=>{
+ const observed=[],h=protocolDeadlineHarness(async p=>observed.push(p));
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},5000);h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);await waiting;
+ const newer={...position,longitude:-38,timestamp:new Date(now).toISOString()};
+ h.push([newer]);h.push([newer]);h.push([position]);await Promise.resolve();
+ assert.equal(observed.length,1);assert.equal(observed[0].positions[0].longitude,-38);
+});
+test('unknown, expired and another device payload cannot use a retained correlation',async()=>{
+ const observed=[],h=protocolDeadlineHarness(async p=>observed.push(p));
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();h.timers[0].fn();await assert.rejects(waiting);
+ h.push([position],'unrequested');h.push([{...position,googleDeviceId:'other-account-device'}]);
+ h.client.observations.get(h.calls[0].args.requestUuid).expiresAt=Date.now()-1;h.push([position]);
+ assert.equal(observed.length,0);assert.equal(h.client.observations.size,0);
+});
+test('stopping tracking or closing the account removes retained observations',async()=>{
+ for(const close of [false,true]){
+  const observed=[],h=protocolDeadlineHarness(async p=>observed.push(p));
+  const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.finish();await Promise.resolve();await Promise.resolve();h.timers[0].fn();await assert.rejects(waiting);
+  if(close)await h.client.close();else h.client.forgetDevice('one');h.push([position]);assert.equal(observed.length,0);assert.equal(h.client.observations.size,0);
+ }
+});
+test('retained correlation ledger is bounded under rapid timeout retries',async()=>{
+ const h=protocolDeadlineHarness(async()=>{});
+ for(let i=0;i<530;i++) { const waiting=h.client.locate({id:'one',googleDeviceId:'g'},1);h.timers.at(-1).fn();await assert.rejects(waiting);h.finish(); }
+ assert.ok(h.client.observations.size<=512);await h.client.close();assert.equal(h.client.observations.size,0);
+});
+test('late FCM fix is persisted and emitted into the same account SSE and history',async()=>{
+ const h=runtimeHarness(),seen=[];h.runtime.subscribe(e=>seen.push(e));
+ const p={...position,deviceId:'d-a',googleDeviceId:'g-a'};
+ await h.runtime.receivePushObservation({device:{id:'d-a',googleDeviceId:'g-a'},positions:[p],startedAt:new Date(now-100).toISOString(),timeoutMs:1},h.runtime.protocol,h.runtime.generation);
+ assert.equal(h.row.latestPosition.latitude,p.latitude);assert.equal(h.positions.length,1);assert.equal(h.other.latestPosition,null);
+ assert.equal(seen.at(-1).data.query.status,'late_report');assert.equal(seen.at(-1).instanceId,'a');
+ assert.equal((await h.runtime.snapshot()).devices[0].lastQuery.timeoutMs,1);
+});
+test('late FCM duplicate is idempotent and old lifecycle cannot write a position',async()=>{
+ const h=runtimeHarness(),p={...position,deviceId:'d-a',googleDeviceId:'g-a'},o={device:{id:'d-a',googleDeviceId:'g-a'},positions:[p],startedAt:new Date(now).toISOString(),timeoutMs:1},client=h.runtime.protocol;
+ await h.runtime.receivePushObservation(o,client,h.runtime.generation);const events=h.events.length;
+ await h.runtime.receivePushObservation(o,client,h.runtime.generation);assert.equal(h.events.length,events);assert.equal(h.positions.length,1);
+ await h.runtime.receivePushObservation({...o,positions:[{...p,timestamp:new Date(now+1000).toISOString()}]},client,h.runtime.generation+1);
+ assert.equal(h.positions.length,1);
+});
+test('late callback rechecks database ownership and Google device identity',async()=>{
+ const h=runtimeHarness(),o={device:{id:'d-b',googleDeviceId:'g-b'},positions:[{...position,deviceId:'d-b',googleDeviceId:'g-b'}],startedAt:new Date(now).toISOString(),timeoutMs:1};
+ await h.runtime.receivePushObservation(o,h.runtime.protocol,h.runtime.generation);assert.equal(h.positions.length,0);assert.equal(h.other.latestPosition,null);
+ await h.runtime.receivePushObservation({...o,device:{id:'d-a',googleDeviceId:'g-b'}},h.runtime.protocol,h.runtime.generation);assert.equal(h.positions.length,0);
+});
+
+test('queued FCM observation is revoked when tracking is stopped before storage starts',async()=>{
+ const h=runtimeHarness(),p={...position,deviceId:'d-a',googleDeviceId:'g-a'};
+ let release;h.runtime.observationWrites.set('d-a',new Promise(r=>release=r));
+ const waiting=h.runtime.receivePushObservation({device:{id:'d-a',googleDeviceId:'g-a'},positions:[p],startedAt:new Date(now).toISOString(),timeoutMs:1},h.runtime.protocol,h.runtime.generation);
+ await h.runtime.stopTracking('d-a');release();await waiting;
+ assert.equal(h.positions.length,0);assert.equal(h.row.latestPosition,null);assert.equal(h.runtime.observationQueueSizes.size,0);
+});
+test('pending manual lookup cannot forward a point older than a received late FCM fix',async()=>{
+ const h=runtimeHarness(),forwarded=[],newer={...position,deviceId:'d-a',googleDeviceId:'g-a',timestamp:new Date(now).toISOString()};
+ let finish,started;const submitted=new Promise(r=>started=r);
+ h.runtime.protocol.locate=()=>{started();return new Promise(r=>finish=r)};
+ h.runtime.forwardTraccar=async(d,p)=>forwarded.push(p);
+ const manual=h.runtime.locate('d-a',30000);await submitted;
+ await h.runtime.receivePushObservation({device:{id:'d-a',googleDeviceId:'g-a'},positions:[newer],startedAt:new Date(now).toISOString(),timeoutMs:1},h.runtime.protocol,h.runtime.generation);
+ finish([{...newer,timestamp:new Date(now-1000).toISOString()}]);await manual;
+ assert.equal(h.row.latestPosition.timestamp,newer.timestamp);assert.equal(forwarded.length,1);assert.equal(h.runtime.observationWrites.size,0);
+});
+
+test('real protobuf and AES-GCM location arriving after timeout reaches account SSE',async()=>{
+ const crypto=require('node:crypto');const wire=load('src/api/integrations/channel/findhub/protocol/protobuf.ts');
+ const {concat,fieldVarint:v,fieldMessage:m,fieldString:s,fieldBytes:b,fieldSFixed32:i,fieldFloat:f}=wire;
+ const owner=Buffer.alloc(32,7),identity=Buffer.alloc(32,9);
+ const encrypt=(key,plain)=>{const iv=crypto.randomBytes(12),c=crypto.createCipheriv('aes-256-gcm',key,iv);return Buffer.concat([iv,c.update(plain),c.final(),c.getAuthTag()])};
+ const h=runtimeHarness(),seen=[];h.runtime.subscribe(e=>seen.push(e));
+ let request,push,delivered;const timers=[];
+ const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',{
+  '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
+  '../protocol/nova.client':{FindHubNovaClient:class{async locate(args){request=args}}},
+  '../protocol/spot.client':{FindHubSpotClient:class{}},
+  '../protocol/fcm.client':{FindHubFcmClient:class{constructor(a,b,onPayload){push=onPayload}get ready(){return true}get registrationToken(){return 'fixture-fcm'}async stop(){}}},
+ },{setTimeout(fn,ms){const t={fn,ms,unref(){}};timers.push(t);return t},clearTimeout(){}});
+ const client=new FindHubProtocolClient({aas:{},ownerKey:owner.toString('base64')},Buffer.alloc(32),'fixture-client',async()=>{},o=>{delivered=h.runtime.receivePushObservation(o,client,h.runtime.generation);return delivered});
+ h.runtime.protocol=client;
+ const waiting=client.locate(await h.runtime.device('d-a'),1);await Promise.resolve();timers[0].fn();await assert.rejects(waiting,/timed out/);
+ const timestamp=Math.floor(Date.now()/1000);
+ const plain=concat(i(1,123456789),i(2,-234567891),v(3,18));
+ const encryptedLocation=encrypt(crypto.createHash('sha256').update(identity).digest(),plain);
+ const report=concat(m(10,concat(m(1,concat(b(2,encryptedLocation),v(3,true))),f(3,6.5))),v(11,1));
+ const locationInfo=m(3,m(4,concat(m(1,report),m(2,v(1,timestamp)))));
+ const registration=m(19,concat(b(1,encrypt(owner,identity)),v(3,1)));
+ const metadata=concat(m(1,concat(v(2,2),m(3,m(1,s(1,'g-a'))))),m(4,concat(m(1,registration),m(2,locationInfo))));
+ push(concat(m(1,s(2,request.requestUuid)),m(3,metadata)));await delivered;
+ assert.equal(h.positions.length,1);assert.equal(h.row.latestPosition.latitude,12.3456789);assert.equal(h.row.latestPosition.longitude,-23.4567891);
+ assert.equal(h.row.latestPosition.accuracy,6.5);assert.equal(h.row.latestPosition.timestamp,new Date(timestamp*1000).toISOString());
+ assert.equal(seen.at(-1).data.query.status,'late_report');assert.equal(seen.at(-1).instanceId,'a');assert.equal(h.other.latestPosition,null);
+ await client.close();
 });

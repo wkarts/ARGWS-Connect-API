@@ -379,3 +379,32 @@ test('integrity diagnostic preserves only the fixed missing category, never arbi
     assert.equal(JSON.stringify(sanitized).includes(secret),false);
   }
 });
+
+function heartbeatHarness(){
+ let time=100000;const writes=[],timers=[];class Clock extends Date { static now(){return time} }
+ const {FindHubFcmClient}=load('src/api/integrations/channel/findhub/protocol/fcm.client.ts',{}, {
+  Date:Clock,setInterval(fn,ms){const timer={fn,ms,cleared:false,unref(){}};timers.push(timer);return timer},clearInterval(t){if(t)t.cleared=true},
+ });
+ const client=new FindHubFcmClient(null,async()=>{},()=>{});
+ const socket={destroyed:false,write(data){writes.push(data)},destroy(){this.destroyed=true}};
+ client.socket=socket;client.authenticated=true;client.firstOutbound=false;client.startHeartbeat(socket);
+ return {client,socket,writes,timers,tick(ms){time+=ms;client.checkHeartbeat(socket)}};
+}
+test('MCS active heartbeat detects a silent dead socket instead of staying ready forever',()=>{
+ const h=heartbeatHarness();h.tick(19999);assert.equal(h.writes.length,0);h.tick(1);assert.equal(h.writes.length,1);assert.equal(h.writes[0][0],0);
+ h.tick(5000);assert.equal(h.client.ready,false);assert.equal(h.socket.destroyed,true);assert.ok(h.timers.every(t=>t.cleared));
+});
+test('MCS heartbeat acknowledgement or real frame keeps the receiver alive',()=>{
+ const h=heartbeatHarness();h.tick(20000);h.client.handleFrame(1,Buffer.alloc(0));h.tick(5000);assert.equal(h.client.ready,true);assert.equal(h.socket.destroyed,false);
+ h.tick(15000);assert.equal(h.writes.length,2);h.client.handleFrame(0,Buffer.alloc(0));assert.equal(h.writes.at(-1)[0],1);h.tick(5000);assert.equal(h.socket.destroyed,false);
+ h.client.stopHeartbeat();
+});
+test('MCS heartbeat cleanup and stale socket identity do not affect a new connection',async()=>{
+ const h=heartbeatHarness(),other={write(){throw Error('wrong connection')},destroy(){throw Error('wrong connection')}};
+ h.client.socket=other;h.tick(25000);assert.equal(h.writes.length,0);h.client.socket=h.socket;
+ await h.client.stop();assert.ok(h.timers.every(t=>t.cleared));assert.equal(h.client.ready,false);
+});
+test('MCS heartbeat write failure cannot crash the application event loop',()=>{
+ const h=heartbeatHarness();h.socket.write=()=>{throw Error('synthetic closed socket')};
+ assert.doesNotThrow(()=>h.tick(20000));assert.equal(h.client.ready,false);assert.equal(h.socket.destroyed,true);assert.ok(h.timers.every(t=>t.cleared));
+});

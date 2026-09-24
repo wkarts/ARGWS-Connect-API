@@ -235,6 +235,9 @@ export class FindHubFcmClient {
   private reconnectTimer?: NodeJS.Timeout;
   private inputStreamId = 0;
   private authenticated = false;
+  private heartbeatTimer?: NodeJS.Timeout;
+  private lastFrameAt = 0;
+  private pingSentAt = 0;
   private loginResult?: (error?: Error) => void;
 
   public get ready(): boolean {
@@ -292,6 +295,7 @@ export class FindHubFcmClient {
   public async stop(): Promise<void> {
     this.stopped = true;
     this.authenticated = false;
+    this.stopHeartbeat();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.destroy();
     this.socket = undefined;
@@ -310,12 +314,16 @@ export class FindHubFcmClient {
         socket.destroy();
       }, 30_000);
       socket.once('close', () => {
-        this.authenticated = false;
-        this.loginResult = undefined;
+        if (this.socket === socket) {
+          this.authenticated = false;
+          this.loginResult = undefined;
+          this.stopHeartbeat();
+        }
         clearTimeout(timeout);
         reject(new Error('Google MCS connection closed'));
       });
       this.authenticated = false;
+      this.stopHeartbeat();
       this.loginResult = (error) => {
         clearTimeout(timeout);
         this.loginResult = undefined;
@@ -324,6 +332,7 @@ export class FindHubFcmClient {
           socket.destroy();
         } else {
           this.authenticated = true;
+          this.startHeartbeat(socket);
           resolve();
         }
       };
@@ -342,6 +351,7 @@ export class FindHubFcmClient {
         }
       });
       socket.on('data', (chunk) => {
+        if (this.socket !== socket) return;
         try {
           this.consume(chunk);
         } catch {
@@ -352,8 +362,46 @@ export class FindHubFcmClient {
         clearTimeout(timeout);
         reject(error);
       });
-      socket.on('close', () => this.scheduleReconnect());
+      socket.on('close', () => {
+        if (this.socket === socket) this.scheduleReconnect();
+      });
     });
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
+    this.pingSentAt = 0;
+  }
+
+  private startHeartbeat(socket: TLSSocket): void {
+    this.stopHeartbeat();
+    this.lastFrameAt = Date.now();
+    this.heartbeatTimer = setInterval(() => this.checkHeartbeat(socket), 1000);
+    this.heartbeatTimer.unref?.();
+  }
+
+  private checkHeartbeat(socket: TLSSocket): void {
+    if (this.stopped || this.socket !== socket || !this.authenticated) return;
+    const now = Date.now();
+    if (this.pingSentAt) {
+      if (now - this.pingSentAt >= 5000) {
+        this.authenticated = false;
+        this.stopHeartbeat();
+        socket.destroy(); // Normal close handler reconnects; no account re-registration.
+      }
+      return;
+    }
+    if (now - this.lastFrameAt < 20_000) return;
+    this.pingSentAt = now;
+    try {
+      socket.write(encodePacket(0, encodeHeartbeatAck(this.inputStreamId), this.firstOutbound));
+      this.firstOutbound = false;
+    } catch {
+      this.authenticated = false;
+      this.stopHeartbeat();
+      socket.destroy();
+    }
   }
 
   private scheduleReconnect(): void {
@@ -395,6 +443,8 @@ export class FindHubFcmClient {
   }
 
   private handleFrame(tag: number, payload: Buffer): void {
+    this.lastFrameAt = Date.now();
+    this.pingSentAt = 0;
     this.inputStreamId += 1;
     if (tag === 3) {
       const error = bytes(payload, 3);

@@ -47,7 +47,7 @@ const groups = computed<ChannelSummary[]>(() => {
       <PanelCard v-for="item in groups" :key="item.name">
         <div class="channel-card">
           <span class="channel-icon" :class="{ 'whatsapp-brand': item.name === 'WhatsApp' }">
-            <AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : 'channels'" :size="23" />
+            <AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : item.name === 'Google Find Hub' ? 'location' : 'channels'" :size="23" />
           </span>
           <div>
             <h3>{{ item.name }}</h3>
