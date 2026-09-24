@@ -8,7 +8,7 @@ document.querySelector('#consent').addEventListener('change', (event) => { appro
 approve.addEventListener('click', async () => {
   approve.disabled = true;
   try {
-    const granted = await chrome.permissions.request({ permissions: ['cookies'], origins: ['https://accounts.google.com/*'] });
+    const granted = await chrome.permissions.request({ permissions: ['cookies'], origins: ['https://accounts.google.com/*', 'https://myaccount.google.com/*'] });
     if (!granted) throw new Error('Permissão não concedida.');
     const result = await chrome.runtime.sendMessage({ type: 'APPROVE' });
     if (!result.ok) throw new Error('Não foi possível iniciar.');

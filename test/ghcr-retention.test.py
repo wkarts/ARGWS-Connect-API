@@ -96,4 +96,106 @@ class PublicationGateTests(unittest.TestCase):
   with patch.object(m,'pages',return_value=jobs):self.assertFalse(m.only_retention_pending('wkarts/ARGWS-Connect-API',run))
  def test_api_delete_route_cannot_target_base_image(self):
   with self.assertRaises(ValueError):m.api('/users/wkarts/packages/container/argws-connect-traccar/versions/99','DELETE')
+
+class BoundedRegistryTests(unittest.TestCase):
+ def tearDown(self):m._DEADLINE=None;m._REPORT_PATH=None
+ def test_raw_manifest_requires_matching_digest_and_schema(self):
+  body=json.dumps({'schemaVersion':2,'mediaType':'application/vnd.oci.image.manifest.v1+json','layers':[]}).encode()
+  key='sha256:'+m.hashlib.sha256(body).hexdigest()
+  self.assertEqual(m.ManifestReader.decode(key,body)['schemaVersion'],2)
+  with self.assertRaises(ValueError):m.ManifestReader.decode(digest(7),body)
+  for value in [{'schemaVersion':1,'mediaType':'application/vnd.oci.image.manifest.v1+json'}, {'schemaVersion':2,'mediaType':'unknown'}]:
+   raw=json.dumps(value).encode()
+   with self.assertRaises(ValueError):m.ManifestReader.decode('sha256:'+m.hashlib.sha256(raw).hexdigest(),raw)
+ def test_authorization_redirect_is_not_followed(self):
+  from unittest.mock import MagicMock
+  conn=MagicMock();conn.getresponse.return_value.status=302;conn.getresponse.return_value.read.return_value=b'{}'
+  with patch.object(m.http.client,'HTTPSConnection',return_value=conn):
+   with self.assertRaises(RuntimeError):m.ManifestReader('wkarts','argws-connect-api')
+  conn.request.assert_called_once();conn.close.assert_called_once()
+ def test_manifest_redirect_is_not_followed_and_connection_closed(self):
+  from unittest.mock import MagicMock
+  token_conn=MagicMock();token_conn.getresponse.return_value.status=200;token_conn.getresponse.return_value.read.return_value=b'{"token":"test-credential"}'
+  data_conn=MagicMock();data_conn.getresponse.return_value.status=302;data_conn.getresponse.return_value.read.return_value=b'{}'
+  with patch.object(m.http.client,'HTTPSConnection',side_effect=[token_conn,data_conn]):
+   reader=m.ManifestReader('wkarts','argws-connect-api')
+   with self.assertRaises(RuntimeError):reader.read(digest(7))
+   reader.close()
+  data_conn.request.assert_called_once();self.assertTrue(data_conn.close.called)
+ def test_one_authorization_per_package_and_keepalive_per_thread(self):
+  from unittest.mock import MagicMock
+  body=json.dumps({'schemaVersion':2,'mediaType':'application/vnd.oci.image.manifest.v1+json'}).encode();key='sha256:'+m.hashlib.sha256(body).hexdigest()
+  token=MagicMock();token.getresponse.return_value.status=200;token.getresponse.return_value.read.return_value=b'{"token":"not-logged"}'
+  connection=MagicMock();connection.getresponse.return_value.status=200;connection.getresponse.return_value.read.return_value=body
+  with patch.object(m.http.client,'HTTPSConnection',side_effect=[token,connection]) as factory:
+   reader=m.ManifestReader('wkarts','argws-connect-api');reader.read(key);reader.read(key);reader.close()
+  self.assertEqual(factory.call_count,2);self.assertEqual(connection.request.call_count,2);self.assertEqual(reader.credential,'')
+ def test_scope_and_digest_are_validated_before_request(self):
+  with patch.object(m.http.client,'HTTPSConnection') as conn:
+   for owner,package in [('owner/path','argws-connect-api'),('wkarts','other-package'),('wkarts','argws-connect-api/evil')]:
+    with self.assertRaises(ValueError):m.ManifestReader(owner,package)
+   conn.assert_not_called()
+ def test_complete_paginated_metadata_is_not_cached(self):
+  rows=[version(i+1) for i in range(101)];calls=[]
+  def api(path):
+   calls.append(path);page=int(path.rsplit('=',1)[1]);return copy.deepcopy(rows[(page-1)*100:page*100])
+  with patch.object(m,'api',side_effect=api):
+   self.assertEqual(len(m.package_versions('/versions')),101)
+   rows[0]['metadata']['container']['tags']=['latest']
+   self.assertEqual(m.package_versions('/versions')[0]['metadata']['container']['tags'],['latest'])
+  self.assertEqual(len(calls),8)
+ def test_duplicate_versions_or_unstable_pagination_preserve(self):
+  for responses in [[version(1),version(1)],None]:
+   def api(path):
+    page=int(path.rsplit('=',1)[1])
+    if responses is not None:return responses if page==1 else []
+    return [version(3)] if page==2 else []
+   with patch.object(m,'api',side_effect=api):
+    with self.assertRaises(ValueError):m.package_versions('/versions')
+ def test_deletion_order_keeps_parent_before_child_and_artifact_before_subject(self):
+  rows=[version(1),version(2,children=[1]),version(3)];rows[2]['subject']=digest(2)
+  candidates=[{'digest':r['name'],'id':r['id']} for r in rows]
+  self.assertEqual([r['id'] for r in m.deletion_order(candidates,rows)],[3,2,1])
+ def test_cyclic_reference_preserves_before_any_delete(self):
+  rows=[version(1,children=[2]),version(2,children=[1])]
+  with self.assertRaises(ValueError):m.deletion_order([{'digest':r['name']} for r in rows],rows)
+ def test_expired_budget_cannot_start_external_request(self):
+  m._DEADLINE=m.time.monotonic()-1
+  with patch.object(m.subprocess,'run') as run:
+   with self.assertRaises(m.BudgetExpired):m.api('/repos/owner/repo')
+   run.assert_not_called()
+ def test_budget_report_preserves_confirmed_deletions(self):
+  import tempfile
+  with tempfile.TemporaryDirectory() as folder:
+   m._REPORT_PATH=Path(folder)/'report.json';m.write_json(m._REPORT_PATH,{'deleted':[{'id':7}]})
+   m.finish_deferred('Time budget reached.')
+   report=json.loads(m._REPORT_PATH.read_text())
+   self.assertEqual(report['mode'],'deferred');self.assertEqual(report['deleted'],[{'id':7}]);self.assertTrue(report['remaining_preserved'])
+ def test_bounded_batch_reports_partial_and_images_only_does_not_scan_caches(self):
+  import tempfile,sys
+  rows=[version(1,['1.1.3']),version(2,['sha-old']),version(3,['sha-older'])];deleted=[]
+  def api(path,method='GET'):
+   if method=='DELETE':deleted.append(path);return None
+   raise AssertionError('Unexpected endpoint '+path)
+  with tempfile.TemporaryDirectory() as folder:
+   config=Path(folder)/'policy.json';config.write_text(json.dumps(policy()))
+   argv=['retention','--policy',str(config),'--output',folder,'--apply','--images-only','--verified-sha','a'*40,'--max-image-deletions','1']
+   with patch.object(sys,'argv',argv),patch.dict(m.os.environ,{'GITHUB_REPOSITORY':'wkarts/ARGWS-Connect-API'}),patch.object(m,'inventory_package',side_effect=lambda o,t,p:copy.deepcopy(rows) if p=='argws-connect-api' else []),patch.object(m,'verify_gate',return_value=True),patch.object(m,'no_active_runs',return_value=True),patch.object(m,'package_versions',return_value=rows),patch.object(m,'api',side_effect=api),patch.object(m,'pages',side_effect=AssertionError('No cache/artifact scan permitted')):
+    m.main()
+   report=json.loads((Path(folder)/'report.json').read_text());self.assertEqual(report['mode'],'partial');self.assertEqual(report['remaining_candidates'],1);self.assertEqual(len(deleted),1)
+ def test_live_read_error_preserves_entire_package(self):
+  from unittest.mock import MagicMock
+  reader=MagicMock();reader.read.side_effect=RuntimeError('unavailable')
+  with patch.object(m,'package_versions',return_value=[version(1,['1.1.3']),version(2,['sha-old'])]),patch.object(m,'ManifestReader',return_value=reader):
+   rows=m.inventory_package('wkarts','users','argws-connect-api')
+  self.assertTrue(all(r['decision']=='preserve' for r in m.plan_package('argws-connect-api',rows,policy(),NOW)))
+  reader.close.assert_called_once()
+ def test_reusable_workflow_has_internal_time_budget_and_unbuffered_progress(self):
+  text=(ROOT/'.github/workflows/ghcr-retention.yml').read_text()
+  self.assertIn('--images-only --max-seconds 480 --max-image-deletions 20',text)
+  self.assertIn('python3 -u scripts/ghcr-retention.py',text)
+  self.assertNotIn('continue-on-error',text)
+  self.assertNotIn('skopeo',text)
+  self.assertIn('timeout-minutes: 15',text)
+
 if __name__=='__main__':unittest.main()

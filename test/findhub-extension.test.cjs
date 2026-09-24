@@ -22,11 +22,15 @@ function harness(permission=true, fastCookie=false, timers={}) {
  async function command(message,sender=approvalSender()) {let answer;chrome.runtime.onMessage.fire(message,sender,data=>answer=data);await flush();return answer;}
  return {chrome,tabs,removed,scripts,registrations,connect,command,approvalSender,reads:()=>cookieReads,setCookie:value=>{cookie=value;}};
 }
+async function completeWebSession(h, google) {
+ google.url='https://myaccount.google.com/';google.status='complete';delete google.pendingUrl;
+ h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();
+}
 const request={type:'BEGIN',sessionId:'11111111-1111-4111-8111-111111111111',email:'operator@example.com',apiOrigin:'https://api.example.com'};
 test('manifest is self-hosted, has no remote code/storage and optional Google-only host access',()=>{
  const manifest=JSON.parse(read('manifest.json'));
  assert.equal(manifest.manifest_version,3);assert.equal(manifest.minimum_chrome_version,'120');
- assert.deepEqual(manifest.optional_host_permissions,['https://accounts.google.com/*']);
+ assert.deepEqual(manifest.optional_host_permissions,['https://accounts.google.com/*','https://myaccount.google.com/*']);
  assert.deepEqual(manifest.optional_permissions,['cookies']);assert.equal(manifest.host_permissions,undefined);
  assert.ok(!manifest.permissions.includes('debugger'));assert.ok(!manifest.permissions.includes('storage'));
  const hash=crypto.createHash('sha256').update(Buffer.from(manifest.key,'base64')).digest('hex').slice(0,32);
@@ -51,7 +55,7 @@ test('approval and artifacts are bound to the owned tab; only finder_hw leaves t
  h.chrome.cookies.onChanged.fire({removed:false,cookie:{name:'other',domain:'accounts.google.com',value:'never-send'}});await flush();assert.equal(c.messages.some(m=>m.oauthToken==='never-send'),false);
  h.chrome.cookies.onChanged.fire({removed:false,cookie:{name:'oauth_token',domain:'accounts.google.com',value:'synthetic-new'}});await flush();assert.equal(c.messages.filter(m=>m.type==='OAUTH_TOKEN').length,1);
  c.send({type:'UNLOCK',sessionId:request.sessionId,unlockUrl:'https://accounts.google.com/encryption/unlock/android?kdi=a'});await flush();
- h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();assert.deepEqual(h.registrations.map(s=>s.world),['MAIN','ISOLATED']);assert.ok(h.registrations.every(s=>s.runAt==='document_start' && s.persistAcrossSessions===false));
+ await completeWebSession(h,google);assert.deepEqual(h.registrations.map(s=>s.world),['MAIN','ISOLATED']);assert.ok(h.registrations.every(s=>s.runAt==='document_start' && s.persistAcrossSessions===false));
  const sender={id:h.chrome.runtime.id,url:google.url,frameId:0,tab:{id:google.id},documentId:'vault-doc'};
  const {nonce}=await h.command({type:'VAULT_BIND'},sender);const vaultKeys=JSON.stringify({finder_hw:[{key:Array(32).fill(1)}],other_vault:'never-send'});
  const wrong=await h.command({type:'VAULT_KEYS',nonce,vaultKeys},{...sender,tab:{id:666}});assert.ok(wrong.error);
@@ -87,7 +91,7 @@ test('rechecking the owned tab never replays the baseline or duplicates an emitt
 });
 
 test('0.1.6 preserves the public extension ID and packages the official raster icons for toolbar and management', () => {
-  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.6');
+  const manifest = JSON.parse(read('manifest.json')); assert.equal(manifest.version, '0.1.7');
   assert.equal(policy.VERSION, manifest.version);
   for (const size of [16,32,48,128]) {
     const icon = fs.readFileSync(path.join(folder,manifest.icons[size]));
@@ -152,7 +156,7 @@ async function vaultAttempt(h) {
  const google=[...h.tabs.values()].find(t=>t.url.includes('EmbeddedSetup'));
  h.setCookie({value:'new-unlock-fixture'});h.chrome.tabs.onActivated.fire({tabId:google.id});await flush();
  c.send({type:'UNLOCK',sessionId:request.sessionId,unlockUrl:'https://accounts.google.com/encryption/unlock/android?kdi=a'});await flush();
- google.url=kls;return {c,google,sender:{id:h.chrome.runtime.id,url:kls,frameId:0,tab:{id:google.id},documentId:'kls-document'}};
+ await completeWebSession(h,google);google.url=kls;return {c,google,sender:{id:h.chrome.runtime.id,url:kls,frameId:0,tab:{id:google.id},documentId:'kls-document'}};
 }
 test('KLS callback completes once and ignores unrelated tabs, documents, frames and sessions',async()=>{
  const h=harness();const {c,sender}=await vaultAttempt(h);
@@ -186,6 +190,7 @@ test('cancellation during script registration removes late registrations and nev
  const google=[...h.tabs.values()].find(t=>t.url.includes('EmbeddedSetup'));
  h.setCookie({value:'late-register'});h.chrome.tabs.onActivated.fire({tabId:google.id});await flush();
  c.send({type:'UNLOCK',sessionId:request.sessionId,unlockUrl:'https://accounts.google.com/encryption/unlock/android?kdi=a'});await flush();
+ await completeWebSession(h,google);assert.equal(typeof finish,'function');
  c.send({type:'CANCEL',sessionId:request.sessionId});await flush();finish();await flush();
  assert.equal(h.registrations.length,0);assert.equal(h.tabs.size,0);
  assert.equal(c.messages.some(m=>m.type==='WAITING_VAULT_KEY'),false);
@@ -316,4 +321,102 @@ test('an unrelated MAIN origin or nonce cannot acknowledge readiness',async()=>{
  w.fire('message',{source:w.window,origin:'https://other.example',data:message});
  w.fire('message',{source:w.window,origin:'https://accounts.google.com',data:{...message,nonce:'wrong'}});
  await flush();assert.equal(w.outgoing.some(m=>m.type==='VAULT_READY'),false);w.fire('pagehide');
+});
+
+// Browser web authentication and native token exchange are separate prerequisites.
+async function webAttempt(h) {
+ const c=h.connect();c.send(request);await flush();await h.command({type:'APPROVE'});
+ const google=[...h.tabs.values()].find(t=>t.url.includes('EmbeddedSetup'));
+ h.setCookie({value:'new-web-session-fixture'});h.chrome.tabs.onActivated.fire({tabId:google.id});await flush();
+ c.send({type:'UNLOCK',sessionId:request.sessionId,unlockUrl:'https://accounts.google.com/encryption/unlock/android?kdi=a'});await flush();
+ return {c,google};
+}
+test('web-session policy only accepts the exact ordinary Google account landing page',()=>{
+ const login=new URL(policy.googleWebSignInUrl());assert.equal(login.origin,'https://accounts.google.com');
+ assert.equal(login.pathname,'/ServiceLogin');assert.equal(login.searchParams.get('continue'),'https://myaccount.google.com/');
+ for(const url of ['https://myaccount.google.com/','https://myaccount.google.com/u/0/','https://myaccount.google.com/u/2']) assert.equal(policy.googleWebSessionReturn(url),true);
+ for(const url of ['https://myaccount.google.com/intro','https://myaccount.google.com.evil.test/','http://myaccount.google.com/','https://user:password@myaccount.google.com/','https://accounts.google.com/v3/signin/challenge/dp','not-a-url']) assert.equal(policy.googleWebSessionReturn(url),false);
+ assert.equal(policy.googleUserChallenge('https://accounts.google.com/v3/signin/challenge/dp?TL=fixture'),true);
+ assert.equal(policy.googleUserChallenge('https://accounts.google.com.evil.test/v3/signin/challenge/dp'),false);
+});
+test('web-session completion gates vault navigation and never marks the account connected',async(t)=>{
+ const h=harness(),{c,google}=await webAttempt(h);t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ assert.equal(new URL(google.url).pathname,'/ServiceLogin');
+ assert.equal(h.registrations.length,0);assert.equal(h.chrome.cookies.onChanged.listeners.length,0);
+ assert.ok(c.messages.some(m=>m.type==='WAITING_WEB_SESSION'));
+ assert.equal(c.messages.some(m=>['WAITING_VAULT_KEY','VAULT_KEYS','READY'].includes(m.type)),false);
+ await completeWebSession(h,google);
+ assert.equal(new URL(google.url).pathname,'/encryption/unlock/android');
+ assert.equal(h.registrations.length,2);assert.equal(c.messages.filter(m=>m.type==='WAITING_VAULT_KEY').length,1);
+ assert.equal(c.messages.some(m=>['READY','VAULT_KEYS'].includes(m.type)),false);
+});
+test('web-session 2FA wait exceeds bridge deadline without automatic approval or vault access',async(t)=>{
+ const clock=testClock(),h=harness(true,false,clock.timers),{c,google}=await webAttempt(h);
+ t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ google.url='https://accounts.google.com/v3/signin/challenge/dp?TL=fixture';google.status='complete';
+ h.chrome.tabs.onUpdated.fire(google.id,{url:google.url,status:'complete'});await flush();await clock.advance(45000);
+ assert.equal(c.messages.some(m=>m.type==='ERROR'),false);assert.equal(h.scripts.length,0);assert.equal(h.registrations.length,0);
+ assert.equal((await h.command({type:'INFO'})).stage,'WEB_SESSION');
+ // The global user-session deadline is never disabled by the web-session wait.
+ await clock.advance(600000);assert.equal(c.port.disconnected,true);assert.equal(h.tabs.size,0);
+});
+test('foreign tabs, public account landing and pending navigations cannot advance web-session',async(t)=>{
+ const h=harness(),{c,google}=await webAttempt(h);t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ h.chrome.tabs.onUpdated.fire(666,{url:'https://myaccount.google.com/',status:'complete'});await flush();
+ assert.equal(h.registrations.length,0);
+ for(const url of ['https://myaccount.google.com/intro','https://myaccount.google.com.evil.test/']) {
+  google.url=url;google.status='complete';h.chrome.tabs.onUpdated.fire(google.id,{url,status:'complete'});await flush();
+  assert.equal(h.registrations.length,0);
+ }
+ google.url='https://myaccount.google.com/';google.pendingUrl='https://accounts.google.com/v3/signin/challenge/dp';
+ h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();assert.equal(h.registrations.length,0);
+ delete google.pendingUrl;await completeWebSession(h,google);assert.equal(h.registrations.length,2);
+});
+test('cancelled web-session cannot be revived by a late account-page return',async()=>{
+ const h=harness(),{c,google}=await webAttempt(h);
+ c.send({type:'CANCEL',sessionId:request.sessionId});await flush();
+ h.chrome.tabs.onUpdated.fire(google.id,{url:'https://myaccount.google.com/',status:'complete'});await flush();
+ assert.equal(h.registrations.length,0);assert.equal(h.tabs.size,0);assert.equal(c.port.disconnected,true);
+ assert.equal(c.messages.some(m=>m.type==='WAITING_VAULT_KEY'),false);
+});
+test('normal 2FA redirect during vault does not authorize callbacks or trigger premature bridge timeout',async(t)=>{
+ const clock=testClock(),h=harness(true,false,clock.timers),{c,google}=await vaultAttempt(h);
+ t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ google.url='https://accounts.google.com/v3/signin/challenge/dp?TL=fixture';
+ h.chrome.tabs.onUpdated.fire(google.id,{url:google.url,status:'complete'});await flush();
+ const sender={id:h.chrome.runtime.id,url:google.url,frameId:0,tab:{id:google.id},documentId:'two-factor-document'};
+ assert.ok((await h.command({type:'VAULT_BIND'},sender)).error);
+ assert.ok((await h.command({type:'VAULT_KEYS',nonce:'unknown',vaultKeys:'{}'},sender)).error);
+ await clock.advance(30001);assert.equal(c.messages.some(m=>m.type==='ERROR'),false);
+ assert.equal(c.messages.some(m=>m.type==='VAULT_KEYS'),false);assert.equal(h.scripts.length,0);
+});
+test('Google error-page title 401 ends only the owned vault attempt without reading credentials',async(t)=>{
+ const h=harness(),{c,google}=await vaultAttempt(h);t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ h.tabs.set(999,{id:999,url:'https://accounts.google.com/',status:'complete'});
+ google.title='Error 401 (Solicitação inválida)';
+ h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();
+ assert.equal(c.port.disconnected,true);assert.equal(h.registrations.length,0);assert.ok(h.tabs.has(999));
+ const error=c.messages.find(m=>m.type==='ERROR');assert.match(error.message,/FH-EXT-GOOGLE-HTTP.*401/);
+ assert.doesNotMatch(error.message,/fixture|kdi=|TL=/);assert.equal(h.scripts.length,0);
+});
+test('normal Google titles and error titles on unrelated origins cannot fail a vault attempt',async(t)=>{
+ const h=harness(),{c,google}=await vaultAttempt(h);t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ google.title='Fazer login nas Contas do Google';h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();
+ google.url='https://unrelated.example/';google.title='Erro 401';h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();
+ h.chrome.tabs.onUpdated.fire(999,{title:'Erro 401',status:'complete'});await flush();
+ assert.equal(c.messages.some(m=>m.type==='ERROR'),false);
+});
+test('vault keys already sent for backend verification win against a late Google error page',async(t)=>{
+ const h=harness(),{c,google,sender}=await vaultAttempt(h);t.after(()=>c.send({type:'DONE',sessionId:request.sessionId}));
+ const {nonce}=await h.command({type:'VAULT_BIND'},sender);
+ await h.command({type:'VAULT_KEYS',nonce,vaultKeys:JSON.stringify({finder_hw:[{key:[1,2,3]}]})},sender);
+ google.title='Error 401';h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();
+ assert.equal(c.messages.filter(m=>m.type==='VAULT_KEYS').length,1);assert.equal(c.messages.some(m=>m.type==='ERROR'),false);
+});
+
+test('concurrent account-page notifications cannot prepare the vault twice',async(t)=>{
+ const h=harness(),{c,google}=await webAttempt(h);t.after(()=>c.send({type:'CANCEL',sessionId:request.sessionId}));
+ google.url='https://myaccount.google.com/';google.status='complete';
+ h.chrome.tabs.onUpdated.fire(google.id,{url:google.url});h.chrome.tabs.onUpdated.fire(google.id,{status:'complete'});await flush();
+ assert.equal(h.registrations.length,2);assert.equal(c.messages.filter(m=>m.type==='WAITING_VAULT_KEY').length,1);
 });

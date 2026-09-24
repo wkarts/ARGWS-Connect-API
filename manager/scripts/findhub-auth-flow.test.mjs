@@ -76,3 +76,18 @@ test('wrong session notifications are ignored and explicit cancellation leaves n
   assert.equal(h.calls.filter(x=>x.operation==='exchange').length,0);await h.ui.cancel();
   assert.equal(h.ui.busy.value,false);assert.equal(h.ui.stage.value,'');assert.equal(h.port.disconnected,true);
 });
+
+test('web-session progress explains 2FA separately and is never treated as connected',async()=>{
+ const h=harness({version:'0.1.7'});await h.ui.start();
+ h.port.onMessage.fire({type:'WAITING_WEB_SESSION',sessionId:'synthetic-session'});await flush();
+ assert.match(h.ui.stage.value,/login web.*duas etapas/);assert.equal(h.ui.busy.value,true);
+ assert.equal(h.emitted.length,0);assert.equal(h.calls.some(x=>x.operation==='complete'),false);await h.ui.cancel();
+});
+test('Google error-page notification clears Manager wait without reporting a connected account',async()=>{
+ const h=harness({version:'0.1.7'});await h.ui.start();
+ h.port.onMessage.fire({type:'WAITING_VAULT_KEY',sessionId:'synthetic-session'});await flush();
+ assert.match(h.ui.stage.value,/duas etapas antes do PIN/);
+ h.port.onMessage.fire({type:'ERROR',sessionId:'synthetic-session',message:'[FH-EXT-GOOGLE-HTTP] O Google exibiu uma página de erro 401.'});await flush();
+ assert.equal(h.ui.busy.value,false);assert.equal(h.ui.stage.value,'');assert.equal(h.emitted.length,0);
+ assert.match(h.ui.error.value,/FH-EXT-GOOGLE-HTTP/);assert.equal(h.calls.filter(x=>x.operation==='cancel').length,1);
+});

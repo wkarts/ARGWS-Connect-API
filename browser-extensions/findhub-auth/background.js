@@ -1,4 +1,4 @@
-import { VERSION, GOOGLE_ORIGIN, GOOGLE_PERMISSION, safeOrigin, beginRequest, unlockUrl, safeVault, vaultPageUrl, vaultScriptMatches } from './policy.js';
+import { VERSION, GOOGLE_ORIGIN, GOOGLE_WEB_PERMISSIONS, googleWebSignInUrl, googleWebSessionReturn, googleUserChallenge, safeOrigin, beginRequest, unlockUrl, safeVault, vaultPageUrl, vaultScriptMatches } from './policy.js';
 
 // Session secrets exist only in this worker and the originating authenticated page.
 // A worker restart aborts the attempt rather than persisting credentials.
@@ -44,6 +44,7 @@ function cleanup(attempt, reason) {
   clearTimeout(attempt.bridgeTimer);
   removeVaultScripts(attempt);
   attempt.baseline = undefined;
+  attempt.pendingUnlockUrl = undefined;
   for (const id of [attempt.googleTab, attempt.approvalTab]) {
     if (Number.isInteger(id)) chrome.tabs.remove(id).catch(() => {});
   }
@@ -99,10 +100,48 @@ async function prepareVaultBridge(attempt, url) {
   await chrome.tabs.update(attempt.googleTab, { url, active: true });
   send(attempt, { type: 'WAITING_VAULT_KEY' });
 }
+async function finishWebSession(attempt) {
+  if (active !== attempt || attempt.stage !== 'WEB_SESSION') return;
+  try {
+    const tab = await chrome.tabs.get(attempt.googleTab);
+    if (active !== attempt || attempt.stage !== 'WEB_SESSION' || tab?.status !== 'complete' ||
+        tab.pendingUrl || !googleWebSessionReturn(tab.url)) return;
+    const url = attempt.pendingUnlockUrl;
+    attempt.pendingUnlockUrl = undefined;
+    attempt.stage = 'VAULT';
+    await prepareVaultBridge(attempt, url);
+  } catch {
+    cleanup(attempt, '[FH-EXT-WEB-SESSION] Não foi possível concluir a sessão web Google. Conclua a confirmação diretamente no Google e inicie uma nova vinculação.');
+  }
+}
+async function checkGoogleErrorPage(attempt) {
+  if (active !== attempt || attempt.stage !== 'VAULT') return;
+  try {
+    const tab = await chrome.tabs.get(attempt.googleTab);
+    if (active !== attempt || attempt.stage !== 'VAULT' || tab?.status !== 'complete' ||
+        tab.pendingUrl || !vaultPageUrl(tab.url, attempt.kdi)) return;
+    // Read only the browser-provided page title, not DOM, inputs, PIN or HTML.
+    // This is Google's error-page label; it is not a captured HTTP response body.
+    const match = /^(?:Error|Erro)\s+([45]\d{2})\b/i.exec(tab.title || '');
+    if (!match) return;
+    cleanup(attempt, `[FH-EXT-GOOGLE-HTTP] O Google exibiu uma página de erro ${match[1]} no desbloqueio. Nenhuma conta foi conectada. Conclua o login Google no navegador e inicie uma nova tentativa. Não desative a verificação em duas etapas.`);
+  } catch {
+    // A document can navigate while it is inspected. The existing session deadline remains authoritative.
+  }
+}
 chrome.tabs.onUpdated.addListener((id, change) => {
   const attempt = active;
   if (!attempt || id !== attempt.googleTab) return;
   if (attempt.stage === 'LOGIN' && change.status === 'complete') void readLoginCookie(attempt);
+  if (attempt.stage === 'WEB_SESSION' && (change.url || change.status === 'complete')) void finishWebSession(attempt);
+  if (attempt.stage === 'VAULT' && change.url && googleUserChallenge(change.url) && !vaultPageUrl(change.url, attempt.kdi)) {
+    // A normal 2FA challenge may omit kdi. Do not confuse time spent by the user with a missing vault bridge.
+    // This does NOT authorize callbacks from that document. The one-use kdi/nonce checks are unchanged.
+    clearTimeout(attempt.bridgeTimer);
+    send(attempt, { type: 'WAITING_USER' });
+    send(attempt, { type: 'WAITING_WEB_SESSION' });
+  }
+  if (attempt.stage === 'VAULT' && (change.status === 'complete' || change.title)) void checkGoogleErrorPage(attempt);
   if (attempt.stage === 'VAULT' && change.url && vaultPageUrl(change.url, attempt.kdi) && new URL(change.url).hash === '#close') {
     vaultClosed(attempt);
   }
@@ -137,9 +176,15 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       if (!owned || active !== owned || message.sessionId !== owned.sessionId) throw new Error('Sessão de vinculação inválida.');
       if (message.type === 'CANCEL' || message.type === 'DONE') { cleanup(owned); return; }
       if (message.type === 'UNLOCK' && owned.stage === 'EXCHANGE') {
-        const url = unlockUrl(message.unlockUrl);
-        owned.stage = 'VAULT';
-        await prepareVaultBridge(owned, url);
+        owned.pendingUnlockUrl = unlockUrl(message.unlockUrl);
+        owned.stage = 'WEB_SESSION';
+        chrome.cookies.onChanged.removeListener(cookieChanged);
+        // Keep initial token exchange unchanged. Establish the ordinary browser session before the vault.
+        // Password/2FA are still handled ONLY by Google. No SID/HSID or account-page content is read.
+        send(owned, { type: 'WAITING_USER' }); // Compatible with Manager 0.1.6 clients.
+        send(owned, { type: 'WAITING_WEB_SESSION' });
+        await chrome.tabs.update(owned.googleTab, { url: googleWebSignInUrl(), active: true });
+        if (active === owned) await finishWebSession(owned);
       }
     })().catch(() => {
       if (owned) cleanup(owned, 'Não foi possível continuar a vinculação. Inicie novamente.');
@@ -162,7 +207,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     attempt.stage = 'STARTING_LOGIN';
     reply({ ok: true, accepted: true });
     void (async () => {
-      if (!await chrome.permissions.contains({ permissions: ['cookies'], origins: [GOOGLE_PERMISSION] })) throw new Error('permission');
+      if (!await chrome.permissions.contains({ permissions: ['cookies'], origins: GOOGLE_WEB_PERMISSIONS })) throw new Error('permission');
       if (active !== attempt) return;
       chrome.cookies.onChanged.addListener(cookieChanged);
       attempt.baseline = (await chrome.cookies.get({ url: GOOGLE_ORIGIN, name: 'oauth_token' }))?.value;

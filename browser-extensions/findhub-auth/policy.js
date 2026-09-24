@@ -1,7 +1,9 @@
 // Pure validation functions shared by the worker and its tests.
-export const VERSION = '0.1.6';
+export const VERSION = '0.1.7';
 export const GOOGLE_ORIGIN = 'https://accounts.google.com';
 export const GOOGLE_PERMISSION = GOOGLE_ORIGIN + '/*';
+export const GOOGLE_ACCOUNT_ORIGIN = 'https://myaccount.google.com';
+export const GOOGLE_WEB_PERMISSIONS = [GOOGLE_PERMISSION, GOOGLE_ACCOUNT_ORIGIN + '/*'];
 export function safeOrigin(value) {
   const url = new URL(value);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -61,4 +63,27 @@ export function vaultScriptMatches(value) {
     GOOGLE_ORIGIN + '/encryption/unlock/android?*kdi=' + encoded + '*',
     GOOGLE_ORIGIN + '/v3/signin/*?*kdi=' + encoded + '*',
   ]);
+}
+
+// A native EmbeddedSetup artifact does not establish the browser's ordinary web session.
+// Observe only the fixed destination of Google's own sign-in flow, on the consented tab.
+// This is navigation sequencing, NOT proof of account identity or authorization.
+export function googleWebSignInUrl() {
+  const url = new URL('/ServiceLogin', GOOGLE_ORIGIN);
+  url.searchParams.set('continue', GOOGLE_ACCOUNT_ORIGIN + '/');
+  return url.href;
+}
+export function googleWebSessionReturn(value) {
+  try {
+    const url = new URL(value);
+    return url.origin === GOOGLE_ACCOUNT_ORIGIN && !url.username && !url.password &&
+      url.href.length <= 8192 && /^\/(?:u\/\d+\/?)?$/.test(url.pathname);
+  } catch { return false; }
+}
+export function googleUserChallenge(value) {
+  try {
+    const url = new URL(value);
+    return url.origin === GOOGLE_ORIGIN && !url.username && !url.password && url.href.length <= 8192 &&
+      /^\/(?:v3\/signin|signin(?:\/v2)?)\/(?:challenge|speedbump)(?:\/|$)/.test(url.pathname);
+  } catch { return false; }
 }
