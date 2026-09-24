@@ -74,6 +74,8 @@ export class FindHubStartupService {
     { status: string; startedAt: string; completedAt: string; timeoutMs: number }
   >();
   private generation = 0;
+  private readonly reconciliations = new Map<string, Promise<any>>();
+  private readonly reconciliationStatus = new Map<string, any>();
   private readonly observationQueues = new Map<string, Promise<void>>();
   private readonly observationQueueSizes = new Map<string, number>();
   private tracking = new Map<string, NodeJS.Timeout>();
@@ -165,8 +167,19 @@ export class FindHubStartupService {
       await this.refreshDevices();
       await this.authBroker.setAuthState(this.instance.id, 'READY');
       await this.setState('open');
-      await this.settings();
+      const settings = await this.settings();
+      const reconciliationCandidates = settings.reconciliationEnabled
+        ? await this.reconciliationCandidates(settings.reconciliationMinGapSeconds)
+        : [];
       await this.restoreTracking();
+      if (reconciliationCandidates.length) {
+        void this.reconcileCandidates(reconciliationCandidates).catch(async () => {
+          await this.emit(FINDHUB_EVENTS.ERROR, {
+            operation: 'reconciliation',
+            code: 'RECONCILIATION_FAILED',
+          });
+        });
+      }
       this.retentionTimer = setInterval(
         () => {
           void this.pruneHistory().catch(() => undefined);
@@ -202,6 +215,7 @@ export class FindHubStartupService {
     this.tracking.clear();
     this.locationQueries.clear();
     this.dispatching.clear();
+    this.reconciliationStatus.clear();
     await this.protocol?.close().catch(() => undefined);
     this.protocol = undefined;
     await this.setState('close');
@@ -479,6 +493,177 @@ export class FindHubStartupService {
     return { deviceId: device.id, enabled: false };
   }
 
+  public async reconcileDevice(
+    deviceId: string,
+    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number } = {},
+  ): Promise<any> {
+    const existing = this.reconciliations.get(deviceId);
+    if (existing) return await existing;
+
+    const operation = this.reconcileDeviceOnce(deviceId, input);
+    this.reconciliations.set(deviceId, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.reconciliations.get(deviceId) === operation) this.reconciliations.delete(deviceId);
+    }
+  }
+
+  public async reconcileAll(
+    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number } = {},
+  ): Promise<any> {
+    const settings = await this.settings();
+    const devices = (await this.devices()).filter((device) => device.trackingEnabled);
+    const startedAt = new Date().toISOString();
+    const results = [];
+    for (const device of devices) {
+      results.push(await this.reconcileDevice(device.id, input).catch((error) => ({
+        deviceId: device.id,
+        deviceName: device.name,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })));
+    }
+    return {
+      startedAt,
+      completedAt: new Date().toISOString(),
+      automatic: false,
+      settings: {
+        enabled: settings.reconciliationEnabled,
+        minGapSeconds: settings.reconciliationMinGapSeconds,
+        attempts: settings.reconciliationAttempts,
+      },
+      results,
+    };
+  }
+
+  private async reconciliationCandidates(minGapSeconds: number): Promise<Array<{ deviceId: string; from: string; to: string }>> {
+    const now = new Date();
+    const rows = await (this.prisma as any).findHubDevice.findMany({
+      where: { instanceId: this.instance.id, trackingEnabled: true },
+      select: { id: true, lastLocationAt: true },
+    });
+    return rows
+      .filter((row: any) => row.lastLocationAt && now.getTime() - new Date(row.lastLocationAt).getTime() >= minGapSeconds * 1000)
+      .map((row: any) => ({ deviceId: row.id, from: new Date(row.lastLocationAt).toISOString(), to: now.toISOString() }));
+  }
+
+  private async reconcileCandidates(candidates: Array<{ deviceId: string; from: string; to: string }>): Promise<void> {
+    for (const candidate of candidates) {
+      await this.reconcileDevice(candidate.deviceId, {
+        from: candidate.from,
+        to: candidate.to,
+      }).catch(async (error) => {
+        await this.emit(FINDHUB_EVENTS.ERROR, {
+          deviceId: candidate.deviceId,
+          operation: 'reconciliation',
+          code: 'RECONCILIATION_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+  }
+
+  private async reconcileDeviceOnce(
+    deviceId: string,
+    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number },
+  ): Promise<any> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    const settings = await this.settings();
+    if (!settings.historyEnabled) throw new Error('O histórico precisa estar habilitado para reconciliar lacunas.');
+
+    const device = await this.device(deviceId);
+    const fromValue = input.from || device.lastLocationAt || device.latestPosition?.timestamp;
+    if (!fromValue || !Number.isFinite(Date.parse(fromValue))) {
+      throw new Error('Informe o início da lacuna para a primeira reconciliação deste dispositivo.');
+    }
+
+    const from = new Date(fromValue);
+    const to = new Date(input.to || Date.now());
+    if (!Number.isFinite(to.getTime()) || from.getTime() > to.getTime()) throw new Error('Período de reconciliação inválido.');
+
+    const attempts = Math.min(10, Math.max(1, input.attempts ?? settings.reconciliationAttempts));
+    const timeoutMs = input.timeoutMs ?? device.locationTimeoutMs ?? settings.timeoutMs;
+    const before = await (this.prisma as any).findHubPosition.count({
+      where: { instanceId: this.instance.id, deviceId, recordedAt: { gt: from, lte: to } },
+    });
+
+    const startedAt = new Date().toISOString();
+    this.reconciliationStatus.set(deviceId, {
+      status: 'running',
+      automatic: !input.from && !input.to && input.attempts === undefined && input.timeoutMs === undefined,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      startedAt,
+      attemptsRequested: attempts,
+    });
+    await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, {
+      deviceId,
+      reconciliation: this.reconciliationStatus.get(deviceId),
+    });
+
+    const seen = new Set<string>();
+    let attemptsCompleted = 0;
+    let emptyAttempts = 0;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (!this.protocol) break;
+      attemptsCompleted++;
+      const reports = (await this.protocol.locate(device, timeoutMs))
+        .filter((position) => validPosition(position))
+        .filter((position) => {
+          const time = Date.parse(position.timestamp);
+          return time > from.getTime() && time <= to.getTime();
+        })
+        .sort(comparePositionPreference);
+
+      let discovered = 0;
+      for (const report of [...reports].reverse()) {
+        const fingerprint = positionFingerprint(report);
+        if (seen.has(fingerprint)) continue;
+        seen.add(fingerprint);
+        discovered++;
+        await this.persistPosition(device, report);
+      }
+      if (!discovered) emptyAttempts++;
+      else emptyAttempts = 0;
+      if (emptyAttempts >= 2) break;
+    }
+
+    const after = await (this.prisma as any).findHubPosition.count({
+      where: { instanceId: this.instance.id, deviceId, recordedAt: { gt: from, lte: to } },
+    });
+    const recovered = Math.max(0, after - before);
+    const rows = await (this.prisma as any).findHubPosition.findMany({
+      where: { instanceId: this.instance.id, deviceId, recordedAt: { gt: from, lte: to } },
+      orderBy: { recordedAt: 'asc' },
+      select: { recordedAt: true, source: true },
+      take: 1000,
+    });
+    const result = {
+      deviceId,
+      deviceName: device.name,
+      status: recovered > 0 ? 'recovered' : 'no_recoverable_positions',
+      from: from.toISOString(),
+      to: to.toISOString(),
+      startedAt,
+      completedAt: new Date().toISOString(),
+      attemptsRequested: attempts,
+      attemptsCompleted,
+      positionsBefore: before,
+      positionsAfter: after,
+      recoveredPositions: recovered,
+      firstRecoveredAt: rows[0]?.recordedAt?.toISOString?.() || rows[0]?.recordedAt || null,
+      lastRecoveredAt: rows.at(-1)?.recordedAt?.toISOString?.() || rows.at(-1)?.recordedAt || null,
+      sources: [...new Set(rows.map((row: any) => row.source).filter(Boolean))],
+      completenessGuaranteed: false,
+      note:
+        'O Google Find Hub pode devolver relatórios RECENT/NETWORK antigos, mas não oferece uma API de histórico arbitrário. Pontos não devolvidos pelo Google não podem ser fabricados.',
+    };
+    this.reconciliationStatus.set(deviceId, result);
+    await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { deviceId, reconciliation: result });
+    return result;
+  }
+
   public async positions(deviceId: string, limit = 100, from?: string, to?: string): Promise<any[]> {
     await this.device(deviceId);
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('Limite de histórico inválido.');
@@ -664,7 +849,16 @@ export class FindHubStartupService {
   }
 
   public async saveSettings(input: any): Promise<FindHubTrackingSettings> {
-    const allowed = ['intervalSeconds', 'timeoutMs', 'staleAfterSeconds', 'historyEnabled', 'retentionDays'];
+    const allowed = [
+      'intervalSeconds',
+      'timeoutMs',
+      'staleAfterSeconds',
+      'historyEnabled',
+      'retentionDays',
+      'reconciliationEnabled',
+      'reconciliationMinGapSeconds',
+      'reconciliationAttempts',
+    ];
     if (!input || typeof input !== 'object' || Object.keys(input).some((key) => !allowed.includes(key)))
       throw new Error('Configuração inválida.');
     const options = trackingSettings({ ...(await this.settings()), ...input });
@@ -685,6 +879,7 @@ export class FindHubStartupService {
       lastReceivedAt: device.lastReceivedAt,
       lastAttemptAt: device.lastAttemptAt,
       lastQuery: this.locationQueries.get(device.id) || null,
+      reconciliation: this.reconciliationStatus.get(device.id) || null,
       lastErrorCode: device.lastErrorCode,
       locationTimeoutMs: device.locationTimeoutMs || settings.timeoutMs,
       availability: locationAvailability(
