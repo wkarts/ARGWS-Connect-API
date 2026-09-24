@@ -66,6 +66,10 @@ export class FindHubStartupService {
   private pruning = false;
   private subscribers = 0;
   private readonly locating = new Set<string>();
+  private readonly locationQueries = new Map<
+    string,
+    { status: string; startedAt: string; completedAt: string; timeoutMs: number }
+  >();
   private generation = 0;
   private tracking = new Map<string, NodeJS.Timeout>();
   private instance = { name: '', id: '', token: '', integration: FINDHUB_INTEGRATION };
@@ -175,6 +179,7 @@ export class FindHubStartupService {
     this.traccarClient = undefined;
     for (const timer of this.tracking.values()) clearInterval(timer);
     this.tracking.clear();
+    this.locationQueries.clear();
     await this.protocol?.close().catch(() => undefined);
     this.protocol = undefined;
     await this.setState('close');
@@ -282,42 +287,61 @@ export class FindHubStartupService {
     if (this.locating.has(deviceId)) throw new Error('Uma localização deste dispositivo já está em andamento.');
     const generation = this.generation;
     const protocol = this.protocol;
+    const startedAt = new Date().toISOString();
+    const queryResult = (status: string) => {
+      const query = { status, startedAt, completedAt: new Date().toISOString(), timeoutMs: settings.timeoutMs };
+      this.locationQueries.set(deviceId, query);
+      return query;
+    };
     this.locating.add(deviceId);
-    let positions: FindHubPosition[];
     try {
       await (this.prisma as any).findHubDevice.update({
         where: { id: deviceId },
-        data: { lastAttemptAt: new Date(), lastErrorCode: null },
+        data: { lastAttemptAt: new Date(startedAt), lastErrorCode: null },
       });
-      positions = await protocol.locate(device, settings.timeoutMs);
+      const positions = (await protocol.locate(device, settings.timeoutMs))
+        .filter((position) => validPosition(position))
+        .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+      if (generation !== this.generation || protocol !== this.protocol)
+        throw new Error('A conexão de localização foi encerrada.');
+      if (!positions.length) {
+        await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { deviceId, query: queryResult('no_position') });
+        return null;
+      }
+      const position = positions[0];
+      const previous = device.latestPosition;
+      const newReport = !previous || Date.parse(position.timestamp) > Date.parse(previous.timestamp);
+      for (const report of positions) await this.persistPosition(device, report);
+      await this.emit(FINDHUB_EVENTS.LOCATION_UPDATED, {
+        device: this.publicDevice(device),
+        location: position,
+        query: queryResult(newReport ? 'new_report' : 'known_position'),
+      });
+      // Do not forward an older/duplicate observation to Traccar as a new fix.
+      if (newReport)
+        await this.forwardTraccar(device, position).catch(async () => {
+          await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'traccar', code: 'TRACCAR_FORWARD_FAILED' });
+        });
+      return position;
     } catch (error) {
       if (generation === this.generation) {
+        const timedOut = /location request timed out/i.test(String(error instanceof Error ? error.message : error));
+        const code = timedOut ? 'LOCATION_TIMEOUT' : 'LOCATION_UNAVAILABLE';
         await (this.prisma as any).findHubDevice.updateMany({
           where: { id: deviceId, instanceId: this.instance.id },
-          data: { lastErrorCode: 'LOCATION_UNAVAILABLE' },
+          data: { lastErrorCode: code },
         });
-        await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'locate', code: 'LOCATION_UNAVAILABLE' });
+        await this.emit(FINDHUB_EVENTS.ERROR, {
+          deviceId,
+          operation: 'locate',
+          code,
+          query: queryResult(timedOut ? 'timeout' : 'failed'),
+        });
       }
       throw error;
     } finally {
       this.locating.delete(deviceId);
     }
-    if (generation !== this.generation || protocol !== this.protocol)
-      throw new Error('A conexão de localização foi encerrada.');
-    positions = positions
-      .filter((position) => validPosition(position))
-      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-    if (!positions.length) return null;
-    const position = positions[0];
-    for (const report of positions) await this.persistPosition(device, report);
-    await this.emit(FINDHUB_EVENTS.LOCATION_UPDATED, {
-      device: this.publicDevice(device),
-      location: position,
-    });
-    await this.forwardTraccar(device, position).catch(async () => {
-      await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'traccar', code: 'TRACCAR_FORWARD_FAILED' });
-    });
-    return position;
   }
 
   public async startTracking(deviceId: string, intervalSeconds?: number, timeoutMs?: number): Promise<any> {
@@ -542,6 +566,7 @@ export class FindHubStartupService {
       latestPosition: device.latestPosition,
       lastReceivedAt: device.lastReceivedAt,
       lastAttemptAt: device.lastAttemptAt,
+      lastQuery: this.locationQueries.get(device.id) || null,
       lastErrorCode: device.lastErrorCode,
       locationTimeoutMs: device.locationTimeoutMs || settings.timeoutMs,
       availability: locationAvailability(

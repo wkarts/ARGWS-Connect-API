@@ -7,10 +7,14 @@ import { FindHubFcmClient } from '../protocol/fcm.client';
 import { decodeDeviceRegistration, decodeDeviceUpdate, decodeLocationReports } from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
-import { locationTimeoutMs } from './findhub-tracking.policy';
+import { locationTimeoutMs, positionFingerprint, validPosition } from './findhub-tracking.policy';
 
 type PendingLocation = {
-  resolve: (metadata: Buffer) => void;
+  device: FindHubDevice;
+  afterTimestamp: number;
+  reports: Map<string, FindHubPosition>;
+  submitted: boolean;
+  resolve: () => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
 };
@@ -56,10 +60,7 @@ export class FindHubProtocolClient {
   public async close(): Promise<void> {
     await this.fcm.stop();
 
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('Find Hub connection closed'));
-    }
+    for (const pending of this.pending.values()) pending.reject(new Error('Find Hub connection closed'));
     this.pending.clear();
   }
 
@@ -73,55 +74,69 @@ export class FindHubProtocolClient {
     const requestUuid = randomUUID();
     const timeout = locationTimeoutMs(timeoutMs);
     const controller = new AbortController();
-    const metadataPromise = this.waitForLocation(requestUuid, timeout);
-    void metadataPromise.catch(() => undefined);
-    let deadlineTimer: NodeJS.Timeout;
-    const deadline = new Promise<never>((_, reject) => {
-      deadlineTimer = setTimeout(() => {
-        const error = new Error('Google Find Hub location request timed out');
-        controller.abort(error);
-        this.rejectPending(requestUuid, error);
-        reject(error);
+    const afterTimestamp = Date.parse(device.latestPosition?.timestamp || '') || 0;
+
+    // One absolute deadline covers both command submission and the correlated push response.
+    // A cached report may arrive before a new fix. Do not consume the request on that first report.
+    return new Promise<FindHubPosition[]>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        const pending = this.pending.get(requestUuid);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(requestUuid);
+        controller.abort();
+        if (error) reject(error);
+        else resolve([...pending.reports.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)));
+      };
+      const timer = setTimeout(() => {
+        const pending = this.pending.get(requestUuid);
+        // Only return reports actually received for THIS request, never a database/cache substitute.
+        if (pending?.submitted && pending.reports.size) finish();
+        else finish(new Error('Google Find Hub location request timed out'));
       }, timeout);
-      deadlineTimer.unref?.();
+      timer.unref?.();
+      const pending: PendingLocation = {
+        device,
+        afterTimestamp,
+        reports: new Map(),
+        submitted: false,
+        resolve: () => finish(),
+        reject: (error) => finish(error),
+        timer,
+      };
+      this.pending.set(requestUuid, pending);
+      void this.nova
+        .locate(
+          {
+            googleDeviceId: device.googleDeviceId,
+            fcmRegistrationId: this.fcm.registrationToken,
+            requestUuid,
+            clientUuid: this.clientUuid,
+          },
+          controller.signal,
+        )
+        .then(() => {
+          if (this.pending.get(requestUuid) !== pending) return;
+          pending.submitted = true;
+          if ([...pending.reports.values()].some((p) => Date.parse(p.timestamp) > afterTimestamp)) pending.resolve();
+        })
+        .catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
     });
-    let metadata: Buffer;
-    try {
-      const result = await Promise.race([
-        Promise.all([
-          this.nova.locate(
-            {
-              googleDeviceId: device.googleDeviceId,
-              fcmRegistrationId: this.fcm.registrationToken,
-              requestUuid,
-              clientUuid: this.clientUuid,
-            },
-            controller.signal,
-          ),
-          metadataPromise,
-        ]),
-        deadline,
-      ]);
-      metadata = result[1];
-    } catch (error) {
-      this.rejectPending(requestUuid, error instanceof Error ? error : new Error(String(error)));
-      throw error;
-    } finally {
-      clearTimeout(deadlineTimer!);
-      controller.abort();
-    }
+  }
 
+  private decodePositions(device: FindHubDevice, metadata: Buffer): FindHubPosition[] {
     const registration = decodeDeviceRegistration(metadata);
-    const ownerKey = await this.ensureOwnerKey();
+    // connect() loads this key before starting the authenticated push receiver.
+    const ownerKey = this.ownerKey || (this.credentials.ownerKey && Buffer.from(this.credentials.ownerKey, 'base64'));
+    if (!ownerKey) return [];
     const identityKey = decryptIdentityKey(ownerKey, registration.encryptedIdentityKey);
-
-    return decodeLocationReports(metadata)
-      .filter((report) => report.encryptedLocation.length > 0)
-      .map((report): FindHubPosition | null => {
+    const positions: FindHubPosition[] = [];
+    for (const report of decodeLocationReports(metadata)) {
+      if (!report.encryptedLocation.length) continue;
+      try {
         const location = decryptLocationReport(identityKey, report);
-        if (!location) return null;
-
-        return {
+        if (!location) continue;
+        const position: FindHubPosition = {
           deviceId: device.id,
           googleDeviceId: device.googleDeviceId,
           latitude: location.latitude,
@@ -133,62 +148,39 @@ export class FindHubProtocolClient {
           semanticLocation: report.semanticLocation,
           ownReport: report.ownReport,
         };
-      })
-      .filter((position): position is FindHubPosition => position !== null)
-      .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
-  }
-
-  private waitForLocation(requestUuid: string, requestedTimeout?: number): Promise<Buffer> {
-    const timeoutMs = locationTimeoutMs(requestedTimeout);
-
-    return new Promise<Buffer>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(requestUuid);
-        reject(new Error('Google Find Hub location request timed out'));
-      }, timeoutMs);
-      timer.unref?.();
-
-      this.pending.set(requestUuid, {
-        resolve,
-        reject,
-        timer,
-      });
-    });
+        if (validPosition(position)) positions.push(position);
+      } catch {
+        // An unusable individual report must not discard other reports or consume the waiter.
+      }
+    }
+    return positions;
   }
 
   private handlePushPayload(payload: Buffer): void {
-    let update: ReturnType<typeof decodeDeviceUpdate>;
-
     try {
-      update = decodeDeviceUpdate(payload);
+      const update = decodeDeviceUpdate(payload);
+      if (!update.requestUuid || !update.deviceMetadata) return;
+      const pending = this.pending.get(update.requestUuid);
+      if (!pending) return;
+      for (const position of this.decodePositions(pending.device, update.deviceMetadata)) {
+        pending.reports.set(positionFingerprint(position), position);
+      }
+      // Bound per-request memory while retaining the newest reports.
+      if (pending.reports.size > 128) {
+        pending.reports = new Map(
+          [...pending.reports.entries()]
+            .sort((a, b) => Date.parse(b[1].timestamp) - Date.parse(a[1].timestamp))
+            .slice(0, 128),
+        );
+      }
+      if (
+        pending.submitted &&
+        [...pending.reports.values()].some((position) => Date.parse(position.timestamp) > pending.afterTimestamp)
+      )
+        pending.resolve();
     } catch {
-      return;
+      // Ignore malformed/unrelated pushes. They cannot mark a request successful.
     }
-
-    if (!update.requestUuid || !update.deviceMetadata) return;
-
-    const pending = this.pending.get(update.requestUuid);
-    if (!pending) return;
-    // A command/status acknowledgement may precede the encrypted position for the same request.
-    // Keep waiting for an actual report; never consume the request on metadata-only updates.
-    try {
-      if (!decodeLocationReports(update.deviceMetadata).some((report) => report.encryptedLocation.length > 0)) return;
-    } catch {
-      return;
-    }
-
-    clearTimeout(pending.timer);
-    this.pending.delete(update.requestUuid);
-    pending.resolve(update.deviceMetadata);
-  }
-
-  private rejectPending(requestUuid: string, error: Error): void {
-    const pending = this.pending.get(requestUuid);
-    if (!pending) return;
-
-    clearTimeout(pending.timer);
-    this.pending.delete(requestUuid);
-    pending.reject(error);
   }
 
   private async ensureOwnerKey(): Promise<Buffer> {
