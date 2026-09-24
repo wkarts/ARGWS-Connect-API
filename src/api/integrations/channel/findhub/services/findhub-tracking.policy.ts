@@ -8,6 +8,9 @@ export interface FindHubTrackingSettings {
   staleAfterSeconds: number;
   historyEnabled: boolean;
   retentionDays: number;
+  reconciliationEnabled: boolean;
+  reconciliationMinGapSeconds: number;
+  reconciliationAttempts: number;
 }
 
 function integer(value: unknown, fallback: number, min: number, max: number): number {
@@ -28,6 +31,8 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
   const minimum = trackingMinimum();
   if (value.historyEnabled !== undefined && typeof value.historyEnabled !== 'boolean')
     throw new Error('Histórico deve ser booleano.');
+  if (value.reconciliationEnabled !== undefined && typeof value.reconciliationEnabled !== 'boolean')
+    throw new Error('Reconciliação deve ser booleana.');
   return {
     intervalSeconds: integer(
       value.intervalSeconds,
@@ -40,6 +45,21 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
     historyEnabled:
       value.historyEnabled ?? String(process.env.FINDHUB_STORE_POSITION_HISTORY ?? 'true').toLowerCase() === 'true',
     retentionDays: integer(value.retentionDays, Number(process.env.FINDHUB_HISTORY_RETENTION_DAYS || 30), 0, 36500),
+    reconciliationEnabled:
+      value.reconciliationEnabled ??
+      String(process.env.FINDHUB_RECONCILIATION_ENABLED ?? 'true').toLowerCase() === 'true',
+    reconciliationMinGapSeconds: integer(
+      value.reconciliationMinGapSeconds,
+      Number(process.env.FINDHUB_RECONCILIATION_MIN_GAP_SECONDS || 300),
+      30,
+      2592000,
+    ),
+    reconciliationAttempts: integer(
+      value.reconciliationAttempts,
+      Number(process.env.FINDHUB_RECONCILIATION_ATTEMPTS || 3),
+      1,
+      10,
+    ),
   };
 }
 /** Delay after a completed request. Zero is continuous serialized tracking, not parallel requests. */
