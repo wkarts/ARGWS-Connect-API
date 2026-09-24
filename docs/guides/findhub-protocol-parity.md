@@ -51,3 +51,20 @@ Os vetores de localização são sintéticos: foram produzidos por uma implement
 No ensaio negativo inicial, 14 regressões falharam sobre a base anterior e passaram após a correção; os 60 testes restantes daquela execução já passavam. A suíte ampliada final contém 76 testes aprovados, incluindo rejeição de UUID/dispositivo incorreto, expiração, parada, limite de memória, sequência de observações, SSE, histórico, Traccar e heartbeat. A suíte completa do Manager passou com 134 testes, tipos e build; a lista de canais foi renderizada em teste SSR para conferir os três casos de ícone (localização, WhatsApp e genérico).
 
 O diagnóstico sanitizado fornecido foi analisado localmente. Ele contém erros de runtime/HTTP, mas não inclui payloads de localização descriptografados nem informação suficiente para atribuir cada atraso a uma destas divergências. Não foi publicado no repositório. Estes testes comprovam os defeitos e as correções reproduzidas, não substituem homologação com a conta Google e os aparelhos físicos em movimento. Nenhuma autenticação real foi feita nesta revisão.
+
+
+## Rastreamento contínuo: envio e recepção desacoplados
+
+O rastreamento de fundo não utiliza mais a chamada bloqueante usada pelo botão **Localizar agora**. Cada ciclo envia o comando Nova e retorna assim que o Google aceita a solicitação; as observações correlacionadas chegam de forma independente pela conexão FCM e são aplicadas imediatamente ao histórico, SSE, mapa, cards e Traccar.
+
+O intervalo configurado controla a cadência entre os envios de comandos. Um intervalo `0` significa disparar o próximo comando assim que o envio anterior terminar; `1` significa aguardar um segundo depois do envio anterior, sem criar coordenadas artificiais nem sobrepor envios do mesmo dispositivo.
+
+O campo de espera manual controla apenas por quanto tempo a requisição HTTP de **Localizar agora** aguarda uma observação antes de devolver o controle ao operador. Esse prazo não cancela o comando que está sendo enviado ao Google. Se a observação chegar depois, a correlação FCM continua ativa e a interface é atualizada pelo canal realtime.
+
+O envio do comando possui um prazo técnico independente, `FINDHUB_COMMAND_TIMEOUT_MS` (30 segundos por padrão). Esse limite evita uma chamada de rede pendurada e não representa frequência de GPS.
+
+Uma localização manual pode ser solicitada enquanto o rastreamento de fundo estiver ativo. Duas solicitações manuais simultâneas para o mesmo dispositivo compartilham a mesma operação em andamento em vez de produzir o erro “Uma localização deste dispositivo já está em andamento”.
+
+Para decidir se uma observação deve avançar a posição exibida, o runtime considera primeiro o timestamp enviado pelo Google. Quando o timestamp é igual, uma mudança material de coordenadas, altitude, precisão ou localização semântica pode representar um refinamento válido. Mudanças apenas no tipo do relatório (`RECENT`/`NETWORK`) não transformam o mesmo ponto em uma posição nova.
+
+Essa arquitetura remove bloqueios internos da Connect|API e garante entrega imediata de toda observação válida recebida. Ela não inventa uma garantia que o protocolo upstream não oferece: o intervalo entre novas coordenadas produzidas pelo aparelho/Google continua dependendo do serviço e do dispositivo.
