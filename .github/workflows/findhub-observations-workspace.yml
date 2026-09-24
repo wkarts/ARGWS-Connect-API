@@ -58,40 +58,41 @@ jobs:
             devices.value = snapshot.value.devices
           }'''.replace('ACCOUNT',account)
           assert text.count(original)==1
-          path.write_text(text.replace(original,replacement,1).rstrip() + '\n')
-          print('Snapshot refresh now rejects superseded requests and account lifecycle changes.')
+          text=text.replace(original,replacement,1)
+          normalized='\n'.join(line.rstrip() for line in text.splitlines()).rstrip() + '\n'
+          assert text.split() == normalized.split()
+          path.write_text(normalized)
+          print('Snapshot refresh rejects superseded requests and account lifecycle changes.')
           PY
           rm -r .github/findhub-observations-source
           rm .github/workflows/findhub-observations-workspace.yml
-      - name: Install locked dependencies
+      - name: Install locked API dependencies
         run: npm ci --no-audit --no-fund
-      - name: Format changed backend files and validate API
+      - name: Validate API and compatibility
         run: |
           set -euo pipefail
-          npx prettier --write src/api/integrations/channel/findhub/services/findhub-protocol.client.ts src/api/integrations/channel/findhub/services/findhub-runtime.service.ts
-          npm run db:generate
-          npm run lint:check
-          npm run docs:generate
-          npm run docs:check
-          npm run test:compat
-          npm run build
-      - name: Validate complete Manager
+          {
+            npx prettier --write src/api/integrations/channel/findhub/services/findhub-protocol.client.ts src/api/integrations/channel/findhub/services/findhub-runtime.service.ts
+            npm run db:generate
+            npm run lint:check
+            npm run docs:generate
+            npm run docs:check
+            npm run test:compat
+            npm run build
+          } > /tmp/findhub-api-validation.log 2>&1 || { tail -n 100 /tmp/findhub-api-validation.log; exit 1; }
+          grep -E '# (tests|pass|fail)|scenarios passed|regression:|compatibility:|Ran [0-9]+ tests|Build success|synchronized' /tmp/findhub-api-validation.log || true
+      - name: Validate complete Manager using its existing package manifest
         working-directory: manager
         run: |
           set -euo pipefail
-          npm ci --no-audit --no-fund
-          npm test
-      - name: Export validated code without publishing application images
+          npm install --no-package-lock --no-audit --no-fund
+          npm test > /tmp/findhub-manager-validation.log 2>&1 || { tail -n 150 /tmp/findhub-manager-validation.log; exit 1; }
+          grep -E '# (tests|pass|fail)|built in|error' /tmp/findhub-manager-validation.log || true
+      - name: Publish validated correction on the existing branch
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import subprocess
-          from pathlib import Path
-          view = Path('manager/src/views/FindHubView.vue')
-          before = view.read_text()
-          normalized = '\n'.join(line.rstrip() for line in before.splitlines()).rstrip() + '\n'
-          assert before.split() == normalized.split(), 'Normalization may change tokens'
-          view.write_text(normalized)
           allowed = '''docs/asyncapi/connect-api-events.asyncapi.json
           docs/guides/findhub-observations-ui.md
           docs/openapi/connect-api.openapi.json
@@ -112,20 +113,20 @@ jobs:
           subprocess.run(['git','add','-u'],check=True)
           subprocess.run(['git','add','-f','--',*allowed],check=True)
           changed = subprocess.check_output(['git','diff','--cached','--name-only','e7c3120ba0f1798bbe0cc9005d309b936a374f4a'],text=True).splitlines()
-          assert set(changed) <= set(allowed), f'Unexpected changes: {set(changed)-set(allowed)}'
-          assert len(changed) == len(allowed), f'Missing corrections: {set(allowed)-set(changed)}'
+          assert set(changed) == set(allowed), f'Unexpected diff: {set(changed)^set(allowed)}'
           print('Protected sources unchanged. Changed files:',len(changed))
           PY
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(findhub): validate observed positions and consistent realtime UI'
-          git push origin HEAD:refs/heads/work/findhub-observations-validated
+          git commit -m 'fix(findhub): preserve live observations and synchronize realtime map UI'
+          git push origin HEAD:refs/heads/fix/findhub-live-observations-ui
           mkdir -p /tmp/findhub-validated
-          git rev-parse HEAD > /tmp/findhub-validated/commit.txt
-          git rev-parse HEAD^{tree} > /tmp/findhub-validated/tree.txt
+          git rev-parse HEAD | tee /tmp/findhub-validated/commit.txt
+          git rev-parse HEAD^{tree} | tee /tmp/findhub-validated/tree.txt
           git diff --binary e7c3120ba0f1798bbe0cc9005d309b936a374f4a HEAD > /tmp/findhub-validated/correction.patch
           git archive --format=tar.gz HEAD > /tmp/findhub-validated/source.tar.gz
+          cp /tmp/findhub-*-validation.log /tmp/findhub-validated/
       - uses: actions/upload-artifact@v4
         with:
           name: findhub-observations-validated
