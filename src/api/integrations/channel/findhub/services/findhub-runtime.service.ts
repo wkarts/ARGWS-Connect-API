@@ -66,6 +66,7 @@ export class FindHubStartupService {
   private pruning = false;
   private subscribers = 0;
   private readonly locating = new Set<string>();
+  private readonly observationWrites = new Map<string, Promise<void>>();
   private readonly locationQueries = new Map<
     string,
     { status: string; startedAt: string; completedAt: string; timeoutMs: number }
@@ -135,9 +136,31 @@ export class FindHubStartupService {
       });
     }
 
-    this.protocol = new FindHubProtocolClient(loaded.credentials, loaded.sharedKey, clientUuid, (credentials) =>
-      this.authBroker.persistCredentials(this.instance.id, credentials),
+    const observationGeneration = this.generation;
+    const protocol = new FindHubProtocolClient(
+      loaded.credentials,
+      loaded.sharedKey,
+      clientUuid,
+      (credentials) => this.authBroker.persistCredentials(this.instance.id, credentials),
+      (observation) => {
+        void this.acceptObservations(
+          observation.deviceId,
+          observation.positions,
+          observationGeneration,
+          protocol,
+          observation.afterRequest,
+        ).catch(() => {
+          // Do not leak decrypted payloads or secrets into diagnostics.
+          if (observationGeneration === this.generation && protocol === this.protocol)
+            void this.emit(FINDHUB_EVENTS.ERROR, {
+              deviceId: observation.deviceId,
+              operation: 'observe',
+              code: 'LOCATION_OBSERVATION_FAILED',
+            }).catch(() => undefined);
+        });
+      },
     );
+    this.protocol = protocol;
     try {
       await this.setState('connecting');
       await this.protocol.connect();
@@ -311,17 +334,12 @@ export class FindHubStartupService {
       const position = positions[0];
       const previous = device.latestPosition;
       const newReport = !previous || Date.parse(position.timestamp) > Date.parse(previous.timestamp);
-      for (const report of positions) await this.persistPosition(device, report);
-      await this.emit(FINDHUB_EVENTS.LOCATION_UPDATED, {
-        device: this.publicDevice(device),
-        location: position,
+      // Both the live callback and the HTTP result share a serialized, deduplicating write path.
+      await this.acceptObservations(device.id, positions, generation, protocol, false);
+      await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, {
+        deviceId,
         query: queryResult(newReport ? 'new_report' : 'known_position'),
       });
-      // Do not forward an older/duplicate observation to Traccar as a new fix.
-      if (newReport)
-        await this.forwardTraccar(device, position).catch(async () => {
-          await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'traccar', code: 'TRACCAR_FORWARD_FAILED' });
-        });
       return position;
     } catch (error) {
       if (generation === this.generation) {
@@ -341,6 +359,59 @@ export class FindHubStartupService {
       throw error;
     } finally {
       this.locating.delete(deviceId);
+    }
+  }
+
+  private async acceptObservations(
+    deviceId: string,
+    reports: FindHubPosition[],
+    generation: number,
+    protocol: FindHubProtocolClient,
+    onlyWhileTracking: boolean,
+  ): Promise<void> {
+    const earlier = this.observationWrites.get(deviceId) || Promise.resolve();
+    const work = earlier
+      .catch(() => undefined)
+      .then(async () => {
+        if (generation !== this.generation || protocol !== this.protocol) return;
+        const device = await this.device(deviceId); // Always query with this instanceId.
+        if (
+          generation !== this.generation ||
+          protocol !== this.protocol ||
+          (onlyWhileTracking && !device.trackingEnabled)
+        )
+          return;
+        const valid = reports
+          .filter(
+            (report) =>
+              report.deviceId === device.id && report.googleDeviceId === device.googleDeviceId && validPosition(report),
+          )
+          .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+        let latest = device.latestPosition;
+        for (const position of valid) {
+          if (generation !== this.generation || protocol !== this.protocol) return;
+          // Keep the full history, but a duplicate/older report cannot advance the live position.
+          if (latest && positionFingerprint(position) === positionFingerprint(latest)) continue;
+          await this.persistPosition(device, position);
+          if (latest && Date.parse(position.timestamp) <= Date.parse(latest.timestamp)) continue;
+          latest = position;
+          const updatedDevice = await this.device(deviceId);
+          if (generation !== this.generation || protocol !== this.protocol) return;
+          await this.emit(FINDHUB_EVENTS.LOCATION_UPDATED, {
+            device: this.publicDevice(updatedDevice),
+            location: position,
+            receivedAt: updatedDevice.lastReceivedAt,
+          });
+          await this.forwardTraccar(updatedDevice, position).catch(async () => {
+            await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'traccar', code: 'TRACCAR_FORWARD_FAILED' });
+          });
+        }
+      });
+    this.observationWrites.set(deviceId, work);
+    try {
+      await work;
+    } finally {
+      if (this.observationWrites.get(deviceId) === work) this.observationWrites.delete(deviceId);
     }
   }
 
@@ -374,6 +445,7 @@ export class FindHubStartupService {
     const timer = this.tracking.get(device.id);
     if (timer) clearInterval(timer);
     this.tracking.delete(device.id);
+    this.protocol?.stopObserving?.(device.id);
 
     await (this.prisma as any).findHubDevice.update({
       where: { id: device.id },

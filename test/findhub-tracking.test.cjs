@@ -119,7 +119,7 @@ test('Google synchronization never overwrites operator avatar',async()=>{
  h.db.findHubDevice.upsert=async({update})=>{assert.equal(Object.hasOwn(update,'avatarData'),false);Object.assign(h.row,update);return h.row};
  await h.runtime.refreshDevices();assert.equal(h.row.avatarData,image);
 });
-function protocolDeadlineHarness(){
+function protocolDeadlineHarness(observer){
  const timers=[],calls=[];let finish;
  const overrides={
   '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
@@ -128,6 +128,7 @@ function protocolDeadlineHarness(){
   '../protocol/spot.client':{FindHubSpotClient:class{}},
   '../crypto/findhub-crypto':{decryptIdentityKey:()=>Buffer.alloc(32),decryptLocationReport:(_key,report)=>report.location},
   '../protocol/findhub-proto':{
+   decodeDeviceMetadata:()=>[],
    decodeDeviceRegistration:()=>({encryptedIdentityKey:Buffer.alloc(32)}),
    decodeLocationReports:metadata=>JSON.parse(metadata.toString()).map(p=>({encryptedLocation:Buffer.from('fixture'),location:p,timestampSeconds:Date.parse(p.timestamp)/1000,ownReport:true})),
    decodeDeviceUpdate:payload=>{const value=JSON.parse(payload.toString());return {requestUuid:value.id,deviceMetadata:Buffer.from(JSON.stringify(value.positions))}},
@@ -135,7 +136,7 @@ function protocolDeadlineHarness(){
  };
  const globals={setTimeout(fn,ms){const timer={fn,ms,unref(){},cleared:false};timers.push(timer);return timer},clearTimeout(t){if(t)t.cleared=true}};
  const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',overrides,globals);
- const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{});
+ const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{},observer);
  return {client,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
 }
 test('1 ms deadline bounds HTTP even when Google push arrives first',async()=>{
@@ -190,8 +191,8 @@ test('same coordinates with a newer upstream timestamp are a genuine new observa
  h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);assert.equal((await waiting)[0].timestamp,position.timestamp);
 });
 test('runtime exposes cached versus new observation without changing location response shape',async()=>{
- const h=runtimeHarness(),seen=[];h.runtime.subscribe(event=>seen.push(event));h.row.latestPosition={...position,deviceId:'d-a'};
- h.runtime.protocol.locate=async()=>[{...position,deviceId:'d-a'}];
+ const h=runtimeHarness(),seen=[];h.runtime.subscribe(event=>seen.push(event));h.row.latestPosition={...position,deviceId:'d-a',googleDeviceId:'g-a'};h.row.lastLocationAt=new Date(position.timestamp);
+ h.runtime.protocol.locate=async()=>[{...position,deviceId:'d-a',googleDeviceId:'g-a'}];
  const response=await h.runtime.locate('d-a',10);assert.equal(response.latitude,position.latitude);
  assert.equal(seen.at(-1).data.query.status,'known_position');assert.equal((await h.runtime.snapshot()).devices[0].lastQuery.timeoutMs,10);
  assert.equal(h.row.lastLocationAt.getTime(),Date.parse(position.timestamp));
@@ -201,4 +202,103 @@ test('timeout state is localized by UI but backend preserves existing position a
  await assert.rejects(h.runtime.locate('d-a',1));const snap=await h.runtime.snapshot();
  assert.equal(h.row.latestPosition,position);assert.equal(snap.devices[0].lastQuery.status,'timeout');
  assert.equal(h.row.lastErrorCode,'LOCATION_TIMEOUT');assert.equal(h.positions.length,0);
+});
+
+// Independent protocol fixtures from the supplied reference. No Google/account credentials are used.
+const portVectors = JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/findhub-port-vectors.json'),'utf8'));
+const ownedProto = load('src/api/integrations/channel/findhub/protocol/findhub-proto.ts');
+const ownedCrypto = load('src/api/integrations/channel/findhub/crypto/findhub-crypto.ts');
+test('port parity: Nova location command is byte-for-byte equal to attached reference',()=>{
+ const wire=ownedProto.encodeExecuteLocateRequest({googleDeviceId:'device-fixture',fcmRegistrationId:'fcm-fixture',requestUuid:'request-fixture',clientUuid:'client-fixture'});
+ assert.equal(wire.toString('hex'),portVectors.wireRequest);
+});
+for(const vector of portVectors.network)for(const own of [false,true])test('port parity: independent EAX network report '+vector.name+' own='+own,()=>{
+ const u=ownedProto.decodeDeviceUpdate(Buffer.from(vector[own?'updateOwn':'update'],'hex'));
+ const registration=ownedProto.decodeDeviceRegistration(u.deviceMetadata);
+ const key=ownedCrypto.decryptIdentityKey(Buffer.from(portVectors.ownerKey,'hex'),registration.encryptedIdentityKey);
+ assert.equal(key.toString('hex'),portVectors.identityKey);
+ const report=ownedProto.decodeLocationReports(u.deviceMetadata)[0];
+ const p=ownedCrypto.decryptLocationReport(key,report);
+ assert.equal(p.latitude,vector.latitude);assert.equal(p.longitude,vector.longitude);assert.equal(p.altitude,vector.altitude);
+ assert.equal(report.deviceTimeOffset,vector.deviceTimeOffset);assert.equal(report.timestampSeconds,vector.timestampSeconds);
+});
+test('port parity: AES-GCM recent report remains compatible',()=>{
+ const p=ownedCrypto.decryptLocationReport(Buffer.from(portVectors.identityKey,'hex'),{encryptedLocation:Buffer.from(portVectors.recentGcm,'hex'),publicKeyRandom:Buffer.alloc(0),ownReport:true});
+ assert.equal(p.latitude,12.3456789);assert.equal(p.longitude,-45.1234567);assert.equal(p.altitude,12);
+});
+test('network report rejects a tampered authentication tag',()=>{
+ const u=ownedProto.decodeDeviceUpdate(Buffer.from(portVectors.network[0].update,'hex'));const report=ownedProto.decodeLocationReports(u.deviceMetadata)[0];
+ report.encryptedLocation[0]^=1;assert.throws(()=>ownedCrypto.decryptLocationReport(Buffer.from(portVectors.identityKey,'hex'),report));
+});
+test('FCM observation survives local HTTP timeout without making timed-out request successful',async()=>{
+ const seen=[],h=protocolDeadlineHarness(o=>seen.push(o));const p=h.client.locate({id:'one',googleDeviceId:'g'},1);
+ h.finish();await Promise.resolve();await Promise.resolve();h.timers[0].fn();await assert.rejects(p,/timed out/);
+ h.push([position]);assert.equal(seen.length,1);assert.equal(seen[0].afterRequest,true);assert.equal(seen[0].positions[0].timestamp,position.timestamp);
+ assert.equal(h.client.pending.size,0);h.push([position]);assert.equal(seen.length,1);
+ h.client.stopObserving('one');h.push([{...position,timestamp:new Date(now).toISOString()}]);assert.equal(seen.length,1);
+});
+test('all valid observations are delivered immediately, including later fixes of a completed command',async()=>{
+ const seen=[],h=protocolDeadlineHarness(o=>seen.push(o));const p=h.client.locate({id:'one',googleDeviceId:'g'},5000);
+ h.finish();await Promise.resolve();await Promise.resolve();h.push([position]);await p;
+ const fresh={...position,latitude:-11,timestamp:new Date(now).toISOString()};h.push([fresh]);
+ assert.equal(seen.length,2);assert.equal(seen[1].positions[0].latitude,-11);assert.equal(seen[1].afterRequest,true);
+ h.push([fresh],'unknown-id');assert.equal(seen.length,2);
+});
+test('observation registry is bounded and disconnect drops correlations',async()=>{
+ const h=protocolDeadlineHarness();h.client.fcm.stop=async()=>{};
+ for(let i=0;i<514;i++)h.client.observations.set('old-'+i,{device:{id:'one'},expiresAt:Date.now()+10000,delivered:new Set()});
+ h.client.pruneObservations();assert.ok(h.client.observations.size<=512);
+ h.client.observations.set('expired',{device:{id:'one'},expiresAt:0,delivered:new Set()});h.client.pruneObservations();assert.equal(h.client.observations.has('expired'),false);
+ await h.client.close();assert.equal(h.client.observations.size,0);
+});
+test('runtime writes a late observation only for actively tracked owned device',async()=>{
+ const h=runtimeHarness(),p={...position,deviceId:'d-a',googleDeviceId:'g-a'};let forwards=0;h.runtime.forwardTraccar=async()=>forwards++;
+ await h.runtime.acceptObservations('d-a',[p],0,h.runtime.protocol,true);assert.equal(h.row.latestPosition,null);
+ h.row.trackingEnabled=true;await h.runtime.acceptObservations('d-a',[p],0,h.runtime.protocol,true);
+ assert.equal(h.row.latestPosition.latitude,p.latitude);assert.equal(forwards,1);assert.equal(h.positions.length,1);
+ await h.runtime.acceptObservations('d-a',[p],0,h.runtime.protocol,true);assert.equal(forwards,1);assert.equal(h.positions.length,1);
+ await h.runtime.acceptObservations('d-a',[{...p,deviceId:'d-b',googleDeviceId:'g-b'}],0,h.runtime.protocol,true);assert.equal(h.other.latestPosition,null);
+ await assert.rejects(h.runtime.acceptObservations('d-b',[p],0,h.runtime.protocol,true));
+ const oldProtocol=h.runtime.protocol;await h.runtime.closeClient();await h.runtime.acceptObservations('d-a',[{...p,latitude:10}],0,oldProtocol,true);assert.equal(forwards,1);
+});
+test('concurrent observer and HTTP result persist/forward a new report once',async()=>{
+ const h=runtimeHarness(),p={...position,deviceId:'d-a',googleDeviceId:'g-a'};let forwards=0;h.runtime.forwardTraccar=async()=>forwards++;
+ await Promise.all([h.runtime.acceptObservations('d-a',[p],0,h.runtime.protocol,false),h.runtime.acceptObservations('d-a',[p],0,h.runtime.protocol,false)]);
+ assert.equal(forwards,1);assert.equal(h.positions.length,1);assert.equal(h.runtime.observationWrites.size,0);
+});
+function heartbeatHarness(){
+ const timers=[],writes=[];let destroyed=0;
+ const {FindHubFcmClient}=load('src/api/integrations/channel/findhub/protocol/fcm.client.ts',{'tls':{}},{setTimeout(fn,ms){const t={fn,ms,unref(){},cleared:false};timers.push(t);return t},clearTimeout(t){if(t)t.cleared=true}});
+ const client=new FindHubFcmClient(null,async()=>{},()=>{});client.authenticated=true;client.socket={write(packet){writes.push(packet)},destroy(){destroyed++}};
+ return{client,timers,writes,get destroyed(){return destroyed}};
+}
+test('FCM monitor sends an idle heartbeat and closes a silent half-open connection',()=>{
+ const h=heartbeatHarness();h.client.monitorHeartbeat();assert.equal(h.timers[0].ms,20000);h.timers[0].fn();assert.equal(h.writes[0][1],0);
+ assert.equal(h.timers[1].ms,5000);h.timers[1].fn();assert.equal(h.destroyed,1);assert.equal(h.client.ready,false);
+});
+test('FCM heartbeat ACK clears its deadline; stop removes heartbeat timers',async()=>{
+ const h=heartbeatHarness();h.client.monitorHeartbeat();h.timers[0].fn();h.client.handleFrame(1,Buffer.alloc(0));assert.equal(h.timers[1].cleared,true);assert.equal(h.timers.at(-1).ms,20000);
+ await h.client.stop();assert.ok(h.timers.slice(1).every(t=>t.cleared));assert.equal(h.client.ready,false);
+});
+test('reference protobuf + real EAX decode reaches runtime, history and SSE after HTTP deadline',async()=>{
+ const h=runtimeHarness();h.row.googleDeviceId='device-fixture';h.row.trackingEnabled=true;
+ const frames=[],writes=[],timers=[];h.runtime.subscribe(e=>frames.push(e));let forwards=0;h.runtime.forwardTraccar=async()=>forwards++;
+ const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',{
+  crypto:{...require('node:crypto'),randomUUID:()=> 'request-fixture'},
+  '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
+  '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='synthetic-token';async stop(){}}},
+  '../protocol/nova.client':{FindHubNovaClient:class{async locate(){}}},
+  '../protocol/spot.client':{FindHubSpotClient:class{}},
+ },{setTimeout(fn,ms){const t={fn,ms,unref(){}};timers.push(t);return t},clearTimeout(){}});
+ const protocol=new FindHubProtocolClient({ownerKey:Buffer.from(portVectors.ownerKey,'hex').toString('base64'),aas:{}},Buffer.alloc(32),'fixture-client',async()=>{},o=>writes.push(h.runtime.acceptObservations(o.deviceId,o.positions,0,protocol,o.afterRequest)));
+ h.runtime.protocol=protocol;
+ const pending=protocol.locate(await h.runtime.device('d-a'),1);
+ await Promise.resolve();await Promise.resolve();timers[0].fn();await assert.rejects(pending,/timed out/);
+ protocol.handlePushPayload(Buffer.from(portVectors.network[0].update,'hex'));await Promise.all(writes);
+ assert.equal(h.row.latestPosition.latitude,portVectors.network[0].latitude);assert.equal(h.row.latestPosition.longitude,portVectors.network[0].longitude);
+ assert.equal(h.row.latestPosition.timestamp,new Date(portVectors.network[0].timestampSeconds*1000).toISOString());
+ assert.equal(h.row.latestPosition.source,'CROWDSOURCED');assert.equal(h.positions.length,1);assert.equal(forwards,1);
+ const frame=frames.find(f=>f.event==='findhub.location.updated');assert.equal(frame.instanceId,'a');assert.equal(frame.data.device.id,'d-a');assert.equal(frame.data.location.longitude,portVectors.network[0].longitude);
+ protocol.handlePushPayload(Buffer.from(portVectors.network[0].update,'hex'));await Promise.all(writes);assert.equal(forwards,1);
+ await protocol.close();
 });

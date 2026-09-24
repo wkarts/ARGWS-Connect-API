@@ -203,21 +203,20 @@ export function decodeLocationReports(deviceMetadata: Buffer): EncryptedLocation
 
   const networks = repeatedBytes(recentAndNetwork, 5);
   const timestamps = repeatedBytes(recentAndNetwork, 6).map(timeSeconds);
-  for (let index = 0; index < networks.length; index++) {
-    const report = decodeReport(networks[index], timestamps[index] ?? recentTimestamp);
+  for (let index = 0; index < Math.min(networks.length, timestamps.length); index++) {
+    const report = decodeReport(networks[index], timestamps[index]);
     if (report) decoded.push(report);
   }
   return decoded;
 }
 
 export function decodePlainLocation(payload: Buffer): Pick<FindHubPosition, 'latitude' | 'longitude' | 'altitude'> {
-  const latitude = sfixed32(payload, 1);
-  const longitude = sfixed32(payload, 2);
-  if (latitude === undefined || longitude === undefined) throw new Error('Invalid decrypted Find Hub location');
+  const latitude = sfixed32(payload, 1) ?? 0;
+  const longitude = sfixed32(payload, 2) ?? 0;
   return {
     latitude: latitude / 1e7,
     longitude: longitude / 1e7,
-    altitude: Number(int(payload, 3) ?? 0n),
+    altitude: Number(BigInt.asIntN(32, int(payload, 3) ?? 0n)),
   };
 }
 

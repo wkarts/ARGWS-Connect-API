@@ -85,3 +85,17 @@ test('map/modal, instance card and overview render labeled real coordinates',()=
  assert.match(details,/<dt>Latitude<\/dt>/);assert.match(details,/<dt>Longitude<\/dt>/);assert.match(details,/position\?\.timestamp/);
  assert.doesNotMatch(details,/Math.random|setInterval/);
 });
+
+
+test('late push updates coordinates but never relabels the expired request as successful',()=>{
+ const s=snapshot();s.devices[0].lastQuery={status:'timeout',completedAt:'2026-09-24T12:00:00Z',timeoutMs:1};
+ s.devices[0].lastErrorCode='LOCATION_TIMEOUT';s.devices[0].latestPosition={latitude:1,longitude:2,timestamp:'2026-09-24T11:59:00Z'};
+ applyFindHubUpdate(s,{event:'findhub.location.updated',instanceId:'a',at:'2026-09-24T12:00:05Z',data:{deviceId:'one',location:{latitude:3,longitude:4,timestamp:'2026-09-24T12:00:03Z'}}},'a');
+ assert.equal(s.devices[0].latestPosition.latitude,3);assert.equal(s.devices[0].lastErrorCode,null);assert.equal(s.devices[0].lastQuery.status,'timeout');
+ const {queryMessage}=load('findhub-position.ts');assert.match(queryMessage(s.devices[0].lastQuery,s.devices[0].lastReceivedAt),/recebimento continuou ativo/);
+ assert.match(queryMessage(s.devices[0].lastQuery,'2026-09-24T11:59:00Z'),/timeout de 1 ms/);
+});
+test('channel icon changes only the Find Hub branch and reuses the location glyph',()=>{
+ const s=readFileSync(new URL('../src/views/ChannelsView.vue',import.meta.url),'utf8');
+ assert.match(s,/item.name === 'WhatsApp' \? 'whatsapp' : item.name === 'Google Find Hub' \? 'location' : 'channels'/);
+});

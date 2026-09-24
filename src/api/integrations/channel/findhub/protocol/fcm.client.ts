@@ -235,6 +235,8 @@ export class FindHubFcmClient {
   private reconnectTimer?: NodeJS.Timeout;
   private inputStreamId = 0;
   private authenticated = false;
+  private heartbeatTimer?: NodeJS.Timeout;
+  private heartbeatDeadline?: NodeJS.Timeout;
   private loginResult?: (error?: Error) => void;
 
   public get ready(): boolean {
@@ -292,6 +294,7 @@ export class FindHubFcmClient {
   public async stop(): Promise<void> {
     this.stopped = true;
     this.authenticated = false;
+    this.clearHeartbeat();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.destroy();
     this.socket = undefined;
@@ -310,6 +313,8 @@ export class FindHubFcmClient {
         socket.destroy();
       }, 30_000);
       socket.once('close', () => {
+        if (this.socket !== socket) return;
+        this.clearHeartbeat();
         this.authenticated = false;
         this.loginResult = undefined;
         clearTimeout(timeout);
@@ -324,6 +329,7 @@ export class FindHubFcmClient {
           socket.destroy();
         } else {
           this.authenticated = true;
+          this.monitorHeartbeat();
           resolve();
         }
       };
@@ -342,6 +348,7 @@ export class FindHubFcmClient {
         }
       });
       socket.on('data', (chunk) => {
+        if (this.socket !== socket || this.stopped) return;
         try {
           this.consume(chunk);
         } catch {
@@ -352,8 +359,44 @@ export class FindHubFcmClient {
         clearTimeout(timeout);
         reject(error);
       });
-      socket.on('close', () => this.scheduleReconnect());
+      socket.on('close', () => {
+        if (this.socket === socket) this.scheduleReconnect();
+      });
     });
+  }
+
+  private clearHeartbeat(): void {
+    clearTimeout(this.heartbeatTimer);
+    clearTimeout(this.heartbeatDeadline);
+    this.heartbeatTimer = undefined;
+    this.heartbeatDeadline = undefined;
+  }
+
+  private monitorHeartbeat(): void {
+    this.clearHeartbeat();
+    if (this.stopped || !this.authenticated || !this.socket) return;
+    const socket = this.socket;
+    // Match the reference receiver: probe after 20 s of silence; reconnect after 5 s without traffic.
+    this.heartbeatTimer = setTimeout(() => {
+      this.heartbeatTimer = undefined;
+      if (this.socket !== socket || this.stopped || !this.authenticated) return;
+      this.heartbeatDeadline = setTimeout(() => {
+        this.heartbeatDeadline = undefined;
+        if (this.socket !== socket || this.stopped) return;
+        this.authenticated = false;
+        socket.destroy(); // Existing close/reconnect path reuses the registered credentials.
+      }, 5000);
+      this.heartbeatDeadline.unref?.();
+      try {
+        socket.write(encodePacket(0, encodeHeartbeatAck(this.inputStreamId), this.firstOutbound));
+        this.firstOutbound = false;
+      } catch {
+        this.clearHeartbeat();
+        this.authenticated = false;
+        socket.destroy();
+      }
+    }, 20_000);
+    this.heartbeatTimer.unref?.();
   }
 
   private scheduleReconnect(): void {
@@ -396,6 +439,7 @@ export class FindHubFcmClient {
 
   private handleFrame(tag: number, payload: Buffer): void {
     this.inputStreamId += 1;
+    if (this.authenticated) this.monitorHeartbeat();
     if (tag === 3) {
       const error = bytes(payload, 3);
       this.loginResult?.(error || !string(payload, 1) ? new Error('Google MCS login rejected') : undefined);
