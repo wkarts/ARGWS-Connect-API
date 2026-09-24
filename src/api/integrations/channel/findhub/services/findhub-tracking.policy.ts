@@ -9,6 +9,9 @@ export interface FindHubTrackingSettings {
   historyEnabled: boolean;
   retentionDays: number;
   reconciliationEnabled: boolean;
+  reconciliationOnBoot: boolean;
+  reconciliationPeriodicEnabled: boolean;
+  reconciliationPeriodSeconds: number;
   reconciliationMinGapSeconds: number;
   reconciliationAttempts: number;
 }
@@ -33,6 +36,10 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
     throw new Error('Histórico deve ser booleano.');
   if (value.reconciliationEnabled !== undefined && typeof value.reconciliationEnabled !== 'boolean')
     throw new Error('Reconciliação deve ser booleana.');
+  if (value.reconciliationOnBoot !== undefined && typeof value.reconciliationOnBoot !== 'boolean')
+    throw new Error('Reconciliação no boot deve ser booleana.');
+  if (value.reconciliationPeriodicEnabled !== undefined && typeof value.reconciliationPeriodicEnabled !== 'boolean')
+    throw new Error('Reconciliação periódica deve ser booleana.');
   return {
     intervalSeconds: integer(
       value.intervalSeconds,
@@ -48,6 +55,18 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
     reconciliationEnabled:
       value.reconciliationEnabled ??
       String(process.env.FINDHUB_RECONCILIATION_ENABLED ?? 'true').toLowerCase() === 'true',
+    reconciliationOnBoot:
+      value.reconciliationOnBoot ??
+      String(process.env.FINDHUB_RECONCILIATION_ON_BOOT ?? 'true').toLowerCase() === 'true',
+    reconciliationPeriodicEnabled:
+      value.reconciliationPeriodicEnabled ??
+      String(process.env.FINDHUB_RECONCILIATION_PERIODIC_ENABLED ?? 'false').toLowerCase() === 'true',
+    reconciliationPeriodSeconds: integer(
+      value.reconciliationPeriodSeconds,
+      Number(process.env.FINDHUB_RECONCILIATION_PERIOD_SECONDS || 3600),
+      60,
+      2592000,
+    ),
     reconciliationMinGapSeconds: integer(
       value.reconciliationMinGapSeconds,
       Number(process.env.FINDHUB_RECONCILIATION_MIN_GAP_SECONDS || 300),
