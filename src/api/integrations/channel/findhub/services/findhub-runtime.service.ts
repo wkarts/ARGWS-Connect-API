@@ -508,6 +508,9 @@ export class FindHubStartupService {
   ): Promise<any> {
     const existing = this.reconciliations.get(deviceId);
     if (existing) return await existing;
+    if (this.dispatching.has(deviceId) || this.locating.has(deviceId)) {
+      throw new Error('O dispositivo está executando uma consulta de localização. Tente a reconciliação novamente.');
+    }
 
     const operation = this.reconcileDeviceOnce(deviceId, input);
     this.reconciliations.set(deviceId, operation);
@@ -788,8 +791,8 @@ export class FindHubStartupService {
         if (this.tracking.get(deviceId) !== timer || generation !== this.generation) return;
         try {
           if (!this.protocol) throw new Error('Find Hub account is not connected');
-          if (this.dispatching.has(deviceId)) {
-            schedule(Math.min(100, Math.max(1, trackingDelayMs(intervalSeconds, 0))));
+          if (this.dispatching.has(deviceId) || this.reconciliations.has(deviceId)) {
+            schedule(Math.min(1000, Math.max(100, trackingDelayMs(intervalSeconds, 0))));
             return;
           }
           this.dispatching.add(deviceId);
