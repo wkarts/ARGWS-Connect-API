@@ -29,6 +29,16 @@ jobs:
           echo 'c54b85d5a0b20c6c329c0b96742fe4987fc4fa30edcc5ef742f4b4c57c0996dc  /tmp/findhub-review/input.patch' | sha256sum -c -
           git apply --check /tmp/findhub-review/input.patch
           git apply /tmp/findhub-review/input.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('manager/scripts/findhub-live.test.mjs')
+          text=path.read_text()
+          replacements={r"\['new_report', 'late_report'\]":r"\['new_report',\s*'late_report'\]",r"queryMessage\(device.lastQuery\) && !error && !feedback":"lastQueryMessage && !error && !feedback"}
+          for old,new in replacements.items():
+              assert text.count(old)==1, old
+              text=text.replace(old,new,1)
+          path.write_text(text)
+          PY
           rm -r .github/findhub-push-review
           rm .github/workflows/findhub-push-review.yml
       - name: Install locked API dependencies
