@@ -1,0 +1,51 @@
+name: Find Hub verified component prerelease
+on:
+  push:
+    branches: [build/findhub-017-prerelease]
+    paths: [.github/workflows/findhub-component-publish-temporary.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/build/findhub-017-prerelease'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 11706ab1140de7864679ed1a726263b94fb2522e
+          persist-credentials: false
+      - name: Verify component source matches tested artifact without publishing CI changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 11706ab1140de7864679ed1a726263b94fb2522e
+          test "$(git rev-parse HEAD:.github/workflows)" = a498f8cb3eff0f2cbdf0ffd6e597806fe60cb85a
+          git fetch --depth=1 origin 0fe181cbcba138a0c437fda07a8d1afd49665986
+          git diff --exit-code 0fe181cbcba138a0c437fda07a8d1afd49665986 HEAD -- browser-extensions/findhub-auth 'scripts/build-findhub-*.cjs' public/findhub-auth.zip public/branding
+      - uses: actions/download-artifact@v5
+        with:
+          name: findhub-extension-distribution
+          run-id: 35939699237
+          github-token: ${{ github.token }}
+          path: extension-dist
+      - name: Publish requested component prerelease with original verified Windows artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd extension-dist
+          sha256sum --check SHA256SUMS.txt
+          test "$(jq -r '.sourceRevision' extension-release.json)" = 0fe181cbcba138a0c437fda07a8d1afd49665986
+          test "$(jq -r '.version' extension-release.json)" = 0.1.7
+          test "$(jq -r '.channel' extension-release.json)" = candidate
+          tag=findhub-extension-0.1.7-candidate-11706ab1140d
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Existing immutable prerelease preserved: $tag"
+          else
+            gh release create "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" --target 11706ab1140de7864679ed1a726263b94fb2522e --prerelease --latest=false \
+              --title 'Find Hub Auth 0.1.7 - Release Candidate' \
+              --notes 'Distribuição da extensão solicitada na PR #129. ZIP, instalador Windows por usuário e assistente Rust x64 compilados/testados no run 35939699237, fonte 0fe181cbcba138a0c437fda07a8d1afd49665986. O tag aponta ao snapshot de distribuição 11706ab1140de7864679ed1a726263b94fb2522e: código da extensão, instaladores, scripts de build e ícones são idênticos à fonte testada; workflows de CI permanecem os da main neste snapshot. As mudanças de retenção/CI são revisadas separadamente na PR #129 e não foram promovidas para main/develop. Aguarda sessão web, confirmação no smartphone e PIN quando solicitados pelo Google; não escolhe ou contorna desafios. Homologação Google real pendente. Binários sem assinatura Authenticode; confirmação no navegador obrigatória. Consulte extension-release.json e SHA256SUMS.txt. Nenhuma promoção de latest.'
+          fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,tagName,isPrerelease,assets
