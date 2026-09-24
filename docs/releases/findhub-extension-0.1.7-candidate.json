@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "extension-component-release",
+  "version": "0.1.7",
+  "channel": "candidate",
+  "pull_request": 129,
+  "product_source_commit": "d3bebcfee8aa23e21339b301508687a43b9f8542",
+  "build_source_commit": "0fe181cbcba138a0c437fda07a8d1afd49665986",
+  "build_run_id": 35939699237,
+  "artifact_id": 10784566710,
+  "artifact_sha256": "a52395c9731d29be52fb60fa4d1d4b6e00022fc7cd52a192f0e313d7294e8892",
+  "extension_zip_sha256": "104424f9f66b23de2e506572edd2a5d99dd75b29e63e5cb91f5f1fd150b5f9ad",
+  "workflow_source_tree": "a498f8cb3eff0f2cbdf0ffd6e597806fe60cb85a",
+  "notes": "Component distribution snapshot, not an application release or merge. Extension, native installer sources, build scripts and branding are identical to the tested PR sources. Workflow changes remain proposed only in PR #129; this component tag retains main's workflow tree. The Windows artifact preserves its exact build source revision in extension-release.json. No latest/develop/main pointer is changed."
+}

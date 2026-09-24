@@ -5,11 +5,7 @@ on:
     branches: [develop]
   workflow_dispatch:
 
-env:
-  DOCKER_BUILD_RECORD_RETENTION_DAYS: 1
-
 permissions:
-  actions: write
   contents: read
   packages: write
 
@@ -77,7 +73,6 @@ jobs:
           ensure_image docker.io/library/node:22-bookworm-slim ghcr.io/${OWNER}/argws-connect-node:22-bookworm-slim
           ensure_image docker.io/library/nginx:1.27-alpine ghcr.io/${OWNER}/argws-connect-nginx:1.27-alpine
           ensure_image docker.io/moby/buildkit:buildx-stable-1 ghcr.io/${OWNER}/argws-connect-buildkit:buildx-stable-1
-          ensure_image docker.io/traccar/traccar:6.15.3-alpine ghcr.io/${OWNER}/argws-connect-traccar:6.15.3-alpine || echo "::warning::Optional Traccar mirror is unavailable; rerun infrastructure sync before enabling its profile."
 
   build-native:
     name: Build develop ${{ matrix.component }} / ${{ matrix.arch }}
@@ -213,16 +208,3 @@ jobs:
           test "${#sources[@]}" -eq 2
           docker buildx imagetools create -t "${repo}:develop" "${sources[@]}"
           docker buildx imagetools inspect "${repo}:develop"
-
-  protected-retention:
-    needs: publish
-    if: >-
-      always() && needs.publish.result == 'success' &&
-      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') &&
-      github.event_name != 'pull_request'
-    uses: ./.github/workflows/ghcr-retention.yml
-    with:
-      publication_sha: ${{ github.sha }}
-      source_sha: ${{ github.sha }}
-      branch: ${{ github.ref_name }}
-    secrets: inherit

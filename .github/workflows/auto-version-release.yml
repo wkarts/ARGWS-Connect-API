@@ -13,7 +13,6 @@ on:
         default: auto
 
 permissions:
-  actions: write
   contents: write
   packages: write
   pull-requests: read
@@ -286,7 +285,6 @@ jobs:
           git add VERSION package.json package-lock.json RELEASE-MANIFEST.json \
             docs/openapi/connect-api.openapi.json \
             docs/openapi/meta-compatible.openapi.json \
-            docs/openapi/findhub.openapi.json \
             docs/openapi/coverage.json \
             docs/asyncapi/connect-api-events.asyncapi.json
           git diff --exit-code -- deploy/canonical
@@ -362,19 +360,9 @@ jobs:
           path: release-digests/${{ matrix.image }}.txt
           retention-days: 30
 
-  findhub-extension:
-    name: Build Find Hub extension distribution
-    needs: [plan-version, version-source]
-    uses: ./.github/workflows/findhub-extension-build.yml
-    permissions:
-      contents: read
-    with:
-      source_ref: ${{ needs.version-source.outputs.release_sha }}
-      channel: stable
-
   release:
     name: Tag and publish GitHub Release
-    needs: [plan-version, version-source, publish-manifests, findhub-extension]
+    needs: [plan-version, version-source, publish-manifests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout versioned source
@@ -388,18 +376,6 @@ jobs:
           pattern: manifest-*
           path: release-digests
           merge-multiple: true
-      - name: Download tested Find Hub ZIP and Windows installer
-        uses: actions/download-artifact@v5
-        with:
-          name: findhub-extension-distribution
-          path: extension-dist
-      - name: Verify extension publication inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd extension-dist
-          sha256sum --check SHA256SUMS.txt
-          test "$(jq -r '.sourceRevision' extension-release.json)" = "${{ needs.version-source.outputs.release_sha }}"
       - name: Create immutable tag
         shell: bash
         run: |
@@ -438,7 +414,7 @@ jobs:
           if [[ -f "$notes" ]]; then
             notes_args=(--notes-file "$notes")
           fi
-          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/Connect-FindHub-Auth-Assistant-*.exe extension-dist/extension-release.json extension-dist/SHA256SUMS.txt \
+          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt \
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
             "${notes_args[@]}"
@@ -476,17 +452,3 @@ jobs:
           # refreshes only :develop and cannot start another stable release.
           gh workflow run ghcr-publish-application.yml --ref develop
           gh workflow run ghcr-publish-docs.yml --ref develop
-          gh workflow run findhub-extension-release.yml --ref develop
-
-  protected-retention:
-    needs: [release, sync-develop, version-source]
-    if: >-
-      always() && needs.release.result == 'success' && needs.sync-develop.result == 'success' &&
-      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') &&
-      github.event_name != 'pull_request'
-    uses: ./.github/workflows/ghcr-retention.yml
-    with:
-      publication_sha: ${{ needs.version-source.outputs.release_sha }}
-      source_sha: ${{ github.sha }}
-      branch: ${{ github.ref_name }}
-    secrets: inherit

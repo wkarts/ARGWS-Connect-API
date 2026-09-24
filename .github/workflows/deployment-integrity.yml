@@ -76,7 +76,7 @@ jobs:
               },
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
-          optional_resources = ('nats', 'zookeeper', 'kafka', 'traccar', 'traccar-postgres', 'traccar-bootstrap')
+          optional_resources = ('nats', 'zookeeper', 'kafka')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
@@ -85,9 +85,6 @@ jobs:
               'nats': 'ghcr.io/wkarts/argws-connect-nats:2.10-alpine',
               'zookeeper': 'ghcr.io/wkarts/argws-connect-zookeeper:7.5.0',
               'kafka': 'ghcr.io/wkarts/argws-connect-kafka:7.5.0',
-              'traccar': 'ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine',
-              'traccar-postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
-              'traccar-bootstrap': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
           }
 
           def env_values(path):
@@ -154,13 +151,6 @@ jobs:
                       assert mount.get('type') == 'bind', f'{stack}: {service_name} deve usar bind mount'
 
               api_service = full['services'][f'api-{suffix}']
-              for resource in ('traccar', 'traccar-postgres', 'traccar-bootstrap'):
-                  name = f'{resource}-{suffix}'
-                  cfg = full['services'][name]
-                  assert cfg.get('profiles') == ['traccar'], f'{stack}: {name} deve ser opcional'
-                  assert name not in api_service.get('depends_on', {}), f'{stack}: Traccar nao pode bloquear a API'
-                  assert not cfg.get('privileged') and not cfg.get('network_mode'), f'{stack}: Traccar deve usar somente a rede interna'
-
               if stack in ('production', 'develop'):
                   agent_name = f'operations-{suffix}'
                   agent = full['services'][agent_name]
