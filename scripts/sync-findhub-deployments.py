@@ -26,7 +26,9 @@ SKIP = {'.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'third-p
 def repository_files(root):
     result = []
     for directory, subdirs, filenames in os.walk(root):
-        subdirs[:] = sorted(name for name in subdirs if name not in SKIP)
+        # Full-stack variants have their own deterministic generator and validation suite.
+        parent = Path(directory).relative_to(root).as_posix()
+        subdirs[:] = sorted(name for name in subdirs if name not in SKIP and not (name == 'full-stack' and parent in ('deploy/develop', 'deploy/production')))
         for name in sorted(filenames):
             result.append((Path(directory) / name).relative_to(root).as_posix())
     return result

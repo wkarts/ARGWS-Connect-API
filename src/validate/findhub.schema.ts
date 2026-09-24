@@ -31,7 +31,7 @@ export const findHubLocateSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
   additionalProperties: false,
-  properties: { timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 } },
+  properties: { timeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 } },
 };
 
 export const findHubTrackingSchema: JSONSchema7 = {
@@ -39,7 +39,7 @@ export const findHubTrackingSchema: JSONSchema7 = {
   type: 'object',
   properties: {
     intervalSeconds: { type: 'integer', minimum: 0, maximum: 86400 },
-    timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 },
+    timeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
   },
   additionalProperties: false,
 };
@@ -95,7 +95,7 @@ export const findHubSettingsSchema: JSONSchema7 = {
   additionalProperties: false,
   properties: {
     intervalSeconds: { type: 'integer', minimum: 0, maximum: 86400 },
-    timeoutMs: { type: 'integer', minimum: 5000, maximum: 120000 },
+    timeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
     staleAfterSeconds: { type: 'integer', minimum: 30, maximum: 604800 },
     historyEnabled: { type: 'boolean' },
     retentionDays: { type: 'integer', minimum: 0, maximum: 36500 },
@@ -113,4 +113,12 @@ export const findHubTraccarConnectionSchema: JSONSchema7 = {
     token: { type: 'string', maxLength: 8192 },
     timeoutMs: { type: 'integer', minimum: 1000, maximum: 60000 },
   },
+};
+
+export const findHubDeviceAvatarSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  required: ['avatar'],
+  properties: { avatar: { type: ['string', 'null'], maxLength: 174786 } },
 };

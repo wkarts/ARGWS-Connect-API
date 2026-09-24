@@ -175,6 +175,7 @@ function harness(options = {}) {
     './findhub-traccar.service': { FindHubTraccarService: class {} },
     '@prisma/client': { Prisma: { DbNull: null } },
     '../auth/findhub-credential-vault': { FindHubCredentialVault: class { constructor() { throw new Error('Unexpected credential access in lifecycle test'); } } },
+    './findhub-avatar': loadSource('src/api/integrations/channel/findhub/services/findhub-avatar.ts', { zlib: require('node:zlib') }),
     './findhub-tracking.policy': loadSource('src/api/integrations/channel/findhub/services/findhub-tracking.policy.ts', { crypto: require('node:crypto') }),
     './traccar-client': { TraccarClient: class { constructor() { throw new Error('Unexpected Traccar network in lifecycle test'); } } },
   };

@@ -7,3 +7,12 @@ export function unproject(x: number, y: number, zoom: number) {
   return { latitude: Math.atan(Math.sinh(Math.PI * (1 - 2 * Math.max(0, Math.min(size, y)) / size))) * 180 / Math.PI,
     longitude: ((x / size * 360) % 360 + 360) % 360 - 180 }
 }
+
+/** Keep the geographic point under the pointer fixed while zooming. */
+export function zoomAt(center: {latitude: number; longitude: number}, oldZoom: number, requestedZoom: number,
+  pointerX: number, pointerY: number, width: number, height: number) {
+  const zoom = Math.max(2, Math.min(19, requestedZoom)); const ratio = 2 ** (zoom - oldZoom)
+  const previous = project(center.latitude, center.longitude, oldZoom)
+  return { zoom, center: unproject((previous.x + pointerX - width / 2) * ratio - pointerX + width / 2,
+    (previous.y + pointerY - height / 2) * ratio - pointerY + height / 2, zoom) }
+}

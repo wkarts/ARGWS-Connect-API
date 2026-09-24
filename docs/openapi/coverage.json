@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-23T20:15:33.446Z",
+  "generatedAt": "2026-09-24T02:45:24.864Z",
   "version": "1.1.3",
-  "sourceDigest": "36b4287cf9ed79b660ecca7e275de270741638774b1c3ebdc4412bb74f247ec4",
+  "sourceDigest": "6d9f8b5fca23b9cac60a181deebdf4a94c77ec49360feaeb2a2a6c1c05b0445b",
   "operations": [
     {
       "method": "GET",
@@ -466,6 +466,16 @@
     {
       "method": "GET",
       "path": "/findhub/device/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/device/avatar/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "PUT",
+      "path": "/findhub/device/avatar/{deviceId}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {

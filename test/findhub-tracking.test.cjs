@@ -5,12 +5,12 @@ function load(relative, overrides={},globals={},cache=new Map()) {
  if(cache.has(relative)) return cache.get(relative).exports;
  const module={exports:{}};cache.set(relative,module);
  const code=ts.transpileModule(fs.readFileSync(path.join(root,relative),'utf8'),{fileName:relative,compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
- vm.runInNewContext(code,{module,exports:module.exports,Buffer,URL,URLSearchParams,AbortSignal,Response,Date,console,setTimeout,clearTimeout,setInterval,clearInterval,process:{env:{}},require(name){if(Object.hasOwn(overrides,name))return overrides[name];if(name==='crypto')return require('node:crypto');if(name.startsWith('.'))return load(path.normalize(path.join(path.dirname(relative),name+'.ts')),overrides,globals,cache);throw new Error('Unexpected dependency '+name)},...globals},{filename:relative});return module.exports;
+ vm.runInNewContext(code,{module,exports:module.exports,Buffer,URL,URLSearchParams,AbortSignal,AbortController,Response,Date,console,setTimeout,clearTimeout,setInterval,clearInterval,process:{env:{}},require(name){if(Object.hasOwn(overrides,name))return overrides[name];if(['crypto','zlib'].includes(name))return require('node:'+name);if(name.startsWith('.'))return load(path.normalize(path.join(path.dirname(relative),name+'.ts')),overrides,globals,cache);throw new Error('Unexpected dependency '+name)},...globals},{filename:relative});return module.exports;
 }
 const dir='src/api/integrations/channel/findhub/services/';
 const policy=load(dir+'findhub-tracking.policy.ts');const now=Date.now();const position={deviceId:'one',googleDeviceId:'g',latitude:-12,longitude:-39,timestamp:new Date(now-1000).toISOString(),source:'GOOGLE_DIRECT',ownReport:true};
 test('independent interval, timeout and history retention boundaries',()=>{const s=policy.trackingSettings({intervalSeconds:30,timeoutMs:90000,historyEnabled:true,retentionDays:0});assert.equal(s.retentionDays,0);assert.equal(s.timeoutMs,90000);assert.equal(s.intervalSeconds,30)});
-for(const values of [{intervalSeconds:-1},{intervalSeconds:0.5},{intervalSeconds:100000},{timeoutMs:4999},{timeoutMs:120001},{retentionDays:-1},{historyEnabled:'true'}])test('invalid tracking settings are refused '+JSON.stringify(values),()=>assert.throws(()=>policy.trackingSettings(values)));
+for(const values of [{intervalSeconds:-1},{intervalSeconds:0.5},{intervalSeconds:100000},{timeoutMs:0},{timeoutMs:2147483648},{retentionDays:-1},{historyEnabled:'true'}])test('invalid tracking settings are refused '+JSON.stringify(values),()=>assert.throws(()=>policy.trackingSettings(values)));
 test('a recent position does not invent an online state',()=>{assert.equal(policy.locationAvailability(position,300,null,now),'recent');assert.equal(policy.locationAvailability(position,300,'online',now),'online');assert.equal(policy.locationAvailability(position,300,'offline',now),'offline')});
 test('missing, old, malformed and future coordinates handled truthfully',()=>{assert.equal(policy.locationAvailability(null,300),'no_location');assert.equal(policy.locationAvailability({...position,timestamp:new Date(now-600000).toISOString()},300,null,now),'stale');for(const v of [{latitude:91},{longitude:181},{timestamp:'bad'},{timestamp:new Date(now+600001).toISOString()}])assert.equal(policy.validPosition({...position,...v},now),false)});
 test('position identity stable and source-aware',()=>{assert.equal(policy.positionFingerprint(position),policy.positionFingerprint({...position}));assert.notEqual(policy.positionFingerprint(position),policy.positionFingerprint({...position,longitude:-40}))});
@@ -86,4 +86,70 @@ test('zero tracking persists, restores and never overlaps a pending request',asy
  release(position);await running;assert.equal(timers[1].delay,0);
  await h.runtime.stopTracking('d-a');await timers[1].fn();assert.equal(calls,1);
  h.row.trackingEnabled=true;await h.runtime.restoreTracking();assert.equal(timers.at(-1).delay,0);
+});
+
+// Full-stack evolution: deadlines and avatars are exclusive to Find Hub.
+for(const timeout of [1,2,4999,120001,2147483647]) test('operator deadline is preserved: '+timeout,()=>{
+ assert.equal(policy.trackingSettings({timeoutMs:timeout}).timeoutMs,timeout);
+});
+const avatarCodec=load(dir+'findhub-avatar.ts');
+function pngFixture(width=2,height=2,metadata=false) {
+ const zlib=require('node:zlib');
+ function crc(data){let c=0xffffffff;for(const b of data){c^=b;for(let i=0;i<8;i++)c=(c>>>1)^(0xedb88320&-(c&1))}return(c^0xffffffff)>>>0}
+ function chunk(type,data){const t=Buffer.from(type),out=Buffer.alloc(data.length+12);out.writeUInt32BE(data.length);t.copy(out,4);data.copy(out,8);out.writeUInt32BE(crc(Buffer.concat([t,data])),out.length-4);return out}
+ const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;
+ return 'data:image/png;base64,'+Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',ihdr),...(metadata?[chunk('tEXt',Buffer.from('Comment\0private-metadata'))]:[]),chunk('IDAT',zlib.deflateSync(Buffer.alloc((width*4+1)*height))),chunk('IEND',Buffer.alloc(0))]).toString('base64');
+}
+test('avatar validates raster and strips metadata without fetching external URLs',()=>{
+ const image=pngFixture();assert.equal(avatarCodec.normalizeFindHubAvatar(image),image);
+ assert.equal(avatarCodec.normalizeFindHubAvatar(pngFixture(2,2,true)),image);
+ assert.equal(avatarCodec.normalizeFindHubAvatar(null),null);
+ for(const value of [undefined,'https://example.invalid/photo.png','data:image/svg+xml;base64,AAAA',pngFixture(257,1)]) assert.throws(()=>avatarCodec.normalizeFindHubAvatar(value));
+ const bytes=Buffer.from(image.split(',')[1],'base64');bytes[bytes.length-1]^=1;
+ assert.throws(()=>avatarCodec.normalizeFindHubAvatar('data:image/png;base64,'+bytes.toString('base64')));
+});
+test('avatar update is instance-scoped, preserves other devices and emits compact revision',async()=>{
+ const h=runtimeHarness(),image=pngFixture();await assert.rejects(h.runtime.setDeviceAvatar('d-b',image));
+ await h.runtime.setDeviceAvatar('d-a',image);assert.equal(h.row.avatarData,image);assert.equal(h.other.avatarData,undefined);
+ const snap=await h.runtime.snapshot();assert.ok(snap.devices[0].avatarVersion);assert.equal(snap.devices[0].avatarData,undefined);
+ assert.ok(!JSON.stringify(h.events).includes('data:image'));
+ await h.runtime.setDeviceAvatar('d-a',null);assert.equal(h.row.avatarData,null);
+});
+test('Google synchronization never overwrites operator avatar',async()=>{
+ const h=runtimeHarness(),image=pngFixture();h.row.avatarData=image;
+ h.runtime.protocol.listDevices=async()=>[{googleDeviceId:'g-a',name:'Updated name',deviceType:'PHONE',identifierType:'ANDROID'}];
+ h.db.findHubDevice.upsert=async({update})=>{assert.equal(Object.hasOwn(update,'avatarData'),false);Object.assign(h.row,update);return h.row};
+ await h.runtime.refreshDevices();assert.equal(h.row.avatarData,image);
+});
+function protocolDeadlineHarness(){
+ const timers=[],calls=[];let finish;
+ const overrides={
+  '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
+  '../protocol/fcm.client':{FindHubFcmClient:class{ready=true;registrationToken='fixture'}},
+  '../protocol/nova.client':{FindHubNovaClient:class{locate(args,signal){calls.push({args,signal});return new Promise(resolve=>finish=resolve)}}},
+  '../protocol/spot.client':{FindHubSpotClient:class{}},
+  '../crypto/findhub-crypto':{decryptIdentityKey:()=>Buffer.alloc(32)},
+  '../protocol/findhub-proto':{decodeDeviceRegistration:()=>({encryptedIdentityKey:Buffer.alloc(32)}),decodeLocationReports:()=>[]},
+ };
+ const globals={setTimeout(fn,ms){const timer={fn,ms,unref(){},cleared:false};timers.push(timer);return timer},clearTimeout(t){if(t)t.cleared=true}};
+ const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',overrides,globals);
+ return {client:new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{}),timers,calls,finish:()=>finish()};
+}
+test('1 ms deadline bounds HTTP even when Google push arrives first',async()=>{
+ const h=protocolDeadlineHarness();const pending=h.client.locate({id:'one',googleDeviceId:'g'},1);
+ assert.equal(h.timers[0].ms,1);assert.equal(h.timers[1].ms,1);
+ [...h.client.pending.values()][0].resolve(Buffer.alloc(1));h.timers[1].fn();
+ await assert.rejects(pending,/timed out/);assert.equal(h.calls[0].signal.aborted,true);h.finish();
+ assert.equal(h.client.pending.size,0);assert.ok(h.timers.every(t=>t.cleared));
+});
+test('submission failure releases push waiter and absolute deadline',async()=>{
+ const h=protocolDeadlineHarness();h.client.nova.locate=async()=>{throw Error('upstream fixture')};
+ await assert.rejects(h.client.locate({id:'one',googleDeviceId:'g'},2),/upstream fixture/);
+ assert.equal(h.client.pending.size,0);assert.ok(h.timers.every(t=>t.cleared));
+});
+test('Nova abort before token resolution cannot submit a late location command',async()=>{
+ let resolveToken,calls=0;const auth={serviceToken:()=>new Promise(resolve=>resolveToken=resolve)};
+ const {FindHubNovaClient}=load('src/api/integrations/channel/findhub/protocol/nova.client.ts',{'../auth/google-play-auth.client':{},'./findhub-proto':{encodeExecuteLocateRequest:()=>Buffer.alloc(0)}},{fetch:()=>{calls++;throw Error('late network')}});
+ const controller=new AbortController(),client=new FindHubNovaClient(auth,{});
+ const pending=client.locate({},controller.signal);controller.abort();resolveToken('fixture');await assert.rejects(pending);assert.equal(calls,0);
 });

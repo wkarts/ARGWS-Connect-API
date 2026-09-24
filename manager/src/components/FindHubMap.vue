@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { project, unproject } from '@/services/findhub-map'
-const props = defineProps<{ position?: any; trail?: any[]; tileUrl?: string }>()
+import { project, unproject, zoomAt } from '@/services/findhub-map'
+const props = defineProps<{ position?: any; trail?: any[]; tileUrl?: string; avatarData?: string | null; deviceName?: string }>()
 const viewport = ref<HTMLElement>(), width = ref(800), height = 430, zoom = ref(15), follow = ref(true)
 const center = ref({ latitude: 0, longitude: 0 })
 let observer: ResizeObserver | undefined, drag: { x: number; y: number; center: { x: number; y: number } } | null = null
@@ -32,14 +32,26 @@ watch(() => props.position, () => { if (follow.value) recenter() }, { immediate:
 function start(event: PointerEvent) { if ((event.target as HTMLElement).closest('button,a')) return; follow.value = false; viewport.value?.setPointerCapture(event.pointerId); drag = { x: event.clientX, y: event.clientY, center: project(center.value.latitude, center.value.longitude, zoom.value) } }
 function move(event: PointerEvent) { if (drag) center.value = unproject(drag.center.x - event.clientX + drag.x, drag.center.y - event.clientY + drag.y, zoom.value) }
 function key(event: KeyboardEvent) { const delta: Record<string, [number,number]> = { ArrowUp:[0,-80],ArrowDown:[0,80],ArrowLeft:[-80,0],ArrowRight:[80,0] }; if (!delta[event.key]) return; event.preventDefault(); follow.value = false; const c = project(center.value.latitude,center.value.longitude,zoom.value); center.value = unproject(c.x+delta[event.key][0],c.y+delta[event.key][1],zoom.value) }
-onMounted(() => { observer = new ResizeObserver(entries => { width.value = entries[0].contentRect.width }); if (viewport.value) observer.observe(viewport.value) })
-onBeforeUnmount(() => observer?.disconnect())
+let wheelDelta = 0, lastWheel = -Infinity
+function wheel(event: WheelEvent) {
+  if (event.ctrlKey || event.metaKey || !props.position) return
+  event.preventDefault()
+  wheelDelta += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? height : 1)
+  if (Math.abs(wheelDelta) < 60 || event.timeStamp - lastWheel < 120) return
+  const rect = viewport.value!.getBoundingClientRect()
+  const result = zoomAt(center.value, zoom.value, zoom.value + (wheelDelta < 0 ? 1 : -1), event.clientX - rect.left, event.clientY - rect.top, width.value, height)
+  zoom.value = result.zoom; center.value = result.center; follow.value = false; drag = null
+  wheelDelta = 0; lastWheel = event.timeStamp
+}
+onMounted(() => { viewport.value?.addEventListener('wheel', wheel, { passive: false }); observer = new ResizeObserver(entries => { width.value = entries[0].contentRect.width }); if (viewport.value) observer.observe(viewport.value) })
+onBeforeUnmount(() => { observer?.disconnect(); viewport.value?.removeEventListener('wheel', wheel) })
 </script>
 <template>
-  <div ref="viewport" class="location-map" tabindex="0" role="region" aria-label="Mapa de localização. Use as setas para mover o mapa." @pointerdown="start" @pointermove="move" @pointerup="drag=null" @pointercancel="drag=null" @keydown="key">
+  <div ref="viewport" class="location-map" tabindex="0" role="region" aria-label="Mapa de localização. Use o scroll do mouse para aproximar ou afastar e as setas para mover o mapa." @pointerdown="start" @pointermove="move" @pointerup="drag=null" @pointercancel="drag=null" @keydown="key">
     <template v-if="position">
       <img v-for="tile in tiles" :key="`${retryGeneration}:${tile.key}`" :src="tile.src" referrerpolicy="strict-origin" decoding="async" @error="tileError=true" alt="" width="256" height="256" draggable="false" :style="{ left: tile.x+'px', top: tile.y+'px' }" />
       <svg class="map-overlay" :viewBox="`0 0 ${width} ${height}`" aria-hidden="true"><polyline :points="trail" fill="none" stroke="var(--primary)" stroke-width="3"/><g v-if="marker"><circle :cx="marker.x" :cy="marker.y" :r="accuracy" fill="var(--primary)" fill-opacity=".12" stroke="var(--primary)" stroke-opacity=".35"/><circle :cx="marker.x" :cy="marker.y" r="8" fill="var(--primary)" stroke="white" stroke-width="3"/></g></svg>
+      <img v-if="marker && avatarData" class="map-device-avatar" :src="avatarData" :alt="deviceName || 'Dispositivo'" draggable="false" width="36" height="36" :style="{ left: marker.x+'px', top: marker.y+'px' }" />
     </template>
     <div v-else class="map-empty">Nenhuma posição disponível. Selecione um dispositivo e solicite a localização.</div>
     <div class="map-controls"><button class="btn ghost" aria-label="Aproximar mapa" :disabled="zoom>=19" @click.stop="zoom=Math.min(19,zoom+1)">+</button><button class="btn ghost" aria-label="Afastar mapa" :disabled="zoom<=2" @click.stop="zoom=Math.max(2,zoom-1)">−</button><button class="btn ghost" :disabled="!position" @click.stop="recenter">{{ follow ? 'Acompanhando' : 'Centralizar' }}</button></div>
@@ -50,4 +62,5 @@ onBeforeUnmount(() => observer?.disconnect())
 <style scoped>
 .location-map{height:430px;position:relative;overflow:hidden;background:var(--background,#edf2f7);border:1px solid var(--border);border-radius:14px;touch-action:none;cursor:grab}.location-map:active{cursor:grabbing}.location-map:focus-visible{outline:2px solid var(--primary)}.location-map>img{position:absolute;max-width:none;user-select:none}.map-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.map-controls{position:absolute;left:12px;top:12px;display:flex;gap:6px}.map-controls button{background:var(--surface)}.map-empty{display:flex;align-items:center;justify-content:center;height:100%;padding:48px;text-align:center;color:var(--muted)}.attribution{position:absolute;bottom:0;right:0;background:var(--surface);padding:4px 8px;font-size:10px}
 .map-tile-error{position:absolute;left:16px;right:16px;bottom:32px;display:grid;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:var(--shadow);font-size:12px}.map-tile-error button{justify-self:start}.map-tile-error span{color:var(--muted)}
+.map-device-avatar{width:36px;height:36px;border-radius:50%;border:3px solid white;object-fit:cover;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 2px 8px #0003}
 </style>

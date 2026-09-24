@@ -7185,6 +7185,163 @@
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
+    "/findhub/device/avatar/{deviceId}/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Obter avatar privado do dispositivo",
+        "operationId": "get_findhub_device_avatar_deviceid_instancename",
+        "description": "Mesma autenticação por instância; não inclua tokens em URLs. Resposta sem cache compartilhado.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Obter avatar privado do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "avatarData": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Definir ou remover avatar do dispositivo",
+        "operationId": "put_findhub_device_avatar_deviceid_instancename",
+        "description": "Valida propriedade da instância e PNG; remove metadados. Não modifica o dispositivo Google nem é sobrescrito na sincronização.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definir ou remover avatar do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDevice"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubDeviceAvatarRequest"
+              },
+              "example": {
+                "avatar": null
+              }
+            }
+          }
+        }
+      }
+    },
     "/findhub/devices/{instanceName}": {
       "get": {
         "tags": [
@@ -18027,6 +18184,20 @@
               "stale",
               "no_location"
             ]
+          },
+          "avatarData": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PNG normalizado. O snapshot/SSE contém apenas avatarVersion; use GET device/avatar para buscar a imagem."
+          },
+          "avatarVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Revisão opaca do avatar, sem expor a imagem em atualizações de posição."
           }
         }
       },
@@ -18145,9 +18316,9 @@
           },
           "timeoutMs": {
             "type": "integer",
-            "minimum": 5000,
-            "maximum": 120000,
-            "description": "Prazo da espera da localização, independente do intervalo."
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
           }
         }
       },
@@ -18169,9 +18340,9 @@
           },
           "timeoutMs": {
             "type": "integer",
-            "minimum": 5000,
-            "maximum": 120000,
-            "description": "Prazo da espera da localização, independente do intervalo."
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
           }
         }
       },
@@ -18439,9 +18610,9 @@
           },
           "timeoutMs": {
             "type": "integer",
-            "minimum": 5000,
-            "maximum": 120000,
-            "description": "Prazo da espera da localização, independente do intervalo."
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
           },
           "staleAfterSeconds": {
             "type": "integer",
@@ -18607,9 +18778,26 @@
         "properties": {
           "timeoutMs": {
             "type": "integer",
-            "minimum": 5000,
-            "maximum": 120000,
-            "description": "Prazo da espera da localização, independente do intervalo."
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubDeviceAvatarRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "avatar"
+        ],
+        "properties": {
+          "avatar": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 174786,
+            "description": "Data URL PNG RGB/RGBA de até 256x256 e 128 KiB. null remove o avatar. Sem URLs externas ou SVG."
           }
         }
       },

@@ -16,6 +16,10 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
     throw new Error('Parâmetro de rastreamento fora dos limites.');
   return number;
 }
+/** Node timer range; 1 ms is accepted but is not a promised upstream response time. */
+export function locationTimeoutMs(value?: unknown): number {
+  return integer(value, Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30000), 1, 2147483647);
+}
 export function trackingMinimum(): number {
   // Compatibility field: the installation recommendation is no longer a mandatory floor.
   return 0;
@@ -31,7 +35,7 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
       minimum,
       86400,
     ),
-    timeoutMs: integer(value.timeoutMs, Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30000), 5000, 120000),
+    timeoutMs: locationTimeoutMs(value.timeoutMs),
     staleAfterSeconds: integer(value.staleAfterSeconds, 300, 30, 604800),
     historyEnabled:
       value.historyEnabled ?? String(process.env.FINDHUB_STORE_POSITION_HISTORY ?? 'true').toLowerCase() === 'true',

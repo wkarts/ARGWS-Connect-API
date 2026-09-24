@@ -7,6 +7,7 @@ import { FindHubFcmClient } from '../protocol/fcm.client';
 import { decodeDeviceRegistration, decodeDeviceUpdate, decodeLocationReports } from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
+import { locationTimeoutMs } from './findhub-tracking.policy';
 
 type PendingLocation = {
   resolve: (metadata: Buffer) => void;
@@ -70,23 +71,46 @@ export class FindHubProtocolClient {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
     const requestUuid = randomUUID();
-    const metadataPromise = this.waitForLocation(requestUuid, timeoutMs);
-    // Attach immediately: a network call can outlive the push deadline.
+    const timeout = locationTimeoutMs(timeoutMs);
+    const controller = new AbortController();
+    const metadataPromise = this.waitForLocation(requestUuid, timeout);
     void metadataPromise.catch(() => undefined);
-
+    let deadlineTimer: NodeJS.Timeout;
+    const deadline = new Promise<never>((_, reject) => {
+      deadlineTimer = setTimeout(() => {
+        const error = new Error('Google Find Hub location request timed out');
+        controller.abort(error);
+        this.rejectPending(requestUuid, error);
+        reject(error);
+      }, timeout);
+      deadlineTimer.unref?.();
+    });
+    let metadata: Buffer;
     try {
-      await this.nova.locate({
-        googleDeviceId: device.googleDeviceId,
-        fcmRegistrationId: this.fcm.registrationToken,
-        requestUuid,
-        clientUuid: this.clientUuid,
-      });
+      const result = await Promise.race([
+        Promise.all([
+          this.nova.locate(
+            {
+              googleDeviceId: device.googleDeviceId,
+              fcmRegistrationId: this.fcm.registrationToken,
+              requestUuid,
+              clientUuid: this.clientUuid,
+            },
+            controller.signal,
+          ),
+          metadataPromise,
+        ]),
+        deadline,
+      ]);
+      metadata = result[1];
     } catch (error) {
       this.rejectPending(requestUuid, error instanceof Error ? error : new Error(String(error)));
       throw error;
+    } finally {
+      clearTimeout(deadlineTimer!);
+      controller.abort();
     }
 
-    const metadata = await metadataPromise;
     const registration = decodeDeviceRegistration(metadata);
     const ownerKey = await this.ensureOwnerKey();
     const identityKey = decryptIdentityKey(ownerKey, registration.encryptedIdentityKey);
@@ -115,10 +139,7 @@ export class FindHubProtocolClient {
   }
 
   private waitForLocation(requestUuid: string, requestedTimeout?: number): Promise<Buffer> {
-    const timeoutMs = Math.min(
-      120000,
-      Math.max(5000, requestedTimeout || Number(process.env.FINDHUB_LOCATION_TIMEOUT_MS || 30000)),
-    );
+    const timeoutMs = locationTimeoutMs(requestedTimeout);
 
     return new Promise<Buffer>((resolve, reject) => {
       const timer = setTimeout(() => {

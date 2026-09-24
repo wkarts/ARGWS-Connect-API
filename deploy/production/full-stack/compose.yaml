@@ -1,0 +1,465 @@
+# Alternative full-stack profile. Parent deployment is preserved.
+name: ${COMPOSE_PROJECT_NAME:-argws-connect-production}
+x-logging: &id001
+  driver: json-file
+  options:
+    max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+    max-file: ${DOCKER_LOG_MAX_FILE:-5}
+services:
+  api-argws-connect-production:
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
+    pull_policy: always
+    container_name: api-argws-connect-production
+    restart: unless-stopped
+    env_file:
+    - .env
+    environment:
+      TRACCAR_ENABLED: ${TRACCAR_ENABLED:-true}
+      TRACCAR_MODE: ${TRACCAR_MODE:-internal}
+      TRACCAR_URL: ${TRACCAR_URL:-}
+      TRACCAR_RECEIVER_URL: ${TRACCAR_RECEIVER_URL:-}
+      TRACCAR_TOKEN: ${TRACCAR_TOKEN:-}
+      TRACCAR_ALLOWED_ORIGINS: ${TRACCAR_ALLOWED_ORIGINS:-}
+      TRACCAR_INTERNAL_URL: ${TRACCAR_INTERNAL_URL:-http://traccar:8082}
+      TRACCAR_INTERNAL_RECEIVER_URL: ${TRACCAR_INTERNAL_RECEIVER_URL:-http://traccar:5055}
+      TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
+      TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
+      FINDHUB_HISTORY_RETENTION_DAYS: ${FINDHUB_HISTORY_RETENTION_DAYS:-30}
+      FINDHUB_MAP_TILE_URL: ${FINDHUB_MAP_TILE_URL:-}
+      FINDHUB_CREDENTIALS_KEY: ${FINDHUB_CREDENTIALS_KEY:-}
+      FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS: ${FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS:-60}
+      FINDHUB_MIN_TRACKING_INTERVAL_SECONDS: ${FINDHUB_MIN_TRACKING_INTERVAL_SECONDS:-30}
+      FINDHUB_LOCATION_TIMEOUT_MS: ${FINDHUB_LOCATION_TIMEOUT_MS:-30000}
+      FINDHUB_STORE_POSITION_HISTORY: ${FINDHUB_STORE_POSITION_HISTORY:-false}
+      FINDHUB_TRACCAR_TIMEOUT_MS: ${FINDHUB_TRACCAR_TIMEOUT_MS:-10000}
+      MANAGER_FEATURE_TEST_MESSAGE_CONTACTS: ${MANAGER_FEATURE_TEST_MESSAGE_CONTACTS:-false}
+      MANAGER_FEATURE_INSTANCE_TEST_MESSAGE: ${MANAGER_FEATURE_INSTANCE_TEST_MESSAGE:-true}
+      MANAGER_FEATURE_CONVERSATIONS: ${MANAGER_FEATURE_CONVERSATIONS:-false}
+      SERVER_TYPE: http
+      SERVER_PORT: '8080'
+      DOCKER_ENV: 'true'
+      DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
+      DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
+      LOG_QRCODE: ${LOG_QRCODE:-true}
+      ARGWS_CONNECT_DOCS_INTERNAL_URL: ${ARGWS_CONNECT_DOCS_INTERNAL_URL:-http://docs-argws-connect-production:8080}
+      ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
+      OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}
+      OPERATIONS_AGENT_URL: ${OPERATIONS_AGENT_URL:-http://operations:8092}
+      OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
+      MANAGER_FEATURE_DOCS: ${MANAGER_FEATURE_DOCS:-true}
+      MANAGER_FEATURE_VOICE: ${MANAGER_FEATURE_VOICE:-true}
+      MANAGER_FEATURE_VOICE_EXTENSIONS: ${MANAGER_FEATURE_VOICE_EXTENSIONS:-false}
+      MANAGER_FEATURE_VOICE_QUEUES: ${MANAGER_FEATURE_VOICE_QUEUES:-false}
+      MANAGER_FEATURE_FLOWS: ${MANAGER_FEATURE_FLOWS:-false}
+      MANAGER_FEATURE_AUTOMATIONS: ${MANAGER_FEATURE_AUTOMATIONS:-false}
+      MANAGER_FEATURE_CONTACTS: ${MANAGER_FEATURE_CONTACTS:-false}
+      MANAGER_FEATURE_MESSAGES: ${MANAGER_FEATURE_MESSAGES:-false}
+      MANAGER_FEATURE_USERS: ${MANAGER_FEATURE_USERS:-false}
+      MANAGER_FEATURE_PERMISSIONS: ${MANAGER_FEATURE_PERMISSIONS:-false}
+      MANAGER_FEATURE_AUDIT: ${MANAGER_FEATURE_AUDIT:-false}
+      MANAGER_FEATURE_SECURITY: ${MANAGER_FEATURE_SECURITY:-false}
+      MANAGER_FEATURE_UPDATES: ${MANAGER_FEATURE_UPDATES:-true}
+      MANAGER_FEATURE_SETTINGS: ${MANAGER_FEATURE_SETTINGS:-true}
+      NATS_ENABLED: ${NATS_ENABLED:-true}
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
+    depends_on:
+      postgres-argws-connect-production:
+        condition: service_healthy
+      redis-argws-connect-production:
+        condition: service_healthy
+      rabbitmq-argws-connect-production:
+        condition: service_healthy
+      minio-argws-connect-production:
+        condition: service_healthy
+      docs-argws-connect-production:
+        condition: service_healthy
+    ports:
+    - ${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080
+    volumes:
+    - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-../volumes/instances}:/argws-connect/instances
+    networks:
+    - argws-connect-production-net
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fsS
+      - http://127.0.0.1:8080/health
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *id001
+  operations-argws-connect-production:
+    container_name: operations-argws-connect-production
+    profiles:
+    - operations
+    image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
+    pull_policy: always
+    restart: unless-stopped
+    entrypoint:
+    - node
+    - /argws-connect/operations-agent/server.cjs
+    environment:
+      TZ: ${TZ:-America/Bahia}
+      OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
+      OPERATIONS_DATA_PATH: /data
+      OPERATIONS_HOT_DAYS: ${OPERATIONS_HOT_DAYS:-3}
+      OPERATIONS_RETENTION_DAYS: ${OPERATIONS_RETENTION_DAYS:-90}
+      OPERATIONS_CHECKS: '[{"service":"api","type":"http","url":"http://api-argws-connect-production:8080/health"},{"service":"docs","type":"http","url":"http://docs-argws-connect-production:8080/health"},{"service":"database","type":"tcp","url":"tcp://postgres-argws-connect-production:5432"},{"service":"cache","type":"tcp","url":"tcp://redis-argws-connect-production:6379"},{"service":"events","type":"tcp","url":"tcp://rabbitmq-argws-connect-production:5672"},{"service":"storage","type":"http","url":"http://minio-argws-connect-production:9000/minio/health/live"}]'
+    expose:
+    - '8092'
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 192m
+    cpus: '0.50'
+    pids_limit: 64
+    volumes:
+    - ${ARGWS_CONNECT_OPERATIONS_DATA_PATH:-../volumes/operations}:/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - operations
+    healthcheck:
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:8092/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
+  docs-argws-connect-production:
+    image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:latest}
+    pull_policy: always
+    container_name: docs-argws-connect-production
+    restart: unless-stopped
+    environment:
+      BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
+      SERVER_URL: ${SERVER_URL:-}
+      API_REFERENCE_CONFIG: '{"sources":[{"url":"openapi/connect-api.openapi.json","title":"Connect|API REST API","slug":"rest","default":true},{"url":"openapi/findhub.openapi.json","title":"Connect|API
+        Google Find Hub","slug":"findhub"},{"url":"openapi/meta-compatible.openapi.json","title":"Connect|API Meta Compatible","slug":"meta-compatible"},{"url":"openapi/connect-api-events.asyncapi.json","title":"Connect|API
+        Events","slug":"events"}],"theme":"none","layout":"modern","darkMode":false,"showOperationId":true,"modelsSectionLabel":"Schemas","operationTitleSource":"summary","documentDownloadType":"both","showDeveloperTools":"localhost","customCss":".light-mode{--scalar-color-accent:#2563eb;--scalar-background-1:#ffffff;--scalar-background-2:#f7f9fc;--scalar-background-3:#eef3f9;--scalar-color-1:#0f172a;--scalar-color-2:#475569;--scalar-color-3:#64748b;--scalar-border-color:#dbe4ef}.dark-mode{--scalar-color-accent:#2f6df6;--scalar-background-1:#0f172a;--scalar-background-2:#111827;--scalar-background-3:#172033;--scalar-color-1:#f8fafc;--scalar-color-2:#cbd5e1;--scalar-color-3:#94a3b8;--scalar-border-color:#263249}"}'
+    expose:
+    - '8080'
+    networks:
+    - argws-connect-production-net
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://127.0.0.1:8080/health
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging: *id001
+  postgres-argws-connect-production:
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    pull_policy: always
+    container_name: postgres-argws-connect-production
+    restart: unless-stopped
+    env_file:
+    - .env
+    command:
+    - postgres
+    - -c
+    - max_connections=${POSTGRES_MAX_CONNECTIONS:-300}
+    - -c
+    - listen_addresses=*
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-argws_connect_api}
+      POSTGRES_USER: ${POSTGRES_USERNAME:-argws_connect}
+      TZ: ${TZ:-America/Bahia}
+    expose:
+    - '5432'
+    volumes:
+    - ${ARGWS_CONNECT_POSTGRES_DATA_PATH:-../volumes/postgres}:/var/lib/postgresql/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - postgres-argws-connect-production
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    logging: *id001
+  redis-argws-connect-production:
+    image: ${ARGWS_CONNECT_REDIS_IMAGE:-ghcr.io/wkarts/argws-connect-redis:latest}
+    pull_policy: always
+    container_name: redis-argws-connect-production
+    restart: unless-stopped
+    env_file:
+    - .env
+    command:
+    - sh
+    - -c
+    - exec redis-server --port 6379 --appendonly yes --requirepass "$${REDIS_PASSWORD}"
+    expose:
+    - '6379'
+    volumes:
+    - ${ARGWS_CONNECT_REDIS_DATA_PATH:-../volumes/redis}:/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - redis-argws-connect-production
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli -a "$${REDIS_PASSWORD}" ping | grep -q PONG
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+    logging: *id001
+  rabbitmq-argws-connect-production:
+    image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
+    pull_policy: always
+    container_name: rabbitmq-argws-connect-production
+    restart: unless-stopped
+    env_file:
+    - .env
+    expose:
+    - '5672'
+    - '15672'
+    - '15692'
+    volumes:
+    - ${ARGWS_CONNECT_RABBITMQ_DATA_PATH:-../volumes/rabbitmq}:/var/lib/rabbitmq
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - rabbitmq-argws-connect-production
+    healthcheck:
+      test:
+      - CMD
+      - rabbitmq-diagnostics
+      - -q
+      - ping
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    logging: *id001
+  minio-argws-connect-production:
+    image: ${ARGWS_CONNECT_MINIO_IMAGE:-ghcr.io/wkarts/argws-connect-minio:latest}
+    pull_policy: always
+    container_name: minio-argws-connect-production
+    restart: unless-stopped
+    env_file:
+    - .env
+    command: server /data --console-address ":9001"
+    expose:
+    - '9000'
+    - '9001'
+    volumes:
+    - ${ARGWS_CONNECT_MINIO_DATA_PATH:-../volumes/minio}:/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - minio-argws-connect-production
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fsS
+      - http://127.0.0.1:9000/minio/health/live
+      interval: 15s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    logging: *id001
+  nats-argws-connect-production:
+    profiles:
+    - nats
+    - extended
+    image: ${ARGWS_CONNECT_NATS_IMAGE:-ghcr.io/wkarts/argws-connect-nats:2.10-alpine}
+    pull_policy: always
+    container_name: nats-argws-connect-production
+    restart: unless-stopped
+    command:
+    - -js
+    - -m
+    - '8222'
+    - --store_dir
+    - /data
+    expose:
+    - '4222'
+    - '8222'
+    volumes:
+    - ${ARGWS_CONNECT_NATS_DATA_PATH:-../volumes/nats}:/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - nats-argws-connect-production
+    logging: *id001
+  zookeeper-argws-connect-production:
+    profiles:
+    - kafka
+    - extended
+    image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
+    pull_policy: always
+    container_name: zookeeper-argws-connect-production
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    expose:
+    - '2181'
+    volumes:
+    - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-../volumes/zookeeper/data}:/var/lib/zookeeper/data
+    - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-../volumes/zookeeper/log}:/var/lib/zookeeper/log
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - zookeeper-argws-connect-production
+    logging: *id001
+  kafka-argws-connect-production:
+    profiles:
+    - kafka
+    - extended
+    image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
+    pull_policy: always
+    container_name: kafka-argws-connect-production
+    restart: unless-stopped
+    depends_on:
+    - zookeeper-argws-connect-production
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-argws-connect-production:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-argws-connect-production:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: ${KAFKA_AUTO_CREATE_TOPICS:-true}
+    expose:
+    - '9092'
+    volumes:
+    - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-../volumes/kafka}:/var/lib/kafka/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - kafka-argws-connect-production
+    logging: *id001
+  traccar-argws-connect-production:
+    container_name: traccar-argws-connect-production
+    profiles:
+    - traccar
+    image: ${ARGWS_CONNECT_TRACCAR_IMAGE:-ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine}
+    restart: unless-stopped
+    depends_on:
+      traccar-postgres-argws-connect-production:
+        condition: service_healthy
+    environment:
+      CONFIG_USE_ENVIRONMENT_VARIABLES: 'true'
+      DATABASE_DRIVER: org.postgresql.Driver
+      DATABASE_URL: jdbc:postgresql://traccar-postgres-argws-connect-production:5432/traccar
+      DATABASE_USER: traccar
+      DATABASE_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+      WEB_PORT: '8082'
+      OSMAND_PORT: '5055'
+      OSMAND_ADDRESS: 0.0.0.0
+      PROTOCOLS_ENABLE: osmand
+      SERVER_STATISTICS: ''
+      GEOCODER_ENABLE: 'false'
+      TZ: ${TZ:-America/Bahia}
+    expose:
+    - '8082'
+    - '5055'
+    volumes:
+    - ${ARGWS_CONNECT_TRACCAR_DATA_PATH:-../volumes/traccar}:/opt/traccar/data
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - traccar
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
+  traccar-postgres-argws-connect-production:
+    container_name: traccar-postgres-argws-connect-production
+    profiles:
+    - traccar
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: traccar
+      POSTGRES_USER: traccar
+      POSTGRES_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+    volumes:
+    - ${ARGWS_CONNECT_TRACCAR_DB_PATH:-../volumes/traccar-postgres}:/var/lib/postgresql/data
+    networks:
+    - argws-connect-production-net
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U traccar -d traccar
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  traccar-bootstrap-argws-connect-production:
+    container_name: traccar-bootstrap-argws-connect-production
+    profiles:
+    - traccar
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    entrypoint:
+    - node
+    - /bootstrap/traccar-bootstrap.cjs
+    environment:
+      TRACCAR_INTERNAL_URL: http://traccar:8082
+      TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
+      TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
+    volumes:
+    - ./traccar-bootstrap.cjs:/bootstrap/traccar-bootstrap.cjs:ro
+    networks:
+    - argws-connect-production-net
+  mysql-argws-connect-production:
+    profiles:
+    - mysql
+    image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
+    pull_policy: always
+    container_name: mysql-argws-connect-production
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
+      MYSQL_USER: ${MYSQL_USERNAME:-argws_connect}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-CHANGE_ME_MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    expose:
+    - '3306'
+    volumes:
+    - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-../volumes/mysql}:/var/lib/mysql
+    networks:
+      argws-connect-production-net:
+        aliases:
+        - mysql-argws-connect-production
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin ping -h 127.0.0.1 -u root --silent
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
+networks:
+  argws-connect-production-net:
+    name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-production-net}
+    driver: bridge

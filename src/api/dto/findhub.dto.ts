@@ -54,3 +54,7 @@ export class FindHubTraccarConnectionDto {
   token?: string;
   timeoutMs?: number;
 }
+
+export class FindHubDeviceAvatarDto {
+  avatar: string | null;
+}

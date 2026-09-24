@@ -11,7 +11,7 @@ export function applyFindHubUpdate(snapshot: any, event: any, instanceId: string
   if (device) {
     if (typeof data.enabled === 'boolean') device.trackingEnabled = data.enabled
     if (data.timeoutMs) device.locationTimeoutMs = data.timeoutMs
-    if (data.intervalSeconds) device.trackingIntervalSeconds = data.intervalSeconds
+    if (Number.isInteger(data.intervalSeconds) && data.intervalSeconds >= 0) device.trackingIntervalSeconds = data.intervalSeconds
     if (data.providerStatus) device.providerStatus = data.providerStatus
     if (data.code) device.lastErrorCode = data.code
     const position = data.location
