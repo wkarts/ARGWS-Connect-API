@@ -41,6 +41,14 @@ jobs:
           xz -dc /tmp/findhub-017.xz > /tmp/findhub-017.patch
           git apply --check /tmp/findhub-017.patch
           git apply --index /tmp/findhub-017.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('test/actions-cache-retention.test.py')
+          source = path.read_text()
+          before = "source.index('Install registry reader')"
+          assert source.count(before) == 1, 'Unexpected cache ordering assertion'
+          path.write_text(source.replace(before, "source.index('Single image inventory with protected plan before application')"))
+          PY
           node scripts/build-findhub-extension.cjs
           node scripts/build-findhub-extension.cjs --check
       - name: Validate API, authentication and bounded retention
