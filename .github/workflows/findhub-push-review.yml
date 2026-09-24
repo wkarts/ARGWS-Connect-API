@@ -1,0 +1,114 @@
+name: Find Hub - Validate continuous receiver correction
+on:
+  push:
+    branches: [work/findhub-push-receiver-validation]
+    paths: [.github/workflows/findhub-push-review.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HUSKY: '0'
+      DATABASE_PROVIDER: postgresql
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Apply reviewed receiver correction
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/findhub-review
+          git merge-base --is-ancestor bc7d61a066e6859634c867beb6a56c57e9b87097 HEAD
+          cat .github/findhub-push-review/part* | base64 -d | xz -d > /tmp/findhub-review/input.patch
+          echo 'c54b85d5a0b20c6c329c0b96742fe4987fc4fa30edcc5ef742f4b4c57c0996dc  /tmp/findhub-review/input.patch' | sha256sum -c -
+          git apply --check /tmp/findhub-review/input.patch
+          git apply /tmp/findhub-review/input.patch
+          rm -r .github/findhub-push-review
+          rm .github/workflows/findhub-push-review.yml
+      - name: Install locked API dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Prove targeted regressions against the previous implementation
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess,re
+          from pathlib import Path
+          paths=['src/api/integrations/channel/findhub/protocol/fcm.client.ts','src/api/integrations/channel/findhub/services/findhub-protocol.client.ts','src/api/integrations/channel/findhub/services/findhub-runtime.service.ts']
+          originals={p:Path(p).read_bytes() for p in paths}
+          try:
+              for p in paths: Path(p).write_bytes(subprocess.check_output(['git','show','bc7d61a066e6859634c867beb6a56c57e9b87097:'+p]))
+              cmd=['node','--test','--test-name-pattern=MCS active heartbeat|correlated fix arriving after HTTP timeout|subsequent observations after a successful first fix|real protobuf and AES-GCM location arriving after timeout','test/findhub-tracking.test.cjs','test/findhub-browser-auth.test.cjs']
+              result=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+              Path('/tmp/findhub-review/baseline-regressions.log').write_text(result.stdout)
+              assert result.returncode != 0 and re.search(r'^# fail 4$',result.stdout,re.M), result.stdout[-10000:]
+              print('All four targeted regressions fail on the previous implementation as expected.')
+          finally:
+              for p,data in originals.items(): Path(p).write_bytes(data)
+          PY
+      - name: Validate API, reference wire fixture and complete compatibility suite
+        run: |
+          set -euo pipefail
+          exec > >(tee /tmp/findhub-review/api-validation.log) 2>&1
+          npx prettier --write src/api/integrations/channel/findhub/protocol/fcm.client.ts src/api/integrations/channel/findhub/services/findhub-protocol.client.ts src/api/integrations/channel/findhub/services/findhub-runtime.service.ts
+          npm run db:generate
+          npm run lint:check
+          npm run docs:generate
+          npm run docs:check
+          npm run test:compat
+          npm run build
+      - name: Validate complete Manager and channel icon regression
+        working-directory: manager
+        run: |
+          set -euo pipefail
+          exec > >(tee /tmp/findhub-review/manager-validation.log) 2>&1
+          npm install --no-package-lock --no-audit --no-fund
+          npm test
+      - name: Export validated tree without application image publication
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+          core='''docs/guides/findhub-observations-ui.md
+          docs/scripts/findhub-schemas.mjs
+          manager/scripts/findhub-channel.test.mjs
+          manager/scripts/findhub-live.test.mjs
+          manager/src/components/FindHubLiveTracking.vue
+          manager/src/services/findhub-position.ts
+          manager/src/views/ChannelsView.vue
+          src/api/integrations/channel/findhub/protocol/fcm.client.ts
+          src/api/integrations/channel/findhub/services/findhub-protocol.client.ts
+          src/api/integrations/channel/findhub/services/findhub-runtime.service.ts
+          test/findhub-browser-auth.test.cjs
+          test/findhub-tracking.test.cjs'''.split()
+          generated='''docs/openapi/connect-api.openapi.json
+          docs/openapi/findhub.openapi.json
+          docs/openapi/coverage.json
+          docs/asyncapi/connect-api-events.asyncapi.json'''.split()
+          subprocess.run(['git','add','-u'],check=True)
+          subprocess.run(['git','add','-f','--',*core,*generated],check=True)
+          changed=set(subprocess.check_output(['git','diff','--cached','--name-only','bc7d61a066e6859634c867beb6a56c57e9b87097'],text=True).splitlines())
+          assert set(core)<=changed<=set(core+generated), f'Unexpected diff: {changed.symmetric_difference(set(core))}'
+          print('Changed files:',len(changed)); print('\n'.join(sorted(changed)))
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(findhub): validate persistent FCM receiver and late observations'
+          git push origin HEAD:refs/heads/work/findhub-push-receiver-validated
+          git rev-parse HEAD > /tmp/findhub-review/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/findhub-review/tree.txt
+          git diff --binary bc7d61a066e6859634c867beb6a56c57e9b87097 HEAD > /tmp/findhub-review/correction.patch
+          git archive --format=tar.gz HEAD > /tmp/findhub-review/source.tar.gz
+          cat /tmp/findhub-review/commit.txt /tmp/findhub-review/tree.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: findhub-push-receiver-validation
+          path: /tmp/findhub-review
+          retention-days: 7
