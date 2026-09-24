@@ -25,7 +25,7 @@ type PendingLocation = {
   retain: boolean;
 };
 
-type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string> };
+type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string>; source: 'manual' | 'tracking' };
 const OBSERVATION_TTL_MS = 120_000;
 const MAX_RECENT_REQUESTS = 256;
 
@@ -95,7 +95,7 @@ export class FindHubProtocolClient {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     this.pruneRecent();
     const requestUuid = randomUUID();
-    this.rememberRecent(requestUuid, device);
+    this.rememberRecent(requestUuid, device, [], 'tracking');
     try {
       await this.nova.locate(
         {
@@ -131,7 +131,7 @@ export class FindHubProtocolClient {
         if (pending.timer) clearTimeout(pending.timer);
         this.pending.delete(requestUuid);
         if (!this.closing && this.onObservation && pending.retain && pending.submitted) {
-          this.rememberRecent(requestUuid, pending.device, pending.reports.keys());
+          this.rememberRecent(requestUuid, pending.device, pending.reports.keys(), 'manual');
         }
         if (error) reject(error);
         else resolve([...pending.reports.values()].sort(comparePositionPreference));
@@ -247,7 +247,12 @@ export class FindHubProtocolClient {
     }
   }
 
-  private rememberRecent(requestUuid: string, device: FindHubDevice, seen: Iterable<string> = []): void {
+  private rememberRecent(
+    requestUuid: string,
+    device: FindHubDevice,
+    seen: Iterable<string> = [],
+    source: 'manual' | 'tracking' = 'manual',
+  ): void {
     this.pruneRecent();
     const existing = this.recent.get(requestUuid);
     if (existing) {
@@ -260,12 +265,13 @@ export class FindHubProtocolClient {
       device,
       expiresAt: Date.now() + OBSERVATION_TTL_MS,
       seen: new Set(seen),
+      source,
     });
   }
 
   public stopObserving(deviceId: string): void {
-    for (const [id, context] of this.recent) if (context.device.id === deviceId) this.recent.delete(id);
-    for (const pending of this.pending.values()) if (pending.device.id === deviceId) pending.retain = false;
+    for (const [id, context] of this.recent)
+      if (context.device.id === deviceId && context.source === 'tracking') this.recent.delete(id);
   }
 
   private pruneRecent(): void {
