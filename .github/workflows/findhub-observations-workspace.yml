@@ -86,6 +86,12 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import subprocess
+          from pathlib import Path
+          view = Path('manager/src/views/FindHubView.vue')
+          before = view.read_text()
+          normalized = '\n'.join(line.rstrip() for line in before.splitlines()).rstrip() + '\n'
+          assert before.split() == normalized.split(), 'Normalization may change tokens'
+          view.write_text(normalized)
           allowed = '''docs/asyncapi/connect-api-events.asyncapi.json
           docs/guides/findhub-observations-ui.md
           docs/openapi/connect-api.openapi.json
