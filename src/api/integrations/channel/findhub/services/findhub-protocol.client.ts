@@ -4,7 +4,12 @@ import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
 import { decryptIdentityKey, decryptLocationReport, decryptOwnerKey } from '../crypto/findhub-crypto';
 import { FindHubDevice, FindHubPosition, FindHubStoredCredentials } from '../findhub.types';
 import { FindHubFcmClient } from '../protocol/fcm.client';
-import { decodeDeviceRegistration, decodeDeviceUpdate, decodeLocationReports } from '../protocol/findhub-proto';
+import {
+  decodeDeviceMetadata,
+  decodeDeviceRegistration,
+  decodeDeviceUpdate,
+  decodeLocationReports,
+} from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
 import { locationTimeoutMs, positionFingerprint, validPosition } from './findhub-tracking.policy';
@@ -17,7 +22,12 @@ type PendingLocation = {
   resolve: () => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
+  retain: boolean;
 };
+
+type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string> };
+const OBSERVATION_TTL_MS = 120_000;
+const MAX_RECENT_REQUESTS = 256;
 
 export class FindHubProtocolClient {
   private readonly auth = new GooglePlayAuthClient();
@@ -25,6 +35,8 @@ export class FindHubProtocolClient {
   private readonly spot: FindHubSpotClient;
   private readonly fcm: FindHubFcmClient;
   private readonly pending = new Map<string, PendingLocation>();
+  private readonly recent = new Map<string, RecentLocation>();
+  private closing = false;
   private ownerKey?: Buffer;
 
   constructor(
@@ -32,6 +44,7 @@ export class FindHubProtocolClient {
     private readonly sharedKey: Buffer,
     private readonly clientUuid: string,
     private readonly persistCredentials: (credentials: FindHubStoredCredentials) => Promise<void>,
+    private readonly onObservation?: (device: FindHubDevice, positions: FindHubPosition[]) => Promise<void>,
   ) {
     this.nova = new FindHubNovaClient(this.auth, credentials.aas);
     this.spot = new FindHubSpotClient(this.auth, credentials.aas);
@@ -53,11 +66,14 @@ export class FindHubProtocolClient {
   }
 
   public async connect(): Promise<void> {
+    this.closing = false;
     await this.ensureOwnerKey();
     await this.fcm.start();
   }
 
   public async close(): Promise<void> {
+    this.closing = true;
+    this.recent.clear();
     await this.fcm.stop();
 
     for (const pending of this.pending.values()) pending.reject(new Error('Find Hub connection closed'));
@@ -71,6 +87,7 @@ export class FindHubProtocolClient {
   public async locate(device: FindHubDevice, timeoutMs?: number): Promise<FindHubPosition[]> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
+    this.pruneRecent();
     const requestUuid = randomUUID();
     const timeout = locationTimeoutMs(timeoutMs);
     const controller = new AbortController();
@@ -84,6 +101,22 @@ export class FindHubProtocolClient {
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pending.delete(requestUuid);
+        // Ending an HTTP wait must not discard a correlated push which Google delivers later.
+        // Keep only bounded, recently requested contexts, never accept unsolicited device IDs.
+        if (
+          !this.closing &&
+          this.onObservation &&
+          pending.retain &&
+          (!error || /location request timed out/i.test(error.message))
+        ) {
+          this.pruneRecent();
+          if (this.recent.size >= MAX_RECENT_REQUESTS) this.recent.delete(this.recent.keys().next().value!);
+          this.recent.set(requestUuid, {
+            device: pending.device,
+            expiresAt: Date.now() + OBSERVATION_TTL_MS,
+            seen: new Set(pending.reports.keys()),
+          });
+        }
         controller.abort();
         if (error) reject(error);
         else resolve([...pending.reports.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)));
@@ -100,6 +133,7 @@ export class FindHubProtocolClient {
         afterTimestamp,
         reports: new Map(),
         submitted: false,
+        retain: true,
         resolve: () => finish(),
         reject: (error) => finish(error),
         timer,
@@ -125,6 +159,8 @@ export class FindHubProtocolClient {
   }
 
   private decodePositions(device: FindHubDevice, metadata: Buffer): FindHubPosition[] {
+    const identifiers = decodeDeviceMetadata(metadata).map((value) => value.googleDeviceId);
+    if (identifiers.length && !identifiers.includes(device.googleDeviceId)) return [];
     const registration = decodeDeviceRegistration(metadata);
     // connect() loads this key before starting the authenticated push receiver.
     const ownerKey = this.ownerKey || (this.credentials.ownerKey && Buffer.from(this.credentials.ownerKey, 'base64'));
@@ -161,7 +197,20 @@ export class FindHubProtocolClient {
       const update = decodeDeviceUpdate(payload);
       if (!update.requestUuid || !update.deviceMetadata) return;
       const pending = this.pending.get(update.requestUuid);
-      if (!pending) return;
+      if (!pending) {
+        this.pruneRecent();
+        const recent = this.recent.get(update.requestUuid);
+        if (!recent || !this.onObservation || this.closing) return;
+        const positions = this.decodePositions(recent.device, update.deviceMetadata).filter((position) => {
+          const fingerprint = positionFingerprint(position);
+          if (recent.seen.has(fingerprint)) return false;
+          recent.seen.add(fingerprint);
+          if (recent.seen.size > 128) recent.seen.delete(recent.seen.values().next().value!);
+          return true;
+        });
+        if (positions.length) void this.onObservation(recent.device, positions).catch(() => undefined);
+        return;
+      }
       for (const position of this.decodePositions(pending.device, update.deviceMetadata)) {
         pending.reports.set(positionFingerprint(position), position);
       }
@@ -181,6 +230,15 @@ export class FindHubProtocolClient {
     } catch {
       // Ignore malformed/unrelated pushes. They cannot mark a request successful.
     }
+  }
+
+  public stopObserving(deviceId: string): void {
+    for (const [id, context] of this.recent) if (context.device.id === deviceId) this.recent.delete(id);
+    for (const pending of this.pending.values()) if (pending.device.id === deviceId) pending.retain = false;
+  }
+
+  private pruneRecent(): void {
+    for (const [id, context] of this.recent) if (context.expiresAt <= Date.now()) this.recent.delete(id);
   }
 
   private async ensureOwnerKey(): Promise<Buffer> {

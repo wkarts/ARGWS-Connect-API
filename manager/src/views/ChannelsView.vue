@@ -6,12 +6,14 @@ import PanelCard from '@/components/PanelCard.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
+import { isFindHub } from '@/services/findhub-channel'
 import type { ConnectionItem } from '@/types/domain'
 
 type ChannelSummary = {
   name: string
   total: number
   connected: number
+  isLocation: boolean
 }
 
 const items = ref<ConnectionItem[]>([])
@@ -29,8 +31,10 @@ const groups = computed<ChannelSummary[]>(() => {
       name: channel,
       total: 0,
       connected: 0,
+      isLocation: isFindHub(item),
     })
 
+    current.isLocation ||= isFindHub(item)
     current.total += 1
     if (item.status === 'connected') current.connected += 1
   }
@@ -46,8 +50,8 @@ const groups = computed<ChannelSummary[]>(() => {
     <div class="channel-grid">
       <PanelCard v-for="item in groups" :key="item.name">
         <div class="channel-card">
-          <span class="channel-icon" :class="{ 'whatsapp-brand': item.name === 'WhatsApp' }">
-            <AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : 'channels'" :size="23" />
+          <span class="channel-icon" :class="{ 'whatsapp-brand': item.name === 'WhatsApp', 'location-brand': item.isLocation }">
+            <AppIcon :name="item.name === 'WhatsApp' ? 'whatsapp' : item.isLocation ? 'location' : 'channels'" :size="23" />
           </span>
           <div>
             <h3>{{ item.name }}</h3>
@@ -64,5 +68,9 @@ const groups = computed<ChannelSummary[]>(() => {
 .channel-icon.whatsapp-brand {
   color: #25d366;
   background: color-mix(in srgb, #25d366 11%, var(--surface));
+}
+.channel-icon.location-brand {
+  color: var(--primary, #2563eb);
+  background: color-mix(in srgb, var(--primary, #2563eb) 11%, var(--surface));
 }
 </style>

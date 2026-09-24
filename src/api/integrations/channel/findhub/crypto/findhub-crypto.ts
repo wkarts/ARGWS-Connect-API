@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createECDH, createHash, hkdfSync } from 'crypto';
+import { createCipheriv, createDecipheriv, createECDH, createHash, hkdfSync, timingSafeEqual } from 'crypto';
 
 import { decodePlainLocation, EncryptedLocationReport } from '../protocol/findhub-proto';
 
@@ -53,11 +53,10 @@ function scalarFor(identityKey: Buffer, timestamp: number): Buffer {
   structure[27] = ROTATION_BITS;
   ts.copy(structure, 28);
   const projected = BigInt(`0x${aesEcb(identityKey, structure).toString('hex')}`) % SECP160R1_ORDER;
-  return Buffer.from(projected.toString(16).padStart(40, '0'), 'hex');
+  return Buffer.from(projected.toString(16).padStart(42, '0'), 'hex');
 }
 
-function subkey(key: Buffer): Buffer {
-  const block = aesEcb(key, Buffer.alloc(16));
+function doubleCmacBlock(block: Buffer): Buffer {
   const shifted = Buffer.alloc(16);
   let carry = 0;
   for (let index = 15; index >= 0; index--) {
@@ -76,8 +75,8 @@ function xor(left: Buffer, right: Buffer): Buffer {
 }
 
 function cmac(key: Buffer, data: Buffer): Buffer {
-  const k1 = subkey(key);
-  const k2 = subkey(k1);
+  const k1 = doubleCmacBlock(aesEcb(key, Buffer.alloc(16)));
+  const k2 = doubleCmacBlock(k1);
   const complete = data.length !== 0 && data.length % 16 === 0;
   const blocks = Math.max(1, Math.ceil(data.length / 16));
   let last: Buffer;
@@ -130,14 +129,14 @@ function decryptAesEax(key: Buffer, nonce: Buffer, ciphertextAndTag: Buffer): Bu
   const headerTag = eaxOmac(key, 1, Buffer.alloc(0));
   const messageTag = eaxOmac(key, 2, ciphertext);
   const expected = xor(xor(nonceTag, headerTag), messageTag);
-  if (expected.length !== tag.length || !expected.equals(tag))
+  if (expected.length !== tag.length || !timingSafeEqual(expected, tag))
     throw new Error('Find Hub AES-EAX authentication failed');
   return aesCtrCrypt(key, nonceTag, ciphertext);
 }
 
 function foreignDecrypt(identityKey: Buffer, report: EncryptedLocationReport): Buffer {
-  const timestamp = Math.max(0, report.timestampSeconds - report.deviceTimeOffset);
-  const r = scalarFor(identityKey, timestamp);
+  // deviceTimeOffset is the beacon time counter in the reference protocol, not Unix time minus an offset.
+  const r = scalarFor(identityKey, report.deviceTimeOffset);
   const local = createECDH('secp160r1');
   local.setPrivateKey(r);
   const rPublic = local.getPublicKey(undefined, 'uncompressed');
@@ -153,7 +152,8 @@ function foreignDecrypt(identityKey: Buffer, report: EncryptedLocationReport): B
 export function decryptLocationReport(identityKey: Buffer, report: EncryptedLocationReport) {
   if (!report.encryptedLocation.length) return null;
   let plain: Buffer;
-  if (report.ownReport || report.publicKeyRandom.length === 0) {
+  // The public key selects the cipher; isOwnReport is attribution, not a cipher selector.
+  if (report.publicKeyRandom.length === 0) {
     const hash = createHash('sha256').update(identityKey).digest();
     plain = aesGcmDecrypt(hash, report.encryptedLocation);
   } else {
