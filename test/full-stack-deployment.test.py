@@ -72,6 +72,25 @@ class FullStackTests(unittest.TestCase):
             saved=(dest/'.env').read_text()
             repeated=subprocess.run([sys.executable,'prepare-env.py','--from-env','../.env'],cwd=dest,capture_output=True,text=True)
             self.assertNotEqual(repeated.returncode,0);self.assertEqual((dest/'.env').read_text(),saved)
+    def test_empty_git_scaffold_is_not_existing_database(self):
+        with tempfile.TemporaryDirectory() as d:
+            parent=Path(d);dest=parent/'full-stack'
+            shutil.copytree(ROOT/'deploy/production/full-stack',dest,ignore=shutil.ignore_patterns('.env','__pycache__'))
+            volumes=parent/'volumes';volumes.mkdir();(volumes/'.gitkeep').touch()
+            (volumes/'mysql').mkdir()
+            self.assertFalse(prep.has_persisted_data(volumes))
+            run=subprocess.run([sys.executable,'prepare-env.py'],cwd=dest,capture_output=True,text=True)
+            self.assertEqual(run.returncode,0,run.stderr)
+            self.assertEqual((volumes/'.gitkeep').read_bytes(),b'')
+    def test_real_unknown_or_symlinked_volume_content_blocks_new_credentials(self):
+        with tempfile.TemporaryDirectory() as d:
+            volumes=Path(d)/'volumes';volumes.mkdir()
+            marker=volumes/'.gitkeep';marker.write_text('not-empty')
+            self.assertTrue(prep.has_persisted_data(volumes));marker.unlink()
+            data=volumes/'mysql';data.mkdir();(data/'ibdata1').write_text('fixture')
+            self.assertTrue(prep.has_persisted_data(volumes));(data/'ibdata1').unlink()
+            (volumes/'linked').symlink_to(data,target_is_directory=True)
+            self.assertTrue(prep.has_persisted_data(volumes))
     def test_compose_service_topology_and_only_api_public(self):
         for channel in ('develop','production'):
             cfg=yaml.safe_load((ROOT/f'deploy/{channel}/full-stack/compose.yaml').read_text())

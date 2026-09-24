@@ -108,6 +108,25 @@ def validate(text):
         raise ValueError('Pusher global precisa das credenciais da integracao externa.')
     return env
 
+def has_persisted_data(path):
+    """An empty Git scaffold is not a database; unknown content and symlinks always block."""
+    if path.is_symlink(): return True
+    if not path.exists(): return False
+    if not path.is_dir(): return True
+    def traversal_error(error):
+        raise error
+    try:
+        for root, directories, files in os.walk(path, followlinks=False, onerror=traversal_error):
+            root = Path(root)
+            if any((root / name).is_symlink() for name in directories): return True
+            for name in files:
+                item = root / name
+                if name != '.gitkeep' or item.is_symlink() or item.stat().st_size != 0:
+                    return True
+    except OSError:
+        return True
+    return False
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-file', default='.env'); parser.add_argument('--template', default='env.example')
@@ -123,7 +142,7 @@ def main():
         raise ValueError('Existe .env no deploy anterior. Importe com --from-env ../.env para preservar credenciais.')
     if not path.exists() and not source:
         volumes = path.parent.parent / 'volumes'
-        if volumes.exists() and any(volumes.iterdir()): raise ValueError('Dados anteriores encontrados. Importe o .env correspondente; nao gere credenciais novas.')
+        if has_persisted_data(volumes): raise ValueError('Dados anteriores encontrados. Importe o .env correspondente; nao gere credenciais novas.')
     lock = path.with_name(path.name + '.full-stack.lock')
     fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600); os.close(fd)
     try:
