@@ -1,0 +1,50 @@
+name: Find Hub 0.1.7 requested Windows candidate
+on:
+  push:
+    branches: [fix/findhub-web-session-retention]
+    paths: [.github/workflows/findhub-017-publish-temporary.yml]
+permissions:
+  contents: read
+concurrency:
+  group: findhub-017-requested-candidate
+  cancel-in-progress: false
+jobs:
+  windows:
+    if: github.ref == 'refs/heads/fix/findhub-web-session-retention'
+    uses: ./.github/workflows/findhub-extension-build.yml
+    with:
+      source_ref: ${{ github.sha }}
+      channel: candidate
+  publish:
+    needs: windows
+    if: github.ref == 'refs/heads/fix/findhub-web-session-retention'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: findhub-extension-distribution
+          path: extension-dist
+      - name: Publish requested prerelease only, with exact tested source and verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/fix/findhub-web-session-retention
+          cd extension-dist
+          sha256sum --check SHA256SUMS.txt
+          test "$(jq -r '.sourceRevision' extension-release.json)" = "$GITHUB_SHA"
+          test "$(jq -r '.version' extension-release.json)" = 0.1.7
+          test "$(jq -r '.channel' extension-release.json)" = candidate
+          tag="findhub-extension-0.1.7-candidate-${GITHUB_SHA:0:12}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Existing immutable prerelease preserved: $tag"
+          else
+            gh release create "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title 'Find Hub Auth 0.1.7 - Release Candidate' \
+              --notes "Candidata solicitada na PR #129. Aguarda sessão web Google, confirmação de número/2FA e PIN quando exigidos; não escolhe nem contorna desafios. Instalador Windows por usuário, assistente Rust x64, ZIP, origem e checksums. Testes reais de instalação/atualização no Windows aprovados, mas login Google real ainda precisa de homologação. ID/ícone preservados. Binários sem assinatura Authenticode; confirmação manual no navegador permanece necessária. Fonte: $GITHUB_SHA. Nenhuma promoção de latest ou merge em develop/main."
+          fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,tagName,isPrerelease,assets

@@ -4,7 +4,7 @@ Executável nativo Windows x64, sem Tauri/WebView ou dependências de execução
 
 ## Usar
 
-Abra `Connect-FindHub-Auth-Assistant-0.1.6-windows-x64.exe`. Clique em **Instalar / atualizar arquivos**; os arquivos embutidos são conferidos e preparados em `%LOCALAPPDATA%\ARGWS\ConnectFindHubAuth\extension`. A atualização mantém a pasta e a identidade da extensão e conserva a versão anterior em `backups`.
+Abra `Connect-FindHub-Auth-Assistant-0.1.7-windows-x64.exe`. Clique em **Instalar / atualizar arquivos**; os arquivos embutidos são conferidos e preparados em `%LOCALAPPDATA%\ARGWS\ConnectFindHubAuth\extension`. A atualização mantém a pasta e a identidade da extensão e conserva a versão anterior em `backups`.
 
 Clique em Chrome ou Edge para abrir a página de extensões; o caminho da pasta é copiado. Na primeira utilização, habilite **Modo do desenvolvedor**, escolha **Carregar sem compactação** e cole o caminho. Na atualização, use **Recarregar** no card da extensão. O EXE não concede permissões nem ativa extensões silenciosamente. Se a extensão antiga foi carregada de outra pasta, remova somente aquele registro no navegador e carregue a pasta fixa acima; não deixe duas cópias ativas.
 

@@ -36,3 +36,11 @@ test('Rust assistant is embedded, offline, per-user and attached to both release
  for(const file of ['.github/workflows/auto-version-release.yml','.github/workflows/findhub-extension-release.yml'])assert.match(read(file),/Connect-FindHub-Auth-Assistant-\*\.exe/);
  const workflow=read('.github/workflows/findhub-extension-build.yml');assert.match(workflow,/cargo \+1\.90\.0 test/);assert.match(workflow,/--locked --offline/);
 });
+
+test('Windows smoke tests compare embedded version and identity to source manifest, never a stale literal',()=>{
+ for(const file of ['browser-extensions/findhub-auth/installer/smoke-test.ps1','browser-extensions/findhub-auth/windows-assistant/smoke-test.ps1']) {
+  const smoke=read(file); assert.match(smoke,/\$PSScriptRoot '\.\.\\manifest\.json'/);
+  assert.match(smoke,/\$manifest\.version -ne \$sourceManifest\.version/); assert.match(smoke,/\$manifest\.key -ne \$sourceManifest\.key/);
+  assert.doesNotMatch(smoke,/\$manifest\.version -ne '[0-9.]+'/);
+ }
+});
