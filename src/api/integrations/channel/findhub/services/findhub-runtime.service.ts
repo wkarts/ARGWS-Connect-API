@@ -495,7 +495,7 @@ export class FindHubStartupService {
 
   public async reconcileDevice(
     deviceId: string,
-    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number } = {},
+    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number; automatic?: boolean } = {},
   ): Promise<any> {
     const existing = this.reconciliations.get(deviceId);
     if (existing) return await existing;
@@ -553,6 +553,7 @@ export class FindHubStartupService {
       await this.reconcileDevice(candidate.deviceId, {
         from: candidate.from,
         to: candidate.to,
+        automatic: true,
       }).catch(async (error) => {
         await this.emit(FINDHUB_EVENTS.ERROR, {
           deviceId: candidate.deviceId,
@@ -566,7 +567,7 @@ export class FindHubStartupService {
 
   private async reconcileDeviceOnce(
     deviceId: string,
-    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number },
+    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number; automatic?: boolean },
   ): Promise<any> {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     const settings = await this.settings();
@@ -591,7 +592,7 @@ export class FindHubStartupService {
     const startedAt = new Date().toISOString();
     this.reconciliationStatus.set(deviceId, {
       status: 'running',
-      automatic: !input.from && !input.to && input.attempts === undefined && input.timeoutMs === undefined,
+      automatic: input.automatic === true,
       from: from.toISOString(),
       to: to.toISOString(),
       startedAt,
