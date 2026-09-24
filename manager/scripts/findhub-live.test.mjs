@@ -66,8 +66,8 @@ test('coordinates and timeout messages are factual, including latitude/longitude
  const {coordinate,locateResultMessage,locateErrorMessage,queryMessage}=load('findhub-position.ts');
  assert.equal(coordinate(0),'0.0000000');assert.equal(coordinate(undefined),'—');
  const p={latitude:1,longitude:2,timestamp:'2026-09-23T09:00:00Z'};
- assert.match(locateResultMessage(p,p),/não uma nova posição/);assert.match(locateResultMessage(null,p),/preservado/);
- assert.match(locateErrorMessage('Google Find Hub location request timed out',1),/1 ms/);
+ assert.match(locateResultMessage(p,p),/não uma nova posição/);assert.match(locateResultMessage(null,p),/aguardando a próxima observação/);
+ assert.match(locateErrorMessage('Google Find Hub command timeout',1),/envio da solicitação/);
  assert.match(queryMessage({status:'known_position'}),/Sem novo relatório/);
 });
 test('integration device button navigates to map and only overview/card tracking keeps modal',()=>{

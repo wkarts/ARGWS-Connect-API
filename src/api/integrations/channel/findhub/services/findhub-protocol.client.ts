@@ -12,7 +12,13 @@ import {
 } from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
-import { locationTimeoutMs, positionFingerprint, validPosition } from './findhub-tracking.policy';
+import {
+  comparePositionPreference,
+  isNewPositionObservation,
+  locationTimeoutMs,
+  positionFingerprint,
+  validPosition,
+} from './findhub-tracking.policy';
 
 type PendingLocation = {
   device: FindHubDevice;
@@ -21,13 +27,20 @@ type PendingLocation = {
   submitted: boolean;
   resolve: () => void;
   reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
+  timer?: NodeJS.Timeout;
   retain: boolean;
 };
 
-type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string> };
+type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string>; source: 'manual' | 'tracking' };
 const OBSERVATION_TTL_MS = 120_000;
 const MAX_RECENT_REQUESTS = 256;
+
+function commandTimeoutMs(): number {
+  const value = Number(process.env.FINDHUB_COMMAND_TIMEOUT_MS || 30000);
+  if (!Number.isInteger(value) || value < 1 || value > 2147483647)
+    throw new Error('FINDHUB_COMMAND_TIMEOUT_MS must be an integer between 1 and 2147483647.');
+  return value;
+}
 
 export class FindHubProtocolClient {
   private readonly auth = new GooglePlayAuthClient();
@@ -84,59 +97,59 @@ export class FindHubProtocolClient {
     return await this.nova.listDevices();
   }
 
+  public async requestLocation(device: FindHubDevice): Promise<string> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    this.pruneRecent();
+    const requestUuid = randomUUID();
+    this.rememberRecent(requestUuid, device, [], 'tracking');
+    try {
+      await this.nova.locate(
+        {
+          googleDeviceId: device.googleDeviceId,
+          fcmRegistrationId: this.fcm.registrationToken,
+          requestUuid,
+          clientUuid: this.clientUuid,
+        },
+        AbortSignal.timeout(commandTimeoutMs()),
+      );
+      return requestUuid;
+    } catch (error) {
+      this.recent.delete(requestUuid);
+      throw error;
+    }
+  }
+
   public async locate(device: FindHubDevice, timeoutMs?: number): Promise<FindHubPosition[]> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
     this.pruneRecent();
     const requestUuid = randomUUID();
     const timeout = locationTimeoutMs(timeoutMs);
-    const controller = new AbortController();
-    const afterTimestamp = Date.parse(device.latestPosition?.timestamp || '') || 0;
+    const afterPosition = device.latestPosition || null;
 
-    // One absolute deadline covers both command submission and the correlated push response.
-    // A cached report may arrive before a new fix. Do not consume the request on that first report.
+    // The operator timeout controls how long the HTTP caller waits for a new observation.
+    // It never cancels the command submission itself. Once Google accepts the command,
+    // the correlation remains active so a later FCM observation can still update SSE/map/history.
     return new Promise<FindHubPosition[]>((resolve, reject) => {
       const finish = (error?: Error) => {
         const pending = this.pending.get(requestUuid);
         if (!pending) return;
-        clearTimeout(pending.timer);
+        if (pending.timer) clearTimeout(pending.timer);
         this.pending.delete(requestUuid);
-        // Ending an HTTP wait must not discard a correlated push which Google delivers later.
-        // Keep only bounded, recently requested contexts, never accept unsolicited device IDs.
-        if (
-          !this.closing &&
-          this.onObservation &&
-          pending.retain &&
-          (!error || /location request timed out/i.test(error.message))
-        ) {
-          this.pruneRecent();
-          if (this.recent.size >= MAX_RECENT_REQUESTS) this.recent.delete(this.recent.keys().next().value!);
-          this.recent.set(requestUuid, {
-            device: pending.device,
-            expiresAt: Date.now() + OBSERVATION_TTL_MS,
-            seen: new Set(pending.reports.keys()),
-          });
+        if (!this.closing && this.onObservation && pending.retain && pending.submitted) {
+          this.rememberRecent(requestUuid, pending.device, pending.reports.keys(), 'manual');
         }
-        controller.abort();
         if (error) reject(error);
-        else resolve([...pending.reports.values()].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)));
+        else resolve([...pending.reports.values()].sort(comparePositionPreference));
       };
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(requestUuid);
-        // Only return reports actually received for THIS request, never a database/cache substitute.
-        if (pending?.submitted && pending.reports.size) finish();
-        else finish(new Error('Google Find Hub location request timed out'));
-      }, timeout);
-      timer.unref?.();
       const pending: PendingLocation = {
         device,
-        afterTimestamp,
+        afterTimestamp: Date.parse(afterPosition?.timestamp || '') || 0,
         reports: new Map(),
         submitted: false,
         retain: true,
         resolve: () => finish(),
         reject: (error) => finish(error),
-        timer,
       };
       this.pending.set(requestUuid, pending);
       void this.nova
@@ -147,12 +160,18 @@ export class FindHubProtocolClient {
             requestUuid,
             clientUuid: this.clientUuid,
           },
-          controller.signal,
+          AbortSignal.timeout(commandTimeoutMs()),
         )
         .then(() => {
           if (this.pending.get(requestUuid) !== pending) return;
           pending.submitted = true;
-          if ([...pending.reports.values()].some((p) => Date.parse(p.timestamp) > afterTimestamp)) pending.resolve();
+          if ([...pending.reports.values()].some((position) => isNewPositionObservation(position, afterPosition))) {
+            pending.resolve();
+            return;
+          }
+          const timer = setTimeout(() => pending.resolve(), timeout);
+          timer.unref?.();
+          pending.timer = timer;
         })
         .catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
     });
@@ -217,14 +236,14 @@ export class FindHubProtocolClient {
       // Bound per-request memory while retaining the newest reports.
       if (pending.reports.size > 128) {
         pending.reports = new Map(
-          [...pending.reports.entries()]
-            .sort((a, b) => Date.parse(b[1].timestamp) - Date.parse(a[1].timestamp))
-            .slice(0, 128),
+          [...pending.reports.entries()].sort((a, b) => comparePositionPreference(a[1], b[1])).slice(0, 128),
         );
       }
       if (
         pending.submitted &&
-        [...pending.reports.values()].some((position) => Date.parse(position.timestamp) > pending.afterTimestamp)
+        [...pending.reports.values()].some((position) =>
+          isNewPositionObservation(position, pending.device.latestPosition || null),
+        )
       )
         pending.resolve();
     } catch {
@@ -232,9 +251,31 @@ export class FindHubProtocolClient {
     }
   }
 
+  private rememberRecent(
+    requestUuid: string,
+    device: FindHubDevice,
+    seen: Iterable<string> = [],
+    source: 'manual' | 'tracking' = 'manual',
+  ): void {
+    this.pruneRecent();
+    const existing = this.recent.get(requestUuid);
+    if (existing) {
+      for (const fingerprint of seen) existing.seen.add(fingerprint);
+      existing.expiresAt = Date.now() + OBSERVATION_TTL_MS;
+      return;
+    }
+    if (this.recent.size >= MAX_RECENT_REQUESTS) this.recent.delete(this.recent.keys().next().value!);
+    this.recent.set(requestUuid, {
+      device,
+      expiresAt: Date.now() + OBSERVATION_TTL_MS,
+      seen: new Set(seen),
+      source,
+    });
+  }
+
   public stopObserving(deviceId: string): void {
-    for (const [id, context] of this.recent) if (context.device.id === deviceId) this.recent.delete(id);
-    for (const pending of this.pending.values()) if (pending.device.id === deviceId) pending.retain = false;
+    for (const [id, context] of this.recent)
+      if (context.device.id === deviceId && context.source === 'tracking') this.recent.delete(id);
   }
 
   private pruneRecent(): void {
