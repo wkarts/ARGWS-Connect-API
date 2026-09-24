@@ -49,8 +49,39 @@ export function trackingDelayMs(intervalSeconds: number, failures = 0): number {
 }
 export function positionFingerprint(position: FindHubPosition): string {
   return createHash('sha256')
-    .update(JSON.stringify([position.timestamp, position.latitude, position.longitude, position.source]))
+    .update(
+      JSON.stringify([
+        position.timestamp,
+        position.latitude,
+        position.longitude,
+        position.altitude ?? null,
+        position.accuracy ?? null,
+        position.source,
+        position.semanticLocation ?? null,
+        position.ownReport ?? null,
+      ]),
+    )
     .digest('hex');
+}
+
+export function isNewPositionObservation(
+  position: FindHubPosition,
+  previous?: FindHubPosition | null,
+): boolean {
+  if (!previous) return true;
+  const currentTime = Date.parse(position.timestamp);
+  const previousTime = Date.parse(previous.timestamp);
+  if (currentTime !== previousTime) return currentTime > previousTime;
+  return positionFingerprint(position) !== positionFingerprint(previous);
+}
+
+export function comparePositionPreference(left: FindHubPosition, right: FindHubPosition): number {
+  const byTime = Date.parse(right.timestamp) - Date.parse(left.timestamp);
+  if (byTime) return byTime;
+  const leftAccuracy = Number.isFinite(left.accuracy) ? Number(left.accuracy) : Number.POSITIVE_INFINITY;
+  const rightAccuracy = Number.isFinite(right.accuracy) ? Number(right.accuracy) : Number.POSITIVE_INFINITY;
+  if (leftAccuracy !== rightAccuracy) return leftAccuracy - rightAccuracy;
+  return Number(Boolean(right.ownReport)) - Number(Boolean(left.ownReport));
 }
 export function validPosition(position: FindHubPosition, now = Date.now()): boolean {
   return (
