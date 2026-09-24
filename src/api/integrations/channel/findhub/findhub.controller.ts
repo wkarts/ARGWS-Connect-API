@@ -148,6 +148,20 @@ export class FindHubController {
   public positions(instanceName: string, deviceId: string, limit: number, from?: string, to?: string) {
     return this.runtime(instanceName).positions(deviceId, limit, from, to);
   }
+  public async reconcileDevice(instanceName: string, deviceId: string, data: any) {
+    try {
+      return await this.runtime(instanceName).reconcileDevice(deviceId, data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao reconciliar histórico.');
+    }
+  }
+  public async reconcileAll(instanceName: string, data: any) {
+    try {
+      return await this.runtime(instanceName).reconcileAll(data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao reconciliar histórico.');
+    }
+  }
   public setTraccar(instanceName: string, deviceId: string, data: any) {
     return this.runtime(instanceName).setTraccar(deviceId, data);
   }
