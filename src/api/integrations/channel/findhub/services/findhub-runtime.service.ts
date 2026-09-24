@@ -65,6 +65,8 @@ export class FindHubStartupService {
   private traccarClient?: TraccarClient;
   private traccarState = 'disabled';
   private retentionTimer?: NodeJS.Timeout;
+  private reconciliationTimer?: NodeJS.Timeout;
+  private reconciliationTickRunning = false;
   private pruning = false;
   private subscribers = 0;
   private readonly locating = new Map<string, Promise<FindHubPosition | null>>();
@@ -132,6 +134,8 @@ export class FindHubStartupService {
 
     clearInterval(this.retentionTimer);
     this.retentionTimer = undefined;
+    clearInterval(this.reconciliationTimer);
+    this.reconciliationTimer = undefined;
     await this.protocol?.close().catch(() => undefined);
     let clientUuid = loaded.account.clientUuid;
     if (!clientUuid) {
@@ -168,9 +172,10 @@ export class FindHubStartupService {
       await this.authBroker.setAuthState(this.instance.id, 'READY');
       await this.setState('open');
       const settings = await this.settings();
-      const reconciliationCandidates = settings.reconciliationEnabled
-        ? await this.reconciliationCandidates(settings.reconciliationMinGapSeconds)
-        : [];
+      const reconciliationCandidates =
+        settings.reconciliationEnabled && settings.reconciliationOnBoot
+          ? await this.reconciliationCandidates(settings.reconciliationMinGapSeconds)
+          : [];
       await this.restoreTracking();
       if (reconciliationCandidates.length) {
         void this.reconcileCandidates(reconciliationCandidates).catch(async () => {
@@ -180,6 +185,7 @@ export class FindHubStartupService {
           });
         });
       }
+      this.installReconciliationSchedule(settings);
       this.retentionTimer = setInterval(
         () => {
           void this.pruneHistory().catch(() => undefined);
@@ -209,6 +215,9 @@ export class FindHubStartupService {
     this.generation++;
     clearInterval(this.retentionTimer);
     this.retentionTimer = undefined;
+    clearInterval(this.reconciliationTimer);
+    this.reconciliationTimer = undefined;
+    this.reconciliationTickRunning = false;
     this.traccarClient?.close();
     this.traccarClient = undefined;
     for (const timer of this.tracking.values()) clearInterval(timer);
@@ -537,6 +546,31 @@ export class FindHubStartupService {
     };
   }
 
+  private installReconciliationSchedule(settings: FindHubTrackingSettings): void {
+    clearInterval(this.reconciliationTimer);
+    this.reconciliationTimer = undefined;
+    if (!settings.reconciliationEnabled || !settings.reconciliationPeriodicEnabled) return;
+
+    this.reconciliationTimer = setInterval(() => {
+      void this.runScheduledReconciliation().catch(() => undefined);
+    }, settings.reconciliationPeriodSeconds * 1000);
+    this.reconciliationTimer.unref?.();
+  }
+
+  private async runScheduledReconciliation(): Promise<void> {
+    if (this.reconciliationTickRunning || !this.transportReady) return;
+    this.reconciliationTickRunning = true;
+    try {
+      const settings = await this.settings();
+      if (!settings.reconciliationEnabled || !settings.reconciliationPeriodicEnabled) return;
+      const candidates = await this.reconciliationCandidates(settings.reconciliationMinGapSeconds);
+      if (!candidates.length) return;
+      await this.reconcileCandidates(candidates);
+    } finally {
+      this.reconciliationTickRunning = false;
+    }
+  }
+
   private async reconciliationCandidates(minGapSeconds: number): Promise<Array<{ deviceId: string; from: string; to: string }>> {
     const now = new Date();
     const rows = await (this.prisma as any).findHubDevice.findMany({
@@ -857,6 +891,9 @@ export class FindHubStartupService {
       'historyEnabled',
       'retentionDays',
       'reconciliationEnabled',
+      'reconciliationOnBoot',
+      'reconciliationPeriodicEnabled',
+      'reconciliationPeriodSeconds',
       'reconciliationMinGapSeconds',
       'reconciliationAttempts',
     ];
@@ -868,6 +905,7 @@ export class FindHubStartupService {
       data: { trackingSettings: options },
     });
     this.options = options;
+    this.installReconciliationSchedule(options);
     await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { settings: options });
     return options;
   }
