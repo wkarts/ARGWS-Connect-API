@@ -72,7 +72,22 @@ export function isNewPositionObservation(
   const currentTime = Date.parse(position.timestamp);
   const previousTime = Date.parse(previous.timestamp);
   if (currentTime !== previousTime) return currentTime > previousTime;
-  return positionFingerprint(position) !== positionFingerprint(previous);
+  // Source/ownReport describe the transport/report kind and can change while referring
+  // to the same physical observation. Equal timestamps count as a new observation only
+  // when material location content changes (for example a more precise fix).
+  return JSON.stringify([
+    position.latitude,
+    position.longitude,
+    position.altitude ?? null,
+    position.accuracy ?? null,
+    position.semanticLocation ?? null,
+  ]) !== JSON.stringify([
+    previous.latitude,
+    previous.longitude,
+    previous.altitude ?? null,
+    previous.accuracy ?? null,
+    previous.semanticLocation ?? null,
+  ]);
 }
 
 export function comparePositionPreference(left: FindHubPosition, right: FindHubPosition): number {
