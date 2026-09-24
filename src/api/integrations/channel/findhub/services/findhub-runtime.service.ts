@@ -14,10 +14,10 @@ import { normalizeFindHubAvatar } from './findhub-avatar';
 import { FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
 import {
-  FindHubTrackingSettings,
-  locationAvailability,
   comparePositionPreference,
+  FindHubTrackingSettings,
   isNewPositionObservation,
+  locationAvailability,
   positionFingerprint,
   trackingDelayMs,
   trackingMinimum,
