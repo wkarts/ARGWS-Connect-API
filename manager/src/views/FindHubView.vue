@@ -29,6 +29,7 @@ const id = computed(() => String(route.params.id))
 const section = computed(() => String(route.params.section || 'conta'))
 const instance = ref<any>(null), auth = ref<any>(null), devices = ref<any[]>([]), history = ref<any[]>([])
 const busy = ref(false), error = ref(''), feedback = ref(''), chosen = ref(''), confirm = ref<'disconnect'|'delete'|null>(null)
+const reconciliationBusy = ref(false), reconciliationResult = ref<any>(null)
 const snapshot = ref<any>(null), streamState = ref('Conectando atualizações…')
 const trackingOpen = ref(false), trackingDevice = ref('')
 function openDeviceMap(deviceId: string) { void router.push({ path: findHubPath(id.value, 'mapa'), query: { device: deviceId } }) }
@@ -132,6 +133,26 @@ async function refreshDevices() {
   catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
+async function reconcileHistory() {
+  if (!chosen.value || reconciliationBusy.value) return
+  reconciliationBusy.value = true; reconciliationResult.value = null; error.value = ''; feedback.value = ''
+  try {
+    const data = {
+      from: from.value ? new Date(from.value).toISOString() : undefined,
+      to: to.value ? new Date(to.value).toISOString() : undefined,
+      attempts: snapshot.value?.settings?.reconciliationAttempts,
+      timeoutMs: snapshot.value?.settings?.timeoutMs,
+    }
+    reconciliationResult.value = await connect.findHubReconcile(id.value, chosen.value, data)
+    await loadSelected()
+    await reloadSnapshot()
+    const count = Number(reconciliationResult.value?.recoveredPositions || 0)
+    feedback.value = count
+      ? `Reconciliação concluída: ${count} posição(ões) adicional(is) recuperada(s) do Google.`
+      : 'Reconciliação concluída. O Google não devolveu posições adicionais para este intervalo.'
+  } catch (e) { error.value = friendlyError(e) }
+  finally { reconciliationBusy.value = false }
+}
 async function locate(device: any) {
   if (device.locating) return
   const currentId = id.value, deviceId = device.id, previous = device.latestPosition
@@ -218,8 +239,8 @@ onBeforeUnmount(() => { sequence++; stopStream() })
       <FindHubTrackingSettings ref="editor" header-actions v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />
       <PanelCard v-else-if="section==='historico'" title="Histórico de localização" description="Posições persistidas desta conta, com horário do relatório e retenção configurável.">
         <p v-if="!auth?.historyEnabled" class="alert">Armazenamento desabilitado para esta conta. <RouterLink :to="findHubPath(id,'configuracao')">Configurar histórico e retenção</RouterLink>. Posições já existentes permanecem consultáveis até vencerem a retenção.</p>
-        <div class="form-stack"><label class="field"><span>Dispositivo</span><select v-model="chosen" class="select" @change="loadSelected"><option v-for="d in devices" :key="d.id" :value="d.id">{{d.name}}</option></select></label><div class="field-grid two"><label class="field"><span>Início</span><input v-model="from" type="datetime-local" /></label><label class="field"><span>Fim</span><input v-model="to" type="datetime-local" /></label></div><div class="toolbar"><button class="btn ghost" @click="loadSelected">Filtrar</button></div></div>
-        <EmptyState v-if="!history.length" icon="location" title="Nenhuma posição no período" description="Ative o histórico e o rastreamento para armazenar novos relatórios. Não há coleta retroativa." />
+        <div class="form-stack"><label class="field"><span>Dispositivo</span><select v-model="chosen" class="select" @change="loadSelected"><option v-for="d in devices" :key="d.id" :value="d.id">{{d.name}}</option></select></label><div class="field-grid two"><label class="field"><span>Início</span><input v-model="from" type="datetime-local" /></label><label class="field"><span>Fim</span><input v-model="to" type="datetime-local" /></label></div><div class="toolbar"><button class="btn ghost" @click="loadSelected">Filtrar</button><button class="btn primary" :disabled="!connected || !chosen || reconciliationBusy || !auth?.historyEnabled" @click="reconcileHistory"><AppIcon name="refresh" :size="16"/>{{ reconciliationBusy ? 'Reconciliando…' : 'Tentar recuperar lacuna' }}</button></div><p class="muted">A reconciliação consulta novamente o Google Find Hub e salva relatórios RECENT/NETWORK antigos que ainda forem devolvidos. O Google não garante histórico completo do período.</p><div v-if="reconciliationResult" class="alert"><strong>Última reconciliação:</strong> {{ reconciliationResult.recoveredPositions }} posição(ões) nova(s), {{ reconciliationResult.attemptsCompleted }} tentativa(s). Período {{ stamp(reconciliationResult.from) }} → {{ stamp(reconciliationResult.to) }}.</div></div>
+        <EmptyState v-if="!history.length" icon="location" title="Nenhuma posição no período" description="Ative o histórico e o rastreamento para armazenar novos relatórios. Você também pode tentar reconciliar uma lacuna recente com o Google Find Hub." />
         <div v-else class="findhub-table"><FindHubMap :key="chosen" :position="historyTrail[historyTrail.length-1]" :trail="historyTrail" :tile-url="snapshot?.map?.tileUrl" :avatar-data="historyAvatar" :device-name="devices.find(d => d.id===chosen)?.name"/><table><thead><tr><th>Relatório</th><th>Latitude</th><th>Longitude</th><th>Precisão</th><th>Origem</th></tr></thead><tbody><tr v-for="(p,index) in history" :key="p.id || index"><td>{{stamp(p.recordedAt)}}</td><td>{{p.latitude}}</td><td>{{p.longitude}}</td><td>{{p.accuracy ?? '—'}} m</td><td>{{p.source}}</td></tr></tbody></table><p class="muted">Até 1.000 posições mais recentes do período. Use intervalos menores para consultar o restante.</p></div>
       </PanelCard>
       <FindHubTraccarConnection ref="editor" header-actions v-else-if="section==='integracoes'" :key="id" :instance-id="id" :devices="devices" />

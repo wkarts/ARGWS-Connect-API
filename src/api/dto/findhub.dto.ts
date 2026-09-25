@@ -46,6 +46,19 @@ export class FindHubSettingsDto {
   staleAfterSeconds?: number;
   historyEnabled?: boolean;
   retentionDays?: number;
+  reconciliationEnabled?: boolean;
+  reconciliationOnBoot?: boolean;
+  reconciliationPeriodicEnabled?: boolean;
+  reconciliationPeriodSeconds?: number;
+  reconciliationMinGapSeconds?: number;
+  reconciliationAttempts?: number;
+}
+
+export class FindHubReconciliationDto {
+  from?: string;
+  to?: string;
+  attempts?: number;
+  timeoutMs?: number;
 }
 export class FindHubTraccarConnectionDto {
   mode: 'disabled' | 'internal' | 'external';

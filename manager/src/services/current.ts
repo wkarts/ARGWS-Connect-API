@@ -626,6 +626,17 @@ export const current = {
     }))
   },
 
+  async findHubReconcile(id: string, deviceId: string, data: any = {}) {
+    const timeout = Math.min(
+      2147483647,
+      Number(data.timeoutMs ?? 30000) * Number(data.attempts ?? 3) + 15000,
+    )
+    return withInstance(id, async (_item, name, token) => api<any>(
+      `/findhub/positions/reconcile/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+      { method: 'POST', token, data, timeout },
+    ))
+  },
+
   async health() {
     return api<any>('/health', { token: '' })
   },

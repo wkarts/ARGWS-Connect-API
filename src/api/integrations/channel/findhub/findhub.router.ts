@@ -7,6 +7,7 @@ import {
   FindHubCredentialBundleDto,
   FindHubDeviceAvatarDto,
   FindHubLocateDto,
+  FindHubReconciliationDto,
   FindHubSettingsDto,
   FindHubTraccarConnectionDto,
   FindHubTraccarDto,
@@ -22,6 +23,7 @@ import {
   findHubCredentialBundleSchema,
   findHubDeviceAvatarSchema,
   findHubLocateSchema,
+  findHubReconciliationSchema,
   findHubSettingsSchema,
   findHubTraccarConnectionSchema,
   findHubTraccarSchema,
@@ -213,6 +215,27 @@ export class FindHubRouter extends RouterBroker {
             typeof req.query.from === 'string' ? req.query.from : undefined,
             typeof req.query.to === 'string' ? req.query.to : undefined,
           ),
+        ),
+      )
+      .post('/positions/reconcile/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubReconciliationDto>({
+            request: req,
+            schema: findHubReconciliationSchema,
+            ClassRef: FindHubReconciliationDto,
+            execute: (instance, data) =>
+              findHubController.reconcileDevice(instance.instanceName, req.params.deviceId, data),
+          }),
+        ),
+      )
+      .post('/positions/reconcile/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubReconciliationDto>({
+            request: req,
+            schema: findHubReconciliationSchema,
+            ClassRef: FindHubReconciliationDto,
+            execute: (instance, data) => findHubController.reconcileAll(instance.instanceName, data),
+          }),
         ),
       )
       .put('/traccar/:deviceId/:instanceName', ...guards, async (req, res) =>

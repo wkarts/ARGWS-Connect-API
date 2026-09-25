@@ -37,11 +37,11 @@ function runtimeHarness(globals={}) {
  const emitter=new EventEmitter(), events=[], calls=[], positions=[];
  const row={id:'d-a',instanceId:'a',accountId:'a',googleDeviceId:'g-a',name:'Phone',identifierType:'ANDROID',deviceType:'PHONE',trackingIntervalSeconds:60,trackingEnabled:false,latestPosition:null,lastLocationAt:null};
  const other={...row,id:'d-b',instanceId:'b',googleDeviceId:'g-b'};const devices=[row,other];
- const account={id:'account-a',instanceId:'a',googleEmail:'a@example.invalid',trackingSettings:{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30},encryptedTraccar:null};
- function match(r,w){return Object.entries(w||{}).every(([k,v])=>{if(k==='OR')return v.some(x=>match(r,x));if(v && typeof v==='object'){if('in' in v)return v.in.includes(r[k]);if('lt' in v)return r[k]<v.lt;if('lte' in v)return r[k]<=v.lte;if('equals' in v)return r[k]==null;}return r[k]===v})}
+ const account={id:'account-a',instanceId:'a',googleEmail:'a@example.invalid',trackingSettings:{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30,reconciliationEnabled:true,reconciliationOnBoot:true,reconciliationPeriodicEnabled:false,reconciliationPeriodSeconds:3600,reconciliationMinGapSeconds:300,reconciliationAttempts:3},encryptedTraccar:null};
+ function match(r,w){return Object.entries(w||{}).every(([k,v])=>{if(k==='OR')return v.some(x=>match(r,x));if(v && typeof v==='object'){if('in' in v)return v.in.includes(r[k]);if('gt' in v && !(r[k]>v.gt))return false;if('gte' in v && !(r[k]>=v.gte))return false;if('lt' in v && !(r[k]<v.lt))return false;if('lte' in v && !(r[k]<=v.lte))return false;if('equals' in v)return v.equals===null?r[k]==null:r[k]===v.equals;if(['gt','gte','lt','lte'].some(op=>op in v))return true;}return r[k]===v})}
  const db={instance:{async update(){}},findHubAccount:{async findUnique({where}){assert.equal(where.instanceId,'a');return account},async update({where,data}){assert.equal(where.instanceId,'a');Object.assign(account,data);return account}},
   findHubDevice:{async findFirst({where}){calls.push(['device',where]);return devices.find(d=>match(d,where))},async findMany({where}){return devices.filter(d=>match(d,where))},async updateMany({where,data}){calls.push(['update',where]);let n=0;for(const d of devices)if(match(d,where)){Object.assign(d,data);n++}return {count:n}},async update({where,data}){const d=devices.find(d=>d.id===where.id);Object.assign(d,data);return d}},
-  findHubPosition:{async count(){return positions.length},async upsert({where,create}){calls.push(['history',where]);let old=positions.find(p=>p.fingerprint===create.fingerprint&&p.instanceId===create.instanceId&&p.deviceId===create.deviceId);if(!old){old={id:'p-'+positions.length,...create};positions.push(old)}return old},async findMany({where,take}){calls.push(['history-read',where]);return positions.filter(p=>match(p,where)).slice(0,take)},async deleteMany({where}){calls.push(['history-delete',where]);let n=0;for(let i=positions.length-1;i>=0;i--)if(match(positions[i],where)){positions.splice(i,1);n++}return {count:n}}},
+  findHubPosition:{async count({where}={}){return positions.filter(p=>match(p,where||{})).length},async upsert({where,create}){calls.push(['history',where]);let old=positions.find(p=>p.fingerprint===create.fingerprint&&p.instanceId===create.instanceId&&p.deviceId===create.deviceId);if(!old){old={id:'p-'+positions.length,...create};positions.push(old)}return old},async findMany({where,take,orderBy,select}={}){calls.push(['history-read',where]);let rows=positions.filter(p=>match(p,where||{}));if(orderBy?.recordedAt==='asc')rows.sort((a,b)=>new Date(a.recordedAt)-new Date(b.recordedAt));if(orderBy?.recordedAt==='desc')rows.sort((a,b)=>new Date(b.recordedAt)-new Date(a.recordedAt));rows=rows.slice(0,take??rows.length);if(select)rows=rows.map(r=>Object.fromEntries(Object.keys(select).filter(k=>select[k]).map(k=>[k,r[k]])));return rows},async deleteMany({where}){calls.push(['history-delete',where]);let n=0;for(let i=positions.length-1;i>=0;i--)if(match(positions[i],where)){positions.splice(i,1);n++}return {count:n}}},
   findHubTraccarBinding:{async findUnique(){return null},async findMany({where}){assert.equal(where.instanceId,'a');return []}},async $transaction(fn){return fn(db)}};
  const overrides={
   '@prisma/client':{Prisma:{DbNull:{isNull:true}}},'@api/server.module':{eventManager:{async emit(e){events.push(e)}}},'@config/logger.config':{Logger:class{setInstance(){}error(){}}},
@@ -61,6 +61,31 @@ test('retention 0 preserves all history; positive retention never deletes anothe
 test('runtime SSE subscription does not receive other account events or API credentials',async()=>{const h=runtimeHarness(),seen=[];const stop=h.runtime.subscribe(e=>seen.push(e));h.emitter.emit('findhub:stream:b',{instanceId:'b'});await h.runtime.emit('findhub.location.updated',{location:position});assert.equal(seen.length,1);assert.equal(seen[0].instanceId,'a');assert.ok(!JSON.stringify(seen).includes('private-api-key'));stop();await h.runtime.emit('findhub.error',{});assert.equal(seen.length,1)});
 test('history query checks device ownership before reading rows',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.positions('d-b'));assert.equal(h.calls.filter(c=>c[0]==='history-read').length,0)});
 test('settings use an allowlist, never exposing or accepting credential fields',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.saveSettings({token:'bad'}));const saved=await h.runtime.saveSettings({retentionDays:0});assert.equal(saved.retentionDays,0);assert.equal(h.account.trackingSettings.retentionDays,0)});
+test('reconciliation settings are additive and keep periodic mode opt-in',()=>{
+ const settings=policy.trackingSettings({});
+ assert.equal(settings.reconciliationEnabled,true);
+ assert.equal(settings.reconciliationOnBoot,true);
+ assert.equal(settings.reconciliationPeriodicEnabled,false);
+ assert.equal(settings.reconciliationPeriodSeconds,3600);
+ assert.equal(settings.reconciliationMinGapSeconds,300);
+ assert.equal(settings.reconciliationAttempts,3);
+});
+test('manual reconciliation imports every valid Google report while measuring only the target gap',async()=>{
+ const h=runtimeHarness();h.row.trackingEnabled=true;h.row.lastLocationAt=new Date(now-5*60*60*1000);
+ const inGap={...position,deviceId:'d-a',googleDeviceId:'g-a',timestamp:new Date(now-2*60*60*1000).toISOString(),source:'NETWORK'};
+ const olderAvailable={...inGap,timestamp:new Date(now-8*60*60*1000).toISOString(),latitude:-11.5};
+ let locateCalls=0;h.runtime.protocol.locate=async()=>{locateCalls++;return [inGap,olderAvailable]};
+ const result=await h.runtime.reconcileDevice('d-a',{from:new Date(now-5*60*60*1000).toISOString(),to:new Date(now).toISOString(),attempts:3,timeoutMs:10});
+ assert.equal(result.recoveredPositions,1);assert.equal(result.providerReportsObserved,2);assert.equal(result.completenessGuaranteed,false);
+ assert.equal(h.positions.length,2);assert.equal(locateCalls,3);
+ const repeated=await h.runtime.reconcileDevice('d-a',{from:new Date(now-5*60*60*1000).toISOString(),to:new Date(now).toISOString(),attempts:2,timeoutMs:10});
+ assert.equal(repeated.recoveredPositions,0);assert.equal(h.positions.length,2);
+});
+test('reconciliation does not run concurrently with an active tracking dispatch',async()=>{
+ const h=runtimeHarness();h.runtime.dispatching.add('d-a');
+ await assert.rejects(h.runtime.reconcileDevice('d-a',{}),/executando uma consulta/);
+});
+
 test('snapshot reports verified status, real counters, settings and no provider credentials',async()=>{const h=runtimeHarness();const result=await h.runtime.snapshot();assert.equal(result.connected,true);assert.equal(result.devices.length,1);assert.equal(result.counts.devices,1);assert.equal(result.email,'a@example.invalid');assert.equal(result.traccar.mode,'disabled');assert.ok(!JSON.stringify(result).includes('private-api-key'))});
 
 

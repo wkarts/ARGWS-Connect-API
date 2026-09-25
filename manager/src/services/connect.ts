@@ -125,6 +125,7 @@ export const connect = {
   findHubStartTracking: (id: string, deviceId: string, intervalSeconds = 60, timeoutMs?: number): Promise<any> => invoke('findHubStartTracking', id, deviceId, intervalSeconds, timeoutMs),
   findHubStopTracking: (id: string, deviceId: string): Promise<any> => invoke('findHubStopTracking', id, deviceId),
   findHubPositions: (id: string, deviceId: string, limit = 100, from?: string, to?: string): Promise<any[]> => invoke('findHubPositions', id, deviceId, limit, from, to),
+  findHubReconcile: (id: string, deviceId: string, data?: any): Promise<any> => invoke('findHubReconcile', id, deviceId, data || {}),
   health: (): Promise<any> => invoke('health'),
   updates: (): Promise<any> => invoke('updates'),
 }

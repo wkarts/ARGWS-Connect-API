@@ -205,3 +205,108 @@ for (const event of ['findhub.location.updated','findhub.tracking.update','findh
   if (findHubEventMessages[event]?.data?.properties) findHubEventMessages[event].data.properties.query=findHubSchemas.FindHubLocationQuery;
 }
 findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].description+=' Cada solicitação envia um comando real e correlaciona a resposta FCM pelo UUID. Relatório repetido não encerra a espera antes de uma observação mais nova ou do deadline absoluto. No deadline, somente relatórios realmente recebidos nessa consulta podem ser retornados como última posição conhecida. Sem resposta, ocorre timeout; nunca existe fallback silencioso ao banco. O resultado detalhado está em lastQuery no snapshot e query nos eventos; new_report significa mais recente que o relatório local, não GPS necessariamente atual.';
+
+// Gap reconciliation is additive to the existing local history. The provider can return
+// older RECENT/NETWORK reports, but completeness for an arbitrary interval is never promised.
+findHubSchemas.FindHubReconciliationRequest = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    from: timestamp,
+    to: timestamp,
+    attempts: { type: 'integer', minimum: 1, maximum: 10, default: 3 },
+    timeoutMs: trackingProperties.timeoutMs,
+  },
+};
+findHubSchemas.FindHubReconciliationResult = {
+  type: 'object',
+  required: [
+    'deviceId',
+    'status',
+    'from',
+    'to',
+    'startedAt',
+    'completedAt',
+    'attemptsRequested',
+    'attemptsCompleted',
+    'positionsBefore',
+    'positionsAfter',
+    'recoveredPositions',
+    'providerReportsObserved',
+    'completenessGuaranteed',
+  ],
+  properties: {
+    deviceId: text,
+    deviceName: text,
+    status: { type: 'string', enum: ['recovered', 'no_recoverable_positions'] },
+    from: timestamp,
+    to: timestamp,
+    startedAt: timestamp,
+    completedAt: timestamp,
+    attemptsRequested: { type: 'integer', minimum: 1, maximum: 10 },
+    attemptsCompleted: { type: 'integer', minimum: 0, maximum: 10 },
+    positionsBefore: { type: 'integer', minimum: 0 },
+    positionsAfter: { type: 'integer', minimum: 0 },
+    recoveredPositions: { type: 'integer', minimum: 0 },
+    providerReportsObserved: { type: 'integer', minimum: 0 },
+    firstRecoveredAt: { type: ['string', 'null'], format: 'date-time' },
+    lastRecoveredAt: { type: ['string', 'null'], format: 'date-time' },
+    sources: { type: 'array', items: { type: 'string' } },
+    completenessGuaranteed: { const: false },
+    note: text,
+  },
+};
+findHubSchemas.FindHubReconciliationBatchResult = {
+  type: 'object',
+  required: ['startedAt', 'completedAt', 'automatic', 'settings', 'results'],
+  properties: {
+    startedAt: timestamp,
+    completedAt: timestamp,
+    automatic: { const: false },
+    settings: {
+      type: 'object',
+      properties: {
+        enabled: { type: 'boolean' },
+        minGapSeconds: { type: 'integer', minimum: 30, maximum: 2592000 },
+        attempts: { type: 'integer', minimum: 1, maximum: 10 },
+      },
+    },
+    results: {
+      type: 'array',
+      items: {
+        oneOf: [
+          ref('FindHubReconciliationResult'),
+          {
+            type: 'object',
+            required: ['deviceId', 'status', 'error'],
+            properties: { deviceId: text, deviceName: text, status: { const: 'failed' }, error: text },
+          },
+        ],
+      },
+    },
+  },
+};
+
+findHubOperations['POST /findhub/positions/reconcile/{deviceId}/{instanceName}'] = operation(
+  'Reconciliar lacuna de um dispositivo',
+  'Executa recuperação best effort no Google Find Hub para um dispositivo. Importa e deduplica todos os relatórios válidos RECENT/NETWORK realmente devolvidos pelo provider, inclusive relatórios fora do intervalo usado como métrica. Não interpola posições e não promete reconstrução completa da lacuna.',
+  ref('FindHubReconciliationResult'),
+  {
+    requestBody: {
+      required: false,
+      content: { 'application/json': { schema: ref('FindHubReconciliationRequest') } },
+    },
+  },
+);
+findHubOperations['POST /findhub/positions/reconcile/{instanceName}'] = operation(
+  'Reconciliar dispositivos rastreados da instância',
+  'Executa manualmente a reconciliação dos dispositivos com tracking habilitado nesta instância. Cada dispositivo reutiliza a persistência idempotente do histórico e devolve o resultado individual sem fabricar posições ausentes no Google.',
+  ref('FindHubReconciliationBatchResult'),
+  {
+    requestBody: {
+      required: false,
+      content: { 'application/json': { schema: ref('FindHubReconciliationRequest') } },
+    },
+  },
+);
+

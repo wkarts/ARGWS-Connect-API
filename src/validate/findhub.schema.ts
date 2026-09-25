@@ -99,6 +99,24 @@ export const findHubSettingsSchema: JSONSchema7 = {
     staleAfterSeconds: { type: 'integer', minimum: 30, maximum: 604800 },
     historyEnabled: { type: 'boolean' },
     retentionDays: { type: 'integer', minimum: 0, maximum: 36500 },
+    reconciliationEnabled: { type: 'boolean' },
+    reconciliationOnBoot: { type: 'boolean' },
+    reconciliationPeriodicEnabled: { type: 'boolean' },
+    reconciliationPeriodSeconds: { type: 'integer', minimum: 60, maximum: 2592000 },
+    reconciliationMinGapSeconds: { type: 'integer', minimum: 30, maximum: 2592000 },
+    reconciliationAttempts: { type: 'integer', minimum: 1, maximum: 10 },
+  },
+};
+
+export const findHubReconciliationSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    attempts: { type: 'integer', minimum: 1, maximum: 10 },
+    timeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 },
   },
 };
 export const findHubTraccarConnectionSchema: JSONSchema7 = {
