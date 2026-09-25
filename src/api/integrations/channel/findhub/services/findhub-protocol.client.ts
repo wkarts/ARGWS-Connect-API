@@ -59,6 +59,7 @@ type PendingLocation = {
   afterTimestamp: number;
   reports: Map<string, FindHubPosition>;
   diagnostics?: FindHubLocateDiagnostics;
+  collectUntilTimeout: boolean;
   submitted: boolean;
   resolve: () => void;
   reject: (error: Error) => void;
@@ -158,6 +159,7 @@ export class FindHubProtocolClient {
     device: FindHubDevice,
     timeoutMs?: number,
     diagnostics?: FindHubLocateDiagnostics,
+    options: { collectUntilTimeout?: boolean } = {},
   ): Promise<FindHubPosition[]> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
@@ -186,6 +188,7 @@ export class FindHubProtocolClient {
         afterTimestamp: Date.parse(afterPosition?.timestamp || '') || 0,
         reports: new Map(),
         diagnostics,
+        collectUntilTimeout: options.collectUntilTimeout === true,
         submitted: false,
         retain: true,
         resolve: () => finish(),
@@ -205,7 +208,10 @@ export class FindHubProtocolClient {
         .then(() => {
           if (this.pending.get(requestUuid) !== pending) return;
           pending.submitted = true;
-          if ([...pending.reports.values()].some((position) => isNewPositionObservation(position, afterPosition))) {
+          if (
+            !pending.collectUntilTimeout &&
+            [...pending.reports.values()].some((position) => isNewPositionObservation(position, afterPosition))
+          ) {
             pending.resolve();
             return;
           }
@@ -326,6 +332,7 @@ export class FindHubProtocolClient {
         );
       }
       if (
+        !pending.collectUntilTimeout &&
         pending.submitted &&
         [...pending.reports.values()].some((position) =>
           isNewPositionObservation(position, pending.device.latestPosition || null),
