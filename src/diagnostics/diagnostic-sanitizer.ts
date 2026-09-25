@@ -690,8 +690,7 @@ export function sanitizeDiagnostic(input: unknown, now = Date.now()): Diagnostic
           networkReports: numeric(read(input, 'networkReports'), 1000000),
           recoveredPositions: numeric(read(input, 'recoveredPositions'), 1000000),
         });
-        level =
-          status === 'provider_reports_unusable' || status === 'no_usable_position' ? 'warn' : 'info';
+        level = status === 'provider_reports_unusable' || status === 'no_usable_position' ? 'warn' : 'info';
         break;
       }
       case 'webhook.delivery': {
