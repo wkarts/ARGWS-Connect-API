@@ -35,6 +35,39 @@ test('documentation assets and query stay on the configured internal host', () =
   assert.throws(() => internalDocsTarget('http://user:password@docs:8080', '/'));
 });
 
+test('Manager iframe policy allows hubs by default and remains explicitly restrictable', () => {
+  const source = read('src/utils/managerFramePolicy.ts');
+  const policy = (env) => compile(source, { process: { env } }).managerFramePolicy();
+
+  assert.equal(policy({}).enabled, true);
+  assert.equal(policy({}).frameAncestors, '*');
+  assert.equal(policy({ MANAGER_IFRAME_ENABLED: 'false' }).frameAncestors, "'none'");
+  assert.equal(
+    policy({ MANAGER_FRAME_ANCESTORS: "'self',https://hub-dev.argws.com.br https://hub.argws.com.br" }).frameAncestors,
+    "'self' https://hub-dev.argws.com.br https://hub.argws.com.br",
+  );
+  assert.equal(
+    policy({ MANAGER_FRAME_ANCESTORS: 'https://hub-dev.argws.com.br\r\nX-Frame-Options:DENY' }).frameAncestors,
+    'https://hub-dev.argws.com.br',
+  );
+});
+
+test('Manager responses remove legacy X-Frame-Options and publish frame-ancestors', () => {
+  const router = read('src/api/routes/view.router.ts');
+  assert.match(router, /removeHeader\('X-Frame-Options'\)/);
+  assert.match(router, /Content-Security-Policy/);
+  assert.match(router, /X-Connect-Manager-Embedding/);
+
+  const nginx = read('manager/nginx.conf');
+  assert.match(nginx, /frame-ancestors \*/);
+  assert.doesNotMatch(nginx, /frame-ancestors 'none'/);
+
+  const cloudpanel = read('deploy/cloudpanel/nginx/api-location.conf.example');
+  assert.match(cloudpanel, /location \^~ \/manager\//);
+  assert.match(cloudpanel, /proxy_hide_header X-Frame-Options/);
+  assert.match(cloudpanel, /Content-Security-Policy "frame-ancestors \*"/);
+});
+
 test('documentation forwarding never follows remote redirects server-side', () => {
   const source = read('src/api/routes/view.router.ts');
   assert.ok(source.includes("redirect: 'manual'"));
