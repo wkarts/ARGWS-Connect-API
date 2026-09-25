@@ -4,10 +4,9 @@ import { ConfigService, HttpServer } from '@config/env.config';
 import { Logger } from '@config/logger.config';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
-
-import { diagnostics } from '../../../../../diagnostics/diagnostics.service';
 import EventEmitter2 from 'eventemitter2';
 
+import { diagnostics } from '../../../../../diagnostics/diagnostics.service';
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
 import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
@@ -608,8 +607,7 @@ export class FindHubStartupService {
     const candidates: FindHubReconciliationCandidate[] = [];
 
     for (const row of rows) {
-      const thresholdMs =
-        Math.max(minGapSeconds, Math.max(0, Number(row.trackingIntervalSeconds || 0)) * 2) * 1000;
+      const thresholdMs = Math.max(minGapSeconds, Math.max(0, Number(row.trackingIntervalSeconds || 0)) * 2) * 1000;
       const positions = await (this.prisma as any).findHubPosition.findMany({
         where: {
           instanceId: this.instance.id,
@@ -928,8 +926,7 @@ export class FindHubStartupService {
         : null,
       sources: [...new Set(rows.map((row: any) => row.source).filter(Boolean))],
       completenessGuaranteed: false,
-      note:
-        'Todos os relatórios válidos devolvidos pelo Google foram processados com deduplicação local. O intervalo solicitado mede a recuperação da lacuna; relatórios válidos fora dele também são importados. O Google Find Hub não garante uma timeline histórica completa.',
+      note: 'Todos os relatórios válidos devolvidos pelo Google foram processados com deduplicação local. O intervalo solicitado mede a recuperação da lacuna; relatórios válidos fora dele também são importados. O Google Find Hub não garante uma timeline histórica completa.',
     };
 
     diagnostics.record({
