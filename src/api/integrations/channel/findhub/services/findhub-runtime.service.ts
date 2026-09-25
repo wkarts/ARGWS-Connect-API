@@ -13,11 +13,7 @@ import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
 import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
 import { normalizeFindHubAvatar } from './findhub-avatar';
-import {
-  createFindHubLocateDiagnostics,
-  FindHubLocateDiagnostics,
-  FindHubProtocolClient,
-} from './findhub-protocol.client';
+import { createFindHubLocateDiagnostics, FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
 import {
   comparePositionPreference,
