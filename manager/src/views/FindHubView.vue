@@ -30,7 +30,12 @@ const section = computed(() => String(route.params.section || 'conta'))
 const instance = ref<any>(null), auth = ref<any>(null), devices = ref<any[]>([]), history = ref<any[]>([])
 const busy = ref(false), error = ref(''), feedback = ref(''), chosen = ref(''), confirm = ref<'disconnect'|'delete'|null>(null)
 const reconciliationBusy = ref(false), reconciliationResult = ref<any>(null)
-const latestReconciliation = computed(() => reconciliationResult.value || snapshot.value?.devices?.find((device: any) => device.id===chosen.value)?.reconciliation || null)
+function reconciliationTimestamp(value: any) { return Date.parse(value?.completedAt || value?.startedAt || '') || 0 }
+const latestReconciliation = computed(() => {
+  const local = reconciliationResult.value?.deviceId===chosen.value ? reconciliationResult.value : null
+  const remote = snapshot.value?.devices?.find((device: any) => device.id===chosen.value)?.reconciliation || null
+  return reconciliationTimestamp(remote) > reconciliationTimestamp(local) ? remote : local || remote
+})
 const snapshot = ref<any>(null), streamState = ref('Conectando atualizações…')
 const trackingOpen = ref(false), trackingDevice = ref('')
 function openDeviceMap(deviceId: string) { void router.push({ path: findHubPath(id.value, 'mapa'), query: { device: deviceId } }) }
@@ -119,6 +124,7 @@ async function load() {
 async function loadSelected() {
   history.value = []
   const currentId=id.value, deviceId=chosen.value, currentSection=section.value
+  if (reconciliationResult.value?.deviceId && reconciliationResult.value.deviceId !== deviceId) reconciliationResult.value = null
   if (!deviceId) return
   try {
     if (currentSection === 'historico') {
@@ -210,7 +216,7 @@ async function accountAction() {
   } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
-watch(id, () => { instance.value=null; snapshot.value=null; chosen.value=''; error.value=''; feedback.value=''; void load() })
+watch(id, () => { instance.value=null; snapshot.value=null; chosen.value=''; reconciliationResult.value=null; error.value=''; feedback.value=''; void load() })
 watch(section, () => { error.value=''; feedback.value=''; void loadSelected() })
 watch(id, startStream)
 onMounted(() => { void load(); startStream() })
