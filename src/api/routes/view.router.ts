@@ -1,6 +1,7 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import { managerFeatures } from '@config/manager-features.config';
 import { internalDocsTarget } from '@utils/internalDocsTarget';
+import { managerFramePolicy } from '@utils/managerFramePolicy';
 import express, { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -26,6 +27,7 @@ function readApplicationVersion(): string {
 const applicationVersion = readApplicationVersion();
 
 function managerRuntimeConfig() {
+  const embedding = managerFramePolicy();
   return {
     compatibility: 'current',
     apiBaseUrl: process.env.MANAGER_API_BASE_URL?.trim() || '',
@@ -33,6 +35,7 @@ function managerRuntimeConfig() {
     requestTimeoutMs: Number.parseInt(process.env.MANAGER_REQUEST_TIMEOUT_MS || '30000', 10) || 30000,
     authMode: process.env.MANAGER_AUTH_MODE === 'account' ? 'account' : 'access-code',
     appVersion: applicationVersion,
+    embedding,
     features: managerFeatures(),
   };
 }
@@ -47,6 +50,18 @@ export class ViewsRouter extends RouterBroker {
     const basePath = path.join(process.cwd(), 'manager', 'dist');
     const indexPath = path.join(basePath, 'index.html');
     const indexHtml = fs.readFileSync(indexPath, 'utf8');
+    const embedding = managerFramePolicy();
+
+    // The Manager is intentionally embeddable when enabled. CSP frame-ancestors
+    // is the standards-based control; X-Frame-Options would conflict with
+    // cross-origin hubs and is therefore removed from the application response.
+    this.router.use((_req, res, next) => {
+      res.removeHeader('X-Frame-Options');
+      res.set('Content-Security-Policy', embedding.contentSecurityPolicy);
+      res.set('X-Connect-Manager-Embedding', embedding.enabled ? 'enabled' : 'disabled');
+      res.set('X-Connect-Manager-Frame-Ancestors', embedding.frameAncestors);
+      next();
+    });
 
     // Runtime configuration is emitted by the API container so production can
     // hide unfinished screens through ENV without rebuilding the Manager.
