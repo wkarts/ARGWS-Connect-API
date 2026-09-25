@@ -50,6 +50,7 @@ export class FindHubSettingsDto {
   reconciliationOnBoot?: boolean;
   reconciliationPeriodicEnabled?: boolean;
   reconciliationPeriodSeconds?: number;
+  reconciliationLookbackHours?: number;
   reconciliationMinGapSeconds?: number;
   reconciliationAttempts?: number;
 }

@@ -12,6 +12,7 @@ export interface FindHubTrackingSettings {
   reconciliationOnBoot: boolean;
   reconciliationPeriodicEnabled: boolean;
   reconciliationPeriodSeconds: number;
+  reconciliationLookbackHours: number;
   reconciliationMinGapSeconds: number;
   reconciliationAttempts: number;
 }
@@ -66,6 +67,12 @@ export function trackingSettings(value: any = {}): FindHubTrackingSettings {
       Number(process.env.FINDHUB_RECONCILIATION_PERIOD_SECONDS || 3600),
       60,
       2592000,
+    ),
+    reconciliationLookbackHours: integer(
+      value.reconciliationLookbackHours,
+      Number(process.env.FINDHUB_RECONCILIATION_LOOKBACK_HOURS || 48),
+      1,
+      720,
     ),
     reconciliationMinGapSeconds: integer(
       value.reconciliationMinGapSeconds,

@@ -34,25 +34,26 @@ test('SSE failed authorization/snapshot releases resources before any headers',a
 test('slow SSE reader is disconnected without unbounded buffer',async()=>{const res=response();let listener,stopped=0;await findHubStream({params:{instanceName:'account'}},res,{subscribe(n,fn){listener=fn;return()=>stopped++},async snapshot(){return {instanceId:'account'}}});res.writableLength=300000;listener({event:'large'});assert.equal(res.writableEnded,true);assert.equal(stopped,1)});
 
 function runtimeHarness(globals={}) {
- const emitter=new EventEmitter(), events=[], calls=[], positions=[];
+ const emitter=new EventEmitter(), events=[], calls=[], positions=[], diagnosticEvents=[];
  const row={id:'d-a',instanceId:'a',accountId:'a',googleDeviceId:'g-a',name:'Phone',identifierType:'ANDROID',deviceType:'PHONE',trackingIntervalSeconds:60,trackingEnabled:false,latestPosition:null,lastLocationAt:null};
  const other={...row,id:'d-b',instanceId:'b',googleDeviceId:'g-b'};const devices=[row,other];
- const account={id:'account-a',instanceId:'a',googleEmail:'a@example.invalid',trackingSettings:{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30,reconciliationEnabled:true,reconciliationOnBoot:true,reconciliationPeriodicEnabled:false,reconciliationPeriodSeconds:3600,reconciliationMinGapSeconds:300,reconciliationAttempts:3},encryptedTraccar:null};
+ const account={id:'account-a',instanceId:'a',googleEmail:'a@example.invalid',trackingSettings:{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30,reconciliationEnabled:true,reconciliationOnBoot:true,reconciliationPeriodicEnabled:false,reconciliationPeriodSeconds:3600,reconciliationLookbackHours:48,reconciliationMinGapSeconds:300,reconciliationAttempts:3},encryptedTraccar:null};
  function match(r,w){return Object.entries(w||{}).every(([k,v])=>{if(k==='OR')return v.some(x=>match(r,x));if(v && typeof v==='object'){if('in' in v)return v.in.includes(r[k]);if('gt' in v && !(r[k]>v.gt))return false;if('gte' in v && !(r[k]>=v.gte))return false;if('lt' in v && !(r[k]<v.lt))return false;if('lte' in v && !(r[k]<=v.lte))return false;if('equals' in v)return v.equals===null?r[k]==null:r[k]===v.equals;if(['gt','gte','lt','lte'].some(op=>op in v))return true;}return r[k]===v})}
  const db={instance:{async update(){}},findHubAccount:{async findUnique({where}){assert.equal(where.instanceId,'a');return account},async update({where,data}){assert.equal(where.instanceId,'a');Object.assign(account,data);return account}},
   findHubDevice:{async findFirst({where}){calls.push(['device',where]);return devices.find(d=>match(d,where))},async findMany({where}){return devices.filter(d=>match(d,where))},async updateMany({where,data}){calls.push(['update',where]);let n=0;for(const d of devices)if(match(d,where)){Object.assign(d,data);n++}return {count:n}},async update({where,data}){const d=devices.find(d=>d.id===where.id);Object.assign(d,data);return d}},
-  findHubPosition:{async count({where}={}){return positions.filter(p=>match(p,where||{})).length},async upsert({where,create}){calls.push(['history',where]);let old=positions.find(p=>p.fingerprint===create.fingerprint&&p.instanceId===create.instanceId&&p.deviceId===create.deviceId);if(!old){old={id:'p-'+positions.length,...create};positions.push(old)}return old},async findMany({where,take,orderBy,select}={}){calls.push(['history-read',where]);let rows=positions.filter(p=>match(p,where||{}));if(orderBy?.recordedAt==='asc')rows.sort((a,b)=>new Date(a.recordedAt)-new Date(b.recordedAt));if(orderBy?.recordedAt==='desc')rows.sort((a,b)=>new Date(b.recordedAt)-new Date(a.recordedAt));rows=rows.slice(0,take??rows.length);if(select)rows=rows.map(r=>Object.fromEntries(Object.keys(select).filter(k=>select[k]).map(k=>[k,r[k]])));return rows},async deleteMany({where}){calls.push(['history-delete',where]);let n=0;for(let i=positions.length-1;i>=0;i--)if(match(positions[i],where)){positions.splice(i,1);n++}return {count:n}}},
+  findHubPosition:{async count({where}={}){return positions.filter(p=>match(p,where||{})).length},async findUnique({where}){const key=where.instanceId_deviceId_fingerprint;return positions.find(p=>p.instanceId===key.instanceId&&p.deviceId===key.deviceId&&p.fingerprint===key.fingerprint)||null},async upsert({where,create}){calls.push(['history',where]);let old=positions.find(p=>p.fingerprint===create.fingerprint&&p.instanceId===create.instanceId&&p.deviceId===create.deviceId);if(!old){old={id:'p-'+positions.length,...create};positions.push(old)}return old},async findMany({where,take,orderBy,select}={}){calls.push(['history-read',where]);let rows=positions.filter(p=>match(p,where||{}));if(orderBy?.recordedAt==='asc')rows.sort((a,b)=>new Date(a.recordedAt)-new Date(b.recordedAt));if(orderBy?.recordedAt==='desc')rows.sort((a,b)=>new Date(b.recordedAt)-new Date(a.recordedAt));rows=rows.slice(0,take??rows.length);if(select)rows=rows.map(r=>Object.fromEntries(Object.keys(select).filter(k=>select[k]).map(k=>[k,r[k]])));return rows},async deleteMany({where}){calls.push(['history-delete',where]);let n=0;for(let i=positions.length-1;i>=0;i--)if(match(positions[i],where)){positions.splice(i,1);n++}return {count:n}}},
   findHubTraccarBinding:{async findUnique(){return null},async findMany({where}){assert.equal(where.instanceId,'a');return []}},async $transaction(fn){return fn(db)}};
  const overrides={
   '@prisma/client':{Prisma:{DbNull:{isNull:true}}},'@api/server.module':{eventManager:{async emit(e){events.push(e)}}},'@config/logger.config':{Logger:class{setInstance(){}error(){}}},
+  '../../../../../diagnostics/diagnostics.service':{diagnostics:{record(e){diagnosticEvents.push(e)}}},
   '../auth/findhub-auth-broker.service':{FindHubAuthBrokerService:class{}},'../auth/findhub-credential-vault':{FindHubCredentialVault:class{encrypt(v){return JSON.stringify(v)}decrypt(v){return JSON.parse(v)}}},
-  './findhub-protocol.client':{FindHubProtocolClient:class{}},'./findhub-traccar.service':{FindHubTraccarService:class{async send(){}}},
+  './findhub-protocol.client':{FindHubProtocolClient:class{},createFindHubLocateDiagnostics:()=>({fcmPayloadsReceived:0,deviceMismatchPayloads:0,metadataDecodeFailures:0,providerReportsDecoded:0,reportsWithEncryptedLocation:0,reportsWithoutEncryptedLocation:0,decryptedReports:0,decryptRejectedReports:0,decryptErrors:0,invalidReports:0,validReports:0,duplicateValidReports:0,uniqueValidReports:0})},'./findhub-traccar.service':{FindHubTraccarService:class{async send(){}}},
   './traccar-client':{TraccarClient:class{close(){}start(fn,state){state('connected')}},resolveTraccarConnection:c=>c,traccarDestination:v=>new URL(v)},
  };
  const {FindHubStartupService}=load(dir+'findhub-runtime.service.ts',overrides,globals);
  const runtime=new FindHubStartupService({get(){return {URL:'https://connect.example.invalid'}}},emitter,db);
  runtime.setInstance({instanceName:'account-a',instanceId:'a',token:'private-api-key'});runtime.stateConnection={state:'open'};runtime.protocol={ready:true,async close(){},async locate(){return []}};
- return {runtime,db,row,other,positions,events,calls,emitter,account};
+ return {runtime,db,row,other,positions,events,calls,emitter,account,diagnosticEvents};
 }
 test('runtime refuses a device belonging to a different account',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.device('d-b'),/not found/);assert.equal(h.calls[0][1].instanceId,'a')});
 test('history is deduplicated and scoped; last position never regresses',async()=>{const h=runtimeHarness(),d=await h.runtime.device('d-a'),p={...position,deviceId:d.id,googleDeviceId:d.googleDeviceId};await h.runtime.persistPosition(d,p);await h.runtime.persistPosition(d,p);assert.equal(h.positions.length,1);const older={...p,timestamp:new Date(now-50000).toISOString(),latitude:-13};await h.runtime.persistPosition(d,older);assert.equal(h.row.latestPosition.latitude,p.latitude);assert.equal(h.positions.length,2);assert.equal(h.other.latestPosition,null);assert.ok(h.calls.filter(c=>c[0]==='update').every(c=>c[1].instanceId==='a'))});
@@ -67,6 +68,7 @@ test('reconciliation settings are additive and keep periodic mode opt-in',()=>{
  assert.equal(settings.reconciliationOnBoot,true);
  assert.equal(settings.reconciliationPeriodicEnabled,false);
  assert.equal(settings.reconciliationPeriodSeconds,3600);
+ assert.equal(settings.reconciliationLookbackHours,48);
  assert.equal(settings.reconciliationMinGapSeconds,300);
  assert.equal(settings.reconciliationAttempts,3);
 });
@@ -74,13 +76,39 @@ test('manual reconciliation imports every valid Google report while measuring on
  const h=runtimeHarness();h.row.trackingEnabled=true;h.row.lastLocationAt=new Date(now-5*60*60*1000);
  const inGap={...position,deviceId:'d-a',googleDeviceId:'g-a',timestamp:new Date(now-2*60*60*1000).toISOString(),source:'NETWORK'};
  const olderAvailable={...inGap,timestamp:new Date(now-8*60*60*1000).toISOString(),latitude:-11.5};
- let locateCalls=0;h.runtime.protocol.locate=async()=>{locateCalls++;return [inGap,olderAvailable]};
+ let locateCalls=0;h.runtime.protocol.locate=async(_device,_timeout,metrics)=>{locateCalls++;Object.assign(metrics,{providerReportsDecoded:2,reportsWithEncryptedLocation:2,decryptedReports:2,validReports:2,uniqueValidReports:2});return [inGap,olderAvailable]};
  const result=await h.runtime.reconcileDevice('d-a',{from:new Date(now-5*60*60*1000).toISOString(),to:new Date(now).toISOString(),attempts:3,timeoutMs:10});
- assert.equal(result.recoveredPositions,1);assert.equal(result.providerReportsObserved,2);assert.equal(result.completenessGuaranteed,false);
- assert.equal(h.positions.length,2);assert.equal(locateCalls,3);
+ assert.equal(result.status,'recovered');assert.equal(result.recoveredPositions,1);assert.equal(result.providerReportsDecoded,6);assert.equal(result.validProviderReports,6);
+ assert.equal(result.uniqueValidProviderReports,2);assert.equal(result.importedReports,2);assert.equal(result.reportsInTargetRange,1);assert.equal(result.reportsOutsideTargetRange,1);
+ assert.equal(result.sourceCounts.NETWORK,2);assert.equal(result.attempts.length,3);assert.equal(result.completenessGuaranteed,false);
+ assert.equal(h.positions.length,2);assert.equal(locateCalls,3);assert.equal(h.diagnosticEvents.filter(e=>e.code==='findhub.reconciliation').length,4);
  const repeated=await h.runtime.reconcileDevice('d-a',{from:new Date(now-5*60*60*1000).toISOString(),to:new Date(now).toISOString(),attempts:2,timeoutMs:10});
- assert.equal(repeated.recoveredPositions,0);assert.equal(h.positions.length,2);
+ assert.equal(repeated.status,'duplicates_only');assert.equal(repeated.recoveredPositions,0);assert.equal(repeated.importedReports,0);assert.equal(repeated.alreadyStoredReports,2);assert.equal(h.positions.length,2);
 });
+test('reconciliation distinguishes provider silence from unusable provider reports',async()=>{
+ const silent=runtimeHarness();silent.row.lastLocationAt=new Date(now-3600000);silent.runtime.protocol.locate=async()=>[];
+ const noReports=await silent.runtime.reconcileDevice('d-a',{from:new Date(now-3600000).toISOString(),to:new Date(now).toISOString(),attempts:2,timeoutMs:1});
+ assert.equal(noReports.status,'no_provider_reports');assert.equal(noReports.providerReportsDecoded,0);
+ const unusable=runtimeHarness();unusable.row.lastLocationAt=new Date(now-3600000);
+ unusable.runtime.protocol.locate=async(_d,_t,metrics)=>{metrics.providerReportsDecoded=4;metrics.reportsWithEncryptedLocation=4;metrics.decryptErrors=4;return []};
+ const bad=await unusable.runtime.reconcileDevice('d-a',{from:new Date(now-3600000).toISOString(),to:new Date(now).toISOString(),attempts:2,timeoutMs:1});
+ assert.equal(bad.status,'provider_reports_unusable');assert.equal(bad.providerReportsDecoded,8);assert.equal(bad.decode.decryptErrors,8);
+});
+test('automatic reconciliation detects an internal historical gap inside the lookback window',async()=>{
+ const h=runtimeHarness();h.row.trackingEnabled=true;h.row.trackingIntervalSeconds=60;
+ const first=new Date(Date.now()-6*3600000),second=new Date(Date.now()-2*3600000),recent=new Date(Date.now()-60000);
+ h.positions.push({id:'p1',instanceId:'a',deviceId:'d-a',recordedAt:first},{id:'p2',instanceId:'a',deviceId:'d-a',recordedAt:second},{id:'p3',instanceId:'a',deviceId:'d-a',recordedAt:recent});
+ const candidates=await h.runtime.reconciliationCandidates(300,48);
+ assert.equal(candidates.length,1);assert.equal(candidates[0].deviceId,'d-a');assert.equal(candidates[0].from,first.toISOString());assert.equal(candidates[0].to,second.toISOString());
+});
+test('bounded internal-gap scan uses the newest page and never invents a tail gap from truncation',async()=>{
+ const h=runtimeHarness();h.row.trackingEnabled=true;h.row.trackingIntervalSeconds=1;const base=Date.now();
+ for(let index=6000;index>=1;index--)h.positions.push({id:'dense-'+index,instanceId:'a',deviceId:'d-a',recordedAt:new Date(base-index*1000)});
+ h.row.lastLocationAt=new Date(base-1000);
+ const candidates=await h.runtime.reconciliationCandidates(300,48);
+ assert.equal(candidates.length,0);
+});
+
 test('reconciliation does not run concurrently with an active tracking dispatch',async()=>{
  const h=runtimeHarness();h.runtime.dispatching.add('d-a');
  await assert.rejects(h.runtime.reconcileDevice('d-a',{}),/executando uma consulta/);
@@ -96,6 +124,25 @@ test('metadata-only push does not consume a pending location request',async()=>{
  h.push([]);assert.equal(h.client.pending.size,1);
  h.push([position]);const rows=await waiting;assert.equal(rows.length,1);assert.equal(h.client.pending.size,0);
 });
+test('protocol reconciliation diagnostics distinguish decoded, valid and duplicate provider reports',async()=>{
+ const h=protocolDeadlineHarness(),metrics=h.createFindHubLocateDiagnostics();
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},10,metrics);h.finish();await Promise.resolve();await Promise.resolve();
+ h.push([position,position]);const rows=await waiting;
+ assert.equal(rows.length,1);assert.equal(metrics.fcmPayloadsReceived,1);assert.equal(metrics.providerReportsDecoded,2);
+ assert.equal(metrics.decryptedReports,2);assert.equal(metrics.validReports,2);assert.equal(metrics.uniqueValidReports,1);assert.equal(metrics.duplicateValidReports,1);
+});
+test('reconciliation collection mode keeps the correlation open until timeout and returns later historical reports',async()=>{
+ const h=protocolDeadlineHarness(),metrics=h.createFindHubLocateDiagnostics();
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},10,metrics,{collectUntilTimeout:true});
+ h.finish();await Promise.resolve();await Promise.resolve();
+ const older={...position,timestamp:new Date(now-3600000).toISOString(),latitude:-11.75};
+ h.push([position]);assert.equal(h.client.pending.size,1);
+ h.push([older]);assert.equal(h.client.pending.size,1);
+ h.timers[0].fn();const rows=await waiting;
+ assert.equal(rows.length,2);assert.equal(rows[0].timestamp,position.timestamp);assert.equal(rows[1].timestamp,older.timestamp);
+ assert.equal(metrics.fcmPayloadsReceived,2);assert.equal(metrics.uniqueValidReports,2);
+});
+
 
 for (const intervalSeconds of [0,1,2,15,30,60,86400]) test('requested interval survives validation: '+intervalSeconds,()=>{assert.equal(policy.trackingSettings({intervalSeconds}).intervalSeconds,intervalSeconds);assert.equal(policy.trackingDelayMs(intervalSeconds),intervalSeconds*1000)});
 test('legacy env recommendation cannot override explicit zero',()=>{const p=load(dir+'findhub-tracking.policy.ts',{}, {process:{env:{FINDHUB_MIN_TRACKING_INTERVAL_SECONDS:'30'}}});assert.equal(p.trackingMinimum(),0);assert.equal(p.trackingSettings({intervalSeconds:0}).intervalSeconds,0)});
@@ -163,9 +210,9 @@ function protocolDeadlineHarness(metadataIds=[]){
   },
  };
  const globals={setTimeout(fn,ms){const timer={fn,ms,unref(){},cleared:false};timers.push(timer);return timer},clearTimeout(t){if(t)t.cleared=true}};
- const {FindHubProtocolClient}=load(dir+'findhub-protocol.client.ts',overrides,globals);
+ const {FindHubProtocolClient,createFindHubLocateDiagnostics}=load(dir+'findhub-protocol.client.ts',overrides,globals);
  const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{});
- return {client,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
+ return {client,createFindHubLocateDiagnostics,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
 }
 test('1 ms operator wait starts after command submission and never cancels the command',async()=>{
  const h=protocolDeadlineHarness();h.client.onObservation=async()=>{};const pending=h.client.locate({id:'one',googleDeviceId:'g'},1);

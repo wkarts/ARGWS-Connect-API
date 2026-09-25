@@ -33,6 +33,11 @@ export function applyFindHubUpdate(snapshot: any, event: any, instanceId: string
     if (data.providerStatus) device.providerStatus = data.providerStatus
     if (data.code) device.lastErrorCode = data.code
     if (data.query && timestamp(data.query.completedAt) >= timestamp(device.lastQuery?.completedAt)) device.lastQuery = data.query
+    if (
+      data.reconciliation &&
+      timestamp(data.reconciliation.completedAt || data.reconciliation.startedAt) >=
+        timestamp(device.reconciliation?.completedAt || device.reconciliation?.startedAt)
+    ) device.reconciliation = data.reconciliation
     const position = data.location
     if (position && Number.isFinite(position.latitude) && Math.abs(position.latitude) <= 90 &&
         Number.isFinite(position.longitude) && Math.abs(position.longitude) <= 180 && timestamp(position.timestamp) > 0 &&

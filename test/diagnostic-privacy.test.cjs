@@ -294,6 +294,40 @@ test('webhook delivery retains routing fingerprints, attempts and HTTP errors wi
   assert.equal(sanitizeDiagnostic({ code: 'webhook.delivery', targetId: secret, event: secret }).details.targetId, undefined);
 });
 
+test('Find Hub reconciliation diagnostics keep only bounded counters and enums', () => {
+  const event = sanitizeDiagnostic({
+    code: 'findhub.reconciliation',
+    component: 'findhub',
+    instanceId: 'customer-5511999887766',
+    reconciliationId: '4c984a8c-538e-4d55-b65a-ecf275cb58d5',
+    phase: 'completed',
+    trigger: 'manual',
+    status: 'duplicates_only',
+    rangeSeconds: 25200,
+    attemptsRequested: 3,
+    attemptsCompleted: 3,
+    providerReportsDecoded: 18,
+    validReports: 12,
+    alreadyStoredReports: 4,
+    importedReports: 0,
+    recoveredPositions: 0,
+    latitude: -12.345,
+    longitude: -39.123,
+    providerPayload: secret,
+    deviceName: secret,
+    token: 'Bearer abc123',
+  });
+  assert.equal(event.code, 'findhub.reconciliation');
+  assert.equal(event.component, 'findhub');
+  assert.equal(event.details.status, 'duplicates_only');
+  assert.equal(event.details.providerReportsDecoded, 18);
+  assert.equal(event.details.validReports, 12);
+  assert.equal(event.details.alreadyStoredReports, 4);
+  assert.equal(event.details.latitude, undefined);
+  assert.equal(event.details.longitude, undefined);
+  assertPrivate(event);
+});
+
 test('runtime, settings, export and connection reject arbitrary strings and keep bounded numeric metadata', () => {
   const event = sanitizeDiagnostic({ code: 'runtime.sample', uptimeSeconds: 120, rssBytes: 300, heapUsedBytes: 40,
     heapTotalBytes: 100, cpuUserMicros: 3000, eventLoopDelayMs: 1.5, environment: secret, process: secret,

@@ -6,12 +6,13 @@ import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 
+import { diagnostics } from '../../../../../diagnostics/diagnostics.service';
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
 import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
 import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
 import { normalizeFindHubAvatar } from './findhub-avatar';
-import { FindHubProtocolClient } from './findhub-protocol.client';
+import { createFindHubLocateDiagnostics, FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
 import {
   comparePositionPreference,
@@ -25,6 +26,9 @@ import {
   validPosition,
 } from './findhub-tracking.policy';
 import { resolveTraccarConnection, TraccarClient, TraccarConnection, traccarDestination } from './traccar-client';
+
+type FindHubReconciliationTrigger = 'manual' | 'boot' | 'periodic';
+type FindHubReconciliationCandidate = { deviceId: string; from: string; to: string };
 
 export class FindHubStartupService {
   public readonly integration = FINDHUB_INTEGRATION;
@@ -174,11 +178,14 @@ export class FindHubStartupService {
       const settings = await this.settings();
       const reconciliationCandidates =
         settings.reconciliationEnabled && settings.reconciliationOnBoot
-          ? await this.reconciliationCandidates(settings.reconciliationMinGapSeconds)
+          ? await this.reconciliationCandidates(
+              settings.reconciliationMinGapSeconds,
+              settings.reconciliationLookbackHours,
+            )
           : [];
       await this.restoreTracking();
       if (reconciliationCandidates.length) {
-        void this.reconcileCandidates(reconciliationCandidates).catch(async () => {
+        void this.reconcileCandidates(reconciliationCandidates, 'boot').catch(async () => {
           await this.emit(FINDHUB_EVENTS.ERROR, {
             operation: 'reconciliation',
             code: 'RECONCILIATION_FAILED',
@@ -504,7 +511,14 @@ export class FindHubStartupService {
 
   public async reconcileDevice(
     deviceId: string,
-    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number; automatic?: boolean } = {},
+    input: {
+      from?: string;
+      to?: string;
+      attempts?: number;
+      timeoutMs?: number;
+      automatic?: boolean;
+      trigger?: FindHubReconciliationTrigger;
+    } = {},
   ): Promise<any> {
     const existing = this.reconciliations.get(deviceId);
     if (existing) return await existing;
@@ -545,6 +559,7 @@ export class FindHubStartupService {
       settings: {
         enabled: settings.reconciliationEnabled,
         minGapSeconds: settings.reconciliationMinGapSeconds,
+        lookbackHours: settings.reconciliationLookbackHours,
         attempts: settings.reconciliationAttempts,
       },
       results,
@@ -568,9 +583,12 @@ export class FindHubStartupService {
     try {
       const settings = await this.settings();
       if (!settings.reconciliationEnabled || !settings.reconciliationPeriodicEnabled) return;
-      const candidates = await this.reconciliationCandidates(settings.reconciliationMinGapSeconds);
+      const candidates = await this.reconciliationCandidates(
+        settings.reconciliationMinGapSeconds,
+        settings.reconciliationLookbackHours,
+      );
       if (!candidates.length) return;
-      await this.reconcileCandidates(candidates);
+      await this.reconcileCandidates(candidates, 'periodic');
     } finally {
       this.reconciliationTickRunning = false;
     }
@@ -578,30 +596,73 @@ export class FindHubStartupService {
 
   private async reconciliationCandidates(
     minGapSeconds: number,
-  ): Promise<Array<{ deviceId: string; from: string; to: string }>> {
+    lookbackHours: number,
+  ): Promise<FindHubReconciliationCandidate[]> {
     const now = new Date();
+    const lookbackStart = new Date(now.getTime() - lookbackHours * 3600000);
     const rows = await (this.prisma as any).findHubDevice.findMany({
       where: { instanceId: this.instance.id, trackingEnabled: true },
-      select: { id: true, lastLocationAt: true },
+      select: { id: true, lastLocationAt: true, trackingIntervalSeconds: true },
     });
-    return rows
-      .filter(
-        (row: any) =>
-          row.lastLocationAt && now.getTime() - new Date(row.lastLocationAt).getTime() >= minGapSeconds * 1000,
-      )
-      .map((row: any) => ({
-        deviceId: row.id,
-        from: new Date(row.lastLocationAt).toISOString(),
-        to: now.toISOString(),
-      }));
+    const candidates: FindHubReconciliationCandidate[] = [];
+
+    for (const row of rows) {
+      const thresholdMs = Math.max(minGapSeconds, Math.max(0, Number(row.trackingIntervalSeconds || 0)) * 2) * 1000;
+      const recentPositions = await (this.prisma as any).findHubPosition.findMany({
+        where: {
+          instanceId: this.instance.id,
+          deviceId: row.id,
+          recordedAt: { gte: lookbackStart, lte: now },
+        },
+        orderBy: { recordedAt: 'desc' },
+        select: { recordedAt: true },
+        take: 5000,
+      });
+      const positions = [...recentPositions].reverse();
+
+      let selected: { from: Date; to: Date; durationMs: number } | null = null;
+      for (let index = 1; index < positions.length; index++) {
+        const from = new Date(positions[index - 1].recordedAt);
+        const to = new Date(positions[index].recordedAt);
+        const durationMs = to.getTime() - from.getTime();
+        if (durationMs >= thresholdMs && (!selected || durationMs > selected.durationMs)) {
+          selected = { from, to, durationMs };
+        }
+      }
+
+      // lastLocationAt is monotonic and authoritative for the tail. Do not infer a tail
+      // from the last row in a bounded history page, because a high-cadence device may truncate that page.
+      const lastKnownValue = row.lastLocationAt || positions[positions.length - 1]?.recordedAt;
+      if (lastKnownValue) {
+        const lastKnown = new Date(Math.max(new Date(lastKnownValue).getTime(), lookbackStart.getTime()));
+        const durationMs = now.getTime() - lastKnown.getTime();
+        if (durationMs >= thresholdMs && (!selected || durationMs > selected.durationMs)) {
+          selected = { from: lastKnown, to: now, durationMs };
+        }
+      }
+
+      if (selected) {
+        candidates.push({
+          deviceId: row.id,
+          from: selected.from.toISOString(),
+          to: selected.to.toISOString(),
+        });
+      }
+    }
+
+    return candidates;
   }
 
-  private async reconcileCandidates(candidates: Array<{ deviceId: string; from: string; to: string }>): Promise<void> {
+  private async reconcileCandidates(
+    candidates: FindHubReconciliationCandidate[],
+    trigger: Exclude<FindHubReconciliationTrigger, 'manual'>,
+  ): Promise<void> {
     for (const candidate of candidates) {
       await this.reconcileDevice(candidate.deviceId, {
         from: candidate.from,
         to: candidate.to,
         automatic: true,
+        trigger,
       }).catch(async (error) => {
         await this.emit(FINDHUB_EVENTS.ERROR, {
           deviceId: candidate.deviceId,
@@ -615,7 +676,14 @@ export class FindHubStartupService {
 
   private async reconcileDeviceOnce(
     deviceId: string,
-    input: { from?: string; to?: string; attempts?: number; timeoutMs?: number; automatic?: boolean },
+    input: {
+      from?: string;
+      to?: string;
+      attempts?: number;
+      timeoutMs?: number;
+      automatic?: boolean;
+      trigger?: FindHubReconciliationTrigger;
+    },
   ): Promise<any> {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     const settings = await this.settings();
@@ -634,14 +702,18 @@ export class FindHubStartupService {
 
     const attempts = Math.min(10, Math.max(1, input.attempts ?? settings.reconciliationAttempts));
     const timeoutMs = input.timeoutMs ?? device.locationTimeoutMs ?? settings.timeoutMs;
+    const trigger: FindHubReconciliationTrigger = input.trigger || (input.automatic ? 'boot' : 'manual');
+    const reconciliationId = randomUUID();
     const before = await (this.prisma as any).findHubPosition.count({
       where: { instanceId: this.instance.id, deviceId, recordedAt: { gt: from, lte: to } },
     });
 
     const startedAt = new Date().toISOString();
     this.reconciliationStatus.set(deviceId, {
+      reconciliationId,
       status: 'running',
-      automatic: input.automatic === true,
+      trigger,
+      automatic: trigger !== 'manual',
       from: from.toISOString(),
       to: to.toISOString(),
       startedAt,
@@ -653,25 +725,129 @@ export class FindHubStartupService {
     });
 
     const seen = new Set<string>();
+    const attemptResults: any[] = [];
+    const totals = {
+      fcmPayloadsReceived: 0,
+      deviceMismatchPayloads: 0,
+      metadataDecodeFailures: 0,
+      providerReportsDecoded: 0,
+      reportsWithEncryptedLocation: 0,
+      reportsWithoutEncryptedLocation: 0,
+      decryptedReports: 0,
+      decryptRejectedReports: 0,
+      decryptErrors: 0,
+      invalidReports: 0,
+      validReports: 0,
+      duplicateValidReports: 0,
+      uniqueValidReports: 0,
+      uniqueReportsReturned: 0,
+      duplicateAcrossAttempts: 0,
+      alreadyStoredReports: 0,
+      importedReports: 0,
+      reportsInTargetRange: 0,
+      reportsOutsideTargetRange: 0,
+      reportsSkippedByRetention: 0,
+      recentReports: 0,
+      networkReports: 0,
+    };
+
     let attemptsCompleted = 0;
     let emptyAttempts = 0;
     for (let attempt = 0; attempt < attempts; attempt++) {
       if (!this.protocol) break;
       attemptsCompleted++;
-      const reports = (await this.protocol.locate(device, timeoutMs))
+      const attemptStarted = Date.now();
+      const provider = createFindHubLocateDiagnostics();
+      const reports = (await this.protocol.locate(device, timeoutMs, provider, { collectUntilTimeout: true }))
         .filter((position) => validPosition(position))
         .sort(comparePositionPreference);
+
+      // Test doubles and alternate compatible protocol implementations may not fill the optional diagnostics object.
+      if (!provider.providerReportsDecoded && reports.length) {
+        provider.providerReportsDecoded = reports.length;
+        provider.reportsWithEncryptedLocation = reports.length;
+        provider.decryptedReports = reports.length;
+        provider.validReports = reports.length;
+        provider.uniqueValidReports = reports.length;
+      }
+
+      const attemptMetrics = {
+        attempt: attempt + 1,
+        durationMs: Date.now() - attemptStarted,
+        ...provider,
+        uniqueReportsReturned: 0,
+        duplicateAcrossAttempts: 0,
+        alreadyStoredReports: 0,
+        importedReports: 0,
+        reportsInTargetRange: 0,
+        reportsOutsideTargetRange: 0,
+        reportsSkippedByRetention: 0,
+        recentReports: 0,
+        networkReports: 0,
+      };
 
       let discovered = 0;
       for (const report of [...reports].reverse()) {
         const fingerprint = positionFingerprint(report);
-        if (seen.has(fingerprint)) continue;
+        if (seen.has(fingerprint)) {
+          attemptMetrics.duplicateAcrossAttempts++;
+          continue;
+        }
         seen.add(fingerprint);
         discovered++;
+        attemptMetrics.uniqueReportsReturned++;
+
+        const reportTime = Date.parse(report.timestamp);
+        if (reportTime > from.getTime() && reportTime <= to.getTime()) attemptMetrics.reportsInTargetRange++;
+        else attemptMetrics.reportsOutsideTargetRange++;
+        if (report.source === 'RECENT') attemptMetrics.recentReports++;
+        if (report.source === 'NETWORK') attemptMetrics.networkReports++;
+
+        const expiredByRetention =
+          settings.retentionDays > 0 && Date.now() - reportTime > settings.retentionDays * 86400000;
+        if (expiredByRetention) {
+          attemptMetrics.reportsSkippedByRetention++;
+          await this.persistPosition(device, report);
+          continue;
+        }
+
+        const existing = await (this.prisma as any).findHubPosition.findUnique({
+          where: {
+            instanceId_deviceId_fingerprint: {
+              instanceId: this.instance.id,
+              deviceId: device.id,
+              fingerprint,
+            },
+          },
+          select: { id: true },
+        });
+        if (existing) attemptMetrics.alreadyStoredReports++;
+        else attemptMetrics.importedReports++;
+
         // Import everything the Google provider actually returned. The requested gap is
         // only the reconciliation target used for coverage metrics, never a discard filter.
         await this.persistPosition(device, report);
       }
+
+      for (const key of Object.keys(totals) as Array<keyof typeof totals>) {
+        const value = attemptMetrics[key];
+        if (typeof value === 'number') totals[key] += value;
+      }
+      attemptResults.push(attemptMetrics);
+      diagnostics.record({
+        code: 'findhub.reconciliation',
+        component: 'findhub',
+        instanceId: this.instance.id,
+        reconciliationId,
+        phase: 'attempt',
+        trigger,
+        status: discovered ? 'provider_data' : 'no_usable_position',
+        rangeSeconds: Math.max(0, Math.round((to.getTime() - from.getTime()) / 1000)),
+        attemptsRequested: attempts,
+        attempt: attempt + 1,
+        ...attemptMetrics,
+      });
+
       if (!discovered) emptyAttempts++;
       else emptyAttempts = 0;
       if (emptyAttempts >= 2) break;
@@ -687,10 +863,30 @@ export class FindHubStartupService {
       select: { recordedAt: true, source: true },
       take: 1000,
     });
+
+    let status:
+      | 'recovered'
+      | 'imported_outside_target'
+      | 'duplicates_only'
+      | 'provider_reports_unusable'
+      | 'no_provider_reports'
+      | 'retention_filtered'
+      | 'no_recoverable_positions';
+    if (recovered > 0) status = 'recovered';
+    else if (totals.importedReports > 0) status = 'imported_outside_target';
+    else if (totals.providerReportsDecoded === 0) status = 'no_provider_reports';
+    else if (totals.validReports === 0) status = 'provider_reports_unusable';
+    else if (totals.alreadyStoredReports > 0) status = 'duplicates_only';
+    else if (totals.reportsSkippedByRetention > 0) status = 'retention_filtered';
+    else status = 'no_recoverable_positions';
+
     const result = {
+      reconciliationId,
       deviceId,
       deviceName: device.name,
-      status: recovered > 0 ? 'recovered' : 'no_recoverable_positions',
+      status,
+      trigger,
+      automatic: trigger !== 'manual',
       from: from.toISOString(),
       to: to.toISOString(),
       startedAt,
@@ -700,13 +896,56 @@ export class FindHubStartupService {
       positionsBefore: before,
       positionsAfter: after,
       recoveredPositions: recovered,
-      providerReportsObserved: seen.size,
-      firstRecoveredAt: rows[0]?.recordedAt?.toISOString?.() || rows[0]?.recordedAt || null,
-      lastRecoveredAt: rows[rows.length - 1]?.recordedAt?.toISOString?.() || rows[rows.length - 1]?.recordedAt || null,
+      providerReportsObserved: totals.providerReportsDecoded,
+      providerReportsDecoded: totals.providerReportsDecoded,
+      validProviderReports: totals.validReports,
+      uniqueValidProviderReports: seen.size,
+      alreadyStoredReports: totals.alreadyStoredReports,
+      importedReports: totals.importedReports,
+      reportsInTargetRange: totals.reportsInTargetRange,
+      reportsOutsideTargetRange: totals.reportsOutsideTargetRange,
+      reportsSkippedByRetention: totals.reportsSkippedByRetention,
+      sourceCounts: { RECENT: totals.recentReports, NETWORK: totals.networkReports },
+      decode: {
+        fcmPayloadsReceived: totals.fcmPayloadsReceived,
+        deviceMismatchPayloads: totals.deviceMismatchPayloads,
+        metadataDecodeFailures: totals.metadataDecodeFailures,
+        reportsWithEncryptedLocation: totals.reportsWithEncryptedLocation,
+        reportsWithoutEncryptedLocation: totals.reportsWithoutEncryptedLocation,
+        decryptedReports: totals.decryptedReports,
+        decryptRejectedReports: totals.decryptRejectedReports,
+        decryptErrors: totals.decryptErrors,
+        invalidReports: totals.invalidReports,
+        duplicateValidReports: totals.duplicateValidReports,
+        duplicateAcrossAttempts: totals.duplicateAcrossAttempts,
+      },
+      attempts: attemptResults,
+      firstPositionInTargetAt: rows[0]?.recordedAt?.toISOString?.() || rows[0]?.recordedAt || null,
+      lastPositionInTargetAt:
+        rows[rows.length - 1]?.recordedAt?.toISOString?.() || rows[rows.length - 1]?.recordedAt || null,
+      firstRecoveredAt: recovered ? rows[0]?.recordedAt?.toISOString?.() || rows[0]?.recordedAt || null : null,
+      lastRecoveredAt: recovered
+        ? rows[rows.length - 1]?.recordedAt?.toISOString?.() || rows[rows.length - 1]?.recordedAt || null
+        : null,
       sources: [...new Set(rows.map((row: any) => row.source).filter(Boolean))],
       completenessGuaranteed: false,
-      note: 'Foram importados todos os relatórios válidos devolvidos pelo Google nesta reconciliação, com deduplicação local. O Google Find Hub não oferece uma API de histórico arbitrário; pontos que ele não devolver não podem ser fabricados.',
+      note: 'Todos os relatórios válidos devolvidos pelo Google foram processados com deduplicação local. O intervalo solicitado mede a recuperação da lacuna; relatórios válidos fora dele também são importados. O Google Find Hub não garante uma timeline histórica completa.',
     };
+
+    diagnostics.record({
+      code: 'findhub.reconciliation',
+      component: 'findhub',
+      instanceId: this.instance.id,
+      reconciliationId,
+      phase: 'completed',
+      trigger,
+      status,
+      rangeSeconds: Math.max(0, Math.round((to.getTime() - from.getTime()) / 1000)),
+      attemptsRequested: attempts,
+      attemptsCompleted,
+      recoveredPositions: recovered,
+      ...totals,
+    });
     this.reconciliationStatus.set(deviceId, result);
     await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { deviceId, reconciliation: result });
     return result;
@@ -907,6 +1146,7 @@ export class FindHubStartupService {
       'reconciliationOnBoot',
       'reconciliationPeriodicEnabled',
       'reconciliationPeriodSeconds',
+      'reconciliationLookbackHours',
       'reconciliationMinGapSeconds',
       'reconciliationAttempts',
     ];

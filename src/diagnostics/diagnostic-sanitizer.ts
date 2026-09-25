@@ -8,6 +8,7 @@ const CATALOG: Record<DiagnosticCode, [DiagnosticCategory, string]> = {
   'runtime.started': ['runtime', 'Serviço de diagnóstico iniciado.'],
   'runtime.sample': ['runtime', 'Amostra de recursos do processo.'],
   'runtime.error': ['error', 'Erro técnico registrado.'],
+  'findhub.reconciliation': ['runtime', 'Reconciliação técnica do Google Find Hub registrada.'],
   'connection.state': ['connection', 'Estado da conexão atualizado.'],
   'call.signaling': ['call', 'Sinalização de chamada observada.'],
   'call.state': ['call', 'Estado da chamada atualizado.'],
@@ -90,6 +91,7 @@ const COMPONENTS = new Set([
   'manager',
   'frontend',
   'diagnostics',
+  'findhub',
   'zapo',
   'baileys',
   'voip',
@@ -639,6 +641,58 @@ export function sanitizeDiagnostic(input: unknown, now = Date.now()): Diagnostic
           });
         }
         break;
+      case 'findhub.reconciliation': {
+        const status = token(
+          read(input, 'status'),
+          new Set([
+            'provider_data',
+            'no_usable_position',
+            'recovered',
+            'imported_outside_target',
+            'duplicates_only',
+            'provider_reports_unusable',
+            'no_provider_reports',
+            'retention_filtered',
+            'no_recoverable_positions',
+          ]),
+        );
+        details = compact({
+          reconciliationId: identifier(read(input, 'reconciliationId')),
+          phase: token(read(input, 'phase'), new Set(['attempt', 'completed'])),
+          trigger: token(read(input, 'trigger'), new Set(['manual', 'boot', 'periodic'])),
+          status,
+          rangeSeconds: numeric(read(input, 'rangeSeconds'), 365 * 86400),
+          attemptsRequested: numeric(read(input, 'attemptsRequested'), 10),
+          attemptsCompleted: numeric(read(input, 'attemptsCompleted'), 10),
+          attempt: numeric(read(input, 'attempt'), 10),
+          durationMs: numeric(read(input, 'durationMs'), 2147483647),
+          fcmPayloadsReceived: numeric(read(input, 'fcmPayloadsReceived'), 100000),
+          deviceMismatchPayloads: numeric(read(input, 'deviceMismatchPayloads'), 100000),
+          metadataDecodeFailures: numeric(read(input, 'metadataDecodeFailures'), 100000),
+          providerReportsDecoded: numeric(read(input, 'providerReportsDecoded'), 1000000),
+          reportsWithEncryptedLocation: numeric(read(input, 'reportsWithEncryptedLocation'), 1000000),
+          reportsWithoutEncryptedLocation: numeric(read(input, 'reportsWithoutEncryptedLocation'), 1000000),
+          decryptedReports: numeric(read(input, 'decryptedReports'), 1000000),
+          decryptRejectedReports: numeric(read(input, 'decryptRejectedReports'), 1000000),
+          decryptErrors: numeric(read(input, 'decryptErrors'), 1000000),
+          invalidReports: numeric(read(input, 'invalidReports'), 1000000),
+          validReports: numeric(read(input, 'validReports'), 1000000),
+          duplicateValidReports: numeric(read(input, 'duplicateValidReports'), 1000000),
+          uniqueValidReports: numeric(read(input, 'uniqueValidReports'), 1000000),
+          uniqueReportsReturned: numeric(read(input, 'uniqueReportsReturned'), 1000000),
+          duplicateAcrossAttempts: numeric(read(input, 'duplicateAcrossAttempts'), 1000000),
+          alreadyStoredReports: numeric(read(input, 'alreadyStoredReports'), 1000000),
+          importedReports: numeric(read(input, 'importedReports'), 1000000),
+          reportsInTargetRange: numeric(read(input, 'reportsInTargetRange'), 1000000),
+          reportsOutsideTargetRange: numeric(read(input, 'reportsOutsideTargetRange'), 1000000),
+          reportsSkippedByRetention: numeric(read(input, 'reportsSkippedByRetention'), 1000000),
+          recentReports: numeric(read(input, 'recentReports'), 1000000),
+          networkReports: numeric(read(input, 'networkReports'), 1000000),
+          recoveredPositions: numeric(read(input, 'recoveredPositions'), 1000000),
+        });
+        level = status === 'provider_reports_unusable' || status === 'no_usable_position' ? 'warn' : 'info';
+        break;
+      }
       case 'webhook.delivery': {
         const event = read(input, 'event');
         const targetId = read(input, 'targetId');
