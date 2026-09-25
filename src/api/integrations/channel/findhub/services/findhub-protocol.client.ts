@@ -20,10 +20,45 @@ import {
   validPosition,
 } from './findhub-tracking.policy';
 
+export interface FindHubLocateDiagnostics {
+  fcmPayloadsReceived: number;
+  deviceMismatchPayloads: number;
+  metadataDecodeFailures: number;
+  providerReportsDecoded: number;
+  reportsWithEncryptedLocation: number;
+  reportsWithoutEncryptedLocation: number;
+  decryptedReports: number;
+  decryptRejectedReports: number;
+  decryptErrors: number;
+  invalidReports: number;
+  validReports: number;
+  duplicateValidReports: number;
+  uniqueValidReports: number;
+}
+
+export function createFindHubLocateDiagnostics(): FindHubLocateDiagnostics {
+  return {
+    fcmPayloadsReceived: 0,
+    deviceMismatchPayloads: 0,
+    metadataDecodeFailures: 0,
+    providerReportsDecoded: 0,
+    reportsWithEncryptedLocation: 0,
+    reportsWithoutEncryptedLocation: 0,
+    decryptedReports: 0,
+    decryptRejectedReports: 0,
+    decryptErrors: 0,
+    invalidReports: 0,
+    validReports: 0,
+    duplicateValidReports: 0,
+    uniqueValidReports: 0,
+  };
+}
+
 type PendingLocation = {
   device: FindHubDevice;
   afterTimestamp: number;
   reports: Map<string, FindHubPosition>;
+  diagnostics?: FindHubLocateDiagnostics;
   submitted: boolean;
   resolve: () => void;
   reject: (error: Error) => void;
@@ -119,7 +154,11 @@ export class FindHubProtocolClient {
     }
   }
 
-  public async locate(device: FindHubDevice, timeoutMs?: number): Promise<FindHubPosition[]> {
+  public async locate(
+    device: FindHubDevice,
+    timeoutMs?: number,
+    diagnostics?: FindHubLocateDiagnostics,
+  ): Promise<FindHubPosition[]> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
     if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
     this.pruneRecent();
@@ -146,6 +185,7 @@ export class FindHubProtocolClient {
         device,
         afterTimestamp: Date.parse(afterPosition?.timestamp || '') || 0,
         reports: new Map(),
+        diagnostics,
         submitted: false,
         retain: true,
         resolve: () => finish(),
@@ -177,20 +217,54 @@ export class FindHubProtocolClient {
     });
   }
 
-  private decodePositions(device: FindHubDevice, metadata: Buffer): FindHubPosition[] {
-    const identifiers = decodeDeviceMetadata(metadata).map((value) => value.googleDeviceId);
-    if (identifiers.length && !identifiers.includes(device.googleDeviceId)) return [];
-    const registration = decodeDeviceRegistration(metadata);
-    // connect() loads this key before starting the authenticated push receiver.
-    const ownerKey = this.ownerKey || (this.credentials.ownerKey && Buffer.from(this.credentials.ownerKey, 'base64'));
-    if (!ownerKey) return [];
-    const identityKey = decryptIdentityKey(ownerKey, registration.encryptedIdentityKey);
+  private decodePositions(
+    device: FindHubDevice,
+    metadata: Buffer,
+    diagnostics?: FindHubLocateDiagnostics,
+  ): FindHubPosition[] {
+    let identifiers: string[];
+    try {
+      identifiers = decodeDeviceMetadata(metadata).map((value) => value.googleDeviceId);
+    } catch {
+      if (diagnostics) diagnostics.metadataDecodeFailures++;
+      return [];
+    }
+    if (identifiers.length && !identifiers.includes(device.googleDeviceId)) {
+      if (diagnostics) diagnostics.deviceMismatchPayloads++;
+      return [];
+    }
+
+    let reports;
+    let identityKey: Buffer;
+    try {
+      const registration = decodeDeviceRegistration(metadata);
+      const ownerKey = this.ownerKey || (this.credentials.ownerKey && Buffer.from(this.credentials.ownerKey, 'base64'));
+      if (!ownerKey) {
+        if (diagnostics) diagnostics.metadataDecodeFailures++;
+        return [];
+      }
+      identityKey = decryptIdentityKey(ownerKey, registration.encryptedIdentityKey);
+      reports = decodeLocationReports(metadata);
+    } catch {
+      if (diagnostics) diagnostics.metadataDecodeFailures++;
+      return [];
+    }
+
+    if (diagnostics) diagnostics.providerReportsDecoded += reports.length;
     const positions: FindHubPosition[] = [];
-    for (const report of decodeLocationReports(metadata)) {
-      if (!report.encryptedLocation.length) continue;
+    for (const report of reports) {
+      if (!report.encryptedLocation.length) {
+        if (diagnostics) diagnostics.reportsWithoutEncryptedLocation++;
+        continue;
+      }
+      if (diagnostics) diagnostics.reportsWithEncryptedLocation++;
       try {
         const location = decryptLocationReport(identityKey, report);
-        if (!location) continue;
+        if (!location) {
+          if (diagnostics) diagnostics.decryptRejectedReports++;
+          continue;
+        }
+        if (diagnostics) diagnostics.decryptedReports++;
         const position: FindHubPosition = {
           deviceId: device.id,
           googleDeviceId: device.googleDeviceId,
@@ -203,8 +277,14 @@ export class FindHubProtocolClient {
           semanticLocation: report.semanticLocation,
           ownReport: report.ownReport,
         };
-        if (validPosition(position)) positions.push(position);
+        if (validPosition(position)) {
+          if (diagnostics) diagnostics.validReports++;
+          positions.push(position);
+        } else if (diagnostics) {
+          diagnostics.invalidReports++;
+        }
       } catch {
+        if (diagnostics) diagnostics.decryptErrors++;
         // An unusable individual report must not discard other reports or consume the waiter.
       }
     }
@@ -230,8 +310,14 @@ export class FindHubProtocolClient {
         if (positions.length) void this.onObservation(recent.device, positions).catch(() => undefined);
         return;
       }
-      for (const position of this.decodePositions(pending.device, update.deviceMetadata)) {
-        pending.reports.set(positionFingerprint(position), position);
+      if (pending.diagnostics) pending.diagnostics.fcmPayloadsReceived++;
+      for (const position of this.decodePositions(pending.device, update.deviceMetadata, pending.diagnostics)) {
+        const fingerprint = positionFingerprint(position);
+        if (pending.diagnostics) {
+          if (pending.reports.has(fingerprint)) pending.diagnostics.duplicateValidReports++;
+          else pending.diagnostics.uniqueValidReports++;
+        }
+        pending.reports.set(fingerprint, position);
       }
       // Bound per-request memory while retaining the newest reports.
       if (pending.reports.size > 128) {
