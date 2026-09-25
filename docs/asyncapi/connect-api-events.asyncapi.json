@@ -594,6 +594,46 @@
                       "maximum": 36500,
                       "default": 30,
                       "description": "0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais."
+                    },
+                    "reconciliationEnabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Habilita a camada de reconciliação best effort sem alterar o tracking normal."
+                    },
+                    "reconciliationOnBoot": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Procura uma lacuna ao reconectar a conta."
+                    },
+                    "reconciliationPeriodicEnabled": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Agenda reconciliações periódicas; permanece opt-in."
+                    },
+                    "reconciliationPeriodSeconds": {
+                      "type": "integer",
+                      "minimum": 60,
+                      "maximum": 2592000,
+                      "default": 3600
+                    },
+                    "reconciliationLookbackHours": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 720,
+                      "default": 48,
+                      "description": "Janela para detectar também lacunas internas no histórico recente."
+                    },
+                    "reconciliationMinGapSeconds": {
+                      "type": "integer",
+                      "minimum": 30,
+                      "maximum": 2592000,
+                      "default": 300
+                    },
+                    "reconciliationAttempts": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10,
+                      "default": 3
                     }
                   }
                 },
