@@ -61,6 +61,31 @@ test('retention 0 preserves all history; positive retention never deletes anothe
 test('runtime SSE subscription does not receive other account events or API credentials',async()=>{const h=runtimeHarness(),seen=[];const stop=h.runtime.subscribe(e=>seen.push(e));h.emitter.emit('findhub:stream:b',{instanceId:'b'});await h.runtime.emit('findhub.location.updated',{location:position});assert.equal(seen.length,1);assert.equal(seen[0].instanceId,'a');assert.ok(!JSON.stringify(seen).includes('private-api-key'));stop();await h.runtime.emit('findhub.error',{});assert.equal(seen.length,1)});
 test('history query checks device ownership before reading rows',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.positions('d-b'));assert.equal(h.calls.filter(c=>c[0]==='history-read').length,0)});
 test('settings use an allowlist, never exposing or accepting credential fields',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.saveSettings({token:'bad'}));const saved=await h.runtime.saveSettings({retentionDays:0});assert.equal(saved.retentionDays,0);assert.equal(h.account.trackingSettings.retentionDays,0)});
+test('reconciliation settings are additive and keep periodic mode opt-in',()=>{
+ const settings=policy.trackingSettings({});
+ assert.equal(settings.reconciliationEnabled,true);
+ assert.equal(settings.reconciliationOnBoot,true);
+ assert.equal(settings.reconciliationPeriodicEnabled,false);
+ assert.equal(settings.reconciliationPeriodSeconds,3600);
+ assert.equal(settings.reconciliationMinGapSeconds,300);
+ assert.equal(settings.reconciliationAttempts,3);
+});
+test('manual reconciliation imports every valid Google report while measuring only the target gap',async()=>{
+ const h=runtimeHarness();h.row.trackingEnabled=true;h.row.lastLocationAt=new Date(now-5*60*60*1000);
+ const inGap={...position,deviceId:'d-a',googleDeviceId:'g-a',timestamp:new Date(now-2*60*60*1000).toISOString(),source:'NETWORK'};
+ const olderAvailable={...inGap,timestamp:new Date(now-8*60*60*1000).toISOString(),latitude:-11.5};
+ let locateCalls=0;h.runtime.protocol.locate=async()=>{locateCalls++;return [inGap,olderAvailable]};
+ const result=await h.runtime.reconcileDevice('d-a',{from:new Date(now-5*60*60*1000).toISOString(),to:new Date(now).toISOString(),attempts:3,timeoutMs:10});
+ assert.equal(result.recoveredPositions,1);assert.equal(result.providerReportsObserved,2);assert.equal(result.completenessGuaranteed,false);
+ assert.equal(h.positions.length,2);assert.equal(locateCalls,3);
+ const repeated=await h.runtime.reconcileDevice('d-a',{from:new Date(now-5*60*60*1000).toISOString(),to:new Date(now).toISOString(),attempts:2,timeoutMs:10});
+ assert.equal(repeated.recoveredPositions,0);assert.equal(h.positions.length,2);
+});
+test('reconciliation does not run concurrently with an active tracking dispatch',async()=>{
+ const h=runtimeHarness();h.runtime.dispatching.add('d-a');
+ await assert.rejects(h.runtime.reconcileDevice('d-a',{}),/executando uma consulta/);
+});
+
 test('snapshot reports verified status, real counters, settings and no provider credentials',async()=>{const h=runtimeHarness();const result=await h.runtime.snapshot();assert.equal(result.connected,true);assert.equal(result.devices.length,1);assert.equal(result.counts.devices,1);assert.equal(result.email,'a@example.invalid');assert.equal(result.traccar.mode,'disabled');assert.ok(!JSON.stringify(result).includes('private-api-key'))});
 
 
