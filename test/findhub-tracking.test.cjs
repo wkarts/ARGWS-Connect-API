@@ -47,7 +47,7 @@ function runtimeHarness(globals={}) {
   '@prisma/client':{Prisma:{DbNull:{isNull:true}}},'@api/server.module':{eventManager:{async emit(e){events.push(e)}}},'@config/logger.config':{Logger:class{setInstance(){}error(){}}},
   '../../../../../diagnostics/diagnostics.service':{diagnostics:{record(e){diagnosticEvents.push(e)}}},
   '../auth/findhub-auth-broker.service':{FindHubAuthBrokerService:class{}},'../auth/findhub-credential-vault':{FindHubCredentialVault:class{encrypt(v){return JSON.stringify(v)}decrypt(v){return JSON.parse(v)}}},
-  './findhub-protocol.client':{FindHubProtocolClient:class{}},'./findhub-traccar.service':{FindHubTraccarService:class{async send(){}}},
+  './findhub-protocol.client':{FindHubProtocolClient:class{},createFindHubLocateDiagnostics:()=>({fcmPayloadsReceived:0,deviceMismatchPayloads:0,metadataDecodeFailures:0,providerReportsDecoded:0,reportsWithEncryptedLocation:0,reportsWithoutEncryptedLocation:0,decryptedReports:0,decryptRejectedReports:0,decryptErrors:0,invalidReports:0,validReports:0,duplicateValidReports:0,uniqueValidReports:0})},'./findhub-traccar.service':{FindHubTraccarService:class{async send(){}}},
   './traccar-client':{TraccarClient:class{close(){}start(fn,state){state('connected')}},resolveTraccarConnection:c=>c,traccarDestination:v=>new URL(v)},
  };
  const {FindHubStartupService}=load(dir+'findhub-runtime.service.ts',overrides,globals);
