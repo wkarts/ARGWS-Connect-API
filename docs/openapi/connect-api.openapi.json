@@ -7718,11 +7718,11 @@
     "/findhub/positions/reconcile/{deviceId}/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Reconciliar lacuna de um dispositivo",
         "operationId": "post_findhub_positions_reconcile_deviceid_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Executa recuperação best effort no Google Find Hub para um dispositivo. Importa e deduplica todos os relatórios válidos RECENT/NETWORK realmente devolvidos pelo provider, inclusive relatórios fora do intervalo usado como métrica. Não interpola posições e não promete reconstrução completa da lacuna.",
         "parameters": [
           {
             "name": "deviceId",
@@ -7752,21 +7752,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Reconciliar lacuna de um dispositivo",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubReconciliationResult"
                 }
               }
             }
@@ -7779,6 +7769,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
@@ -7787,8 +7787,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/FindHubReconciliationRequest"
               }
             }
           }
@@ -7798,11 +7797,11 @@
     "/findhub/positions/reconcile/{instanceName}": {
       "post": {
         "tags": [
-          "Channels"
+          "Google Find Hub"
         ],
-        "summary": ":Instance Name",
+        "summary": "Reconciliar dispositivos rastreados da instância",
         "operationId": "post_findhub_positions_reconcile_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/channel/findhub/findhub.router.ts`.",
+        "description": "Executa manualmente a reconciliação dos dispositivos com tracking habilitado nesta instância. Cada dispositivo reutiliza a persistência idempotente do histórico e devolve o resultado individual sem fabricar posições ausentes no Google.",
         "parameters": [
           {
             "name": "instanceName",
@@ -7822,21 +7821,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Reconciliar dispositivos rastreados da instância",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/FindHubReconciliationBatchResult"
                 }
               }
             }
@@ -7849,6 +7838,16 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
@@ -7857,8 +7856,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/FindHubReconciliationRequest"
               }
             }
           }
@@ -18994,6 +18992,206 @@
             "minimum": 1,
             "maximum": 2147483647,
             "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubReconciliationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 3
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubReconciliationResult": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "status",
+          "from",
+          "to",
+          "startedAt",
+          "completedAt",
+          "attemptsRequested",
+          "attemptsCompleted",
+          "positionsBefore",
+          "positionsAfter",
+          "recoveredPositions",
+          "providerReportsObserved",
+          "completenessGuaranteed"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "deviceName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recovered",
+              "no_recoverable_positions"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attemptsRequested": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "attemptsCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "positionsBefore": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "positionsAfter": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recoveredPositions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerReportsObserved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "firstRecoveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastRecoveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "completenessGuaranteed": {
+            "const": false
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "FindHubReconciliationBatchResult": {
+        "type": "object",
+        "required": [
+          "startedAt",
+          "completedAt",
+          "automatic",
+          "settings",
+          "results"
+        ],
+        "properties": {
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "automatic": {
+            "const": false
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "minGapSeconds": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 2592000
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              }
+            }
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindHubReconciliationResult"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "deviceId",
+                    "status",
+                    "error"
+                  ],
+                  "properties": {
+                    "deviceId": {
+                      "type": "string"
+                    },
+                    "deviceName": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "failed"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
           }
         }
       },
