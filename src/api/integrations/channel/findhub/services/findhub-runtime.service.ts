@@ -608,16 +608,17 @@ export class FindHubStartupService {
 
     for (const row of rows) {
       const thresholdMs = Math.max(minGapSeconds, Math.max(0, Number(row.trackingIntervalSeconds || 0)) * 2) * 1000;
-      const positions = await (this.prisma as any).findHubPosition.findMany({
+      const recentPositions = await (this.prisma as any).findHubPosition.findMany({
         where: {
           instanceId: this.instance.id,
           deviceId: row.id,
           recordedAt: { gte: lookbackStart, lte: now },
         },
-        orderBy: { recordedAt: 'asc' },
+        orderBy: { recordedAt: 'desc' },
         select: { recordedAt: true },
         take: 5000,
       });
+      const positions = [...recentPositions].reverse();
 
       let selected: { from: Date; to: Date; durationMs: number } | null = null;
       for (let index = 1; index < positions.length; index++) {
@@ -629,7 +630,9 @@ export class FindHubStartupService {
         }
       }
 
-      const lastKnownValue = positions[positions.length - 1]?.recordedAt || row.lastLocationAt;
+      // lastLocationAt is monotonic and authoritative for the tail. Do not infer a tail
+      // from the last row in a bounded history page, because a high-cadence device may truncate that page.
+      const lastKnownValue = row.lastLocationAt || positions[positions.length - 1]?.recordedAt;
       if (lastKnownValue) {
         const lastKnown = new Date(Math.max(new Date(lastKnownValue).getTime(), lookbackStart.getTime()));
         const durationMs = now.getTime() - lastKnown.getTime();
