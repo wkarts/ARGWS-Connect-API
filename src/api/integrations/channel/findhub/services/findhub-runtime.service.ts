@@ -529,12 +529,14 @@ export class FindHubStartupService {
     const startedAt = new Date().toISOString();
     const results = [];
     for (const device of devices) {
-      results.push(await this.reconcileDevice(device.id, input).catch((error) => ({
-        deviceId: device.id,
-        deviceName: device.name,
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
-      })));
+      results.push(
+        await this.reconcileDevice(device.id, input).catch((error) => ({
+          deviceId: device.id,
+          deviceName: device.name,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        })),
+      );
     }
     return {
       startedAt,
@@ -574,15 +576,24 @@ export class FindHubStartupService {
     }
   }
 
-  private async reconciliationCandidates(minGapSeconds: number): Promise<Array<{ deviceId: string; from: string; to: string }>> {
+  private async reconciliationCandidates(
+    minGapSeconds: number,
+  ): Promise<Array<{ deviceId: string; from: string; to: string }>> {
     const now = new Date();
     const rows = await (this.prisma as any).findHubDevice.findMany({
       where: { instanceId: this.instance.id, trackingEnabled: true },
       select: { id: true, lastLocationAt: true },
     });
     return rows
-      .filter((row: any) => row.lastLocationAt && now.getTime() - new Date(row.lastLocationAt).getTime() >= minGapSeconds * 1000)
-      .map((row: any) => ({ deviceId: row.id, from: new Date(row.lastLocationAt).toISOString(), to: now.toISOString() }));
+      .filter(
+        (row: any) =>
+          row.lastLocationAt && now.getTime() - new Date(row.lastLocationAt).getTime() >= minGapSeconds * 1000,
+      )
+      .map((row: any) => ({
+        deviceId: row.id,
+        from: new Date(row.lastLocationAt).toISOString(),
+        to: now.toISOString(),
+      }));
   }
 
   private async reconcileCandidates(candidates: Array<{ deviceId: string; from: string; to: string }>): Promise<void> {
@@ -618,7 +629,8 @@ export class FindHubStartupService {
 
     const from = new Date(fromValue);
     const to = new Date(input.to || Date.now());
-    if (!Number.isFinite(to.getTime()) || from.getTime() > to.getTime()) throw new Error('Período de reconciliação inválido.');
+    if (!Number.isFinite(to.getTime()) || from.getTime() > to.getTime())
+      throw new Error('Período de reconciliação inválido.');
 
     const attempts = Math.min(10, Math.max(1, input.attempts ?? settings.reconciliationAttempts));
     const timeoutMs = input.timeoutMs ?? device.locationTimeoutMs ?? settings.timeoutMs;
@@ -693,8 +705,7 @@ export class FindHubStartupService {
       lastRecoveredAt: rows.at(-1)?.recordedAt?.toISOString?.() || rows.at(-1)?.recordedAt || null,
       sources: [...new Set(rows.map((row: any) => row.source).filter(Boolean))],
       completenessGuaranteed: false,
-      note:
-        'Foram importados todos os relatórios válidos devolvidos pelo Google nesta reconciliação, com deduplicação local. O Google Find Hub não oferece uma API de histórico arbitrário; pontos que ele não devolver não podem ser fabricados.',
+      note: 'Foram importados todos os relatórios válidos devolvidos pelo Google nesta reconciliação, com deduplicação local. O Google Find Hub não oferece uma API de histórico arbitrário; pontos que ele não devolver não podem ser fabricados.',
     };
     this.reconciliationStatus.set(deviceId, result);
     await this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { deviceId, reconciliation: result });
