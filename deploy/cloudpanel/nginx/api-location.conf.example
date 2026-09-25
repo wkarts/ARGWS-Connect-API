@@ -21,6 +21,12 @@ location /docs/ {
 # Manager embutido em iframe (Hub, portais e consoles externos).
 # Este bloco também impede que um X-Frame-Options herdado do vhost do CloudPanel
 # volte a bloquear /manager. Se quiser restringir, troque "*" pela lista de origens.
+location = /manager {
+    return 302 /manager/;
+    add_header Content-Security-Policy "frame-ancestors *" always;
+    add_header X-Connect-Manager-Embedding "enabled" always;
+}
+
 location ^~ /manager/ {
     proxy_pass http://127.0.0.1:38080;
     proxy_http_version 1.1;
