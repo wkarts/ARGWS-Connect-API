@@ -755,7 +755,7 @@ export class FindHubStartupService {
       attemptsCompleted++;
       const attemptStarted = Date.now();
       const provider = createFindHubLocateDiagnostics();
-      const reports = (await this.protocol.locate(device, timeoutMs, provider))
+      const reports = (await this.protocol.locate(device, timeoutMs, provider, { collectUntilTimeout: true }))
         .filter((position) => validPosition(position))
         .sort(comparePositionPreference);
 
