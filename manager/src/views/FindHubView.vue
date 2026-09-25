@@ -133,6 +133,31 @@ async function refreshDevices() {
   catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
+function reconciliationFeedback(result: any) {
+  const provider = Number(result?.providerReportsDecoded || 0)
+  const valid = Number(result?.validProviderReports || 0)
+  const imported = Number(result?.importedReports || 0)
+  const recovered = Number(result?.recoveredPositions || 0)
+  const stored = Number(result?.alreadyStoredReports || 0)
+  const outside = Number(result?.reportsOutsideTargetRange || 0)
+
+  switch (result?.status) {
+    case 'recovered':
+      return `Reconciliação concluída: ${recovered} posição(ões) nova(s) recuperada(s) dentro do período; ${provider} relatório(s) recebido(s) do Google e ${imported} importado(s) no total.`
+    case 'imported_outside_target':
+      return `O Google devolveu ${provider} relatório(s) e ${imported} foi(foram) importado(s), mas nenhum novo ponto pertence ao período selecionado. ${outside} relatório(s) válido(s) ficou(ficaram) fora da faixa.`
+    case 'duplicates_only':
+      return `O Google devolveu ${provider} relatório(s); ${valid} virou(viraram) posição(ões) válida(s), porém ${stored} já existia(m) no histórico. Nenhuma duplicidade foi criada.`
+    case 'provider_reports_unusable':
+      return `O Google devolveu ${provider} relatório(s), mas nenhum pôde ser convertido em uma posição válida. Consulte os detalhes de decodificação abaixo.`
+    case 'retention_filtered':
+      return `O Google devolveu posições válidas, mas os relatórios novos estavam fora da retenção configurada do histórico.`
+    case 'no_provider_reports':
+      return 'A reconciliação foi executada, mas o Google não devolveu nenhum relatório de localização correlacionado nas tentativas realizadas.'
+    default:
+      return `Reconciliação concluída sem novas posições no período. O Google devolveu ${provider} relatório(s), dos quais ${valid} foi(foram) válido(s).`
+  }
+}
 async function reconcileHistory() {
   if (!chosen.value || reconciliationBusy.value) return
   reconciliationBusy.value = true; reconciliationResult.value = null; error.value = ''; feedback.value = ''
@@ -146,10 +171,7 @@ async function reconcileHistory() {
     reconciliationResult.value = await connect.findHubReconcile(id.value, chosen.value, data)
     await loadSelected()
     await reloadSnapshot()
-    const count = Number(reconciliationResult.value?.recoveredPositions || 0)
-    feedback.value = count
-      ? `Reconciliação concluída: ${count} posição(ões) adicional(is) recuperada(s) do Google.`
-      : 'Reconciliação concluída. O Google não devolveu posições adicionais para este intervalo.'
+    feedback.value = reconciliationFeedback(reconciliationResult.value)
   } catch (e) { error.value = friendlyError(e) }
   finally { reconciliationBusy.value = false }
 }
@@ -239,7 +261,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
       <FindHubTrackingSettings ref="editor" header-actions v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />
       <PanelCard v-else-if="section==='historico'" title="Histórico de localização" description="Posições persistidas desta conta, com horário do relatório e retenção configurável.">
         <p v-if="!auth?.historyEnabled" class="alert">Armazenamento desabilitado para esta conta. <RouterLink :to="findHubPath(id,'configuracao')">Configurar histórico e retenção</RouterLink>. Posições já existentes permanecem consultáveis até vencerem a retenção.</p>
-        <div class="form-stack"><label class="field"><span>Dispositivo</span><select v-model="chosen" class="select" @change="loadSelected"><option v-for="d in devices" :key="d.id" :value="d.id">{{d.name}}</option></select></label><div class="field-grid two"><label class="field"><span>Início</span><input v-model="from" type="datetime-local" /></label><label class="field"><span>Fim</span><input v-model="to" type="datetime-local" /></label></div><div class="toolbar"><button class="btn ghost" @click="loadSelected">Filtrar</button><button class="btn primary" :disabled="!connected || !chosen || reconciliationBusy || !auth?.historyEnabled" @click="reconcileHistory"><AppIcon name="refresh" :size="16"/>{{ reconciliationBusy ? 'Reconciliando…' : 'Tentar recuperar lacuna' }}</button></div><p class="muted">A reconciliação consulta novamente o Google Find Hub e salva relatórios RECENT/NETWORK antigos que ainda forem devolvidos. O Google não garante histórico completo do período.</p><div v-if="reconciliationResult" class="alert"><strong>Última reconciliação:</strong> {{ reconciliationResult.recoveredPositions }} posição(ões) nova(s), {{ reconciliationResult.attemptsCompleted }} tentativa(s). Período {{ stamp(reconciliationResult.from) }} → {{ stamp(reconciliationResult.to) }}.</div></div>
+        <div class="form-stack"><label class="field"><span>Dispositivo</span><select v-model="chosen" class="select" @change="loadSelected"><option v-for="d in devices" :key="d.id" :value="d.id">{{d.name}}</option></select></label><div class="field-grid two"><label class="field"><span>Início</span><input v-model="from" type="datetime-local" /></label><label class="field"><span>Fim</span><input v-model="to" type="datetime-local" /></label></div><div class="toolbar"><button class="btn ghost" @click="loadSelected">Filtrar</button><button class="btn primary" :disabled="!connected || !chosen || reconciliationBusy || !auth?.historyEnabled" @click="reconcileHistory"><AppIcon name="refresh" :size="16"/>{{ reconciliationBusy ? 'Reconciliando…' : 'Tentar recuperar lacuna' }}</button></div><p class="muted">A reconciliação consulta novamente o Google Find Hub e salva relatórios RECENT/NETWORK antigos que ainda forem devolvidos. O Google não garante histórico completo do período.</p><div v-if="reconciliationResult" class="alert reconciliation-result"><strong>Última reconciliação:</strong> {{ reconciliationResult.attemptsCompleted }} tentativa(s). Período {{ stamp(reconciliationResult.from) }} → {{ stamp(reconciliationResult.to) }}.<div class="reconciliation-metrics"><span><b>{{ reconciliationResult.providerReportsDecoded ?? reconciliationResult.providerReportsObserved ?? 0 }}</b> reports Google</span><span><b>{{ reconciliationResult.validProviderReports ?? 0 }}</b> posições válidas</span><span><b>{{ reconciliationResult.importedReports ?? 0 }}</b> importadas</span><span><b>{{ reconciliationResult.alreadyStoredReports ?? 0 }}</b> já existentes</span><span><b>{{ reconciliationResult.recoveredPositions ?? 0 }}</b> novas na lacuna</span><span><b>{{ reconciliationResult.reportsOutsideTargetRange ?? 0 }}</b> fora da faixa</span></div><details v-if="reconciliationResult.attempts?.length" class="reconciliation-details"><summary>Detalhes técnicos das tentativas</summary><div class="findhub-table"><table><thead><tr><th>Tentativa</th><th>FCM</th><th>Reports</th><th>Criptografados</th><th>Decriptados</th><th>Válidos</th><th>Importados</th><th>Já existentes</th><th>Falhas decode</th></tr></thead><tbody><tr v-for="item in reconciliationResult.attempts" :key="item.attempt"><td>{{ item.attempt }}</td><td>{{ item.fcmPayloadsReceived }}</td><td>{{ item.providerReportsDecoded }}</td><td>{{ item.reportsWithEncryptedLocation }}</td><td>{{ item.decryptedReports }}</td><td>{{ item.validReports }}</td><td>{{ item.importedReports }}</td><td>{{ item.alreadyStoredReports }}</td><td>{{ (item.metadataDecodeFailures || 0) + (item.decryptRejectedReports || 0) + (item.decryptErrors || 0) + (item.invalidReports || 0) }}</td></tr></tbody></table></div></details></div></div>
         <EmptyState v-if="!history.length" icon="location" title="Nenhuma posição no período" description="Ative o histórico e o rastreamento para armazenar novos relatórios. Você também pode tentar reconciliar uma lacuna recente com o Google Find Hub." />
         <div v-else class="findhub-table"><FindHubMap :key="chosen" :position="historyTrail[historyTrail.length-1]" :trail="historyTrail" :tile-url="snapshot?.map?.tileUrl" :avatar-data="historyAvatar" :device-name="devices.find(d => d.id===chosen)?.name"/><table><thead><tr><th>Relatório</th><th>Latitude</th><th>Longitude</th><th>Precisão</th><th>Origem</th></tr></thead><tbody><tr v-for="(p,index) in history" :key="p.id || index"><td>{{stamp(p.recordedAt)}}</td><td>{{p.latitude}}</td><td>{{p.longitude}}</td><td>{{p.accuracy ?? '—'}} m</td><td>{{p.source}}</td></tr></tbody></table><p class="muted">Até 1.000 posições mais recentes do período. Use intervalos menores para consultar o restante.</p></div>
       </PanelCard>
@@ -253,5 +275,5 @@ onBeforeUnmount(() => { sequence++; stopStream() })
   </FindHubShell>
 </template>
 <style scoped>
-.findhub-table{overflow:auto;margin-top:20px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid var(--border)}.instance-card h3{margin:0}.instance-card footer{margin-top:20px}.device-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.device-actions .btn{flex:1 0 auto;min-height:36px;margin:0;white-space:nowrap;justify-content:center}
+.findhub-table{overflow:auto;margin-top:20px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid var(--border)}.instance-card h3{margin:0}.instance-card footer{margin-top:20px}.device-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.device-actions .btn{flex:1 0 auto;min-height:36px;margin:0;white-space:nowrap;justify-content:center}.reconciliation-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.reconciliation-metrics span{display:flex;flex-direction:column;gap:2px}.reconciliation-details{margin-top:12px}.reconciliation-details summary{cursor:pointer;font-weight:600}
 </style>
