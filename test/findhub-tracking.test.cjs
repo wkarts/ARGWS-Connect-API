@@ -101,6 +101,14 @@ test('automatic reconciliation detects an internal historical gap inside the loo
  const candidates=await h.runtime.reconciliationCandidates(300,48);
  assert.equal(candidates.length,1);assert.equal(candidates[0].deviceId,'d-a');assert.equal(candidates[0].from,first.toISOString());assert.equal(candidates[0].to,second.toISOString());
 });
+test('bounded internal-gap scan uses the newest page and never invents a tail gap from truncation',async()=>{
+ const h=runtimeHarness();h.row.trackingEnabled=true;h.row.trackingIntervalSeconds=1;const base=Date.now();
+ for(let index=6000;index>=1;index--)h.positions.push({id:'dense-'+index,instanceId:'a',deviceId:'d-a',recordedAt:new Date(base-index*1000)});
+ h.row.lastLocationAt=new Date(base-1000);
+ const candidates=await h.runtime.reconciliationCandidates(300,48);
+ assert.equal(candidates.length,0);
+});
+
 test('reconciliation does not run concurrently with an active tracking dispatch',async()=>{
  const h=runtimeHarness();h.runtime.dispatching.add('d-a');
  await assert.rejects(h.runtime.reconcileDevice('d-a',{}),/executando uma consulta/);
