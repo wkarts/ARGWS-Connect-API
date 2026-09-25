@@ -17,10 +17,33 @@ O mapa fica na aplicação, com seleção de dispositivo, acompanhamento do pont
 - `staleAfterSeconds`: 30 a 604800; padrão 300.
 - `historyEnabled`: controla novas gravações. O valor inicial preserva `FINDHUB_STORE_POSITION_HISTORY` da instalação. Quando a variável não existe, novas contas usam histórico habilitado. Templates antigos explicitamente `false` não são sobrescritos.
 - `retentionDays`: padrão 30; 0 significa retenção indefinida. Valores positivos permitem excluir posições locais anteriores ao prazo.
+- `reconciliationEnabled`: habilita a camada de reconciliação best effort sem alterar o tracking normal.
+- `reconciliationOnBoot`: tenta reconciliar uma lacuna detectada quando a conta volta a conectar.
+- `reconciliationPeriodicEnabled`: agenda novas reconciliações enquanto o runtime estiver online; desabilitado por padrão.
+- `reconciliationPeriodSeconds`: periodicidade do scheduler quando habilitado.
+- `reconciliationLookbackHours`: janela, padrão 48 horas, usada para procurar também lacunas internas entre posições já persistidas.
+- `reconciliationMinGapSeconds`: duração mínima para considerar um intervalo uma lacuna; o intervalo normal configurado do dispositivo também é respeitado para evitar falso positivo.
+- `reconciliationAttempts`: número de consultas Google por reconciliação, de 1 a 10; padrão 3.
 
 Parâmetros persistidos da conta prevalecem sobre defaults do ambiente. Valores já gravados por dispositivo são alterados na ação de rastreamento desse dispositivo, não por uma mudança silenciosa na configuração de toda a conta.
 
-Histórico e última posição são diferentes: desligar novas gravações não impede consultar a última posição, o mapa, eventos ou registros antigos ainda dentro da retenção. A limpeza é por instância, em lotes limitados, após conectar/restaurar a conta e a cada hora enquanto seu runtime estiver ativo. Não há coleta retroativa. Relatórios repetidos são deduplicados; uma posição antiga não substitui a mais recente. O histórico oferece filtro de datas, até 1000 posições por consulta e trilha no mapa. Consulte intervalos menores para conjuntos maiores. Retenção indefinida exige dimensionamento de disco e backups.
+Histórico e última posição são diferentes: desligar novas gravações não impede consultar a última posição, o mapa, eventos ou registros antigos ainda dentro da retenção. A limpeza é por instância, em lotes limitados, após conectar/restaurar a conta e a cada hora enquanto seu runtime estiver ativo. O tracking normal não fabrica nem reconstrói retroativamente um percurso. A reconciliação é uma tentativa separada: consulta novamente o Google e importa todos os relatórios válidos `RECENT`/`NETWORK` que o provider ainda devolver, inclusive fora da faixa usada como alvo, com deduplicação pelo fingerprint já existente. Isso não transforma o Find Hub em uma API de timeline arbitrária e não garante cobertura completa de uma lacuna. Uma posição antiga não substitui a mais recente. O histórico oferece filtro de datas, até 1000 posições por consulta e trilha no mapa. Consulte intervalos menores para conjuntos maiores. Retenção indefinida exige dimensionamento de disco e backups.
+
+### Reconciliação e diagnóstico
+
+A reconciliação pode ser acionada manualmente, no boot/reconexão ou pelo scheduler periódico. A detecção automática olha a janela configurada e considera tanto a cauda `última posição → agora` quanto lacunas internas entre posições persistidas, escolhendo de forma limitada a lacuna relevante por dispositivo para não transformar o processo em varredura ilimitada.
+
+Cada tentativa coleta somente metadados técnicos seguros: quantidade de payloads FCM correlacionados, relatórios Google decodificados, relatórios com/sem localização criptografada, descriptografados, rejeitados, inválidos, válidos, duplicados, importados, já existentes, dentro/fora da faixa e descartados pela retenção. Latitude, longitude, nome do dispositivo, payload Google, tokens e credenciais **não são gravados no diagnóstico**.
+
+O feedback distingue explicitamente:
+- `no_provider_reports`: a consulta foi executada, mas nenhum relatório correlacionado foi devolvido pelo provider;
+- `provider_reports_unusable`: houve relatório Google, porém nenhum virou posição válida após metadata/decrypt/validação;
+- `duplicates_only`: o Google devolveu posições válidas, mas elas já existiam localmente;
+- `imported_outside_target`: houve importação nova, porém fora do intervalo usado para medir a lacuna;
+- `recovered`: pelo menos uma nova posição foi persistida dentro da lacuna;
+- `retention_filtered`: posições válidas estavam fora da retenção configurada.
+
+O diagnóstico usa o código `findhub.reconciliation` e registra apenas contadores limitados, trigger (`manual`, `boot`, `periodic`) e um identificador técnico de correlação. Isso permite auditar posteriormente se o Google não devolveu dados, se houve falha de decodificação ou se apenas ocorreu deduplicação, sem persistir coordenadas.
 
 ### Catálogo Google e permissões
 
@@ -106,6 +129,8 @@ PUT  /findhub/traccar/configuration/:instanceName
 POST /findhub/traccar/provision/:deviceId/:instanceName
 POST /findhub/locate/:deviceId/:instanceName     {timeoutMs?: number}
 GET  /findhub/positions/:deviceId/:instanceName ?from=ISO&to=ISO&limit=1000
+POST /findhub/positions/reconcile/:deviceId/:instanceName
+POST /findhub/positions/reconcile/:instanceName
 ```
 
 SSE usa `fetch` com `apikey` no header, nunca segredo na URL. Snapshot inicial, eventos existentes por conta, heartbeat15s, reconexão com autorização renovada a cada120s, máximo20 assinaturas por conta e backpressure. Essa reconexão não dispara uma localização por leitor. O cache do Manager não é a fonte de autoridade para acesso a dispositivos.
@@ -138,6 +163,6 @@ Esta alteração exige migrations aditivas, reconstrução da API/Manager/DOCs e
 
 ### Validação e limites
 
-Testes cobrem escopo por conta, snapshots/SSE, timeout, retenção0, deduplicação/monotonicidade, origens autorizadas, provisionamento idempotente, ausência de segredos nofrontend, noveCompose, digests protegidos e condições de publicação. O workflow de integração usa Traccar/PostgreSQL descartáveis oficiais com coordenadas sintéticas para testar bootstrap, REST, OsmAnd e WebSocket. Nenhum teste automatizado autentica uma conta Google real. Aprovação da CI não comprova Family Link, tags ou entrega de localização de um smartphone específico.
+Testes cobrem escopo por conta, snapshots/SSE, timeout, retenção0, deduplicação/monotonicidade, reconciliação manual/automática, detecção de lacuna interna, telemetria sem coordenadas/segredos, origens autorizadas, provisionamento idempotente, ausência de segredos nofrontend, noveCompose, digests protegidos e condições de publicação. O workflow de integração usa Traccar/PostgreSQL descartáveis oficiais com coordenadas sintéticas para testar bootstrap, REST, OsmAnd e WebSocket. Nenhum teste automatizado autentica uma conta Google real. Aprovação da CI não comprova Family Link, tags ou entrega de localização de um smartphone específico.
 
 Referências oficiais: https://www.traccar.org/traccar-api/ ; https://www.traccar.org/configuration-file/ ; https://www.traccar.org/osmand/ ; https://operations.osmfoundation.org/policies/tiles/ ; https://docs.github.com/en/rest/actions/cache ; https://docs.github.com/en/rest/packages/packages .
