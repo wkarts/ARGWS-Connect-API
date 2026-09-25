@@ -702,7 +702,8 @@ export class FindHubStartupService {
       recoveredPositions: recovered,
       providerReportsObserved: seen.size,
       firstRecoveredAt: rows[0]?.recordedAt?.toISOString?.() || rows[0]?.recordedAt || null,
-      lastRecoveredAt: rows.at(-1)?.recordedAt?.toISOString?.() || rows.at(-1)?.recordedAt || null,
+      lastRecoveredAt:
+        rows[rows.length - 1]?.recordedAt?.toISOString?.() || rows[rows.length - 1]?.recordedAt || null,
       sources: [...new Set(rows.map((row: any) => row.source).filter(Boolean))],
       completenessGuaranteed: false,
       note: 'Foram importados todos os relatórios válidos devolvidos pelo Google nesta reconciliação, com deduplicação local. O Google Find Hub não oferece uma API de histórico arbitrário; pontos que ele não devolver não podem ser fabricados.',
