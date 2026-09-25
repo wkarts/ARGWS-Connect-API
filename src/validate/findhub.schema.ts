@@ -103,6 +103,7 @@ export const findHubSettingsSchema: JSONSchema7 = {
     reconciliationOnBoot: { type: 'boolean' },
     reconciliationPeriodicEnabled: { type: 'boolean' },
     reconciliationPeriodSeconds: { type: 'integer', minimum: 60, maximum: 2592000 },
+    reconciliationLookbackHours: { type: 'integer', minimum: 1, maximum: 720 },
     reconciliationMinGapSeconds: { type: 'integer', minimum: 30, maximum: 2592000 },
     reconciliationAttempts: { type: 'integer', minimum: 1, maximum: 10 },
   },
