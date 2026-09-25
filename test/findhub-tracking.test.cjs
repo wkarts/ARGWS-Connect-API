@@ -123,6 +123,18 @@ test('protocol reconciliation diagnostics distinguish decoded, valid and duplica
  assert.equal(rows.length,1);assert.equal(metrics.fcmPayloadsReceived,1);assert.equal(metrics.providerReportsDecoded,2);
  assert.equal(metrics.decryptedReports,2);assert.equal(metrics.validReports,2);assert.equal(metrics.uniqueValidReports,1);assert.equal(metrics.duplicateValidReports,1);
 });
+test('reconciliation collection mode keeps the correlation open until timeout and returns later historical reports',async()=>{
+ const h=protocolDeadlineHarness(),metrics=h.createFindHubLocateDiagnostics();
+ const waiting=h.client.locate({id:'one',googleDeviceId:'g'},10,metrics,{collectUntilTimeout:true});
+ h.finish();await Promise.resolve();await Promise.resolve();
+ const older={...position,timestamp:new Date(now-3600000).toISOString(),latitude:-11.75};
+ h.push([position]);assert.equal(h.client.pending.size,1);
+ h.push([older]);assert.equal(h.client.pending.size,1);
+ h.timers[0].fn();const rows=await waiting;
+ assert.equal(rows.length,2);assert.equal(rows[0].timestamp,position.timestamp);assert.equal(rows[1].timestamp,older.timestamp);
+ assert.equal(metrics.fcmPayloadsReceived,2);assert.equal(metrics.uniqueValidReports,2);
+});
+
 
 for (const intervalSeconds of [0,1,2,15,30,60,86400]) test('requested interval survives validation: '+intervalSeconds,()=>{assert.equal(policy.trackingSettings({intervalSeconds}).intervalSeconds,intervalSeconds);assert.equal(policy.trackingDelayMs(intervalSeconds),intervalSeconds*1000)});
 test('legacy env recommendation cannot override explicit zero',()=>{const p=load(dir+'findhub-tracking.policy.ts',{}, {process:{env:{FINDHUB_MIN_TRACKING_INTERVAL_SECONDS:'30'}}});assert.equal(p.trackingMinimum(),0);assert.equal(p.trackingSettings({intervalSeconds:0}).intervalSeconds,0)});
