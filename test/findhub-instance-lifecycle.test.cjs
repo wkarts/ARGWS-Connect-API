@@ -164,6 +164,7 @@ function harness(options = {}) {
       defaultLocalTemplateRecord: () => ({ name: 'hello' }),
     },
     '../findhub.constants': { FINDHUB_INTEGRATION: Integration.GOOGLE_FIND_HUB, FINDHUB_EVENTS: {} },
+    '../../../../../diagnostics/diagnostics.service': { diagnostics: { record() {} } },
     '../auth/findhub-auth-broker.service': {
       FindHubAuthBrokerService: class {
         async load() { return null; }
