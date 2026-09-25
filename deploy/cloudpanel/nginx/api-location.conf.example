@@ -18,6 +18,29 @@ location /docs/ {
     proxy_connect_timeout 60s;
 }
 
+# Manager embutido em iframe (Hub, portais e consoles externos).
+# Este bloco também impede que um X-Frame-Options herdado do vhost do CloudPanel
+# volte a bloquear /manager. Se quiser restringir, troque "*" pela lista de origens.
+location ^~ /manager/ {
+    proxy_pass http://127.0.0.1:38080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_connect_timeout 60s;
+    client_max_body_size 136m;
+
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Content-Security-Policy;
+    add_header Content-Security-Policy "frame-ancestors *" always;
+    add_header X-Connect-Manager-Embedding "enabled" always;
+}
+
 location / {
     proxy_pass http://127.0.0.1:38080;
     proxy_http_version 1.1;
