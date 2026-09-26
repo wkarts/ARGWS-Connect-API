@@ -60,10 +60,12 @@ test('Find Hub sound follows advertised action capabilities instead of catalogue
   assert.doesNotMatch(view, /v-if="device\.identifierType==='SPOT'"/);
 });
 
-test('Nova probes optional Android, Auto, Fast Pair and supervised catalogues without replacing SPOT', () => {
+test('Nova treats SPOT, Android, Auto, Fast Pair and supervised selectors as resilient discovery paths', () => {
   const nova = read('src/api/integrations/channel/findhub/protocol/nova.client.ts');
-  assert.match(nova, /captureDevicesListRaw\('spot'\)/);
-  assert.match(nova, /\['android', 'auto', 'fastpair', 'supervised'\]/);
-  assert.match(nova, /catch \{/);
-  assert.match(nova, /\[\.\.\.complementary, \.\.\.primary\]/);
+  assert.match(nova, /\['spot', 'android', 'auto', 'fastpair', 'supervised'\]/);
+  assert.match(nova, /Promise\.all/);
+  assert.match(nova, /result\.catalog !== 'spot'/);
+  assert.match(nova, /result\.catalog === 'spot'/);
+  assert.match(nova, /never make it a hard dependency/);
+  assert.match(nova, /did not return any readable device catalogue/);
 });
