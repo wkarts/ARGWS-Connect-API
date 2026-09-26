@@ -287,6 +287,36 @@ const requestOverrides = {
     },
   },
   'POST /chat/markMessageAsRead/{instanceName}': { summary: 'Marcar mensagem como lida', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageKeyRequest' } } } } },
+  'POST /chat/markMessageAsPlayed/{instanceName}': {
+    summary: 'Marcar áudio recebido como reproduzido (PLAYED)',
+    description: 'Envia o receipt nativo PLAYED ao WhatsApp somente quando o cliente confirma reprodução real do áudio. Não substitui markMessageAsRead, não é disparado por download, histórico ou sincronização e aceita participant opcional para grupos. fromMe deve ser false.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/PlayedMessageRequest' },
+          example: {
+            playedMessages: [
+              {
+                id: '3EB0123456789ABCDEF',
+                fromMe: false,
+                remoteJid: '5575988881111@s.whatsapp.net',
+              },
+            ],
+          },
+        },
+      },
+    },
+    responses: {
+      '201': {
+        description: 'Receipt PLAYED enviado.',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/PlayedMessageResult' } } },
+      },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
   'GET /health': { summary: 'Healthcheck da API', security: [] },
   'GET /': { summary: 'Informações da API', security: [] },
   'POST /verify-creds': { summary: 'Validar credenciais da API' },
@@ -434,6 +464,39 @@ function nativeSpec(routes, version) {
         ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
+        PlayedMessageRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['playedMessages'],
+          properties: {
+            playedMessages: {
+              type: 'array',
+              minItems: 1,
+              uniqueItems: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'fromMe', 'remoteJid'],
+                properties: {
+                  id: { type: 'string', minLength: 1 },
+                  fromMe: { type: 'boolean', const: false },
+                  remoteJid: { type: 'string', minLength: 1 },
+                  participant: { type: 'string', minLength: 1 },
+                },
+              },
+            },
+          },
+        },
+        PlayedMessageResult: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['success', 'receipt', 'processed'],
+          properties: {
+            success: { const: true },
+            receipt: { const: 'played' },
+            processed: { type: 'integer', minimum: 1 },
+          },
+        },
       },
       responses: {
         BadRequest: { description: 'Requisição inválida.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
