@@ -11,7 +11,7 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 
 | Recurso | Origem no material | Connect|API |
 | --- | --- | --- |
-| Catálogo SPOT e Android | Nova ListDevices | Suportado |
+| Catálogo por seletores SPOT / ANDROID / AUTO / FASTPAIR / SUPERVISED | Nova ListDevices | Suportado; seletores são tratados como caminhos de descoberta, não como tipo semântico do aparelho |
 | Todos os IDs canônicos | DeviceMetadata / CanonicIds | Persistidos e expostos |
 | Tipo do identificador | IdentifierInformationType + captura viva | ANDROID / SPOT / SUPERVISED_ANDROID / UNKNOWN |
 | Tipos detalhados | SpotDeviceType | Suportados sem reduzir tudo a TRACKER |
@@ -77,7 +77,10 @@ Em 2026-09-26 foram comparados, para o mesmo Redmi Note 14, um `DevicesList` sol
 
 A correlação mostrou:
 
-- os catálogos solicitados como `ANDROID` e `SPOT` devolveram o mesmo conjunto de dispositivos e o mesmo metadata; a diferença observada entre as duas respostas foi o timestamp de resposta;
+- os catálogos solicitados como `SPOT`, `ANDROID`, `AUTO`, `FASTPAIR` e `SUPERVISED` devolveram o mesmo conjunto de dispositivos;
+- removendo somente `providerResponseAt`, o `DeviceMetadata` do Redmi Note 14 é byte a byte idêntico nos cinco seletores; o mesmo vale para o segundo dispositivo supervisionado retornado pela conta;
+- nas cinco respostas, o Redmi Note 14 continua declarando `identifierType=ANDROID`; o selector usado na requisição não reescreve o tipo do dispositivo;
+- a única diferença observada entre essas cinco capturas foi o timestamp de resposta do provider;
 - no catálogo, o Redmi Note 14 aparece com `identifierType=ANDROID`, ID numérico Android, canonical ID, modelo `24117RN76L`, fabricante `Xiaomi`, codinome `tanzanite`, produto `tanzanite_global`, operadora e IMEI;
 - no `DeviceUpdate` de Locate, o mesmo canonical ID aparece com `identifierType=SPOT`;
 - portanto `identifierType` descreve a superfície/envelope retornado e **não deve ser usado isoladamente como capability gate**;
@@ -180,7 +183,7 @@ FASTPAIR_DEVICE = 5
 SUPERVISED_ANDROID_DEVICE = 7
 ```
 
-A sincronização da Connect|API mantém SPOT como catálogo principal e consulta Android, Auto, Fast Pair e Supervised Android como fontes complementares best-effort. Falha ou indisponibilidade de uma fonte complementar não remove o catálogo SPOT já obtido.
+As capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. Por isso a Connect|API trata os cinco valores como caminhos de descoberta best-effort: consulta todos em paralelo, aceita qualquer resposta legível e deduplica por `googleDeviceId`. SPOT permanece apenas como desempate final de compatibilidade quando o mesmo dispositivo aparece em múltiplas respostas; sua indisponibilidade isolada não derruba a descoberta.
 
 ## Recursos presentes no material e que pertencem a outro ciclo
 
