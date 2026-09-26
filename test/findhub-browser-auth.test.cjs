@@ -84,6 +84,79 @@ test('stored Find Hub credentials are reported as linked independently from live
   assert.equal(newAccount.ready, false);
 });
 
+test('AUTH_REQUIRED account renews credentials in place without unlinking persisted resources', async () => {
+  const env = { FINDHUB_CREDENTIALS_KEY: '11'.repeat(32) };
+  const { FindHubAuthBrokerService } = load(
+    'src/api/integrations/channel/findhub/auth/findhub-auth-broker.service.ts',
+    { '@api/repository/repository.service': {} },
+    { process: { env } },
+  );
+  const account = {
+    id: 'account-stable-id',
+    instanceId: 'google-id',
+    googleEmail: 'operator@example.com',
+    authState: 'AUTH_REQUIRED',
+    encryptedCredentials: 'old-credentials',
+    encryptedSharedKey: 'old-shared-key',
+    clientUuid: 'stable-client-uuid',
+  };
+  let deletes = 0;
+  const prisma = {
+    instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubAccount: {
+      async findUnique() { return account; },
+      async upsert() { throw new Error('renewal must not replace the account row'); },
+      async update({ data }) { Object.assign(account, data); return account; },
+      async deleteMany() { deletes++; return { count: 1 }; },
+    },
+  };
+  const broker = new FindHubAuthBrokerService(prisma);
+  const session = await broker.start('google', 'operator@example.com');
+  assert.equal(session.renewal, true);
+  assert.equal(account.id, 'account-stable-id');
+  assert.equal(account.clientUuid, 'stable-client-uuid');
+  assert.equal(account.authState, 'AUTH_REQUIRED');
+  assert.equal(account.encryptedCredentials, 'old-credentials');
+  assert.equal(account.encryptedSharedKey, 'old-shared-key');
+
+  await broker.importBundle('google', {
+    ...session,
+    email: 'operator@example.com',
+    androidId: '123456789',
+    accountToken: 'new-account-token',
+    sharedKey: Buffer.alloc(32, 7).toString('base64'),
+  });
+  assert.equal(account.id, 'account-stable-id');
+  assert.equal(account.clientUuid, 'stable-client-uuid');
+  assert.equal(account.authState, 'VERIFYING');
+  assert.notEqual(account.encryptedCredentials, 'old-credentials');
+  assert.notEqual(account.encryptedSharedKey, 'old-shared-key');
+  assert.equal(deletes, 0);
+});
+
+test('credential renewal cannot switch Google identity or overwrite a still READY account', async () => {
+  const { FindHubAuthBrokerService } = load(
+    'src/api/integrations/channel/findhub/auth/findhub-auth-broker.service.ts',
+    { '@api/repository/repository.service': {} },
+    { process: { env: { FINDHUB_CREDENTIALS_KEY: '22'.repeat(32) } } },
+  );
+  const account = {
+    instanceId: 'google-id',
+    googleEmail: 'operator@example.com',
+    authState: 'AUTH_REQUIRED',
+    encryptedCredentials: 'stored-credentials',
+    encryptedSharedKey: 'stored-shared-key',
+  };
+  const prisma = {
+    instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubAccount: { async findUnique() { return account; } },
+  };
+  const broker = new FindHubAuthBrokerService(prisma);
+  await assert.rejects(broker.start('google', 'other@example.com'), /mesma conta Google/);
+  account.authState = 'READY';
+  await assert.rejects(broker.start('google', 'operator@example.com'), /reconexão existente/);
+});
+
 test('browser flow starts without authenticating; nonce and expiry are internal', async () => {
   const h = harness(); const session = await h.service.start(h.runtime, 'operator@example.com');
   assert.equal(session.authMode, 'browser-extension'); assert.equal(session.state, 'WAITING_USER');
