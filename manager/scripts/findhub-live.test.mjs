@@ -20,13 +20,20 @@ test('Find Hub map complies with tile identification without changing platform p
  assert.doesNotMatch(source,/no-cache|cacheBust|Date.now\(\).*tile/);
  assert.match(source,/OpenStreetMap contributors/);
 });
-test('linked Find Hub account reconnects stored credentials instead of starting a new login',()=>{
+test('linked Find Hub account retries transport, but AUTH_REQUIRED renews credentials in place',()=>{
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  assert.match(source,/const linked = computed\(\(\) => auth\.value\?\.linked === true\)/);
+ assert.match(source,/authRequiresRenewal/);
  assert.match(source,/connect\.connectConnection\(id\.value\)/);
- assert.match(source,/v-if="!connected && linked"/);
- assert.match(source,/v-else-if="!connected"/);
+ assert.match(source,/v-if="!connected && linked && !authRequiresRenewal"/);
+ assert.match(source,/v-else-if="!connected && authRequiresRenewal"/);
  assert.match(source,/Reconectar com credenciais salvas/);
+ assert.match(source,/Renovar autenticação Google/);
+ assert.match(source,/renewal @connected="load"/);
+ const auth=readFileSync(new URL('../src/components/FindHubBrowserAuth.vue',import.meta.url),'utf8');
+ assert.match(auth,/renewal\?: boolean/);
+ assert.match(auth,/props\.renewal \? 'Renovar autenticação Google'/);
+ assert.match(auth,/:disabled="busy \|\| props\.renewal"/);
 });
 
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{
