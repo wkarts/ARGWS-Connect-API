@@ -49,21 +49,25 @@ export class FindHubNovaClient {
   }
 
   public async listDevices() {
-    const catalogs = ['spot', 'android', 'auto', 'fastpair', 'supervised'] as const;
-    const results = await Promise.all(
-      catalogs.map(async (catalog) => {
-        try {
-          return {
-            catalog,
-            devices: decodeDevicesList(await this.captureDevicesListRaw(catalog)),
-            error: undefined,
-          };
-        } catch (error) {
-          return { catalog, devices: [], error };
-        }
-      }),
-    );
+    const capture = async (catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised') => {
+      try {
+        return {
+          catalog,
+          devices: decodeDevicesList(await this.captureDevicesListRaw(catalog)),
+          error: undefined,
+        };
+      } catch (error) {
+        return { catalog, devices: [], error };
+      }
+    };
 
+    // Preserve the previous request profile: SPOT first, then complementary selectors in parallel.
+    // Unlike the legacy behavior, a SPOT failure no longer aborts discovery.
+    const primary = await capture('spot');
+    const complementary = await Promise.all(
+      (['android', 'auto', 'fastpair', 'supervised'] as const).map((catalog) => capture(catalog)),
+    );
+    const results = [primary, ...complementary];
     const available = results.filter((result) => result.devices.length);
     if (!available.length) {
       const failure = results.find((result) => result.error !== undefined)?.error;
