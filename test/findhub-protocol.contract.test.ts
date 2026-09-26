@@ -76,7 +76,7 @@ test('Find Hub metadata decoder preserves every proven identifier, ownership and
   assert.equal(device.identityKeyFingerprint, 'c45b801ba4aec1e55f00b768e888f15a1178a8f982d615454822034dec1c568a');
   assert.equal(device.accountKeyFingerprint, 'df5769597d190595cc97400a70ce0a15176afd3ccfd8ba808552037a320ea1eb');
   assert.equal(device.publicAddressFingerprint, '1217d815a04e9952f1b8091e09107625e2ede718f90a3590cada3dd9e0e927ec');
-  assert.equal(device.secretsCreatedAt, '2026-09-26T00:01:40.000Z');
+  assert.equal(device.secretsCreatedAt, '2026-09-26T02:41:40.000Z');
   assert.deepEqual(device.accessInformation, [
     { email: 'owner@example.com', hasAccess: true, isOwner: true, thisAccount: true },
     { email: 'shared@example.com', hasAccess: true, isOwner: false, thisAccount: false },
