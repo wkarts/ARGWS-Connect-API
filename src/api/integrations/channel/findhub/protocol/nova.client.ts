@@ -1,7 +1,12 @@
 import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
 import { GOOGLE_ADM_CONFIG, GOOGLE_ENDPOINTS, NOVA_SCOPES } from '../findhub.constants';
 import { FindHubAasCredentials } from '../findhub.types';
-import { decodeDevicesList, encodeDeviceListRequest, encodeExecuteLocateRequest } from './findhub-proto';
+import {
+  decodeDevicesList,
+  encodeDeviceListRequest,
+  encodeExecuteLocateRequest,
+  encodeExecuteSoundRequest,
+} from './findhub-proto';
 
 export class FindHubNovaClient {
   constructor(
@@ -52,5 +57,19 @@ export class FindHubNovaClient {
     signal?: AbortSignal,
   ) {
     await this.request(NOVA_SCOPES.executeAction, encodeExecuteLocateRequest(args), signal);
+  }
+
+  public async sound(
+    args: {
+      googleDeviceId: string;
+      fcmRegistrationId: string;
+      requestUuid: string;
+      clientUuid: string;
+    },
+    operation: 'start' | 'stop',
+    component: 'UNSPECIFIED' | 'RIGHT' | 'LEFT' | 'CASE' = 'UNSPECIFIED',
+    signal?: AbortSignal,
+  ) {
+    await this.request(NOVA_SCOPES.executeAction, encodeExecuteSoundRequest(args, operation, component), signal);
   }
 }
