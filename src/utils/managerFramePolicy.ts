@@ -19,6 +19,13 @@ function localDevelopmentHost(hostname: string): boolean {
   return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname.toLowerCase());
 }
 
+function hasUnsafeFrameOriginCharacters(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x20 || code === 0x7f;
+  });
+}
+
 export function normalizeManagerFrameOrigins(
   values: string[],
   production = process.env.NODE_ENV === 'PROD' || process.env.NODE_ENV === 'production',
@@ -26,7 +33,7 @@ export function normalizeManagerFrameOrigins(
   const normalized: string[] = [];
   for (const rawValue of values) {
     const raw = String(rawValue || '').trim();
-    if (!raw || raw.length > 300 || /[\u0000-\u0020\u007f]/.test(raw)) {
+    if (!raw || raw.length > 300 || hasUnsafeFrameOriginCharacters(raw)) {
       throw new Error('Origem de iframe inválida.');
     }
 
@@ -62,9 +69,10 @@ function envFrameAncestors(env: NodeJS.ProcessEnv): string[] {
     .split(/[\s,]+/)
     .map((value) => value.trim())
     .filter(Boolean)
-    .filter((token) =>
-      ['*', "'self'", "'none'", 'https:', 'http:'].includes(token) ||
-      /^https?:\/\/(?:\*\.)?[a-z0-9.-]+(?::\d{1,5})?$/i.test(token),
+    .filter(
+      (token) =>
+        ['*', "'self'", "'none'", 'https:', 'http:'].includes(token) ||
+        /^https?:\/\/(?:\*\.)?[a-z0-9.-]+(?::\d{1,5})?$/i.test(token),
     );
 
   if (!requested.length) return ['*'];
