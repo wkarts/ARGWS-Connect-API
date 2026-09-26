@@ -68,7 +68,33 @@ export const findHubSchemas = {
       deviceCodename: text,
       productName: text,
       carrier: text,
-      imei: { type: 'string', pattern: '^\\d{15}
+      imei: {
+        type: 'string',
+        pattern: '^\\d{15}$',
+        description: 'IMEI quando o provider Google o entrega; o Connect|API valida formato/check digit e não o infere.',
+      },
+      androidDeviceNumericId: text,
+      providerOpaqueId: text,
+      providerRegisteredAt: { type: ['string', 'null'], format: 'date-time' },
+      providerStatusAt: { type: ['string', 'null'], format: 'date-time' },
+      providerResponseAt: { type: ['string', 'null'], format: 'date-time' },
+      gmsCoreVersionCode: { type: 'integer' },
+      androidSdkVersion: { type: 'integer' },
+      familyLinkManaged: { type: 'boolean' },
+      familyLinkMemberName: text,
+      familyLinkUrl: text,
+      providerCapabilities: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['actionField', 'state'],
+          properties: { actionField: { type: 'integer' }, state: { type: 'integer' } },
+        },
+      },
+      providerFlags: { type: 'object', additionalProperties: { type: 'integer' } },
+      locateSupported: { type: 'boolean' },
+      fastPairModelId: text,
+      pairedAt: { type: ['string', 'null'], format: 'date-time' },
       accessInformation: {
         type: 'array',
         items: {
