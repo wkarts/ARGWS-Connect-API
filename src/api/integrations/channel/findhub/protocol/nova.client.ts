@@ -3,6 +3,7 @@ import { GOOGLE_ADM_CONFIG, GOOGLE_ENDPOINTS, NOVA_SCOPES } from '../findhub.con
 import { FindHubAasCredentials } from '../findhub.types';
 import {
   decodeDevicesList,
+  DeviceType,
   encodeDeviceListRequest,
   encodeExecuteLocateRequest,
   encodeExecuteSoundRequest,
@@ -34,16 +35,34 @@ export class FindHubNovaClient {
     return Buffer.from(await response.arrayBuffer());
   }
 
+  public async captureDevicesListRaw(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<Buffer> {
+    const deviceType = {
+      spot: DeviceType.SPOT,
+      android: DeviceType.ANDROID,
+      auto: DeviceType.AUTO,
+      fastpair: DeviceType.FASTPAIR,
+      supervised: DeviceType.SUPERVISED_ANDROID,
+    }[catalog];
+    return await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, deviceType));
+  }
+
   public async listDevices() {
-    const primary = decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest()));
-    // The SPOT catalogue remains authoritative. An unsupported complementary catalogue must not erase it.
-    let android: typeof primary = [];
-    try {
-      android = decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, 1)));
-    } catch {
-      /* Not all Google accounts expose the complementary Android catalogue. */
-    }
-    const devices = new Map([...android, ...primary].map((device) => [device.googleDeviceId, device]));
+    const primary = decodeDevicesList(await this.captureDevicesListRaw('spot'));
+    // The SPOT catalogue remains authoritative. Complementary catalogues are best-effort, additive and parallel.
+    const complementary = (
+      await Promise.all(
+        (['android', 'auto', 'fastpair', 'supervised'] as const).map(async (catalog) => {
+          try {
+            return decodeDevicesList(await this.captureDevicesListRaw(catalog));
+          } catch {
+            return [];
+          }
+        }),
+      )
+    ).flat();
+    const devices = new Map([...complementary, ...primary].map((device) => [device.googleDeviceId, device]));
     return [...devices.values()];
   }
 

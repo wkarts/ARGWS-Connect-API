@@ -32,11 +32,13 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  // Browser authentication plus tracking/SSE/settings, reconciliation, native Traccar and SPOT sound actions; shared-method paths count once.
-  assert.equal(implemented.length, 27);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 32);
+  // Browser authentication plus tracking/SSE/settings, reconciliation, native Traccar, sound and forensic protobuf captures; shared-method paths count once.
+  assert.equal(implemented.length, 29);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 34);
   assert.ok(implemented.includes('/findhub/sound/start/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/sound/stop/{deviceId}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/catalog/{catalog}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/device-update/{deviceId}/{instanceName}'));
   assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
   assert.match(dedicated.info.description, /CredentialProvider/);
   assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);
@@ -57,6 +59,13 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const remove = dedicated.paths['/findhub/traccar/{deviceId}/{instanceName}'].delete;
   assert.deepEqual(remove.responses['204'], { description: 'Vínculo removido; resposta sem corpo.' });
   assert.equal(remove.requestBody, undefined);
+  const catalogCapture = dedicated.paths['/findhub/protocol/capture/catalog/{catalog}/{instanceName}'].post;
+  const updateCapture = dedicated.paths['/findhub/protocol/capture/device-update/{deviceId}/{instanceName}'].post;
+  assert.ok(catalogCapture.responses['200'].content['application/x-protobuf']);
+  assert.ok(updateCapture.responses['200'].content['application/x-protobuf']);
+  assert.match(catalogCapture.description, /sem decodificação/);
+  assert.match(updateCapture.description, /DeviceUpdate FCM/);
+
   const startSound = dedicated.paths['/findhub/sound/start/{deviceId}/{instanceName}'].post;
   const stopSound = dedicated.paths['/findhub/sound/stop/{deviceId}/{instanceName}'].post;
   assert.equal(startSound.requestBody.required, false);

@@ -603,6 +603,63 @@ export const current = {
     }))
   },
 
+  async findHubCaptureCatalog(id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised') {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/catalog/${catalog}/${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { apikey: token || accessCode },
+          signal: AbortSignal.timeout(45000),
+        },
+      )
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        throw new CurrentApiError(text || 'Não foi possível capturar o catálogo protobuf.', response.status)
+      }
+      const disposition = response.headers.get('content-disposition') || ''
+      const fileName = disposition.match(/filename="([^"]+)"/i)?.[1] || `findhub-devices-${catalog}.pb`
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName
+      anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+
+  async findHubCaptureDeviceUpdate(id: string, deviceId: string, timeoutMs = 120000) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/device-update/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            apikey: token || accessCode,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ timeoutMs }),
+          signal: AbortSignal.timeout(Math.min(2147483647, timeoutMs + 15000)),
+        },
+      )
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        throw new CurrentApiError(text || 'Não foi possível capturar o DeviceUpdate protobuf.', response.status)
+      }
+      const disposition = response.headers.get('content-disposition') || ''
+      const fileName =
+        disposition.match(/filename="([^"]+)"/i)?.[1] || `findhub-device-update-${deviceId}.pb`
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName
+      anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+
   async findHubLocate(id: string, deviceId: string, timeoutMs?: number) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/locate/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
       method: 'POST', token, timeout: Math.min(2147483647, (timeoutMs ?? 120000) + 10000), data: { timeoutMs },

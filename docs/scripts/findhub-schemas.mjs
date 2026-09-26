@@ -144,8 +144,45 @@ export const findHubOperations = {
   'GET /findhub/auth/status/{instanceName}': operation('Consultar estado da autenticação', 'Consulta estado persistido sem devolver tokens nem chaves. Use para acompanhar a vinculação tanto pelo Manager quanto por integração externa.', ref('FindHubAuthStatus')),
   'GET /findhub/devices/{instanceName}': operation('Listar dispositivos cadastrados', 'Retorna o catálogo local da instância; não força uma consulta nova ao Google. Telefones usam identifierType ANDROID e deviceType PHONE quando o protocolo informa esse tipo.', { type: 'array', items: ref('FindHubDevice') }),
   'POST /findhub/devices/refresh/{instanceName}': operation('Atualizar catálogo pelo Google Find Hub', 'Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.', { type: 'array', items: ref('FindHubDevice') }),
+  'POST /findhub/protocol/capture/catalog/{catalog}/{instanceName}': operation(
+    'Capturar DevicesList protobuf bruto',
+    'Executa diretamente a consulta Nova para o catálogo solicitado e devolve o corpo binário sem decodificação. Catálogos aceitos: spot, android, auto, fastpair e supervised. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.',
+    { type: 'string', format: 'binary' },
+    {
+      parameters: [
+        {
+          name: 'catalog',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', enum: ['spot', 'android', 'auto', 'fastpair', 'supervised'] },
+        },
+      ],
+      responses: {
+      '200': {
+        description: 'Protobuf bruto retornado pelo provider Google; contém dados sensíveis e deve ser tratado como artefato forense.',
+        content: { 'application/x-protobuf': { schema: { type: 'string', format: 'binary' } } },
+      },
+      ...errors,
+    },
+    },
+  ),
   'GET /findhub/device/{deviceId}/{instanceName}': operation('Consultar um dispositivo', 'Use o id local retornado na listagem, não googleDeviceId. A consulta permanece restrita à instância autorizada.', ref('FindHubDevice')),
   'POST /findhub/locate/{deviceId}/{instanceName}': operation('Solicitar localização do dispositivo', 'Solicitação ativa via Nova e resposta assíncrona FCM/MCS. Pode retornar null quando não há posição; respeita FINDHUB_LOCATION_TIMEOUT_MS. Timestamp é a data do relatório, não a hora da chamada. Não há promessa de GPS em tempo real ou de localização nova a cada requisição.', { oneOf: [ref('FindHubPosition'), { type: 'null' }] }),
+  'POST /findhub/protocol/capture/device-update/{deviceId}/{instanceName}': operation(
+    'Capturar DeviceUpdate FCM protobuf bruto',
+    'Envia um Locate com requestUuid exclusivo, aguarda o primeiro DeviceUpdate FCM correlacionado e devolve o envelope protobuf bruto antes do decoder de posições. Nenhuma captura é gravada automaticamente em banco ou log normal.',
+    { type: 'string', format: 'binary' },
+    {
+      requestBody: { ...body('FindHubLocateRequest', { timeoutMs: 120000 }), required: false },
+      responses: {
+      '200': {
+        description: 'Protobuf bruto retornado pelo provider Google; contém dados sensíveis e deve ser tratado como artefato forense.',
+        content: { 'application/x-protobuf': { schema: { type: 'string', format: 'binary' } } },
+      },
+      ...errors,
+    },
+    },
+  ),
   'POST /findhub/sound/start/{deviceId}/{instanceName}': operation(
     'Tocar som no dispositivo SPOT',
     'Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.',

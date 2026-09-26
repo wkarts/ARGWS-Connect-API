@@ -50,8 +50,10 @@ test('Find Hub device view exposes proven protocol metadata, provider freshness 
  for(const value of ['Google Device ID','IDs canônicos','Fast Pair Model ID','Owner key version','Frescor real do provider Google','Solicitações enviadas','Relatórios repetidos/sem posição nova','Tocar som','Parar som'])assert.match(source,new RegExp(value));
  assert.match(source,/findHubSound/);
  assert.match(source,/device\.identifierType==='SPOT'/);
- assert.match(source,/não expõe bateria, IMEI, MEID ou número de série/);
+ assert.match(source,/ainda não nomeia bateria, IMEI, MEID ou número de série/);
  assert.doesNotMatch(source,/batteryLevel|imeiValue|serialNumberValue/);
+ assert.match(source,/Capturar SPOT \.pb/);
+ assert.match(source,/Capturar DeviceUpdate \.pb/);
 });
 
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{

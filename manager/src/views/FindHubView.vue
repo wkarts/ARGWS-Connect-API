@@ -153,6 +153,25 @@ async function refreshDevices() {
   catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
+async function captureCatalog(catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try {
+    await connect.findHubCaptureCatalog(id.value, catalog)
+    feedback.value = `Catálogo ${catalog.toUpperCase()} capturado em protobuf bruto (.pb).`
+  } catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
+async function captureDeviceUpdate(device: any) {
+  if (device.captureBusy) return
+  device.captureBusy = true; error.value = ''; feedback.value = ''
+  try {
+    const timeoutMs = Number(device.locationTimeoutMs ?? snapshot.value?.settings?.timeoutMs ?? 120000)
+    await connect.findHubCaptureDeviceUpdate(id.value, device.id, timeoutMs)
+    feedback.value = `DeviceUpdate bruto capturado para ${device.name}.`
+  } catch (e) { error.value = friendlyError(e) }
+  finally { device.captureBusy = false }
+}
 async function reconnectStoredAccount() {
   if (busy.value) return
   busy.value = true; error.value = ''; feedback.value = ''
@@ -314,10 +333,10 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <div class="danger-zone"><div><strong>Conta Google e dados locais</strong><p>Desvincular remove somente as credenciais Google e encerra a conexão. Dispositivos, histórico, rastreamento, configurações e vínculos locais permanecem preservados para reconexão. Somente “Excluir instância” remove definitivamente os dados locais.</p></div><div class="toolbar"><button class="btn ghost" :disabled="busy" @click="confirm='disconnect'">Desvincular conta Google</button><button class="btn danger" :disabled="busy" @click="confirm='delete'">Excluir instância</button></div></div>
       </template>
       <PanelCard v-else-if="section==='dispositivos'" title="Dispositivos" description="Somente dispositivos retornados pela conta Google vinculada.">
-        <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
+        <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('spot')">Capturar SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('android')">Capturar Android .pb</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
         <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p>
-        <div class="alert top-gap">O material de protocolo analisado não expõe bateria, IMEI, MEID ou número de série. Esses campos não são simulados. Quando o provider disponibilizar uma superfície comprovada para eles, poderão ser incorporados sem alterar os identificadores já persistidos.</div>
+        <div class="alert top-gap">O material de protocolo analisado ainda não nomeia bateria, IMEI, MEID ou número de série. Use as capturas protobuf brutas abaixo para análise forense de campos desconhecidos. Os arquivos podem conter identificadores, e-mails de acesso e material criptográfico cifrado do Find Hub; trate-os como dados sensíveis e compartilhe apenas quando necessário.</div><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><p class="muted">Esses DeviceType existem no protobuf de referência. A disponibilidade depende da conta e do provider Google; falha em um catálogo complementar não altera o catálogo SPOT.</p></details>
         <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p>
           <div class="detail-list">
             <div><span>ID interno Connect|API</span><strong>{{ device.id }}</strong></div>
@@ -361,7 +380,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
             <label class="field"><span>Componente do som</span><select v-model="device.soundComponent" class="select" :disabled="device.soundBusy"><option value="UNSPECIFIED">Dispositivo</option><option value="RIGHT">Direito</option><option value="LEFT">Esquerdo</option><option value="CASE">Estojo/Case</option></select></label>
             <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'stop')">Parar som</button></div>
           </div>
-          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
+          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.captureBusy" @click="captureDeviceUpdate(device)">{{ device.captureBusy ? 'Capturando .pb…' : 'Capturar DeviceUpdate .pb' }}</button><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
       </PanelCard>
       <FindHubLiveTracking v-else-if="section==='mapa' && snapshot" :key="id" :instance-id="id" :snapshot="snapshot" :stream-state="streamState" :initial-device="String(route.query.device || '')" @refresh="reloadSnapshot" />
       <FindHubTrackingSettings ref="editor" header-actions v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />

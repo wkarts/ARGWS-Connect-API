@@ -67,6 +67,33 @@ export class FindHubController {
     return await this.status(instanceName);
   }
 
+  public async captureProtocolCatalog(instanceName: string, catalog: string): Promise<Buffer> {
+    if (!['spot', 'android', 'auto', 'fastpair', 'supervised'].includes(catalog)) {
+      throw new BadRequestException('catalog must be spot, android, auto, fastpair or supervised');
+    }
+    try {
+      return await this.runtime(instanceName).captureProtocolCatalog(
+        catalog as 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+      );
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao capturar catálogo Find Hub.');
+    }
+  }
+
+  public async captureProtocolDeviceUpdate(
+    instanceName: string,
+    deviceId: string,
+    timeoutMs?: number,
+  ): Promise<{ payload: Buffer; deviceMetadata: Buffer }> {
+    try {
+      return await this.runtime(instanceName).captureProtocolDeviceUpdate(deviceId, timeoutMs);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Falha ao capturar DeviceUpdate Find Hub.',
+      );
+    }
+  }
+
   public async status(instanceName: string) {
     const runtime = this.runtime(instanceName);
     const status = await runtime.auth().status(instanceName);
