@@ -12,6 +12,7 @@ import type {
   IntegrationKey,
   IntegrationSummary,
   InstanceConfigKey,
+  ManagerEmbeddingSettings,
   Message,
   Overview,
   ProviderMigrationResult,
@@ -649,6 +650,12 @@ export const current = {
   async users(): Promise<UserItem[]> { return [] },
   async roles() { return [] },
   async audit(): Promise<AuditItem[]> { return [] },
+  async embeddingSettings(): Promise<ManagerEmbeddingSettings> {
+    return api<ManagerEmbeddingSettings>('/manager-api/v1/embedding')
+  },
+  async saveEmbeddingSettings(data: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> {
+    return api<ManagerEmbeddingSettings>('/manager-api/v1/embedding', { method: 'PUT', data })
+  },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },
   async verify() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },
