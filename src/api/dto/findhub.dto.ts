@@ -1,4 +1,4 @@
-import { FindHubFcmCredentials } from '@api/integrations/channel/findhub/findhub.types';
+import { FindHubFcmCredentials, FindHubSoundComponent } from '@api/integrations/channel/findhub/findhub.types';
 
 export class FindHubAuthStartDto {
   email: string;
@@ -21,6 +21,10 @@ export class FindHubLocateDto {
 export class FindHubTrackingDto {
   intervalSeconds?: number;
   timeoutMs?: number;
+}
+
+export class FindHubSoundDto {
+  component?: FindHubSoundComponent;
 }
 
 export class FindHubTraccarDto {

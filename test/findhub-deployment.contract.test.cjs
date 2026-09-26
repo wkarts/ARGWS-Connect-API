@@ -32,9 +32,11 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  // Browser authentication plus tracking/SSE/settings, reconciliation and native Traccar; shared-method paths count once.
-  assert.equal(implemented.length, 25);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 30);
+  // Browser authentication plus tracking/SSE/settings, reconciliation, native Traccar and SPOT sound actions; shared-method paths count once.
+  assert.equal(implemented.length, 27);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 32);
+  assert.ok(implemented.includes('/findhub/sound/start/{deviceId}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/sound/stop/{deviceId}/{instanceName}'));
   assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
   assert.match(dedicated.info.description, /CredentialProvider/);
   assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);
@@ -55,6 +57,19 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const remove = dedicated.paths['/findhub/traccar/{deviceId}/{instanceName}'].delete;
   assert.deepEqual(remove.responses['204'], { description: 'Vínculo removido; resposta sem corpo.' });
   assert.equal(remove.requestBody, undefined);
+  const startSound = dedicated.paths['/findhub/sound/start/{deviceId}/{instanceName}'].post;
+  const stopSound = dedicated.paths['/findhub/sound/stop/{deviceId}/{instanceName}'].post;
+  assert.equal(startSound.requestBody.required, false);
+  assert.equal(stopSound.requestBody.required, false);
+  assert.equal(
+    startSound.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubSoundResult',
+  );
+  assert.equal(
+    stopSound.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubSoundResult',
+  );
+
   const reconcile = dedicated.paths['/findhub/positions/reconcile/{deviceId}/{instanceName}'].post;
   assert.equal(reconcile.requestBody.required, false);
   assert.equal(

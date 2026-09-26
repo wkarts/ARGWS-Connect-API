@@ -51,11 +51,49 @@ export const findHubSchemas = {
     type: 'object', required: ['id', 'googleDeviceId', 'name', 'identifierType', 'deviceType'],
     properties: {
       id: { type: 'string', description: 'ID local usado no parâmetro deviceId das rotas; sempre isolado pela instância.' },
-      googleDeviceId: text, name: text,
+      googleDeviceId: text,
+      canonicalIds: { type: 'array', items: text, description: 'Todos os IDs canônicos devolvidos pelo catálogo Google para o mesmo metadata.' },
+      name: text,
       identifierType: { type: 'string', enum: ['ANDROID', 'SPOT', 'UNKNOWN'] },
-      deviceType: { type: 'string', enum: ['PHONE', 'TABLET', 'WATCH', 'HEADPHONES', 'EARBUDS', 'TRACKER', 'UNKNOWN'] },
-      manufacturer: text, model: text, imageUrl: text, trackingEnabled: { type: 'boolean' },
-      trackingIntervalSeconds: { type: 'integer' }, lastLocationAt: { type: ['string', 'null'], format: 'date-time' },
+      deviceType: {
+        type: 'string',
+        enum: [
+          'BEACON','HEADPHONES','KEYS','WATCH','WALLET','BAG','LAPTOP','CAR','REMOTE_CONTROL','BADGE','BIKE',
+          'CAMERA','CAT','CHARGER','CLOTHING','DOG','NOTEBOOK','PASSPORT','PHONE','SPEAKER','TABLET','TOY',
+          'UMBRELLA','STYLUS','EARBUDS','TRACKER','UNKNOWN',
+        ],
+      },
+      manufacturer: text,
+      model: text,
+      fastPairModelId: text,
+      pairedAt: { type: ['string', 'null'], format: 'date-time' },
+      accessInformation: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            email: text,
+            hasAccess: { type: 'boolean' },
+            isOwner: { type: 'boolean' },
+            thisAccount: { type: 'boolean' },
+          },
+        },
+      },
+      ownerKeyVersion: { type: 'integer' },
+      identityKeyFingerprint: { type: 'string', description: 'SHA-256 do material criptografado; a chave bruta nunca é exposta.' },
+      accountKeyFingerprint: { type: 'string', description: 'SHA-256 do material criptografado; a chave bruta nunca é exposta.' },
+      publicAddressFingerprint: { type: 'string', description: 'SHA-256 do endereço criptografado; o material bruto nunca é exposto.' },
+      secretsCreatedAt: { type: ['string', 'null'], format: 'date-time' },
+      networkAggregationMinReports: { type: 'integer' },
+      providerRequestCount: { type: 'integer', minimum: 0 },
+      providerReportCount: { type: 'integer', minimum: 0 },
+      providerRepeatedReportCount: { type: 'integer', minimum: 0 },
+      lastProviderRequestAt: { type: ['string', 'null'], format: 'date-time' },
+      lastProviderReportAt: { type: ['string', 'null'], format: 'date-time' },
+      imageUrl: text,
+      trackingEnabled: { type: 'boolean' },
+      trackingIntervalSeconds: { type: 'integer' },
+      lastLocationAt: { type: ['string', 'null'], format: 'date-time' },
     },
   },
   FindHubPosition: {
@@ -76,6 +114,20 @@ export const findHubSchemas = {
     properties: { intervalSeconds: { type: 'integer', minimum: 0, maximum: 86400, description: '0 agenda a próxima consulta após concluir a atual, sem paralelismo. 1, 2 ou mais segundos são aceitos; 60 é recomendação, não limite. Falhas usam recuo progressivo.' } },
   },
   FindHubTrackingResult: { type: 'object', required: ['deviceId', 'enabled'], properties: { deviceId: text, enabled: { type: 'boolean' }, intervalSeconds: { type: 'integer' } } },
+  FindHubSoundRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { component: { type: 'string', enum: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'], default: 'UNSPECIFIED' } },
+  },
+  FindHubSoundResult: {
+    type: 'object',
+    required: ['requestUuid', 'operation', 'component'],
+    properties: {
+      requestUuid: text,
+      operation: { type: 'string', enum: ['start', 'stop'] },
+      component: { type: 'string', enum: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'] },
+    },
+  },
   FindHubTraccarRequest: {
     type: 'object', additionalProperties: false, required: ['enabled', 'url', 'deviceId'],
     properties: { enabled: { type: 'boolean' }, url: { type: 'string', minLength: 1, description: 'Endpoint HTTP/OsmAnd acessível a partir da API; não é o endpoint REST /api do Traccar.' }, deviceId: { type: 'string', minLength: 1, description: 'Identificador do dispositivo cadastrado no Traccar.' } },
@@ -94,6 +146,18 @@ export const findHubOperations = {
   'POST /findhub/devices/refresh/{instanceName}': operation('Atualizar catálogo pelo Google Find Hub', 'Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.', { type: 'array', items: ref('FindHubDevice') }),
   'GET /findhub/device/{deviceId}/{instanceName}': operation('Consultar um dispositivo', 'Use o id local retornado na listagem, não googleDeviceId. A consulta permanece restrita à instância autorizada.', ref('FindHubDevice')),
   'POST /findhub/locate/{deviceId}/{instanceName}': operation('Solicitar localização do dispositivo', 'Solicitação ativa via Nova e resposta assíncrona FCM/MCS. Pode retornar null quando não há posição; respeita FINDHUB_LOCATION_TIMEOUT_MS. Timestamp é a data do relatório, não a hora da chamada. Não há promessa de GPS em tempo real ou de localização nova a cada requisição.', { oneOf: [ref('FindHubPosition'), { type: 'null' }] }),
+  'POST /findhub/sound/start/{deviceId}/{instanceName}': operation(
+    'Tocar som no dispositivo SPOT',
+    'Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.',
+    ref('FindHubSoundResult'),
+    { requestBody: { ...body('FindHubSoundRequest', { component: 'UNSPECIFIED' }), required: false } },
+  ),
+  'POST /findhub/sound/stop/{deviceId}/{instanceName}': operation(
+    'Parar som no dispositivo SPOT',
+    'Porta o ExecuteAction.stopSound comprovado no material GoogleFindMyTools. Não inventa suporte para dispositivos ANDROID.',
+    ref('FindHubSoundResult'),
+    { requestBody: { ...body('FindHubSoundRequest', { component: 'UNSPECIFIED' }), required: false } },
+  ),
   'POST /findhub/tracking/start/{deviceId}/{instanceName}': operation('Iniciar acompanhamento periódico', 'Persiste a configuração por dispositivo e agenda consultas periódicas. O intervalo aceita zero (consultas serializadas sem espera adicional) e valores inteiros positivos. Frequência e disponibilidade de novas posições dependem do Google e do smartphone.', ref('FindHubTrackingResult'), { requestBody: { ...body('FindHubTrackingRequest', { intervalSeconds: 60 }), required: false } }),
   'POST /findhub/tracking/stop/{deviceId}/{instanceName}': operation('Parar acompanhamento periódico', 'Interrompe o agendamento e persiste trackingEnabled=false; não remove o aparelho da conta Google.', ref('FindHubTrackingResult')),
   'GET /findhub/positions/{deviceId}/{instanceName}': operation('Consultar histórico de posições', 'Retorna somente posições persistidas. FINDHUB_STORE_POSITION_HISTORY=false por padrão; nesse caso novas posições não são inseridas no histórico. Usa recordedAt no registro persistido e ordena da mais recente para a mais antiga.', { type: 'array', items: ref('FindHubStoredPosition') }, { parameters: [{ name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 1000, default: 100 } }] }),
@@ -130,7 +194,7 @@ Object.assign(findHubOperations, {
   'POST /findhub/auth/browser/cancel/{instanceName}': operation('Cancelar tentativa de vinculação', 'Invalida a tentativa e descarta credenciais temporárias. Uma verificação final já iniciada não pode ser cancelada neste endpoint; aguarde o resultado e use desvincular. Não encerra sessões de outros canais ou contas.', ref('FindHubBrowserCancelled'), { requestBody: body('FindHubBrowserProof') }),
   'GET /findhub/auth/extension/{instanceName}': operation('Obter extensão própria de autenticação', 'Entrega o pacote ZIP versionado e self-hosted da extensão opcional 0.1.6, com ícone oficial e o mesmo ID público. Ao atualizar, substitua os arquivos da pasta já carregada, recarregue a extensão e o Manager. A atualização do backend também é necessária. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.', {}, { responses: { '200': { description: 'ZIP da extensão própria, sem segredos ou chaves privadas.', content: { 'application/zip': { schema: { type: 'string', format: 'binary' } } } }, ...errors } }),
   'GET /findhub/traccar/{deviceId}/{instanceName}': operation('Consultar vínculo Traccar do dispositivo', 'Retorna somente o vínculo local do dispositivo pertencente à instância autorizada, ou null quando não configurado. Não consulta o catálogo de dispositivos de outros canais nem fornece uma API de administração remota do Traccar.', { oneOf: [ref('FindHubTraccarBinding'),{type:'null'}] }),
-  'POST /findhub/disconnect/{instanceName}': operation('Desvincular conta Google', 'Interrompe o canal, remove credenciais, catálogo local, histórico e vínculos relacionados da instância. Não apaga dispositivos físicos nem a conta Google. Não altera credenciais ou conexões de instâncias WhatsApp. Aguarde eventual verificação final antes de desvincular.', ref('FindHubDisconnected')),
+  'POST /findhub/disconnect/{instanceName}': operation('Desvincular conta Google preservando dados', 'Interrompe o canal e remove somente o material de autenticação Google. Mantém FindHubAccount, dispositivos, avatares, histórico, tracking, configurações e vínculos Traccar para reconectar a mesma conta. Purge destrutivo existe somente no ciclo de exclusão definitiva da instância.', ref('FindHubDisconnected')),
 });
 
 // Event transport envelopes differ. These describe the shared data field, not an invented wire envelope.
@@ -168,7 +232,7 @@ Object.assign(findHubSchemas, {
   FindHubTrackingSnapshot:{type:'object',required:['instanceId','connected','settings','devices','counts'],properties:{
     instanceId:text,name:text,email:text,connected:{type:'boolean'},settings:ref('FindHubTrackingSettings'),minimumIntervalSeconds:{type:'integer'},
     devices:{type:'array',items:ref('FindHubDevice')}, counts:{type:'object',properties:{devices:{type:'integer'},tracking:{type:'integer'},positions:{type:'integer'}}},
-    map:{type:'object',properties:{tileUrl:text}},catalogue:{type:'object',properties:{limitation:text}},traccar:ref('FindHubTraccarConnection'),
+    map:{type:'object',properties:{tileUrl:text}},catalogue:{type:'object',properties:{limitation:text,providerCapabilities:{type:'object',additionalProperties:true}}},traccar:ref('FindHubTraccarConnection'),
   }},
 });
 Object.assign(findHubSchemas.FindHubDevice.properties, {

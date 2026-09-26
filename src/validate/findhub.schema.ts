@@ -44,6 +44,15 @@ export const findHubTrackingSchema: JSONSchema7 = {
   additionalProperties: false,
 };
 
+export const findHubSoundSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  properties: {
+    component: { type: 'string', enum: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'] },
+  },
+  additionalProperties: false,
+};
+
 export const findHubTraccarSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',

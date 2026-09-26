@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-24T11:30:34.884Z",
   "version": "1.1.3",
-  "sourceDigest": "c034cf585c5b2ad1158bd8fe6a6e6d06e51ae7be46a6b64f8cb1ce7a949fd87d",
+  "sourceDigest": "f0a961967fca5f3f3d75d6023c158930567fc46a33d2421819b48c55fade1b06",
   "operations": [
     {
       "method": "GET",
@@ -511,6 +511,16 @@
     {
       "method": "POST",
       "path": "/findhub/positions/reconcile/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/sound/start/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/sound/stop/{deviceId}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {
