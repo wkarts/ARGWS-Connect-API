@@ -34,7 +34,7 @@
     "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs test/whatsapp-played-receipt.test.cjs",
     "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs",
     "build:connect-voip": "node scripts/build-connect-voip.cjs",
-    "test:findhub": "tsx ./test/findhub-protocol.contract.test.ts && tsx ./test/findhub-vault.test.ts && node --test test/findhub-deployment.contract.test.cjs && python3 test/findhub-env.test.py && node --test test/findhub-instance-lifecycle.test.cjs && node --test test/findhub-browser-auth.test.cjs test/findhub-extension.test.cjs && node scripts/build-findhub-extension.cjs --check && node --test test/findhub-distribution.test.cjs && npm run test:tracking",
+    "test:findhub": "tsx ./test/findhub-protocol.contract.test.ts && tsx ./test/findhub-vault.test.ts && node --test test/findhub-deployment.contract.test.cjs test/findhub-protocol-capture.test.cjs && python3 test/findhub-env.test.py && node --test test/findhub-instance-lifecycle.test.cjs && node --test test/findhub-browser-auth.test.cjs test/findhub-extension.test.cjs && node scripts/build-findhub-extension.cjs --check && node --test test/findhub-distribution.test.cjs && npm run test:tracking",
     "test:tracking": "node --test test/findhub-tracking.test.cjs && python3 test/traccar-deployment.test.py && python3 test/ghcr-retention.test.py && python3 test/actions-cache-retention.test.py"
   },
   "repository": {
