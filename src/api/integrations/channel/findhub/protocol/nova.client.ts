@@ -50,15 +50,18 @@ export class FindHubNovaClient {
 
   public async listDevices() {
     const primary = decodeDevicesList(await this.captureDevicesListRaw('spot'));
-    // The SPOT catalogue remains authoritative. Complementary catalogues are best-effort and additive.
-    const complementary: typeof primary = [];
-    for (const catalog of ['android', 'auto', 'fastpair', 'supervised'] as const) {
-      try {
-        complementary.push(...decodeDevicesList(await this.captureDevicesListRaw(catalog)));
-      } catch {
-        /* Google accounts/providers may not expose every DeviceType catalogue. */
-      }
-    }
+    // The SPOT catalogue remains authoritative. Complementary catalogues are best-effort, additive and parallel.
+    const complementary = (
+      await Promise.all(
+        (['android', 'auto', 'fastpair', 'supervised'] as const).map(async (catalog) => {
+          try {
+            return decodeDevicesList(await this.captureDevicesListRaw(catalog));
+          } catch {
+            return [];
+          }
+        }),
+      )
+    ).flat();
     const devices = new Map([...complementary, ...primary].map((device) => [device.googleDeviceId, device]));
     return [...devices.values()];
   }
