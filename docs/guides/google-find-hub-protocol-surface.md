@@ -73,7 +73,7 @@ O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SP
 
 ### Correlação real: Redmi Note 14 entre DevicesList e DeviceUpdate
 
-Em 2026-09-26 foram comparados, para o mesmo Redmi Note 14, um `DevicesList` solicitado como `ANDROID`, outro solicitado como `SPOT` e um `DeviceUpdate` recebido após Locate. Os binários privados não são versionados; somente fixtures sintéticas sanitizadas entram nos testes.
+Em 2026-09-26 foram comparados, para o mesmo Redmi Note 14, `DevicesList` solicitados como `SPOT`, `ANDROID`, `AUTO`, `FASTPAIR` e `SUPERVISED`, além de um `DeviceUpdate` recebido após Locate. Os binários privados não são versionados; somente fixtures sintéticas sanitizadas entram nos testes.
 
 A correlação mostrou:
 
