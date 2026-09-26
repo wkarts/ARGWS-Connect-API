@@ -490,16 +490,25 @@ export class WAMonitoringService {
     this.eventEmitter.on('no.connection', async (instanceName) => {
       try {
         const instance = this.waInstances[instanceName];
-        if (typeof instance?.logoutInstance === 'function') {
-          await instance.logoutInstance();
-        } else {
-          await instance?.client?.logout('Log out instance: ' + instanceName);
-          instance?.client?.ws?.close();
+        if (!instance) return;
+
+        // "no.connection" is a transport lifecycle event. For Find Hub it must
+        // never invoke logoutInstance(), because logout is the explicit,
+        // destructive unlink operation that clears persisted Google credentials.
+        if (instance.integration === Integration.GOOGLE_FIND_HUB) {
+          if (typeof instance.closeClient === 'function') await instance.closeClient();
+          else if (instance.stateConnection) instance.stateConnection.state = 'close';
+          return;
         }
 
-        if (instance.integration !== Integration.GOOGLE_FIND_HUB) {
-          instance.instance.qrcode = { count: 0 };
+        if (typeof instance.logoutInstance === 'function') {
+          await instance.logoutInstance();
+        } else {
+          await instance.client?.logout('Log out instance: ' + instanceName);
+          instance.client?.ws?.close();
         }
+
+        instance.instance.qrcode = { count: 0 };
         this.waInstances[instanceName].stateConnection.state = 'close';
       } catch (error) {
         this.logger.error({
