@@ -68,11 +68,13 @@ export class FindHubController {
   }
 
   public async captureProtocolCatalog(instanceName: string, catalog: string): Promise<Buffer> {
-    if (catalog !== 'spot' && catalog !== 'android') {
-      throw new BadRequestException('catalog must be spot or android');
+    if (!['spot', 'android', 'auto', 'fastpair', 'supervised'].includes(catalog)) {
+      throw new BadRequestException('catalog must be spot, android, auto, fastpair or supervised');
     }
     try {
-      return await this.runtime(instanceName).captureProtocolCatalog(catalog);
+      return await this.runtime(instanceName).captureProtocolCatalog(
+        catalog as 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+      );
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao capturar catálogo Find Hub.');
     }
