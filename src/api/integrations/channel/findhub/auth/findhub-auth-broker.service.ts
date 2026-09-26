@@ -32,9 +32,9 @@ export class FindHubAuthBrokerService {
       if (previous.instanceName === instanceName || previous.expiresAt <= Date.now()) this.sessions.delete(id);
     }
     const previous = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: instance.id } });
-    const linked = Boolean(previous?.encryptedCredentials && previous?.encryptedSharedKey);
-    const renewal = linked && previous?.authState === 'AUTH_REQUIRED';
-    if (linked && !renewal) {
+    const hasStoredCredentialMaterial = Boolean(previous?.encryptedCredentials || previous?.encryptedSharedKey);
+    const renewal = hasStoredCredentialMaterial && previous?.authState === 'AUTH_REQUIRED';
+    if (hasStoredCredentialMaterial && !renewal) {
       throw new Error('A conta já possui credenciais válidas armazenadas. Use a reconexão existente.');
     }
     if (
