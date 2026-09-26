@@ -8,20 +8,69 @@ export type FindHubAuthState =
 
 export type FindHubRuntimeState = 'close' | 'connecting' | 'open';
 
-export type FindHubDeviceType = 'PHONE' | 'TABLET' | 'WATCH' | 'HEADPHONES' | 'EARBUDS' | 'TRACKER' | 'UNKNOWN';
+export type FindHubDeviceType =
+  | 'BEACON'
+  | 'HEADPHONES'
+  | 'KEYS'
+  | 'WATCH'
+  | 'WALLET'
+  | 'BAG'
+  | 'LAPTOP'
+  | 'CAR'
+  | 'REMOTE_CONTROL'
+  | 'BADGE'
+  | 'BIKE'
+  | 'CAMERA'
+  | 'CAT'
+  | 'CHARGER'
+  | 'CLOTHING'
+  | 'DOG'
+  | 'NOTEBOOK'
+  | 'PASSPORT'
+  | 'PHONE'
+  | 'SPEAKER'
+  | 'TABLET'
+  | 'TOY'
+  | 'UMBRELLA'
+  | 'STYLUS'
+  | 'EARBUDS'
+  | 'TRACKER'
+  | 'UNKNOWN';
+
+export type FindHubSoundComponent = 'UNSPECIFIED' | 'RIGHT' | 'LEFT' | 'CASE';
+
+export interface FindHubAccessInformation {
+  email?: string;
+  hasAccess: boolean;
+  isOwner: boolean;
+  thisAccount: boolean;
+}
 
 export interface FindHubDevice {
   id: string;
   googleDeviceId: string;
+  canonicalIds?: string[];
   name: string;
   identifierType: 'ANDROID' | 'SPOT' | 'UNKNOWN';
   deviceType: FindHubDeviceType;
   manufacturer?: string;
   model?: string;
+  fastPairModelId?: string;
+  pairedAt?: string | null;
+  accessInformation?: FindHubAccessInformation[];
   imageUrl?: string;
   avatarData?: string | null;
-  encryptedIdentityKey?: string;
   ownerKeyVersion?: number;
+  identityKeyFingerprint?: string;
+  accountKeyFingerprint?: string;
+  publicAddressFingerprint?: string;
+  secretsCreatedAt?: string | null;
+  networkAggregationMinReports?: number;
+  providerRequestCount?: number;
+  providerReportCount?: number;
+  providerRepeatedReportCount?: number;
+  lastProviderRequestAt?: string | null;
+  lastProviderReportAt?: string | null;
   trackingEnabled?: boolean;
   trackingIntervalSeconds?: number;
   lastLocationAt?: string | null;
