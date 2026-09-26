@@ -12,7 +12,7 @@ function load(relative,overrides={},globals={}){
   const source=fs.readFileSync(path.join(root,relative),'utf8');
   const code=ts.transpileModule(source,{fileName:relative,compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
   vm.runInNewContext(code,{
-    module,exports:module.exports,URL,Buffer,Date,console,
+    module,exports:module.exports,URL,Buffer,Date,Error,console,
     process:{env:{NODE_ENV:'PROD',MANAGER_IFRAME_ENABLED:'true',MANAGER_FRAME_ANCESTORS:'*'}},
     require(name){if(Object.hasOwn(overrides,name))return overrides[name];throw new Error('Unexpected dependency '+name)},
     ...globals,
