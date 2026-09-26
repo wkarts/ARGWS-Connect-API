@@ -40,6 +40,22 @@ A ação `no.connection` é tratada como perda de transporte para Find Hub e nã
 
 Durante a primeira validação de novas credenciais (`VERIFYING`), uma falha **antes de as credenciais serem confirmadas** continua levando a `AUTH_REQUIRED`; depois da validação, falhas em etapas auxiliares de restore não desfazem o vínculo.
 
+## Renovação de credenciais rejeitadas pelo Google
+
+Falhas transitórias continuam preservando uma conta previamente validada. Porém, quando o próprio Google rejeita explicitamente as credenciais persistidas com uma condição de autenticação (`BadAuthentication`, `InvalidToken`, `ExpiredToken` e equivalentes classificados pelo cliente), o estado passa para `AUTH_REQUIRED` sem apagar a conta nem os dados associados.
+
+Nesse estado, o Manager oferece **Renovar autenticação Google** para a mesma conta já vinculada. A renovação:
+
+- exige o mesmo e-mail Google da conta existente;
+- não exclui a instância nem o registro `FindHubAccount`;
+- não apaga dispositivos, histórico, tracking, avatares ou vínculos Traccar;
+- mantém as credenciais antigas até a nova tentativa alcançar a etapa validada;
+- substitui os envelopes de autenticação no mesmo registro somente após o novo login e a chave Find Hub serem validados.
+
+No fluxo assistido por navegador, o token ADM e o acesso SPOT são validados antes da persistência. Depois dessa validação, uma falha transitória em FCM, rede, catálogo ou restauração do runtime não rebaixa novamente a conta para `AUTH_REQUIRED`; o vínculo fica `READY` e apenas o transporte permanece desconectado para nova tentativa.
+
+O botão **Reconectar com credenciais salvas** é usado somente quando as credenciais continuam válidas e há uma interrupção de transporte. Quando o estado é `AUTH_REQUIRED`, repetir esse botão não resolve uma credencial rejeitada; é necessário renovar a autenticação, sem desvincular a conta.
+
 ## Regressão automatizada
 
 ```bash
