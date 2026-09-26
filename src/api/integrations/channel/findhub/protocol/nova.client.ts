@@ -53,15 +53,27 @@ export class FindHubNovaClient {
     const results = await Promise.all(
       catalogs.map(async (catalog) => {
         try {
-          return { catalog, devices: decodeDevicesList(await this.captureDevicesListRaw(catalog)) };
-        } catch {
-          return { catalog, devices: [] };
+          return {
+            catalog,
+            devices: decodeDevicesList(await this.captureDevicesListRaw(catalog)),
+            error: undefined,
+          };
+        } catch (error) {
+          return { catalog, devices: [], error };
         }
       }),
     );
 
     const available = results.filter((result) => result.devices.length);
-    if (!available.length) throw new Error('Google Find Hub did not return any readable device catalogue');
+    if (!available.length) {
+      const failure = results.find((result) => result.error !== undefined)?.error;
+      if (failure instanceof Error) throw failure;
+      throw new Error(
+        failure === undefined
+          ? 'Google Find Hub did not return any readable device catalogue'
+          : String(failure),
+      );
+    }
 
     // Live 2026 captures from the same account returned byte-identical DeviceMetadata
     // (apart from providerResponseAt) for every selector above. Treat the selector as a
