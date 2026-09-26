@@ -196,12 +196,8 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
 
       const saveMessageUpdate = this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE;
       for (const key of keys) {
-        await persistPlayedReceipt(
-          this.prismaRepository,
-          this.instanceId,
-          key,
-          saveMessageUpdate,
-          (event, payload) => this.sendDataWebhook(event, payload),
+        await persistPlayedReceipt(this.prismaRepository, this.instanceId, key, saveMessageUpdate, (event, payload) =>
+          this.sendDataWebhook(event, payload),
         );
       }
 
