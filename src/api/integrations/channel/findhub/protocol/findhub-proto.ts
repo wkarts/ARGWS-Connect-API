@@ -174,8 +174,7 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     identityKeyFingerprint: fingerprint(encryptedIdentityKey),
     accountKeyFingerprint: fingerprint(bytes(secrets, 4)),
     publicAddressFingerprint: fingerprint(bytes(secrets, 11)),
-    secretsCreatedAt:
-      secretsCreatedAtSeconds > 0 ? new Date(secretsCreatedAtSeconds * 1000).toISOString() : null,
+    secretsCreatedAt: secretsCreatedAtSeconds > 0 ? new Date(secretsCreatedAtSeconds * 1000).toISOString() : null,
     networkAggregationMinReports,
   }));
 }
