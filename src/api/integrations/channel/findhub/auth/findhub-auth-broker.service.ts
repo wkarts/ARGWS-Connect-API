@@ -43,7 +43,9 @@ export class FindHubAuthBrokerService {
       previous?.googleEmail &&
       String(previous.googleEmail).trim().toLowerCase() !== String(email).trim().toLowerCase()
     ) {
-      throw new Error('Esta instância possui dados preservados de outra conta Google. Reconecte a mesma conta ou exclua a instância.');
+      throw new Error(
+        'Esta instância possui dados preservados de outra conta Google. Reconecte a mesma conta ou exclua a instância.',
+      );
     }
     const hasStoredCredentialMaterial = Boolean(previous?.encryptedCredentials || previous?.encryptedSharedKey);
     const renewal = hasStoredCredentialMaterial && previous?.authState === 'AUTH_REQUIRED';
