@@ -917,9 +917,9 @@
         "tags": [
           "Google Find Hub"
         ],
-        "summary": "Desvincular conta Google",
+        "summary": "Desvincular conta Google preservando dados",
         "operationId": "post_findhub_disconnect_instancename",
-        "description": "Interrompe o canal, remove credenciais, catálogo local, histórico e vínculos relacionados da instância. Não apaga dispositivos físicos nem a conta Google. Não altera credenciais ou conexões de instâncias WhatsApp. Aguarde eventual verificação final antes de desvincular.",
+        "description": "Interrompe o canal e remove somente o material de autenticação Google. Mantém FindHubAccount, dispositivos, avatares, histórico, tracking, configurações e vínculos Traccar para reconectar a mesma conta. Purge destrutivo existe somente no ciclo de exclusão definitiva da instância.",
         "parameters": [
           {
             "name": "instanceName",
@@ -1303,6 +1303,170 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/FindHubReconciliationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/sound/start/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Tocar som no dispositivo SPOT",
+        "operationId": "post_findhub_sound_start_deviceid_instancename",
+        "description": "Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tocar som no dispositivo SPOT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubSoundResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubSoundRequest"
+              },
+              "example": {
+                "component": "UNSPECIFIED"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/sound/stop/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Parar som no dispositivo SPOT",
+        "operationId": "post_findhub_sound_stop_deviceid_instancename",
+        "description": "Porta o ExecuteAction.stopSound comprovado no material GoogleFindMyTools. Não inventa suporte para dispositivos ANDROID.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Parar som no dispositivo SPOT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubSoundResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubSoundRequest"
+              },
+              "example": {
+                "component": "UNSPECIFIED"
               }
             }
           }
@@ -3297,6 +3461,13 @@
           "googleDeviceId": {
             "type": "string"
           },
+          "canonicalIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Todos os IDs canônicos devolvidos pelo catálogo Google para o mesmo metadata."
+          },
           "name": {
             "type": "string"
           },
@@ -3311,10 +3482,30 @@
           "deviceType": {
             "type": "string",
             "enum": [
-              "PHONE",
-              "TABLET",
-              "WATCH",
+              "BEACON",
               "HEADPHONES",
+              "KEYS",
+              "WATCH",
+              "WALLET",
+              "BAG",
+              "LAPTOP",
+              "CAR",
+              "REMOTE_CONTROL",
+              "BADGE",
+              "BIKE",
+              "CAMERA",
+              "CAT",
+              "CHARGER",
+              "CLOTHING",
+              "DOG",
+              "NOTEBOOK",
+              "PASSPORT",
+              "PHONE",
+              "SPEAKER",
+              "TABLET",
+              "TOY",
+              "UMBRELLA",
+              "STYLUS",
               "EARBUDS",
               "TRACKER",
               "UNKNOWN"
@@ -3325,6 +3516,87 @@
           },
           "model": {
             "type": "string"
+          },
+          "fastPairModelId": {
+            "type": "string"
+          },
+          "pairedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "accessInformation": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "hasAccess": {
+                  "type": "boolean"
+                },
+                "isOwner": {
+                  "type": "boolean"
+                },
+                "thisAccount": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "ownerKeyVersion": {
+            "type": "integer"
+          },
+          "identityKeyFingerprint": {
+            "type": "string",
+            "description": "SHA-256 do material criptografado; a chave bruta nunca é exposta."
+          },
+          "accountKeyFingerprint": {
+            "type": "string",
+            "description": "SHA-256 do material criptografado; a chave bruta nunca é exposta."
+          },
+          "publicAddressFingerprint": {
+            "type": "string",
+            "description": "SHA-256 do endereço criptografado; o material bruto nunca é exposto."
+          },
+          "secretsCreatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "networkAggregationMinReports": {
+            "type": "integer"
+          },
+          "providerRequestCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerReportCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerRepeatedReportCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastProviderRequestAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastProviderReportAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "imageUrl": {
             "type": "string"
@@ -3557,6 +3829,51 @@
             "minimum": 1,
             "maximum": 2147483647,
             "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubSoundRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "RIGHT",
+              "LEFT",
+              "CASE"
+            ],
+            "default": "UNSPECIFIED"
+          }
+        }
+      },
+      "FindHubSoundResult": {
+        "type": "object",
+        "required": [
+          "requestUuid",
+          "operation",
+          "component"
+        ],
+        "properties": {
+          "requestUuid": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ]
+          },
+          "component": {
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "RIGHT",
+              "LEFT",
+              "CASE"
+            ]
           }
         }
       },
@@ -4018,6 +4335,10 @@
             "properties": {
               "limitation": {
                 "type": "string"
+              },
+              "providerCapabilities": {
+                "type": "object",
+                "additionalProperties": true
               }
             }
           },
