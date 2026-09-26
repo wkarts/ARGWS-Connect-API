@@ -1473,9 +1473,9 @@
         "tags": [
           "Google Find Hub"
         ],
-        "summary": "Tocar som no dispositivo SPOT",
+        "summary": "Tocar som no dispositivo",
         "operationId": "post_findhub_sound_start_deviceid_instancename",
-        "description": "Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.",
+        "description": "Usa ExecuteAction.startSound (action field 31). O comando é permitido quando o provider anuncia a capability 31; catálogos legados sem capabilities mantêm fallback para SPOT. O mesmo telefone pode aparecer como ANDROID no catálogo e responder pelo wire SPOT. Componentes RIGHT, LEFT e CASE são opcionais somente para dispositivos compatíveis.",
         "parameters": [
           {
             "name": "deviceId",
@@ -1505,7 +1505,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Tocar som no dispositivo SPOT",
+            "description": "Tocar som no dispositivo",
             "content": {
               "application/json": {
                 "schema": {
@@ -1555,9 +1555,9 @@
         "tags": [
           "Google Find Hub"
         ],
-        "summary": "Parar som no dispositivo SPOT",
+        "summary": "Parar som no dispositivo",
         "operationId": "post_findhub_sound_stop_deviceid_instancename",
-        "description": "Porta o ExecuteAction.stopSound comprovado no material GoogleFindMyTools. Não inventa suporte para dispositivos ANDROID.",
+        "description": "Usa ExecuteAction.stopSound (action field 32). O comando é permitido quando o provider anuncia a capability 32; catálogos legados sem capabilities mantêm fallback para SPOT.",
         "parameters": [
           {
             "name": "deviceId",
@@ -1587,7 +1587,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Parar som no dispositivo SPOT",
+            "description": "Parar som no dispositivo",
             "content": {
               "application/json": {
                 "schema": {
