@@ -68,6 +68,12 @@ type PendingLocation = {
 };
 
 type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string>; source: 'manual' | 'tracking' };
+type RawDeviceUpdateCapture = { payload: Buffer; deviceMetadata: Buffer };
+type PendingRawCapture = {
+  resolve: (value: RawDeviceUpdateCapture) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+};
 const OBSERVATION_TTL_MS = 120_000;
 const MAX_RECENT_REQUESTS = 256;
 
@@ -85,6 +91,7 @@ export class FindHubProtocolClient {
   private readonly fcm: FindHubFcmClient;
   private readonly pending = new Map<string, PendingLocation>();
   private readonly recent = new Map<string, RecentLocation>();
+  private readonly rawCaptures = new Map<string, PendingRawCapture>();
   private closing = false;
   private ownerKey?: Buffer;
 
@@ -127,10 +134,50 @@ export class FindHubProtocolClient {
 
     for (const pending of this.pending.values()) pending.reject(new Error('Find Hub connection closed'));
     this.pending.clear();
+    for (const capture of this.rawCaptures.values()) {
+      clearTimeout(capture.timer);
+      capture.reject(new Error('Find Hub connection closed'));
+    }
+    this.rawCaptures.clear();
   }
 
   public async listDevices(): Promise<Array<Omit<FindHubDevice, 'id'>>> {
     return await this.nova.listDevices();
+  }
+
+  public async captureDevicesListRaw(catalog: 'spot' | 'android'): Promise<Buffer> {
+    return await this.nova.captureDevicesListRaw(catalog);
+  }
+
+  public async captureDeviceUpdateRaw(device: FindHubDevice, timeoutMs?: number): Promise<RawDeviceUpdateCapture> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    const requestUuid = randomUUID();
+    const timeout = locationTimeoutMs(timeoutMs);
+    return await new Promise<RawDeviceUpdateCapture>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.rawCaptures.delete(requestUuid);
+        reject(new Error('Timed out waiting for raw Google Find Hub DeviceUpdate'));
+      }, timeout);
+      timer.unref?.();
+      this.rawCaptures.set(requestUuid, { resolve, reject, timer });
+      void this.nova
+        .locate(
+          {
+            googleDeviceId: device.googleDeviceId,
+            fcmRegistrationId: this.fcm.registrationToken,
+            requestUuid,
+            clientUuid: this.clientUuid,
+          },
+          AbortSignal.timeout(commandTimeoutMs()),
+        )
+        .catch((error) => {
+          const capture = this.rawCaptures.get(requestUuid);
+          if (!capture) return;
+          clearTimeout(capture.timer);
+          this.rawCaptures.delete(requestUuid);
+          capture.reject(error instanceof Error ? error : new Error(String(error)));
+        });
+    });
   }
 
   public async requestLocation(device: FindHubDevice): Promise<string> {
@@ -334,6 +381,15 @@ export class FindHubProtocolClient {
     try {
       const update = decodeDeviceUpdate(payload);
       if (!update.requestUuid || !update.deviceMetadata) return;
+      const capture = this.rawCaptures.get(update.requestUuid);
+      if (capture) {
+        clearTimeout(capture.timer);
+        this.rawCaptures.delete(update.requestUuid);
+        capture.resolve({
+          payload: Buffer.from(payload),
+          deviceMetadata: Buffer.from(update.deviceMetadata),
+        });
+      }
       const pending = this.pending.get(update.requestUuid);
       if (!pending) {
         this.pruneRecent();
