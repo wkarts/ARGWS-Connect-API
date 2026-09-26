@@ -194,6 +194,7 @@ function harness(options = {}) {
             : { state: 'WAITING_AUTH', email: null, linked: false, ready: false };
         }
         async setAuthState(id, state) { calls.push(['auth.state', id, state]); }
+        async unlink(id) { calls.push(['auth.unlink', id]); }
         async clear(id) { calls.push(['auth.clear', id]); }
       },
     },
@@ -432,6 +433,31 @@ test('generic logout event skips the WhatsApp-only Chatwoot runtime hook', async
   await h.emitter.listeners('logout.instance')[0]('findhub-test');
   assert.equal(h.calls.filter(([name]) => name === 'wa.clearCacheChatwoot').length, 0);
   assert.equal(h.rows.get('findhub-test').connectionStatus, 'close');
+});
+
+test('explicit Find Hub unlink removes only credentials and never purges local account data', async () => {
+  const h = harness();
+  const created = await h.controller.createInstance(findHub());
+  const runtime = h.monitor.waInstances['findhub-test'];
+
+  await runtime.logoutInstance();
+
+  assert.equal(runtime.connectionStatus.state, 'close');
+  assert.ok(h.rows.has('findhub-test'));
+  assert.equal(h.calls.filter(([name, id]) => name === 'auth.unlink' && id === created.instance.instanceId).length, 1);
+  assert.equal(h.calls.filter(([name]) => name === 'auth.clear').length, 0);
+  assert.equal(h.calls.filter(([name]) => name === 'devices.deleteMany').length, 0);
+});
+
+test('provider purge remains destructive only for definitive instance deletion', async () => {
+  const h = harness();
+  const created = await h.controller.createInstance(findHub());
+  const runtime = h.monitor.waInstances['findhub-test'];
+
+  await runtime.purgeProviderState();
+
+  assert.equal(h.calls.filter(([name, id]) => name === 'auth.clear' && id === created.instance.instanceId).length, 1);
+  assert.equal(h.calls.filter(([name]) => name === 'devices.deleteMany').length, 1);
 });
 
 test('generic no.connection event closes Find Hub transport without clearing persisted account data', async () => {
