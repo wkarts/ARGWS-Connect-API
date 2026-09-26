@@ -139,6 +139,7 @@ export class FindHubStartupService {
     // A previously validated account stays linked when a restart/reconnect fails.
     // Transport or provider availability must not be confused with credential revocation.
     const previousAuthState = loaded.account.authState;
+    let credentialsValidated = previousAuthState === 'READY';
 
     clearInterval(this.retentionTimer);
     this.retentionTimer = undefined;
@@ -178,6 +179,7 @@ export class FindHubStartupService {
       await this.protocol.connect();
       await this.refreshDevices();
       await this.authBroker.setAuthState(this.instance.id, 'READY');
+      credentialsValidated = true;
       await this.setState('open');
       const settings = await this.settings();
       const reconciliationCandidates =
@@ -211,7 +213,7 @@ export class FindHubStartupService {
       });
     } catch (error) {
       await this.closeClient().catch(() => undefined);
-      if (previousAuthState !== 'READY') {
+      if (!credentialsValidated) {
         await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
       }
       diagnostics.record({
