@@ -3,6 +3,7 @@ import { GOOGLE_ADM_CONFIG, GOOGLE_ENDPOINTS, NOVA_SCOPES } from '../findhub.con
 import { FindHubAasCredentials } from '../findhub.types';
 import {
   decodeDevicesList,
+  DeviceType,
   encodeDeviceListRequest,
   encodeExecuteLocateRequest,
   encodeExecuteSoundRequest,
@@ -34,12 +35,17 @@ export class FindHubNovaClient {
     return Buffer.from(await response.arrayBuffer());
   }
 
+  public async captureDevicesListRaw(catalog: 'spot' | 'android'): Promise<Buffer> {
+    const deviceType = catalog === 'android' ? DeviceType.ANDROID : DeviceType.SPOT;
+    return await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, deviceType));
+  }
+
   public async listDevices() {
-    const primary = decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest()));
+    const primary = decodeDevicesList(await this.captureDevicesListRaw('spot'));
     // The SPOT catalogue remains authoritative. An unsupported complementary catalogue must not erase it.
     let android: typeof primary = [];
     try {
-      android = decodeDevicesList(await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, 1)));
+      android = decodeDevicesList(await this.captureDevicesListRaw('android'));
     } catch {
       /* Not all Google accounts expose the complementary Android catalogue. */
     }
