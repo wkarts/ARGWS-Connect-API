@@ -1,5 +1,9 @@
 import { PrismaRepository } from '@api/repository/repository.service';
-import { managerFramePolicy, normalizeManagerFrameOrigins, type ManagerEmbeddingOverride } from '@utils/managerFramePolicy';
+import {
+  type ManagerEmbeddingOverride,
+  managerFramePolicy,
+  normalizeManagerFrameOrigins,
+} from '@utils/managerFramePolicy';
 
 export type ManagerEmbeddingSettings = {
   version: number;
@@ -23,8 +27,17 @@ export class ManagerEmbeddingError extends Error {
 }
 
 export class ManagerEmbeddingService {
-  private cache?: { expiresAt: number; value: ManagerEmbeddingOverride | null; version: number; updatedAt: string | null };
-  private lastKnown?: { value: ManagerEmbeddingOverride | null; version: number; updatedAt: string | null };
+  private cache?: {
+    expiresAt: number;
+    value: ManagerEmbeddingOverride | null;
+    version: number;
+    updatedAt: string | null;
+  };
+  private lastKnown?: {
+    value: ManagerEmbeddingOverride | null;
+    version: number;
+    updatedAt: string | null;
+  };
 
   constructor(private readonly prisma: PrismaRepository) {}
 
@@ -98,7 +111,11 @@ export class ManagerEmbeddingService {
     };
   }
 
-  public async save(input: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> {
+  public async save(input: {
+    version: number;
+    enabled: boolean;
+    allowedOrigins: string[];
+  }): Promise<ManagerEmbeddingSettings> {
     if (!Number.isInteger(input.version) || input.version < 1) {
       throw new ManagerEmbeddingError('Versão de configuração inválida.');
     }
@@ -122,7 +139,10 @@ export class ManagerEmbeddingService {
 
     if (current) {
       if (Number(current.version) !== input.version) {
-        throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
+        throw new ManagerEmbeddingError(
+          'A configuração foi alterada por outra sessão. Recarregue e tente novamente.',
+          409,
+        );
       }
       const updated = await delegate.updateMany({
         where: { id: 1, version: input.version },
@@ -134,7 +154,10 @@ export class ManagerEmbeddingService {
         },
       });
       if (Number(updated?.count || 0) !== 1) {
-        throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
+        throw new ManagerEmbeddingError(
+          'A configuração foi alterada por outra sessão. Recarregue e tente novamente.',
+          409,
+        );
       }
       row = await delegate.findUnique({ where: { id: 1 } });
     } else {
@@ -153,7 +176,10 @@ export class ManagerEmbeddingService {
         });
       } catch {
         // A concurrent first save can win between findUnique and create.
-        throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
+        throw new ManagerEmbeddingError(
+          'A configuração foi alterada por outra sessão. Recarregue e tente novamente.',
+          409,
+        );
       }
     }
 
