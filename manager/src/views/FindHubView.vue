@@ -380,7 +380,10 @@ onBeforeUnmount(() => { sequence++; stopStream() })
               <div><span>Fingerprint account key</span><strong>{{ device.accountKeyFingerprint || 'Não informado' }}</strong></div>
               <div><span>Fingerprint public address</span><strong>{{ device.publicAddressFingerprint || 'Não informado' }}</strong></div>
               <div><span>Segredos criados em</span><strong>{{ stamp(device.secretsCreatedAt) }}</strong></div>
+              <div><span>Capabilities provider (wire)</span><strong>{{ device.providerCapabilities?.length ? device.providerCapabilities.map((item: any) => `${item.actionField}:${item.state}`).join(' · ') : 'Não informado' }}</strong></div>
+              <div><span>Flags provider (wire)</span><strong>{{ device.providerFlags && Object.keys(device.providerFlags).length ? JSON.stringify(device.providerFlags) : 'Não informado' }}</strong></div>
             </div>
+            <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p>
             <div v-if="device.accessInformation?.length" class="findhub-table top-gap"><table><thead><tr><th>Conta com acesso</th><th>Papel</th><th>Acesso</th></tr></thead><tbody><tr v-for="(access,index) in device.accessInformation" :key="access.email || index"><td>{{ access.email || 'Não informado' }}</td><td>{{ accessRole(access) }}</td><td>{{ access.hasAccess ? 'Permitido' : 'Não permitido' }}</td></tr></tbody></table></div>
             <p v-if="device.familyLinkManaged" class="muted top-gap">O Google devolveu este aparelho como dispositivo supervisionado do Family Link. Metadados podem ser reduzidos por privacidade e algumas ações ainda não possuem wire mapeado.</p>
           </details>
