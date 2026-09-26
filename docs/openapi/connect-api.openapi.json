@@ -18812,10 +18812,12 @@
             "type": "string"
           },
           "deviceCodename": {
-            "type": "string"
+            "type": "string",
+            "description": "Codinome Android devolvido pelo status vivo do provider, por exemplo tanzanite."
           },
           "productName": {
-            "type": "string"
+            "type": "string",
+            "description": "Nome de produto/variant devolvido no registration field 21 para PHONE, por exemplo tanzanite_global."
           },
           "carrier": {
             "type": "string"
@@ -18869,6 +18871,7 @@
           },
           "providerCapabilities": {
             "type": "array",
+            "description": "Capabilities numéricas anunciadas pelo provider. Action fields 31 e 32 têm semântica comprovada como Start/Stop Sound; demais números permanecem sem nome até comprovação.",
             "items": {
               "type": "object",
               "required": [
@@ -18889,13 +18892,15 @@
             "type": "object",
             "additionalProperties": {
               "type": "integer"
-            }
+            },
+            "description": "Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1."
           },
           "locateSupported": {
             "type": "boolean"
           },
           "fastPairModelId": {
-            "type": "string"
+            "type": "string",
+            "description": "Fast Pair Model ID somente quando a semântica é compatível; PHONE não reutiliza registration field 21 como Fast Pair."
           },
           "pairedAt": {
             "type": [
