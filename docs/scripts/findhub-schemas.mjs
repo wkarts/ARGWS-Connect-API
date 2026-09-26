@@ -175,7 +175,7 @@ export const findHubOperations = {
   'POST /findhub/devices/refresh/{instanceName}': operation('Atualizar catálogo pelo Google Find Hub', 'Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.', { type: 'array', items: ref('FindHubDevice') }),
   'POST /findhub/protocol/capture/catalog/{catalog}/{instanceName}': operation(
     'Capturar DevicesList protobuf bruto',
-    'Executa diretamente a consulta Nova para o catálogo solicitado e devolve o corpo binário sem decodificação. Catálogos aceitos: spot, android, auto, fastpair e supervised. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.',
+    'Executa diretamente a consulta Nova com o seletor solicitado e devolve o corpo binário sem decodificação. Seletores aceitos: spot, android, auto, fastpair e supervised. Capturas reais de 2026 mostram que o provider pode devolver o mesmo catálogo completo para seletores diferentes; o seletor não deve ser interpretado como garantia do tipo semântico dos dispositivos retornados. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.',
     { type: 'string', format: 'binary' },
     {
       parameters: [
