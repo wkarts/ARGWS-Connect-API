@@ -388,7 +388,9 @@ export class FindHubStartupService {
     return await this.protocol.sound(device, operation, component);
   }
 
-  public async captureProtocolCatalog(catalog: 'spot' | 'android'): Promise<Buffer> {
+  public async captureProtocolCatalog(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<Buffer> {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     return await this.protocol.captureDevicesListRaw(catalog);
   }
