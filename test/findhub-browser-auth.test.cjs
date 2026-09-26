@@ -27,7 +27,7 @@ function harness(options = {}) {
   const key = crypto.randomBytes(32), iv = crypto.randomBytes(12), owner = crypto.randomBytes(32);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encryptedOwnerKey = Buffer.concat([iv, cipher.update(owner), cipher.final(), cipher.getAuthTag()]);
-  const stored = [], stages = [];
+  const stored = [], stages = [], imports = [];
   const overrides = {
     '../protocol/fcm.client': { FindHubFcmClient: class { async ensureRegistered() {
       if (options.registrationFailure) throw new Error('SENSITIVE');
@@ -43,14 +43,14 @@ function harness(options = {}) {
   const { FindHubBrowserAuthService, findHubVaultKeys } = load('src/api/integrations/channel/findhub/auth/findhub-browser-auth.service.ts', overrides);
   const broker = { async start(name, email) { const sessionId = crypto.randomUUID(), bridgeToken = crypto.randomBytes(32).toString('base64url');
     return { sessionId, bridgeToken, state: 'WAITING_AUTH', expiresAt: new Date(Date.now()+600000).toISOString() }; },
-    async importBundle(name, data) { stages.push('import'); stored.push(data); }, cancel() { stages.push('cancel'); },
+    async importBundle(name, data, options) { stages.push('import'); stored.push(data); imports.push(options || {}); }, cancel() { stages.push('cancel'); },
   };
   const runtime = { instanceId: 'google-local-id', instanceName: 'google', connectionStatus: { state: 'close' }, transportReady: false, auth: () => broker,
     async connect() { stages.push('connect'); if (options.connectFailure) throw new Error('SENSITIVE'); runtime.connectionStatus.state = 'open'; runtime.transportReady = true; },
   };
   const service = new FindHubBrowserAuthService();
   const vaultKeys = JSON.stringify({ finder_hw: [{ epoch: 1, key: Object.fromEntries([...key].map((v,i)=>[i,v])) }] });
-  return { service, runtime, stored, stages, vaultKeys, findHubVaultKeys, key };
+  return { service, runtime, stored, stages, imports, vaultKeys, findHubVaultKeys, key };
 }
 test('stored Find Hub credentials are reported as linked independently from live transport', async () => {
   const { FindHubAuthBrokerService } = load(
@@ -172,7 +172,7 @@ test('complete validates owner-key encryption before saving; connection checked 
   const url = new URL(exchange.unlockUrl); assert.equal(url.origin,'https://accounts.google.com'); assert.ok(url.searchParams.get('kdi'));
   const result = await h.service.complete(h.runtime, { ...session, vaultKeys: h.vaultKeys });
   assert.equal(result.connected,true); assert.equal(result.state,'READY');
-  assert.deepEqual(h.stages,['exchange','import','connect']); assert.equal(h.service.pending(h.runtime),null);
+  assert.deepEqual(h.stages,['exchange','import','connect']); assert.equal(h.imports[0].validated,true); assert.equal(h.service.pending(h.runtime),null);
   await assert.rejects(h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys}),/FH-AUTH-9110/);
 });
 test('wrong account key is refused without persisting any bundle', async () => {
