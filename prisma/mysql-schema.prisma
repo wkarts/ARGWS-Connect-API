@@ -837,6 +837,21 @@ model FindHubDevice {
   deviceType              String   @db.VarChar(32)
   manufacturer            String?  @db.VarChar(255)
   model                   String?  @db.VarChar(255)
+  fastPairModelId         String?  @db.VarChar(255)
+  pairedAt                DateTime? @db.Timestamp
+  canonicalIds            Json?
+  accessInformation       Json?
+  ownerKeyVersion         Int?
+  identityKeyFingerprint  String?  @db.VarChar(64)
+  accountKeyFingerprint   String?  @db.VarChar(64)
+  publicAddressFingerprint String? @db.VarChar(64)
+  secretsCreatedAt        DateTime? @db.Timestamp
+  networkAggregationMinReports Int?
+  providerRequestCount    Int      @default(0)
+  providerReportCount     Int      @default(0)
+  providerRepeatedReportCount Int  @default(0)
+  lastProviderRequestAt   DateTime? @db.Timestamp
+  lastProviderReportAt    DateTime? @db.Timestamp
   imageUrl                String?  @db.Text
   avatarData              String?  @db.MediumText
   trackingEnabled         Boolean  @default(false)
