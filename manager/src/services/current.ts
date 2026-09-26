@@ -609,6 +609,13 @@ export const current = {
     }))
   },
 
+  async findHubSound(id: string, deviceId: string, operation: 'start' | 'stop', component = 'UNSPECIFIED') {
+    return withInstance(id, async (_item, name, token) => api(
+      `/findhub/sound/${operation}/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+      { method: 'POST', token, data: { component } },
+    ))
+  },
+
   async findHubStartTracking(id: string, deviceId: string, intervalSeconds = 60, timeoutMs?: number) {
     return withInstance(id, async (_item, name, token) => api(`/findhub/tracking/start/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
       method: 'POST', token, data: { intervalSeconds, timeoutMs },
