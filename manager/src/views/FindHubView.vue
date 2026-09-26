@@ -251,7 +251,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <button class="btn ghost" @click="router.push(findHubPath(id,'dispositivos'))">Dispositivos</button>
         <button class="btn ghost" @click="router.push(findHubPath(id,'integracoes'))">Integrações</button>
         <button class="btn ghost" @click="router.push(findHubPath(id,'configuracao'))">Configurações</button>
-        <button class="btn danger" :disabled="busy" @click="confirm='disconnect'">Desconectar</button>
+        <button class="btn ghost" :disabled="busy" @click="confirm='disconnect'">Desvincular Google</button>
       </template>
       <template v-else>
         <button class="btn ghost" @click="router.push(findHubPath(id,'conta'))">Voltar</button>
@@ -292,7 +292,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
           <button class="shortcut-card" @click="router.push(findHubPath(id,'dispositivos'))"><span><AppIcon name="channels" :size="22"/></span><div><strong>Dispositivos e localização</strong><small>Catálogo, mapa em tempo real e histórico.</small></div><AppIcon name="arrow" :size="18"/></button>
           <button class="shortcut-card" @click="router.push(findHubPath(id,'integracoes'))"><span><AppIcon name="workflow" :size="22"/></span><div><strong>Conexões e eventos</strong><small>Traccar, Webhooks, WebSocket e filas de eventos.</small></div><AppIcon name="arrow" :size="18"/></button>
         </div>
-        <div class="danger-zone"><div><strong>Desvincular ou excluir esta conta</strong><p>Desvincular remove credenciais Google, catálogo local, vínculos e histórico associados. Não remove a conta nem apaga o smartphone no Google.</p></div><div class="toolbar"><button class="btn ghost" :disabled="busy" @click="confirm='disconnect'">Desvincular conta Google</button><button class="btn danger" :disabled="busy" @click="confirm='delete'">Excluir instância</button></div></div>
+        <div class="danger-zone"><div><strong>Conta Google e dados locais</strong><p>Desvincular remove somente as credenciais Google e encerra a conexão. Dispositivos, histórico, rastreamento, configurações e vínculos locais permanecem preservados para reconexão. Somente “Excluir instância” remove definitivamente os dados locais.</p></div><div class="toolbar"><button class="btn ghost" :disabled="busy" @click="confirm='disconnect'">Desvincular conta Google</button><button class="btn danger" :disabled="busy" @click="confirm='delete'">Excluir instância</button></div></div>
       </template>
       <PanelCard v-else-if="section==='dispositivos'" title="Dispositivos" description="Somente dispositivos retornados pela conta Google vinculada.">
         <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
@@ -313,7 +313,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
       </section>
     </div>
     <FindHubTrackingModal :open="trackingOpen" :instance-id="id" :initial-device="trackingDevice" @close="trackingOpen=false" />
-    <AppModal :open="confirm!==null" :title="confirm==='delete' ? 'Excluir instância Google Find Hub' : 'Desvincular conta Google'" subtitle="Confirme a remoção dos dados locais desta conta." @close="confirm=null"><p>Esta operação remove credenciais, catálogo, histórico e vínculos locais associados a esta conta. Nenhum dispositivo físico será apagado. As demais instâncias não serão alteradas.</p><template #footer><button class="btn ghost" :disabled="busy" @click="confirm=null">Cancelar</button><button class="btn danger" :disabled="busy" @click="accountAction">Confirmar</button></template></AppModal>
+    <AppModal :open="confirm!==null" :title="confirm==='delete' ? 'Excluir instância Google Find Hub' : 'Desvincular conta Google'" :subtitle="confirm==='delete' ? 'Esta é a única operação que remove definitivamente os dados locais.' : 'Somente as credenciais Google serão removidas; os dados locais serão preservados.'" @close="confirm=null"><p v-if="confirm==='delete'">A exclusão remove definitivamente credenciais, catálogo de dispositivos, histórico de posições, rastreamento, avatares e vínculos locais desta instância. Nenhum dispositivo físico será apagado no Google. Use o backup da stack se precisar de possibilidade de recuperação.</p><p v-else>Desvincular encerra a conexão e remove somente as credenciais Google. A instância, os dispositivos, o histórico, o rastreamento, as configurações e os vínculos Traccar permanecem armazenados para que a mesma conta possa ser conectada novamente.</p><template #footer><button class="btn ghost" :disabled="busy" @click="confirm=null">Cancelar</button><button :class="['btn',confirm==='delete' ? 'danger' : 'primary']" :disabled="busy" @click="accountAction">{{ confirm==='delete' ? 'Excluir definitivamente' : 'Desvincular preservando dados' }}</button></template></AppModal>
   </FindHubShell>
 </template>
 <style scoped>
