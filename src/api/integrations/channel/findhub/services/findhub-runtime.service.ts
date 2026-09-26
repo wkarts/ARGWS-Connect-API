@@ -136,6 +136,10 @@ export class FindHubStartupService {
       };
     }
 
+    // A previously validated account stays linked when a restart/reconnect fails.
+    // Transport or provider availability must not be confused with credential revocation.
+    const previousAuthState = loaded.account.authState;
+
     clearInterval(this.retentionTimer);
     this.retentionTimer = undefined;
     clearInterval(this.reconciliationTimer);
@@ -205,10 +209,19 @@ export class FindHubStartupService {
       void this.connectTraccar().catch(() => {
         this.traccarState = 'degraded';
       });
-    } catch {
-      await this.closeClient();
-      await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
-      throw new Error('Não foi possível validar a conexão Google Find Hub. A conta não foi marcada como conectada.');
+    } catch (error) {
+      await this.closeClient().catch(() => undefined);
+      if (previousAuthState !== 'READY') {
+        await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
+      }
+      diagnostics.record({
+        code: 'runtime.error',
+        component: 'findhub',
+        instanceId: this.instance.id,
+        level: 'warn',
+        error,
+      });
+      throw new Error('Não foi possível validar a conexão Google Find Hub. As credenciais armazenadas foram preservadas.');
     }
     return { instance: { instanceName: this.instance.name, status: 'open' }, auth: { state: 'READY' } };
   }
