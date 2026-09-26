@@ -78,10 +78,11 @@ const OBSERVATION_TTL_MS = 120_000;
 const MAX_RECENT_REQUESTS = 256;
 
 export function findHubSupportsSoundAction(device: FindHubDevice, operation: 'start' | 'stop'): boolean {
+  if (device.locateSupported === false) return false;
   const actionField = operation === 'start' ? 31 : 32;
   const capabilities = Array.isArray(device.providerCapabilities) ? device.providerCapabilities : [];
   if (capabilities.length) {
-    return capabilities.some((capability) => capability.actionField === actionField && capability.state > 0);
+    return capabilities.some((capability) => capability.actionField === actionField && capability.state === 1);
   }
   // Compatibility fallback for legacy catalogues that predate advertised action capabilities.
   return device.identifierType === 'SPOT' && device.locateSupported !== false;
