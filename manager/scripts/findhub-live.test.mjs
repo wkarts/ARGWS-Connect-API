@@ -49,7 +49,9 @@ test('Find Hub device view exposes proven protocol metadata, provider freshness 
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  for(const value of ['Google Device ID','IDs canônicos','Fast Pair Model ID','Owner key version','Frescor real do provider Google','Solicitações enviadas','Relatórios repetidos/sem posição nova','Tocar som','Parar som'])assert.match(source,new RegExp(value));
  assert.match(source,/findHubSound/);
- assert.match(source,/device\.identifierType==='SPOT'/);
+ assert.match(source,/soundOperationSupported/);
+ assert.match(source,/actionField.*31/);
+ assert.match(source,/actionField.*32/);
  assert.match(source,/modelo, fabricante, codinome, operadora, IMEI/);
  assert.match(source,/Bateria, MEID e número de série continuam sem mapeamento confirmado/);
  assert.doesNotMatch(source,/batteryLevel|imeiValue|serialNumberValue/);
