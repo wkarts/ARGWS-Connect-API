@@ -175,6 +175,14 @@ function providerFlags(status: Buffer): Record<string, number> {
     const value = int(status, field);
     if (value !== undefined) result[String(field)] = Number(value);
   }
+
+  // Live supervised-device catalogues expose status field 32 as a nested scalar
+  // (observed as 32.1 = 53). Preserve the wire path without assigning an
+  // unproven semantic such as battery percentage.
+  const field32 = bytes(status, 32);
+  const field32Value = field32 ? int(field32, 1) : undefined;
+  if (field32Value !== undefined) result['32.1'] = Number(field32Value);
+
   return result;
 }
 
