@@ -212,14 +212,14 @@ export const findHubOperations = {
     },
   ),
   'POST /findhub/sound/start/{deviceId}/{instanceName}': operation(
-    'Tocar som no dispositivo SPOT',
-    'Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.',
+    'Tocar som no dispositivo',
+    'Usa ExecuteAction.startSound (action field 31). O comando é permitido quando o provider anuncia a capability 31; catálogos legados sem capabilities mantêm fallback para SPOT. O mesmo telefone pode aparecer como ANDROID no catálogo e responder pelo wire SPOT. Componentes RIGHT, LEFT e CASE são opcionais somente para dispositivos compatíveis.',
     ref('FindHubSoundResult'),
     { requestBody: { ...body('FindHubSoundRequest', { component: 'UNSPECIFIED' }), required: false } },
   ),
   'POST /findhub/sound/stop/{deviceId}/{instanceName}': operation(
-    'Parar som no dispositivo SPOT',
-    'Porta o ExecuteAction.stopSound comprovado no material GoogleFindMyTools. Não inventa suporte para dispositivos ANDROID.',
+    'Parar som no dispositivo',
+    'Usa ExecuteAction.stopSound (action field 32). O comando é permitido quando o provider anuncia a capability 32; catálogos legados sem capabilities mantêm fallback para SPOT.',
     ref('FindHubSoundResult'),
     { requestBody: { ...body('FindHubSoundRequest', { component: 'UNSPECIFIED' }), required: false } },
   ),
