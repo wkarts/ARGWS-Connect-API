@@ -221,6 +221,12 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     string(registration, 34) ||
     'Google Find Hub device';
   const deviceType = Number(int(deviceDescription, 2) ?? 0n);
+  const normalizedDeviceType = normalizeDeviceType(deviceType);
+  const legacyRegistrationField21 = legacyInformation ? string(registration, 21) : undefined;
+  // A real 2026 PHONE DeviceUpdate uses legacy registration field 21 for the Android
+  // codename (for example a build/device codename), despite the older reference proto
+  // naming this field fastPairModelId. Do not mislabel phone metadata as Fast Pair.
+  const legacyPhoneCodename = normalizedDeviceType === 'PHONE' ? legacyRegistrationField21 : undefined;
   const encryptedIdentityKey = bytes(secrets, 1);
   const ownerKeyVersion = Number(int(secrets, 3) ?? 0n);
   const pairedAtSeconds = legacyInformation ? Number(int(registration, 23) ?? 0n) : 0;
@@ -243,10 +249,10 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     canonicalIds: ids,
     name,
     identifierType: normalizedIdentifierType,
-    deviceType: normalizeDeviceType(deviceType),
+    deviceType: normalizedDeviceType,
     manufacturer: string(status, 4) || string(registration, 20),
     model: string(status, 3) || string(registration, 34),
-    deviceCodename: string(status, 5),
+    deviceCodename: string(status, 5) || legacyPhoneCodename,
     productName: legacyInformation ? undefined : string(registration, 21),
     carrier: string(status, 6),
     imei: validImei(string(status, 7)),
@@ -263,7 +269,8 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     providerCapabilities: capabilities,
     providerFlags: flags,
     locateSupported: ids.length > 0,
-    fastPairModelId: legacyInformation ? string(registration, 21) : undefined,
+    fastPairModelId:
+      legacyInformation && normalizedDeviceType !== 'PHONE' ? legacyRegistrationField21 : undefined,
     pairedAt: pairedAtSeconds > 0 ? new Date(pairedAtSeconds * 1000).toISOString() : null,
     accessInformation,
     imageUrl: image ? string(image, 1) : undefined,
