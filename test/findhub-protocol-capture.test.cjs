@@ -42,6 +42,22 @@ test('Find Hub manager offers direct .pb capture without disconnecting or relink
   assert.doesNotMatch(current, /findHubDisconnect.*findHubCapture/i);
 });
 
+test('Find Hub sound follows advertised action capabilities instead of catalogue identifier type', () => {
+  const protocol = read('src/api/integrations/channel/findhub/services/findhub-protocol.client.ts');
+  const view = read('manager/src/views/FindHubView.vue');
+
+  assert.match(protocol, /findHubSupportsSoundAction/);
+  assert.match(protocol, /operation === 'start' \? 31 : 32/);
+  assert.match(protocol, /capability\.actionField === actionField/);
+  assert.match(protocol, /device\.identifierType === 'SPOT'/);
+  assert.doesNotMatch(protocol, /disponível somente para dispositivos SPOT/);
+
+  assert.match(view, /soundOperationSupported/);
+  assert.match(view, /actionField\) === actionField/);
+  assert.match(view, /soundComponentSelectionSupported/);
+  assert.doesNotMatch(view, /v-if="device\.identifierType==='SPOT'"/);
+});
+
 test('Nova probes optional Android, Auto, Fast Pair and supervised catalogues without replacing SPOT', () => {
   const nova = read('src/api/integrations/channel/findhub/protocol/nova.client.ts');
   assert.match(nova, /captureDevicesListRaw\('spot'\)/);
