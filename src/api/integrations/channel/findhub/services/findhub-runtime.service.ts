@@ -388,6 +388,20 @@ export class FindHubStartupService {
     return await this.protocol.sound(device, operation, component);
   }
 
+  public async captureProtocolCatalog(catalog: 'spot' | 'android'): Promise<Buffer> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return await this.protocol.captureDevicesListRaw(catalog);
+  }
+
+  public async captureProtocolDeviceUpdate(
+    deviceId: string,
+    timeoutMs?: number,
+  ): Promise<{ payload: Buffer; deviceMetadata: Buffer }> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    const device = await this.device(deviceId);
+    return await this.protocol.captureDeviceUpdateRaw(device, timeoutMs);
+  }
+
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
     const existing = this.locating.get(deviceId);
     if (existing) return await existing;
