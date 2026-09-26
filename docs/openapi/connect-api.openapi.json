@@ -7497,7 +7497,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Desvincular conta Google",
+            "description": "Desvincular conta Google preservando dados",
             "content": {
               "application/json": {
                 "schema": {
