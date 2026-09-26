@@ -67,7 +67,7 @@ function tagFromPath(apiPath, sourceFile) {
     websocket: 'WebSocket', rabbitmq: 'RabbitMQ', nats: 'NATS', pusher: 'Pusher', sqs: 'SQS', kafka: 'Kafka',
     s3: 'Storage', storage: 'Storage', minio: 'Storage', chatbot: 'Chatbots', typebot: 'Chatbots', openai: 'Chatbots',
     dify: 'Chatbots', flowise: 'Chatbots', n8n: 'Chatbots', evoai: 'Chatbots', connectai: 'Chatbots',
-    compat: 'Meta Compatible Admin', diagnostics: 'Diagnostics',
+    compat: 'Meta Compatible Admin', diagnostics: 'Diagnostics', 'manager-api': 'Manager',
   };
   if (map[segment]) return map[segment];
   if (sourceFile.includes('/integrations/event/')) return 'Events';
@@ -205,6 +205,30 @@ const requestOverrides = {
   "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
   "GET /operations/archives": {"summary": "Listar arquivos diários", "description": "Índice de dias disponíveis, tamanhos e verificação. Sem conteúdo do WhatsApp."},
   "GET /operations/export": {"summary": "Baixar diagnóstico compactado", "description": "Exportação administrativa de um único dia, sem credenciais ou conteúdo de comunicação.", "parameters": [{"name": "day", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["text", "jsonl"], "default": "text"}}], "responses": {"200": {"description": "Arquivo GZIP de texto legível ou JSONL.", "content": {"application/gzip": {"schema": {"type": "string", "format": "binary"}}}}}},
+  'GET /manager-api/v1/embedding': {
+    summary: 'Consultar origens autorizadas do Manager',
+    description: 'Configuração administrativa global do iframe. A configuração persistida no banco prevalece sobre o bootstrap do ambiente. Exige exclusivamente a API key global.',
+    responses: {
+      '200': { description: 'Política efetiva de incorporação.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerEmbeddingSettings' } } } },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '503': { description: 'Configuração temporariamente indisponível.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
+  'PUT /manager-api/v1/embedding': {
+    summary: 'Atualizar origens autorizadas do Manager',
+    description: 'Persiste até 12 origens HTTPS exatas. Não aceita caminhos, credenciais ou curingas. Usa versão otimista para impedir sobrescrita concorrente. Exige exclusivamente a API key global.',
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerEmbeddingUpdateRequest' } } },
+    },
+    responses: {
+      '200': { description: 'Política de incorporação atualizada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerEmbeddingSettings' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '409': { description: 'Versão concorrente da configuração.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '503': { description: 'Configuração temporariamente indisponível.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
   'POST /instance/create': {
     summary: 'Criar instância',
     description: 'Cria uma nova instância e retorna token, estado e QR/pairing quando solicitado.',
@@ -368,6 +392,7 @@ function nativeSpec(routes, version) {
       { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' }, { name: 'Chatbots', description: 'Integrações de chatbot/automação.' }, { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
       { name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },
       { name: 'Diagnostics', description: 'Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração.' },
+      { name: 'Manager', description: 'Configuração administrativa global do Manager, incluindo a allowlist persistida de origens de iframe.' },
     ],
     paths,
     components: {
@@ -378,6 +403,31 @@ function nativeSpec(routes, version) {
         ...diagnosticSchemas,
         ...videoCallSchemas,
         ...findHubSchemas,
+        ManagerEmbeddingSettings: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['version', 'configured', 'enabled', 'allowedOrigins', 'effectiveFrameAncestors', 'source', 'allowAnyOrigin'],
+          properties: {
+            version: { type: 'integer', minimum: 1 },
+            configured: { type: 'boolean' },
+            enabled: { type: 'boolean' },
+            allowedOrigins: { type: 'array', maxItems: 12, items: { type: 'string', format: 'uri' } },
+            effectiveFrameAncestors: { type: 'string' },
+            source: { type: 'string', enum: ['database', 'environment'] },
+            allowAnyOrigin: { type: 'boolean' },
+            updatedAt: { type: ['string', 'null'], format: 'date-time' },
+          },
+        },
+        ManagerEmbeddingUpdateRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['version', 'enabled', 'allowedOrigins'],
+          properties: {
+            version: { type: 'integer', minimum: 1 },
+            enabled: { type: 'boolean' },
+            allowedOrigins: { type: 'array', maxItems: 12, items: { type: 'string', format: 'uri' } },
+          },
+        },
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
