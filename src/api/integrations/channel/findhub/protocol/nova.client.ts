@@ -49,20 +49,29 @@ export class FindHubNovaClient {
   }
 
   public async listDevices() {
-    const primary = decodeDevicesList(await this.captureDevicesListRaw('spot'));
-    // The SPOT catalogue remains authoritative. Complementary catalogues are best-effort, additive and parallel.
-    const complementary = (
-      await Promise.all(
-        (['android', 'auto', 'fastpair', 'supervised'] as const).map(async (catalog) => {
-          try {
-            return decodeDevicesList(await this.captureDevicesListRaw(catalog));
-          } catch {
-            return [];
-          }
-        }),
-      )
-    ).flat();
-    const devices = new Map([...complementary, ...primary].map((device) => [device.googleDeviceId, device]));
+    const catalogs = ['spot', 'android', 'auto', 'fastpair', 'supervised'] as const;
+    const results = await Promise.all(
+      catalogs.map(async (catalog) => {
+        try {
+          return { catalog, devices: decodeDevicesList(await this.captureDevicesListRaw(catalog)) };
+        } catch {
+          return { catalog, devices: [] };
+        }
+      }),
+    );
+
+    const available = results.filter((result) => result.devices.length);
+    if (!available.length) throw new Error('Google Find Hub did not return any readable device catalogue');
+
+    // Live 2026 captures from the same account returned byte-identical DeviceMetadata
+    // (apart from providerResponseAt) for every selector above. Treat the selector as a
+    // discovery path, not as the semantic type of the returned device. Keep SPOT as the
+    // final tie-breaker for backward compatibility, but never make it a hard dependency.
+    const ordered = [
+      ...available.filter((result) => result.catalog !== 'spot'),
+      ...available.filter((result) => result.catalog === 'spot'),
+    ];
+    const devices = new Map(ordered.flatMap((result) => result.devices).map((device) => [device.googleDeviceId, device]));
     return [...devices.values()];
   }
 
