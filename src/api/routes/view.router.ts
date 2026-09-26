@@ -54,7 +54,8 @@ export class ViewsRouter extends RouterBroker {
     // overrides ENV bootstrap after the first save, without adding a query for every asset.
     this.router.use(async (_req, res, next) => {
       const embedding = await this.embeddingService.policy();
-      res.removeHeader('X-Frame-Options');
+      if (embedding.enabled) res.removeHeader('X-Frame-Options');
+      else res.set('X-Frame-Options', 'DENY');
       res.set('Content-Security-Policy', embedding.contentSecurityPolicy);
       res.set('X-Content-Type-Options', 'nosniff');
       res.set('Referrer-Policy', 'no-referrer');
