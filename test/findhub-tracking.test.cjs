@@ -35,12 +35,13 @@ test('slow SSE reader is disconnected without unbounded buffer',async()=>{const 
 
 function runtimeHarness(globals={}) {
  const emitter=new EventEmitter(), events=[], calls=[], positions=[], diagnosticEvents=[];
- const row={id:'d-a',instanceId:'a',accountId:'a',googleDeviceId:'g-a',name:'Phone',identifierType:'ANDROID',deviceType:'PHONE',trackingIntervalSeconds:60,trackingEnabled:false,latestPosition:null,lastLocationAt:null};
+ const row={id:'d-a',instanceId:'a',accountId:'a',googleDeviceId:'g-a',canonicalIds:['g-a'],name:'Phone',identifierType:'ANDROID',deviceType:'PHONE',trackingIntervalSeconds:60,trackingEnabled:false,latestPosition:null,lastLocationAt:null,providerRequestCount:0,providerReportCount:0,providerRepeatedReportCount:0,lastProviderRequestAt:null,lastProviderReportAt:null};
  const other={...row,id:'d-b',instanceId:'b',googleDeviceId:'g-b'};const devices=[row,other];
  const account={id:'account-a',instanceId:'a',googleEmail:'a@example.invalid',trackingSettings:{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30,reconciliationEnabled:true,reconciliationOnBoot:true,reconciliationPeriodicEnabled:false,reconciliationPeriodSeconds:3600,reconciliationLookbackHours:48,reconciliationMinGapSeconds:300,reconciliationAttempts:3},encryptedTraccar:null};
  function match(r,w){return Object.entries(w||{}).every(([k,v])=>{if(k==='OR')return v.some(x=>match(r,x));if(v && typeof v==='object'){if('in' in v)return v.in.includes(r[k]);if('gt' in v && !(r[k]>v.gt))return false;if('gte' in v && !(r[k]>=v.gte))return false;if('lt' in v && !(r[k]<v.lt))return false;if('lte' in v && !(r[k]<=v.lte))return false;if('equals' in v)return v.equals===null?r[k]==null:r[k]===v.equals;if(['gt','gte','lt','lte'].some(op=>op in v))return true;}return r[k]===v})}
+ function applyData(row,data){for(const [key,value] of Object.entries(data||{})){if(value&&typeof value==='object'&&Object.hasOwn(value,'increment'))row[key]=Number(row[key]||0)+Number(value.increment);else row[key]=value}return row}
  const db={instance:{async update(){}},findHubAccount:{async findUnique({where}){assert.equal(where.instanceId,'a');return account},async update({where,data}){assert.equal(where.instanceId,'a');Object.assign(account,data);return account}},
-  findHubDevice:{async findFirst({where}){calls.push(['device',where]);return devices.find(d=>match(d,where))},async findMany({where}){return devices.filter(d=>match(d,where))},async updateMany({where,data}){calls.push(['update',where]);let n=0;for(const d of devices)if(match(d,where)){Object.assign(d,data);n++}return {count:n}},async update({where,data}){const d=devices.find(d=>d.id===where.id);Object.assign(d,data);return d}},
+  findHubDevice:{async findFirst({where}){calls.push(['device',where]);return devices.find(d=>match(d,where))},async findMany({where}){return devices.filter(d=>match(d,where))},async updateMany({where,data}){calls.push(['update',where]);let n=0;for(const d of devices)if(match(d,where)){applyData(d,data);n++}return {count:n}},async update({where,data}){const d=devices.find(d=>d.id===where.id);applyData(d,data);return d}},
   findHubPosition:{async count({where}={}){return positions.filter(p=>match(p,where||{})).length},async findUnique({where}){const key=where.instanceId_deviceId_fingerprint;return positions.find(p=>p.instanceId===key.instanceId&&p.deviceId===key.deviceId&&p.fingerprint===key.fingerprint)||null},async upsert({where,create}){calls.push(['history',where]);let old=positions.find(p=>p.fingerprint===create.fingerprint&&p.instanceId===create.instanceId&&p.deviceId===create.deviceId);if(!old){old={id:'p-'+positions.length,...create};positions.push(old)}return old},async findMany({where,take,orderBy,select}={}){calls.push(['history-read',where]);let rows=positions.filter(p=>match(p,where||{}));if(orderBy?.recordedAt==='asc')rows.sort((a,b)=>new Date(a.recordedAt)-new Date(b.recordedAt));if(orderBy?.recordedAt==='desc')rows.sort((a,b)=>new Date(b.recordedAt)-new Date(a.recordedAt));rows=rows.slice(0,take??rows.length);if(select)rows=rows.map(r=>Object.fromEntries(Object.keys(select).filter(k=>select[k]).map(k=>[k,r[k]])));return rows},async deleteMany({where}){calls.push(['history-delete',where]);let n=0;for(let i=positions.length-1;i>=0;i--)if(match(positions[i],where)){positions.splice(i,1);n++}return {count:n}}},
   findHubTraccarBinding:{async findUnique(){return null},async findMany({where}){assert.equal(where.instanceId,'a');return []}},async $transaction(fn){return fn(db)}};
  const overrides={
@@ -52,7 +53,7 @@ function runtimeHarness(globals={}) {
  };
  const {FindHubStartupService}=load(dir+'findhub-runtime.service.ts',overrides,globals);
  const runtime=new FindHubStartupService({get(){return {URL:'https://connect.example.invalid'}}},emitter,db);
- runtime.setInstance({instanceName:'account-a',instanceId:'a',token:'private-api-key'});runtime.stateConnection={state:'open'};runtime.protocol={ready:true,async close(){},async locate(){return []}};
+ runtime.setInstance({instanceName:'account-a',instanceId:'a',token:'private-api-key'});runtime.stateConnection={state:'open'};runtime.protocol={ready:true,async close(){},async locate(){return []},async sound(_d,operation,component){return {requestUuid:'sound-fixture',operation,component}}};
  return {runtime,db,row,other,positions,events,calls,emitter,account,diagnosticEvents};
 }
 test('runtime refuses a device belonging to a different account',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.device('d-b'),/not found/);assert.equal(h.calls[0][1].instanceId,'a')});
@@ -115,6 +116,24 @@ test('reconciliation does not run concurrently with an active tracking dispatch'
 });
 
 test('snapshot reports verified status, real counters, settings and no provider credentials',async()=>{const h=runtimeHarness();const result=await h.runtime.snapshot();assert.equal(result.connected,true);assert.equal(result.devices.length,1);assert.equal(result.counts.devices,1);assert.equal(result.email,'a@example.invalid');assert.equal(result.traccar.mode,'disabled');assert.ok(!JSON.stringify(result).includes('private-api-key'))});
+
+test('provider freshness distinguishes request cadence from repeated Google reports',async()=>{
+ const h=runtimeHarness();const fresh={...position,deviceId:'d-a',googleDeviceId:'g-a'};
+ h.runtime.protocol.locate=async()=>[fresh];
+ await h.runtime.locate('d-a',10);
+ assert.equal(h.row.providerRequestCount,1);assert.equal(h.row.providerReportCount,1);assert.equal(h.row.providerRepeatedReportCount,0);
+ assert.ok(h.row.lastProviderRequestAt instanceof Date);assert.equal(h.row.lastProviderReportAt.getTime(),Date.parse(fresh.timestamp));
+ h.runtime.protocol.locate=async()=>[fresh];
+ await h.runtime.locate('d-a',10);
+ assert.equal(h.row.providerRequestCount,2);assert.equal(h.row.providerReportCount,2);assert.equal(h.row.providerRepeatedReportCount,1);
+ const snap=await h.runtime.snapshot();assert.equal(snap.devices[0].providerRequestCount,2);assert.equal(snap.devices[0].providerRepeatedReportCount,1);
+});
+
+test('sound command is scoped to the owning device and forwards the selected component',async()=>{
+ const h=runtimeHarness();const result=await h.runtime.sound('d-a','start','RIGHT');
+ assert.equal(result.requestUuid,'sound-fixture');assert.equal(result.operation,'start');assert.equal(result.component,'RIGHT');
+ await assert.rejects(h.runtime.sound('d-b','stop','CASE'),/not found/);
+});
 
 
 test('manual locate honors its timeout without enabling tracking',async()=>{const h=runtimeHarness();let selected;h.runtime.protocol={locate:async(d,t)=>{selected=t;return []}};await h.runtime.locate('d-a',90000);assert.equal(selected,90000);assert.equal(h.row.trackingEnabled,false);await assert.rejects(h.runtime.locate('d-a',0));});
