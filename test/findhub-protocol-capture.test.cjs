@@ -62,8 +62,10 @@ test('Find Hub sound follows advertised action capabilities instead of catalogue
 
 test('Nova treats SPOT, Android, Auto, Fast Pair and supervised selectors as resilient discovery paths', () => {
   const nova = read('src/api/integrations/channel/findhub/protocol/nova.client.ts');
-  assert.match(nova, /\['spot', 'android', 'auto', 'fastpair', 'supervised'\]/);
+  assert.match(nova, /capture\('spot'\)/);
+  assert.match(nova, /\['android', 'auto', 'fastpair', 'supervised'\]/);
   assert.match(nova, /Promise\.all/);
+  assert.match(nova, /SPOT failure no longer aborts discovery/);
   assert.match(nova, /result\.catalog !== 'spot'/);
   assert.match(nova, /result\.catalog === 'spot'/);
   assert.match(nova, /never make it a hard dependency/);
