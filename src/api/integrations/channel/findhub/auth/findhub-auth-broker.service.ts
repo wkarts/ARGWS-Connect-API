@@ -32,6 +32,21 @@ export class FindHubAuthBrokerService {
       if (previous.instanceName === instanceName || previous.expiresAt <= Date.now()) this.sessions.delete(id);
     }
     const previous = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: instance.id } });
+    const preservedDevices = previous
+      ? await (this.prisma as any).findHubDevice.count({ where: { instanceId: instance.id } })
+      : 0;
+    const hasPreservedAccountData = Boolean(
+      preservedDevices > 0 || previous?.trackingSettings || previous?.encryptedTraccar,
+    );
+    if (
+      hasPreservedAccountData &&
+      previous?.googleEmail &&
+      String(previous.googleEmail).trim().toLowerCase() !== String(email).trim().toLowerCase()
+    ) {
+      throw new Error(
+        'Esta instância possui dados preservados de outra conta Google. Reconecte a mesma conta Google ou exclua a instância.',
+      );
+    }
     const hasStoredCredentialMaterial = Boolean(previous?.encryptedCredentials || previous?.encryptedSharedKey);
     const renewal = hasStoredCredentialMaterial && previous?.authState === 'AUTH_REQUIRED';
     if (hasStoredCredentialMaterial && !renewal) {
@@ -181,6 +196,18 @@ export class FindHubAuthBrokerService {
   public cancel(instanceName: string, id: string, token: string): void {
     this.requireSession(instanceName, id, token);
     this.sessions.delete(id);
+  }
+
+  public async unlink(instanceId: string): Promise<void> {
+    this.sessions.clear();
+    await (this.prisma as any).findHubAccount.updateMany({
+      where: { instanceId },
+      data: {
+        authState: 'WAITING_AUTH',
+        encryptedCredentials: null,
+        encryptedSharedKey: null,
+      },
+    });
   }
 
   public async clear(instanceId: string): Promise<void> {

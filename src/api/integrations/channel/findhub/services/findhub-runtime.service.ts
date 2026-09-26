@@ -260,13 +260,15 @@ export class FindHubStartupService {
 
   public async logoutInstance(): Promise<void> {
     await this.closeClient();
-    await this.authBroker.clear(this.instance.id);
+    await this.authBroker.unlink(this.instance.id);
     this.options = undefined;
-    await (this.prisma as any).findHubDevice.deleteMany({ where: { instanceId: this.instance.id } });
   }
 
   public async purgeProviderState(): Promise<void> {
-    await this.logoutInstance();
+    await this.closeClient();
+    await this.authBroker.clear(this.instance.id);
+    this.options = undefined;
+    await (this.prisma as any).findHubDevice.deleteMany({ where: { instanceId: this.instance.id } });
   }
 
   public auth(): FindHubAuthBrokerService {
