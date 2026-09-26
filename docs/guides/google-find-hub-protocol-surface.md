@@ -16,15 +16,15 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 | Tipo do identificador | IdentifierInformationType + captura viva | ANDROID / SPOT / SUPERVISED_ANDROID / UNKNOWN |
 | Tipos detalhados | SpotDeviceType | Suportados sem reduzir tudo a TRACKER |
 | Fabricante e modelo | DeviceRegistration + catálogo vivo 2026 | Persistidos |
-| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido quando a semântica é compatível; em PHONE legado o field 21 pode representar o codinome Android |
+| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido quando a semântica é compatível; em PHONE o field 21 foi comprovado como product/variant name, não Fast Pair |
 | Data de pareamento | DeviceRegistration.pairDate | Persistida |
 | Ownership/acesso | DeviceInformation.accessInformation | Persistido e exibido |
 | Owner key version | EncryptedUserSecrets.ownerKeyVersion | Persistido |
 | Material criptográfico | EncryptedUserSecrets | Somente fingerprints SHA-256; chaves brutas não são expostas |
 | Mínimo de agregação de rede | minLocationsNeededForAggregation | Persistido |
 | Locate ativo | ExecuteAction.locateTracker | Suportado |
-| Tocar som | ExecuteAction.startSound | Suportado para wire SPOT comprovado |
-| Parar som | ExecuteAction.stopSound | Suportado para wire SPOT comprovado |
+| Tocar som | ExecuteAction.startSound | Suportado quando o provider anuncia action field 31; fallback legado para SPOT sem capabilities |
+| Parar som | ExecuteAction.stopSound | Suportado quando o provider anuncia action field 32; fallback legado para SPOT sem capabilities |
 | Componentes de som | DeviceComponent | UNSPECIFIED / RIGHT / LEFT / CASE |
 | Localização LAST_KNOWN | Common.Status | Preservada como origem |
 | Localização CROWDSOURCED | Common.Status | Preservada como origem |
@@ -71,21 +71,34 @@ Os catálogos capturados **não demonstraram de forma segura**:
 
 O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`. Embora o produto oficial Find Hub apresente bateria e conectividade para aparelhos online, é necessário mapear a superfície/status protobuf correspondente antes de expor esses campos.
 
-### Evidência do primeiro DeviceUpdate real de telefone
+### Correlação real: Redmi Note 14 entre DevicesList e DeviceUpdate
 
-Uma captura real de `DeviceUpdate` feita em 2026-09-26 após Locate confirmou, sem versionar o protobuf privado:
+Em 2026-09-26 foram comparados, para o mesmo Redmi Note 14, um `DevicesList` solicitado como `ANDROID`, outro solicitado como `SPOT` e um `DeviceUpdate` recebido após Locate. Os binários privados não são versionados; somente fixtures sintéticas sanitizadas entram nos testes.
 
-- `deviceType=PHONE`;
-- resposta usando a superfície/identificador `SPOT` para o mesmo aparelho físico;
-- capabilities de provider com action fields `31` e `32` habilitados, correspondentes a Start Sound e Stop Sound no wire já comprovado;
-- fabricante e modelo no bloco legado de registration;
-- registration field `21` contendo o codinome Android do telefone, e não um Fast Pair Model ID;
-- um relatório de localização com `accuracy=100.0`; esse valor é precisão em metros e **não** percentual de bateria;
-- timestamp do relatório distinto do horário de recebimento do envelope, reforçando que uma resposta nova pode transportar uma observação de localização mais antiga.
+A correlação mostrou:
 
-Por isso, o decoder trata field `21` como `deviceCodename` quando o payload legado descreve um `PHONE`, evitando um falso `fastPairModelId`. Para outros tipos, a compatibilidade com o proto legado é preservada.
+- os catálogos solicitados como `ANDROID` e `SPOT` devolveram o mesmo conjunto de dispositivos e o mesmo metadata; a diferença observada entre as duas respostas foi o timestamp de resposta;
+- no catálogo, o Redmi Note 14 aparece com `identifierType=ANDROID`, ID numérico Android, canonical ID, modelo `24117RN76L`, fabricante `Xiaomi`, codinome `tanzanite`, produto `tanzanite_global`, operadora e IMEI;
+- no `DeviceUpdate` de Locate, o mesmo canonical ID aparece com `identifierType=SPOT`;
+- portanto `identifierType` descreve a superfície/envelope retornado e **não deve ser usado isoladamente como capability gate**;
+- o catálogo do aparelho anuncia action fields `31` e `32`, e o DeviceUpdate conserva essas duas capabilities, confirmando Start Sound e Stop Sound para esse telefone mesmo quando o catálogo o classifica como `ANDROID`;
+- o `DeviceRegistration` embutido no DeviceUpdate é **byte a byte idêntico** ao registration embutido no catálogo moderno do mesmo aparelho;
+- por isso os registration fields ainda anônimos `11`, `22`, `24`, `25`, `33` e `40` observados nessa amostra pertencem ao bloco estável de registro/metadata e não devem ser tratados como bateria ou sinal;
+- registration field `21` contém `tanzanite_global`, enquanto o catálogo moderno expõe separadamente o codinome `tanzanite` em status field `5`. Para `PHONE`, field `21` é tratado como `productName`, não como `fastPairModelId` nem como `deviceCodename`;
+- o relatório de localização contém `accuracy=100.0`; esse valor é precisão em metros e **não** percentual de bateria;
+- o timestamp do relatório pode ser anterior ao horário em que a Connect|API recebeu o envelope, reforçando a distinção entre nova resposta do provider e nova observação de posição.
 
-Essa captura **não demonstrou** bateria, MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular. O próximo passo seguro é comparar múltiplos `DeviceUpdate .pb` do mesmo aparelho com estados conhecidos e diferentes de bateria/conectividade, procurando apenas campos que variem de forma correlacionada.
+O decoder preserva a interpretação legada de field `21` como Fast Pair apenas para tipos não-`PHONE`, onde essa semântica ainda é compatível com o proto de referência.
+
+### Candidato ainda não confirmado para bateria
+
+No mesmo par de catálogos existe um segundo dispositivo supervisionado pelo Family Link. Seu status inclui o caminho protobuf `32.1 = 53`.
+
+O valor `53` é numericamente compatível com um percentual de bateria, mas **uma única observação não comprova essa semântica**. A Connect|API preserva o valor como flag wire `providerFlags["32.1"] = 53` e continua expondo `battery.supported=false`.
+
+A promoção desse campo para `batteryLevel` só deve ocorrer depois de comparar novas capturas com o nível de bateria conhecido do mesmo aparelho e observar correlação consistente.
+
+As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
 ## Frescor de localização: solicitação não é observação nova
 
