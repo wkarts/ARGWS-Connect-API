@@ -9,6 +9,7 @@ import {
   MarkChatUnreadDto,
   NumberBusiness,
   OnWhatsAppDto,
+  PlayedMessageDto,
   PrivacySettingDto,
   ReadMessageDto,
   SendPresenceDto,
@@ -114,6 +115,7 @@ import makeWASocket, {
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
+  isLidUser,
   isPnUser,
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
@@ -153,6 +155,7 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
+import { persistPlayedReceipt, PlayedReceiptKey } from './played-receipt.helper';
 import { BAILEYS_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
@@ -3891,6 +3894,51 @@ export class BaileysStartupService extends ChannelStartupService {
       return { message: 'Read messages', read: 'success' };
     } catch (error) {
       throw new InternalServerErrorException('Read messages fail', error.toString());
+    }
+  }
+
+  public async markMessageAsPlayed(data: PlayedMessageDto) {
+    try {
+      if (!this.client || this.connectionStatus?.state !== 'open') {
+        throw new BadRequestException('WhatsApp instance is not connected');
+      }
+
+      const keys: PlayedReceiptKey[] = data.playedMessages.map((message) => {
+        const id = String(message?.id || '').trim();
+        const remoteJid = String(message?.remoteJid || '').trim();
+        const participant = String(message?.participant || '').trim() || undefined;
+
+        if (!id || !remoteJid) throw new BadRequestException('Message id and remoteJid are required');
+        if (message?.fromMe !== false) {
+          throw new BadRequestException('PLAYED receipt is valid only for received messages');
+        }
+        if (!(isJidGroup(remoteJid) || isPnUser(remoteJid) || isLidUser(remoteJid))) {
+          throw new BadRequestException('Unsupported WhatsApp JID for PLAYED receipt');
+        }
+        if (participant && !(isPnUser(participant) || isLidUser(participant))) {
+          throw new BadRequestException('Invalid group participant JID for PLAYED receipt');
+        }
+
+        return { id, remoteJid, fromMe: false, ...(participant ? { participant } : {}) };
+      });
+
+      await this.client.sendReceipts(keys, 'played');
+
+      const saveMessageUpdate = this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE;
+      for (const key of keys) {
+        await persistPlayedReceipt(
+          this.prismaRepository,
+          this.instanceId,
+          key,
+          saveMessageUpdate,
+          (event, payload) => this.sendDataWebhook(event, payload),
+        );
+      }
+
+      return { success: true, receipt: 'played', processed: keys.length };
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) throw error;
+      throw new InternalServerErrorException('Played receipt failed', (error as Error)?.toString());
     }
   }
 
