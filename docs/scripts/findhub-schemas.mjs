@@ -65,8 +65,8 @@ export const findHubSchemas = {
       },
       manufacturer: text,
       model: text,
-      deviceCodename: text,
-      productName: text,
+      deviceCodename: { ...text, description: 'Codinome Android devolvido pelo status vivo do provider, por exemplo tanzanite.' },
+      productName: { ...text, description: 'Nome de produto/variant devolvido no registration field 21 para PHONE, por exemplo tanzanite_global.' },
       carrier: text,
       imei: {
         type: 'string',
@@ -85,15 +85,16 @@ export const findHubSchemas = {
       familyLinkUrl: text,
       providerCapabilities: {
         type: 'array',
+        description: 'Capabilities numéricas anunciadas pelo provider. Action fields 31 e 32 têm semântica comprovada como Start/Stop Sound; demais números permanecem sem nome até comprovação.',
         items: {
           type: 'object',
           required: ['actionField', 'state'],
           properties: { actionField: { type: 'integer' }, state: { type: 'integer' } },
         },
       },
-      providerFlags: { type: 'object', additionalProperties: { type: 'integer' } },
+      providerFlags: { type: 'object', additionalProperties: { type: 'integer' }, description: 'Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1.' },
       locateSupported: { type: 'boolean' },
-      fastPairModelId: text,
+      fastPairModelId: { ...text, description: 'Fast Pair Model ID somente quando a semântica é compatível; PHONE não reutiliza registration field 21 como Fast Pair.' },
       pairedAt: { type: ['string', 'null'], format: 'date-time' },
       accessInformation: {
         type: 'array',
