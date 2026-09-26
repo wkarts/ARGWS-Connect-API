@@ -81,6 +81,8 @@ A correlação mostrou:
 - removendo somente `providerResponseAt`, o `DeviceMetadata` do Redmi Note 14 é byte a byte idêntico nos cinco seletores; o mesmo vale para o segundo dispositivo supervisionado retornado pela conta;
 - nas cinco respostas, o Redmi Note 14 continua declarando `identifierType=ANDROID`; o selector usado na requisição não reescreve o tipo do dispositivo;
 - a única diferença observada entre essas cinco capturas foi o timestamp de resposta do provider;
+- em cada resposta, o `responseTime` do envelope e o `DeviceMetadata.field12` dos dispositivos carregam o mesmo instante, validando o fallback `metadata.field12 -> payload.field4` usado pelo decoder;
+- a diferença de três bytes observada no arquivo SUPERVISED é explicada apenas pelo tamanho da codificação varint desse timestamp, não por ausência de campos;
 - no catálogo, o Redmi Note 14 aparece com `identifierType=ANDROID`, ID numérico Android, canonical ID, modelo `24117RN76L`, fabricante `Xiaomi`, codinome `tanzanite`, produto `tanzanite_global`, operadora e IMEI;
 - no `DeviceUpdate` de Locate, o mesmo canonical ID aparece com `identifierType=SPOT`;
 - portanto `identifierType` descreve a superfície/envelope retornado e **não deve ser usado isoladamente como capability gate**;
