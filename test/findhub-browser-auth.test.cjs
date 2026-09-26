@@ -66,6 +66,7 @@ test('stored Find Hub credentials are reported as linked independently from live
   };
   const prisma = {
     instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubDevice: { async count() { return 1; } },
     findHubAccount: { async findUnique() { return account; } },
   };
   const broker = new FindHubAuthBrokerService(prisma);
@@ -103,6 +104,7 @@ test('AUTH_REQUIRED account renews credentials in place without unlinking persis
   let deletes = 0;
   const prisma = {
     instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubDevice: { async count() { return 1; } },
     findHubAccount: {
       async findUnique() { return account; },
       async upsert() { throw new Error('renewal must not replace the account row'); },
@@ -155,6 +157,43 @@ test('credential renewal cannot switch Google identity or overwrite a still READ
   await assert.rejects(broker.start('google', 'other@example.com'), /mesma conta Google/);
   account.authState = 'READY';
   await assert.rejects(broker.start('google', 'operator@example.com'), /reconexão existente/);
+});
+
+test('unlink clears only credential material and keeps the Find Hub account row reusable', async () => {
+  const { FindHubAuthBrokerService } = load(
+    'src/api/integrations/channel/findhub/auth/findhub-auth-broker.service.ts',
+    { '@api/repository/repository.service': {} },
+    { process: { env: { FINDHUB_CREDENTIALS_KEY: '33'.repeat(32) } } },
+  );
+  const account = {
+    id: 'stable-account',
+    instanceId: 'google-id',
+    googleEmail: 'operator@example.com',
+    authState: 'READY',
+    encryptedCredentials: 'credentials',
+    encryptedSharedKey: 'shared',
+    trackingSettings: { intervalSeconds: 60 },
+    encryptedTraccar: 'traccar-config',
+    clientUuid: 'stable-client',
+  };
+  let deleted = 0;
+  const prisma = {
+    findHubAccount: {
+      async updateMany({ data }) { Object.assign(account, data); return { count: 1 }; },
+      async deleteMany() { deleted++; return { count: 1 }; },
+    },
+  };
+  const broker = new FindHubAuthBrokerService(prisma);
+  await broker.unlink('google-id');
+  assert.equal(account.id, 'stable-account');
+  assert.equal(account.googleEmail, 'operator@example.com');
+  assert.equal(account.authState, 'WAITING_AUTH');
+  assert.equal(account.encryptedCredentials, null);
+  assert.equal(account.encryptedSharedKey, null);
+  assert.deepEqual(account.trackingSettings, { intervalSeconds: 60 });
+  assert.equal(account.encryptedTraccar, 'traccar-config');
+  assert.equal(account.clientUuid, 'stable-client');
+  assert.equal(deleted, 0);
 });
 
 test('browser flow starts without authenticating; nonce and expiry are internal', async () => {
