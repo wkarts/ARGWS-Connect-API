@@ -71,7 +71,9 @@ export class FindHubNovaClient {
       ...available.filter((result) => result.catalog !== 'spot'),
       ...available.filter((result) => result.catalog === 'spot'),
     ];
-    const devices = new Map(ordered.flatMap((result) => result.devices).map((device) => [device.googleDeviceId, device]));
+    const devices = new Map(
+      ordered.flatMap((result) => result.devices).map((device) => [device.googleDeviceId, device]),
+    );
     return [...devices.values()];
   }
 
