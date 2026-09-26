@@ -38,7 +38,7 @@ Assim, uma conta pode estar `linked=true` e `connected=false`. Nesse caso o Mana
 
 A ação `no.connection` é tratada como perda de transporte para Find Hub e não chama `logoutInstance()`. Somente uma ação explícita de **Desvincular conta Google** ou a exclusão da instância remove as credenciais persistidas.
 
-Durante a primeira validação de novas credenciais (`VERIFYING`), uma falha continua levando a `AUTH_REQUIRED`; isso não converte uma autenticação incompleta em uma conta válida.
+Durante a primeira validação de novas credenciais (`VERIFYING`), uma falha **antes de as credenciais serem confirmadas** continua levando a `AUTH_REQUIRED`; depois da validação, falhas em etapas auxiliares de restore não desfazem o vínculo.
 
 ## Regressão automatizada
 
