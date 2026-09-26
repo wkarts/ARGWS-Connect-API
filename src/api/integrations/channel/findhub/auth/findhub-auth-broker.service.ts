@@ -32,8 +32,17 @@ export class FindHubAuthBrokerService {
       if (previous.instanceName === instanceName || previous.expiresAt <= Date.now()) this.sessions.delete(id);
     }
     const previous = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: instance.id } });
-    if (previous?.encryptedCredentials || previous?.encryptedSharedKey) {
-      throw new Error('Desvincule as credenciais anteriores antes de iniciar uma nova autenticação Google.');
+    const linked = Boolean(previous?.encryptedCredentials && previous?.encryptedSharedKey);
+    const renewal = linked && previous?.authState === 'AUTH_REQUIRED';
+    if (linked && !renewal) {
+      throw new Error('A conta já possui credenciais válidas armazenadas. Use a reconexão existente.');
+    }
+    if (
+      renewal &&
+      previous?.googleEmail &&
+      String(previous.googleEmail).trim().toLowerCase() !== String(email).trim().toLowerCase()
+    ) {
+      throw new Error('A renovação deve usar a mesma conta Google já vinculada.');
     }
 
     const bridgeToken = randomBytes(32).toString('base64url');
@@ -47,25 +56,28 @@ export class FindHubAuthBrokerService {
     };
     this.sessions.set(session.id, session);
 
-    await (this.prisma as any).findHubAccount.upsert({
-      where: { instanceId: instance.id },
-      update: {
-        googleEmail: email,
-        authState: 'WAITING_AUTH',
-      },
-      create: {
-        instanceId: instance.id,
-        googleEmail: email,
-        authState: 'WAITING_AUTH',
-        clientUuid: randomUUID(),
-      },
-    });
+    if (!renewal) {
+      await (this.prisma as any).findHubAccount.upsert({
+        where: { instanceId: instance.id },
+        update: {
+          googleEmail: email,
+          authState: 'WAITING_AUTH',
+        },
+        create: {
+          instanceId: instance.id,
+          googleEmail: email,
+          authState: 'WAITING_AUTH',
+          clientUuid: randomUUID(),
+        },
+      });
+    }
 
     return {
       sessionId: session.id,
       bridgeToken,
       state: session.state,
       authMode: 'credential-provider',
+      renewal,
       expiresAt: new Date(session.expiresAt).toISOString(),
     };
   }
