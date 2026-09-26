@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   decodeDeviceMetadata,
+  DeviceType,
   encodeDeviceListRequest,
   encodeExecuteLocateRequest,
   encodeExecuteSoundRequest,
@@ -19,6 +20,22 @@ test('Find Hub device list protobuf matches reference wire format', () => {
     encodeDeviceListRequest(REQUEST_UUID).toString('hex'),
     '0a2808021a2431313131313131312d323232322d333333332d343434342d353535353535353535353535',
   );
+});
+
+test('Find Hub exposes every catalogue DeviceType defined by the supplied reference proto', () => {
+  assert.deepEqual(DeviceType, {
+    UNKNOWN: 0,
+    ANDROID: 1,
+    SPOT: 2,
+    TEST: 3,
+    AUTO: 4,
+    FASTPAIR: 5,
+    SUPERVISED_ANDROID: 7,
+  });
+  assert.equal(encodeDeviceListRequest('req', DeviceType.ANDROID).toString('hex'), '0a0708011a03726571');
+  assert.equal(encodeDeviceListRequest('req', DeviceType.AUTO).toString('hex'), '0a0708041a03726571');
+  assert.equal(encodeDeviceListRequest('req', DeviceType.FASTPAIR).toString('hex'), '0a0708051a03726571');
+  assert.equal(encodeDeviceListRequest('req', DeviceType.SUPERVISED_ANDROID).toString('hex'), '0a0708071a03726571');
 });
 
 test('Find Hub locate protobuf matches reference wire format', () => {
