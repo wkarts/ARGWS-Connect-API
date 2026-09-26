@@ -36,6 +36,15 @@ test('linked Find Hub account retries transport, but AUTH_REQUIRED renews creden
  assert.match(auth,/:disabled="busy \|\| props\.renewal"/);
 });
 
+test('unlink copy promises data preservation while only instance deletion is destructive',()=>{
+ const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
+ assert.match(source,/Desvincular preservando dados/);
+ assert.match(source,/remove somente as credenciais Google/);
+ assert.match(source,/Somente “Excluir instância” remove definitivamente os dados locais/);
+ assert.match(source,/Excluir definitivamente/);
+ assert.doesNotMatch(source,/Desvincular remove credenciais Google, catálogo local, vínculos e histórico associados/);
+});
+
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  for(const name of ['config-layout','config-nav','config-nav-item','config-workspace','PageHeader','shortcut-card'])assert.ok(source.includes(name));
