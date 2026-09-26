@@ -25,15 +25,21 @@ O snippet `nginx/api-location.conf.example` já contém headers de WebSocket e l
 
 ## Manager em iframe / Hub
 
-O Manager é embutível por padrão quando `MANAGER_IFRAME_ENABLED=true`. Com
-`MANAGER_FRAME_ANCESTORS=*`, qualquer origem pode abrir `/manager/` em iframe,
-inclusive `https://hub-dev.argws.com.br`.
+`MANAGER_IFRAME_ENABLED` e `MANAGER_FRAME_ANCESTORS` são apenas o bootstrap inicial.
+Depois do primeiro salvamento em **Configurações → Incorporação em iframe**, a allowlist
+persistida no banco passa a ser a fonte autoritativa e o `.env` não sobrepõe essa decisão.
 
-O CloudPanel pode adicionar `X-Frame-Options: SAMEORIGIN` no reverse proxy mesmo
-quando a aplicação já permite o iframe. Por isso o snippet oficial possui um bloco
-`location ^~ /manager/` que remove o header upstream, substitui a política por
-`Content-Security-Policy: frame-ancestors *` e evita herdar a política de frame do
-vhost. Use esse bloco no vhost/reverse proxy que publica a API.
+Cadastre somente origens HTTPS exatas, uma por linha, por exemplo:
+
+```text
+https://hub-dev.argws.com.br
+https://hub.argws.com.br
+```
+
+O CloudPanel pode acrescentar `X-Frame-Options: SAMEORIGIN` depois que a aplicação já
+respondeu corretamente. O snippet oficial possui um bloco `location ^~ /manager/`
+que neutraliza esse header legado sem substituir a CSP da aplicação. A diretiva
+`frame-ancestors` continua sendo calculada pela Connect|API a partir do cadastro.
 
 Validação esperada:
 
@@ -41,23 +47,17 @@ Validação esperada:
 curl -I https://d.api.connect.argws.com.br/manager/login
 ```
 
-Deve existir:
+Após cadastrar apenas o Hub de desenvolvimento, deve aparecer algo equivalente a:
 
 ```text
-Content-Security-Policy: frame-ancestors *
+Content-Security-Policy: frame-ancestors 'self' https://hub-dev.argws.com.br
 X-Connect-Manager-Embedding: enabled
+X-Connect-Manager-Frame-Ancestors: 'self' https://hub-dev.argws.com.br
 ```
 
 e não deve existir `X-Frame-Options: SAMEORIGIN` nem `DENY`. Se esse header ainda
-aparecer, ele está sendo injetado por uma camada externa ao container (CloudPanel,
-Nginx adicional, CDN ou WAF) e precisa ser removido nessa camada.
-
-Para restringir depois apenas aos hubs ARGWS, use, por exemplo:
-
-```env
-MANAGER_IFRAME_ENABLED=true
-MANAGER_FRAME_ANCESTORS='self' https://hub-dev.argws.com.br https://hub.argws.com.br
-```
+aparecer, ele está sendo injetado por uma camada posterior ao container (CloudPanel,
+Nginx adicional, CDN ou WAF).
 
 
 ## Serviços padrão
