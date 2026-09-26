@@ -82,7 +82,11 @@ export class FindHubAuthBrokerService {
     };
   }
 
-  public async importBundle(instanceName: string, data: FindHubCredentialBundle) {
+  public async importBundle(
+    instanceName: string,
+    data: FindHubCredentialBundle,
+    options: { validated?: boolean } = {},
+  ) {
     const session = this.requireSession(instanceName, data.sessionId, data.bridgeToken);
     const instance = await this.prisma.instance.findUnique({
       where: { name: instanceName },
@@ -109,7 +113,7 @@ export class FindHubAuthBrokerService {
       where: { instanceId: instance.id },
       data: {
         googleEmail: credentials.aas.email,
-        authState: 'VERIFYING',
+        authState: options.validated === true ? 'READY' : 'VERIFYING',
         encryptedCredentials: this.vault.encrypt(credentials),
         encryptedSharedKey: this.vault.encrypt({ key: sharedKey.toString('base64') }),
       },
@@ -117,7 +121,7 @@ export class FindHubAuthBrokerService {
 
     this.sessions.delete(session.id);
     return {
-      state: 'VERIFYING',
+      state: options.validated === true ? 'READY' : 'VERIFYING',
       email: credentials.aas.email,
     };
   }
