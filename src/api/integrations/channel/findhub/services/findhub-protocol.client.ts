@@ -2,12 +2,7 @@ import { randomUUID } from 'crypto';
 
 import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
 import { decryptIdentityKey, decryptLocationReport, decryptOwnerKey } from '../crypto/findhub-crypto';
-import {
-  FindHubDevice,
-  FindHubPosition,
-  FindHubSoundComponent,
-  FindHubStoredCredentials,
-} from '../findhub.types';
+import { FindHubDevice, FindHubPosition, FindHubSoundComponent, FindHubStoredCredentials } from '../findhub.types';
 import { FindHubFcmClient } from '../protocol/fcm.client';
 import {
   decodeDeviceMetadata,
