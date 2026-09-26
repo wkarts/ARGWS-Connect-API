@@ -1355,11 +1355,19 @@ export class FindHubStartupService {
           ownershipAndAccess: true,
           fastPairMetadata: true,
           detailedDeviceTypes: true,
-          sound: { supported: true, identifierType: 'SPOT', components: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'] },
+          sound: {
+            supported: true,
+            detection: 'provider-capability',
+            actionFields: { start: 31, stop: 32 },
+            legacyFallbackIdentifierType: 'SPOT',
+            components: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'],
+          },
           providerFreshnessTelemetry: true,
           battery: {
             supported: false,
-            reason: 'O protocolo de referência fornecido não expõe percentual de bateria.',
+            candidateWireField: 'status.32.1',
+            reason:
+              'Foi observado status.32.1=53 em um dispositivo supervisionado, mas ainda não há correlação suficiente para afirmar que o valor é percentual de bateria.',
           },
           imei: {
             supported: true,
