@@ -121,10 +121,12 @@ export class FindHubAuthBrokerService {
       where: { instanceId: instance.id },
     });
 
+    const linked = Boolean(account?.encryptedCredentials && account?.encryptedSharedKey);
     return {
       state: account?.authState || 'WAITING_AUTH',
       email: account?.googleEmail || null,
-      ready: account?.authState === 'READY' && Boolean(account?.encryptedCredentials && account?.encryptedSharedKey),
+      linked,
+      ready: account?.authState === 'READY' && linked,
     };
   }
 
