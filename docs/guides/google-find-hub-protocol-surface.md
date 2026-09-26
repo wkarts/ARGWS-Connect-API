@@ -16,7 +16,7 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 | Tipo do identificador | IdentifierInformationType + captura viva | ANDROID / SPOT / SUPERVISED_ANDROID / UNKNOWN |
 | Tipos detalhados | SpotDeviceType | Suportados sem reduzir tudo a TRACKER |
 | Fabricante e modelo | DeviceRegistration + catálogo vivo 2026 | Persistidos |
-| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido |
+| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido quando a semântica é compatível; em PHONE legado o field 21 pode representar o codinome Android |
 | Data de pareamento | DeviceRegistration.pairDate | Persistida |
 | Ownership/acesso | DeviceInformation.accessInformation | Persistido e exibido |
 | Owner key version | EncryptedUserSecrets.ownerKeyVersion | Persistido |
@@ -71,7 +71,21 @@ Os catálogos capturados **não demonstraram de forma segura**:
 
 O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`. Embora o produto oficial Find Hub apresente bateria e conectividade para aparelhos online, é necessário mapear a superfície/status protobuf correspondente antes de expor esses campos.
 
-O próximo artefato preferencial para essa análise é o `DeviceUpdate .pb` capturado após uma solicitação ativa de localização.
+### Evidência do primeiro DeviceUpdate real de telefone
+
+Uma captura real de `DeviceUpdate` feita em 2026-09-26 após Locate confirmou, sem versionar o protobuf privado:
+
+- `deviceType=PHONE`;
+- resposta usando a superfície/identificador `SPOT` para o mesmo aparelho físico;
+- capabilities de provider com action fields `31` e `32` habilitados, correspondentes a Start Sound e Stop Sound no wire já comprovado;
+- fabricante e modelo no bloco legado de registration;
+- registration field `21` contendo o codinome Android do telefone, e não um Fast Pair Model ID;
+- um relatório de localização com `accuracy=100.0`; esse valor é precisão em metros e **não** percentual de bateria;
+- timestamp do relatório distinto do horário de recebimento do envelope, reforçando que uma resposta nova pode transportar uma observação de localização mais antiga.
+
+Por isso, o decoder trata field `21` como `deviceCodename` quando o payload legado descreve um `PHONE`, evitando um falso `fastPairModelId`. Para outros tipos, a compatibilidade com o proto legado é preservada.
+
+Essa captura **não demonstrou** bateria, MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular. O próximo passo seguro é comparar múltiplos `DeviceUpdate .pb` do mesmo aparelho com estados conhecidos e diferentes de bateria/conectividade, procurando apenas campos que variem de forma correlacionada.
 
 ## Frescor de localização: solicitação não é observação nova
 
