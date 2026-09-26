@@ -45,6 +45,15 @@ test('unlink copy promises data preservation while only instance deletion is des
  assert.doesNotMatch(source,/Desvincular remove credenciais Google, catálogo local, vínculos e histórico associados/);
 });
 
+test('Find Hub device view exposes proven protocol metadata, provider freshness and sound without fake battery IDs',()=>{
+ const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
+ for(const value of ['Google Device ID','IDs canônicos','Fast Pair Model ID','Owner key version','Frescor real do provider Google','Solicitações enviadas','Relatórios repetidos/sem posição nova','Tocar som','Parar som'])assert.match(source,new RegExp(value));
+ assert.match(source,/findHubSound/);
+ assert.match(source,/device\.identifierType==='SPOT'/);
+ assert.match(source,/não expõe bateria, IMEI, MEID ou número de série/);
+ assert.doesNotMatch(source,/batteryLevel|imeiValue|serialNumberValue/);
+});
+
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  for(const name of ['config-layout','config-nav','config-nav-item','config-workspace','PageHeader','shortcut-card'])assert.ok(source.includes(name));
