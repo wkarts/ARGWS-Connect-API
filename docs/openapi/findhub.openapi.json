@@ -5095,6 +5095,68 @@
           }
         },
         "additionalProperties": true
+      },
+      "PlayedMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "playedMessages"
+        ],
+        "properties": {
+          "playedMessages": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "fromMe",
+                "remoteJid"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "fromMe": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "remoteJid": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "participant": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "PlayedMessageResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "receipt",
+          "processed"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "receipt": {
+            "const": "played"
+          },
+          "processed": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
       }
     },
     "responses": {

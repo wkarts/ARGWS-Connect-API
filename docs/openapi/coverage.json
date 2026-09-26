@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-24T11:30:34.884Z",
   "version": "1.1.3",
-  "sourceDigest": "f0a961967fca5f3f3d75d6023c158930567fc46a33d2421819b48c55fade1b06",
+  "sourceDigest": "a0be560764c97b70387725244bae88e4de669ee6ae3cd0d3e1e1e930f7670443",
   "operations": [
     {
       "method": "GET",
@@ -171,6 +171,11 @@
     {
       "method": "POST",
       "path": "/chat/markChatUnread/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/markMessageAsPlayed/{instanceName}",
       "source": "src/api/routes/chat.router.ts"
     },
     {

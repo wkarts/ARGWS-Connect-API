@@ -50,6 +50,51 @@ DELETED
 PLAYED
 ```
 
+### READ x PLAYED
+
+`POST /chat/markMessageAsRead/:instanceName` continua representando leitura normal da mensagem e mantém o contrato existente.
+
+Áudios/voice notes possuem uma confirmação distinta no protocolo WhatsApp. A reprodução efetiva pode ser informada explicitamente por:
+
+```http
+POST /chat/markMessageAsPlayed/:instanceName
+```
+
+Exemplo individual:
+
+```json
+{
+  "playedMessages": [
+    {
+      "id": "3EB0123456789ABCDEF",
+      "fromMe": false,
+      "remoteJid": "5575988881111@s.whatsapp.net"
+    }
+  ]
+}
+```
+
+Em grupos, `remoteJid` permanece o JID `@g.us` e `participant` pode ser enviado para preservar o autor:
+
+```json
+{
+  "playedMessages": [
+    {
+      "id": "3EB0123456789ABCDEF",
+      "fromMe": false,
+      "remoteJid": "120363XXXXXXXX@g.us",
+      "participant": "5575988881111@s.whatsapp.net"
+    }
+  ]
+}
+```
+
+A API envia o receipt nativo `played` no Baileys e no ZAPO. `fromMe=true` é rejeitado: este endpoint representa a reprodução, pela instância, de uma mensagem recebida.
+
+Download de mídia, abertura de conversa, `findMessages`, sincronização de histórico e recuperação de mídia **não** geram `PLAYED`. O consumidor deve chamar o endpoint somente no evento real de reprodução do player.
+
+A repetição do mesmo receipt é segura. Quando a mensagem existe no banco local, o estado `PLAYED` e o `MessageUpdate` correspondente são persistidos de forma idempotente; reenvios não criam updates locais duplicados.
+
 ## Templates por instância e templates Business
 
 `sendTemplate` distingue a integração: Business continua no método oficial;
