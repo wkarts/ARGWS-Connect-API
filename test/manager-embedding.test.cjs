@@ -25,9 +25,19 @@ function harness(){
   let row=null;
   const delegate={
     async findUnique(){return row?{...row}:null},
-    async upsert({create,update}){
-      if(!row) row={...create,createdAt:new Date(),updatedAt:new Date()};
-      else row={...row,...update,version:typeof update.version==='object'?row.version+Number(update.version.increment||0):update.version,updatedAt:new Date()};
+    async updateMany({where,data}){
+      if(!row||row.id!==where.id||row.version!==where.version)return {count:0};
+      row={
+        ...row,
+        ...data,
+        version:typeof data.version==='object'?row.version+Number(data.version.increment||0):data.version,
+        updatedAt:new Date(),
+      };
+      return {count:1};
+    },
+    async create({data}){
+      if(row)throw new Error('duplicate');
+      row={...data,createdAt:new Date(),updatedAt:new Date()};
       return {...row};
     },
   };
