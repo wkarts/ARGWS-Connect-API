@@ -60,7 +60,9 @@ test('Find Hub catalogue discovery falls back across live-equivalent selectors a
     fieldMessage(4, fieldMessage(1, registration)),
     fieldString(5, 'Fallback Phone'),
   );
-  const response = fieldMessage(2, metadata);
+  const responseAt = (seconds: number) =>
+    concat(fieldMessage(2, metadata), fieldMessage(4, fieldVarint(1, seconds)));
+  const response = responseAt(200);
 
   const fallback = new FindHubNovaClient(null as never, null as never);
   fallback.captureDevicesListRaw = async (catalog) => {
@@ -71,6 +73,20 @@ test('Find Hub catalogue discovery falls back across live-equivalent selectors a
   assert.equal(devices.length, 1);
   assert.equal(devices[0].googleDeviceId, 'catalog-fallback-id');
   assert.equal(devices[0].name, 'Fallback Phone');
+  assert.equal(devices[0].providerResponseAt, '1970-01-01T00:03:20.000Z');
+
+  const merged = new FindHubNovaClient(null as never, null as never);
+  merged.captureDevicesListRaw = async (catalog) => {
+    if (catalog === 'spot') return responseAt(100);
+    if (catalog === 'android') return responseAt(200);
+    throw new Error(`${catalog} unavailable`);
+  };
+  const [mergedDevice] = await merged.listDevices();
+  assert.equal(
+    mergedDevice.providerResponseAt,
+    '1970-01-01T00:03:20.000Z',
+    'The latest provider response time must survive the SPOT compatibility tie-breaker',
+  );
 
   const empty = new FindHubNovaClient(null as never, null as never);
   empty.captureDevicesListRaw = async (catalog) => {
