@@ -116,6 +116,14 @@ const deviceType = (value: string) => ({
   UNKNOWN:'Não informado',
 }[value] || value)
 const accessRole = (item: any) => item?.thisAccount ? 'Esta conta' : item?.isOwner ? 'Proprietário' : item?.hasAccess ? 'Com acesso' : 'Sem acesso'
+function soundOperationSupported(device: any, operation: 'start'|'stop') {
+  const actionField = operation === 'start' ? 31 : 32
+  const capabilities = Array.isArray(device?.providerCapabilities) ? device.providerCapabilities : []
+  if (capabilities.length) return capabilities.some((item: any) => Number(item?.actionField) === actionField && Number(item?.state) > 0)
+  return device?.identifierType === 'SPOT' && device?.locateSupported !== false
+}
+const soundSupported = (device: any) => soundOperationSupported(device,'start') || soundOperationSupported(device,'stop')
+const soundComponentSelectionSupported = (device: any) => ['HEADPHONES','EARBUDS'].includes(String(device?.deviceType || ''))
 async function load() {
   busy.value = true; error.value = ''
   try {
@@ -258,7 +266,8 @@ async function sound(device: any, operation: 'start'|'stop') {
   if (device.soundBusy) return
   device.soundBusy = true; error.value = ''; feedback.value = ''
   try {
-    await connect.findHubSound(id.value, device.id, operation, device.soundComponent || 'UNSPECIFIED')
+    const component = soundComponentSelectionSupported(device) ? device.soundComponent || 'UNSPECIFIED' : 'UNSPECIFIED'
+    await connect.findHubSound(id.value, device.id, operation, component)
     feedback.value = operation === 'start'
       ? `Comando para tocar som enviado ao Google para ${device.name}.`
       : `Comando para parar o som enviado ao Google para ${device.name}.`
@@ -389,9 +398,10 @@ onBeforeUnmount(() => { sequence++; stopStream() })
           </details>
           <label class="field top-gap"><span>Intervalo entre consultas (segundos)</span><input v-model.number="device.trackingIntervalSeconds" type="number" min="0" step="1" max="86400" :disabled="device.trackingEnabled" /></label>
           <FindHubPositionDetails :device="device" :stale-after-seconds="snapshot?.settings?.staleAfterSeconds"/>
-          <div v-if="device.identifierType==='SPOT'" class="field-grid two top-gap">
-            <label class="field"><span>Componente do som</span><select v-model="device.soundComponent" class="select" :disabled="device.soundBusy"><option value="UNSPECIFIED">Dispositivo</option><option value="RIGHT">Direito</option><option value="LEFT">Esquerdo</option><option value="CASE">Estojo/Case</option></select></label>
-            <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'stop')">Parar som</button></div>
+          <div v-if="soundSupported(device)" class="field-grid two top-gap">
+            <label v-if="soundComponentSelectionSupported(device)" class="field"><span>Componente do som</span><select v-model="device.soundComponent" class="select" :disabled="device.soundBusy"><option value="UNSPECIFIED">Dispositivo</option><option value="RIGHT">Direito</option><option value="LEFT">Esquerdo</option><option value="CASE">Estojo/Case</option></select></label>
+            <div v-else class="field"><span>Som remoto</span><p class="muted">Capability anunciada pelo Google para este dispositivo. O comando usa o componente padrão do aparelho.</p></div>
+            <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy || !soundOperationSupported(device,'start')" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy || !soundOperationSupported(device,'stop')" @click="sound(device,'stop')">Parar som</button></div>
           </div>
           <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.captureBusy || device.locateSupported===false" @click="captureDeviceUpdate(device)">{{ device.captureBusy ? 'Capturando .pb…' : 'Capturar DeviceUpdate .pb' }}</button><button class="btn ghost" :disabled="!connected || device.locating || device.locateSupported===false" @click="locate(device)">{{ device.locating ? 'Localizando…' : device.locateSupported===false ? 'Localização ainda não mapeada' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || device.locateSupported===false || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
       </PanelCard>
