@@ -88,7 +88,9 @@ export class FindHubController {
     try {
       return await this.runtime(instanceName).captureProtocolDeviceUpdate(deviceId, timeoutMs);
     } catch (error) {
-      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao capturar DeviceUpdate Find Hub.');
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Falha ao capturar DeviceUpdate Find Hub.',
+      );
     }
   }
 
