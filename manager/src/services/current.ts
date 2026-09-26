@@ -603,7 +603,7 @@ export const current = {
     }))
   },
 
-  async findHubCaptureCatalog(id: string, catalog: 'spot' | 'android') {
+  async findHubCaptureCatalog(id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised') {
     return withInstance(id, async (_item, name, token) => {
       const response = await fetch(
         `${runtime.apiBaseUrl}/findhub/protocol/capture/catalog/${catalog}/${encodeURIComponent(name)}`,
