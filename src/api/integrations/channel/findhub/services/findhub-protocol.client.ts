@@ -145,7 +145,9 @@ export class FindHubProtocolClient {
     return await this.nova.listDevices();
   }
 
-  public async captureDevicesListRaw(catalog: 'spot' | 'android'): Promise<Buffer> {
+  public async captureDevicesListRaw(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<Buffer> {
     return await this.nova.captureDevicesListRaw(catalog);
   }
 
