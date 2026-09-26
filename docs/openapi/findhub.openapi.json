@@ -795,7 +795,7 @@
         ],
         "summary": "Listar dispositivos cadastrados",
         "operationId": "get_findhub_devices_instancename",
-        "description": "Retorna o catálogo local da instância; não força uma consulta nova ao Google. Telefones usam identifierType ANDROID e deviceType PHONE quando o protocolo informa esse tipo.",
+        "description": "Retorna o catálogo local da instância; não força uma consulta nova ao Google. O decoder aceita o layout legado e o layout vivo observado em 2026, incluindo metadados Android e dispositivos supervisionados do Family Link quando o provider os entrega.",
         "parameters": [
           {
             "name": "instanceName",
@@ -3635,6 +3635,7 @@
             "enum": [
               "ANDROID",
               "SPOT",
+              "SUPERVISED_ANDROID",
               "UNKNOWN"
             ]
           },
@@ -3675,6 +3676,89 @@
           },
           "model": {
             "type": "string"
+          },
+          "deviceCodename": {
+            "type": "string"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "carrier": {
+            "type": "string"
+          },
+          "imei": {
+            "type": "string",
+            "pattern": "^\\d{15}$",
+            "description": "IMEI quando o provider Google o entrega; o Connect|API valida formato/check digit e não o infere."
+          },
+          "androidDeviceNumericId": {
+            "type": "string"
+          },
+          "providerOpaqueId": {
+            "type": "string"
+          },
+          "providerRegisteredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "providerStatusAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "providerResponseAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "gmsCoreVersionCode": {
+            "type": "integer"
+          },
+          "androidSdkVersion": {
+            "type": "integer"
+          },
+          "familyLinkManaged": {
+            "type": "boolean"
+          },
+          "familyLinkMemberName": {
+            "type": "string"
+          },
+          "familyLinkUrl": {
+            "type": "string"
+          },
+          "providerCapabilities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "actionField",
+                "state"
+              ],
+              "properties": {
+                "actionField": {
+                  "type": "integer"
+                },
+                "state": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "providerFlags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "locateSupported": {
+            "type": "boolean"
           },
           "fastPairModelId": {
             "type": "string"
