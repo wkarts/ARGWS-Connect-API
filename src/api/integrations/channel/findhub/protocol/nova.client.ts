@@ -35,21 +35,31 @@ export class FindHubNovaClient {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  public async captureDevicesListRaw(catalog: 'spot' | 'android'): Promise<Buffer> {
-    const deviceType = catalog === 'android' ? DeviceType.ANDROID : DeviceType.SPOT;
+  public async captureDevicesListRaw(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<Buffer> {
+    const deviceType = {
+      spot: DeviceType.SPOT,
+      android: DeviceType.ANDROID,
+      auto: DeviceType.AUTO,
+      fastpair: DeviceType.FASTPAIR,
+      supervised: DeviceType.SUPERVISED_ANDROID,
+    }[catalog];
     return await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, deviceType));
   }
 
   public async listDevices() {
     const primary = decodeDevicesList(await this.captureDevicesListRaw('spot'));
-    // The SPOT catalogue remains authoritative. An unsupported complementary catalogue must not erase it.
-    let android: typeof primary = [];
-    try {
-      android = decodeDevicesList(await this.captureDevicesListRaw('android'));
-    } catch {
-      /* Not all Google accounts expose the complementary Android catalogue. */
+    // The SPOT catalogue remains authoritative. Complementary catalogues are best-effort and additive.
+    const complementary: typeof primary = [];
+    for (const catalog of ['android', 'auto', 'fastpair', 'supervised'] as const) {
+      try {
+        complementary.push(...decodeDevicesList(await this.captureDevicesListRaw(catalog)));
+      } catch {
+        /* Google accounts/providers may not expose every DeviceType catalogue. */
+      }
     }
-    const devices = new Map([...android, ...primary].map((device) => [device.googleDeviceId, device]));
+    const devices = new Map([...complementary, ...primary].map((device) => [device.googleDeviceId, device]));
     return [...devices.values()];
   }
 
