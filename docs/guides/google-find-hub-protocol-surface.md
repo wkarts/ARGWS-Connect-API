@@ -95,13 +95,20 @@ A correlação mostrou:
 
 O decoder preserva a interpretação legada de field `21` como Fast Pair apenas para tipos não-`PHONE`, onde essa semântica ainda é compatível com o proto de referência.
 
-### Candidato ainda não confirmado para bateria
+### Candidatos ainda não confirmados para bateria
 
-No mesmo par de catálogos existe um segundo dispositivo supervisionado pelo Family Link. Seu status inclui o caminho protobuf `32.1 = 53`.
+As cinco capturas do Redmi Note 14 preservam `DeviceRegistration.deviceTypeInformation.field11 = 3` e `field14 = 1`. A Connect|API passa a conservar esses escalares sem nome semântico como:
 
-O valor `53` é numericamente compatível com um percentual de bateria, mas **uma única observação não comprova essa semântica**. A Connect|API preserva o valor como flag wire `providerFlags["32.1"] = 53` e continua expondo `battery.supported=false`.
+```text
+providerFlags["registration.2.11"] = 3
+providerFlags["registration.2.14"] = 1
+```
 
-A promoção desse campo para `batteryLevel` só deve ocorrer depois de comparar novas capturas com o nível de bateria conhecido do mesmo aparelho e observar correlação consistente.
+Uma implementação pública independente do protocolo Google Find Hub interpreta especificamente `DeviceTypeInformation.field11` em telefones Android como **tier de bateria**, com `1=low`, `2=medium` e `3=high`. Essa é evidência externa útil e estruturalmente compatível com o wire real do Redmi Note 14, mas não é uma especificação oficial do Google nem foi ainda correlacionada com um nível de bateria conhecido deste aparelho. Por isso a Connect|API **não** converte `3` em `batteryLevel` nem declara bateria suportada.
+
+Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui `status.32.1 = 53`. O valor é numericamente compatível com percentual, mas também permanece sem semântica comprovada e é preservado somente como `providerFlags["32.1"] = 53`.
+
+Assim, `battery.supported=false` continua correto. A promoção de qualquer um desses caminhos exige comparação com estados físicos conhecidos do mesmo aparelho em capturas posteriores.
 
 As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
