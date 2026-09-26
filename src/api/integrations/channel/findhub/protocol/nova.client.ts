@@ -68,7 +68,7 @@ export class FindHubNovaClient {
       (['android', 'auto', 'fastpair', 'supervised'] as const).map((catalog) => capture(catalog)),
     );
     const results = [primary, ...complementary];
-    const available = results.filter((result) => result.devices.length);
+    const available = results.filter((result) => result.error === undefined);
     if (!available.length) {
       const failure = results.find((result) => result.error !== undefined)?.error;
       if (failure instanceof Error) throw failure;
