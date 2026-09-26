@@ -35,6 +35,63 @@ test('documentation assets and query stay on the configured internal host', () =
   assert.throws(() => internalDocsTarget('http://user:password@docs:8080', '/'));
 });
 
+test('Manager iframe policy uses ENV only as bootstrap and persisted exact origins take precedence', () => {
+  const source = read('src/utils/managerFramePolicy.ts');
+  const loaded = compile(source, { process: { env: {} } });
+  const policy = (env, persisted) => loaded.managerFramePolicy(env, persisted);
+
+  assert.equal(policy({}).enabled, true);
+  assert.equal(policy({}).frameAncestors, '*');
+  assert.equal(policy({ MANAGER_IFRAME_ENABLED: 'false' }).frameAncestors, "'none'");
+  assert.equal(
+    policy({ MANAGER_FRAME_ANCESTORS: "'self',https://hub-dev.argws.com.br https://hub.argws.com.br" }).frameAncestors,
+    "'self' https://hub-dev.argws.com.br https://hub.argws.com.br",
+  );
+  assert.equal(
+    policy({ MANAGER_FRAME_ANCESTORS: '*' }, {
+      configured: true,
+      enabled: true,
+      allowedOrigins: ['https://hub-dev.argws.com.br', 'https://hub.argws.com.br'],
+    }).frameAncestors,
+    "'self' https://hub-dev.argws.com.br https://hub.argws.com.br",
+  );
+  assert.equal(
+    policy({ MANAGER_FRAME_ANCESTORS: '*' }, { configured: true, enabled: false, allowedOrigins: [] }).frameAncestors,
+    "'none'",
+  );
+  assert.equal(
+    policy({ MANAGER_FRAME_ANCESTORS: 'https://hub-dev.argws.com.br\r\nX-Frame-Options:DENY' }).frameAncestors,
+    'https://hub-dev.argws.com.br',
+  );
+
+  assert.deepEqual(
+    Array.from(loaded.normalizeManagerFrameOrigins(['https://HUB-DEV.argws.com.br/', 'https://hub.argws.com.br'], true)),
+    ['https://hub-dev.argws.com.br', 'https://hub.argws.com.br'],
+  );
+  assert.throws(() => loaded.normalizeManagerFrameOrigins(['https://*.argws.com.br'], true));
+  assert.throws(() => loaded.normalizeManagerFrameOrigins(['https://hub.argws.com.br/app'], true));
+  assert.throws(() => loaded.normalizeManagerFrameOrigins(['http://hub.argws.com.br'], true));
+});
+
+test('Manager responses remove legacy X-Frame-Options and CloudPanel preserves dynamic CSP', () => {
+  const router = read('src/api/routes/view.router.ts');
+  assert.match(router, /removeHeader\('X-Frame-Options'\)/);
+  assert.match(router, /embeddingService\.policy\(\)/);
+  assert.match(router, /Content-Security-Policy/);
+  assert.match(router, /X-Connect-Manager-Embedding/);
+
+  const nginx = read('manager/nginx.conf');
+  assert.match(nginx, /frame-ancestors \*/);
+  assert.doesNotMatch(nginx, /frame-ancestors 'none'/);
+
+  const cloudpanel = read('deploy/cloudpanel/nginx/api-location.conf.example');
+  assert.match(cloudpanel, /location \^~ \/manager\//);
+  assert.match(cloudpanel, /proxy_hide_header X-Frame-Options/);
+  assert.doesNotMatch(cloudpanel, /proxy_hide_header Content-Security-Policy/);
+  assert.doesNotMatch(cloudpanel, /add_header Content-Security-Policy/);
+  assert.match(cloudpanel, /iframe-policy-from-app/);
+});
+
 test('documentation forwarding never follows remote redirects server-side', () => {
   const source = read('src/api/routes/view.router.ts');
   assert.ok(source.includes("redirect: 'manual'"));

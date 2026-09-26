@@ -116,6 +116,10 @@
     {
       "name": "Diagnostics",
       "description": "Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração."
+    },
+    {
+      "name": "Manager",
+      "description": "Configuração administrativa global do Manager, incluindo a allowlist persistida de origens de iframe."
     }
   ],
   "paths": {
@@ -11610,6 +11614,123 @@
         "x-source-file": "src/api/routes/local-template.router.ts"
       }
     },
+    "/manager-api/v1/embedding": {
+      "get": {
+        "tags": [
+          "Manager"
+        ],
+        "summary": "Consultar origens autorizadas do Manager",
+        "operationId": "get_manager_api_v1_embedding",
+        "description": "Configuração administrativa global do iframe. A configuração persistida no banco prevalece sobre o bootstrap do ambiente. Exige exclusivamente a API key global.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Política efetiva de incorporação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerEmbeddingSettings"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acesso administrativo necessário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuração temporariamente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/manager-embedding.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Manager"
+        ],
+        "summary": "Atualizar origens autorizadas do Manager",
+        "operationId": "put_manager_api_v1_embedding",
+        "description": "Persiste até 12 origens HTTPS exatas. Não aceita caminhos, credenciais ou curingas. Usa versão otimista para impedir sobrescrita concorrente. Exige exclusivamente a API key global.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Política de incorporação atualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerEmbeddingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "description": "Acesso administrativo necessário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Versão concorrente da configuração.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuração temporariamente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/manager-embedding.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagerEmbeddingUpdateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/message/sendButtons/{instanceName}": {
       "post": {
         "tags": [
@@ -19489,6 +19610,85 @@
                   }
                 }
               ]
+            }
+          }
+        }
+      },
+      "ManagerEmbeddingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "configured",
+          "enabled",
+          "allowedOrigins",
+          "effectiveFrameAncestors",
+          "source",
+          "allowAnyOrigin"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "effectiveFrameAncestors": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "database",
+              "environment"
+            ]
+          },
+          "allowAnyOrigin": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagerEmbeddingUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "enabled",
+          "allowedOrigins"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "format": "uri"
             }
           }
         }
