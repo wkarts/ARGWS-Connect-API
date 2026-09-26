@@ -1285,6 +1285,30 @@ export class FindHubStartupService {
       catalogue: {
         limitation:
           'Somente dispositivos que o protocolo Google disponibiliza à conta. Compartilhamento Family Link e acessórios podem exigir permissões não expostas por este protocolo.',
+        providerCapabilities: {
+          canonicalIds: true,
+          ownershipAndAccess: true,
+          fastPairMetadata: true,
+          detailedDeviceTypes: true,
+          sound: { supported: true, identifierType: 'SPOT', components: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'] },
+          providerFreshnessTelemetry: true,
+          battery: {
+            supported: false,
+            reason: 'O protocolo de referência fornecido não expõe percentual de bateria.',
+          },
+          imei: {
+            supported: false,
+            reason: 'O protocolo de referência fornecido não expõe IMEI.',
+          },
+          meid: {
+            supported: false,
+            reason: 'O protocolo de referência fornecido não expõe MEID.',
+          },
+          serialNumber: {
+            supported: false,
+            reason: 'O protocolo de referência fornecido não expõe número de série.',
+          },
+        },
       },
       traccar: await this.traccarConfiguration(),
     };
