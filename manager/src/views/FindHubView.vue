@@ -87,6 +87,7 @@ async function reloadSnapshot() {
 const historyAvatar = useFindHubAvatar(() => id.value, () => devices.value.find(d => d.id===chosen.value))
 const historyTrail = computed(() => [...history.value].reverse().map(p => ({...p,timestamp:p.recordedAt})))
 const connected = computed(() => auth.value?.connected === true && auth.value?.ready === true)
+const linked = computed(() => auth.value?.linked === true)
 const trackingCount = computed(() => devices.value.filter(d => d.trackingEnabled).length)
 const editor = ref<any>(null)
 const eventTransports = ['webhook','websocket','rabbitmq','nats','sqs','kafka','pusher'] as const
@@ -141,6 +142,19 @@ async function refreshDevices() {
   busy.value = true; error.value = ''
   try { devices.value = await connect.findHubRefreshDevices(id.value) }
   catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
+async function reconnectStoredAccount() {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try {
+    const result = await connect.connectConnection(id.value)
+    if (result?.error) throw new Error(String(result.message || 'Não foi possível reconectar a conta Google Find Hub.'))
+    await load()
+    feedback.value = connected.value
+      ? 'Conta reconectada usando as credenciais já armazenadas.'
+      : 'As credenciais continuam preservadas, mas a conexão com o Google ainda não foi restabelecida. Tente novamente antes de desvincular a conta.'
+  } catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
 function reconciliationFeedback(result: any) {
@@ -255,7 +269,12 @@ onBeforeUnmount(() => { sequence++; stopStream() })
           <PanelCard title="Conta e conexão"><div class="detail-list"><div><span>Conta Google</span><strong>{{ auth?.email || 'Ainda não vinculada' }}</strong></div><div><span>Conexão validada</span><strong>{{ connected ? 'Conectada' : auth?.pending ? 'Vinculação em andamento' : 'Desconectada' }}</strong></div><div><span>Histórico de posições</span><strong>{{ auth?.historyEnabled ? 'Habilitado para a conta' : 'Desabilitado' }}</strong></div></div><InstanceToken :instance-id="id" :instance-name="instance.name || id" /></PanelCard>
           <PanelCard title="Dispositivos desta conta"><div class="summary-tiles"><div><b>{{ devices.length }}</b><span>Dispositivos cadastrados</span></div><div><b>{{ trackingCount }}</b><span>Rastreamentos habilitados</span></div></div><p class="muted">A disponibilidade de posições depende do aparelho, da rede e do Google. A hora do relatório indica a idade da localização.</p><div v-for="device in devices" :key="device.id" class="top-gap"><strong>{{ device.name }}</strong><FindHubPositionDetails :device="device" :stale-after-seconds="snapshot?.settings?.staleAfterSeconds" compact /></div></PanelCard>
         </div>
-        <FindHubBrowserAuth v-if="!connected" :key="id" class="top-gap" :instance-id="id" :initial-email="auth?.email" @connected="load" />
+        <PanelCard v-if="!connected && linked" class="top-gap" title="Conta vinculada · conexão interrompida" description="As credenciais Google continuam armazenadas. Uma falha de rede, reinicialização ou indisponibilidade temporária não exige nova vinculação.">
+          <div class="detail-list"><div><span>Conta Google</span><strong>{{ auth?.email || 'Conta vinculada' }}</strong></div><div><span>Estado da autenticação</span><strong>{{ auth?.state || 'Não informado' }}</strong></div></div>
+          <div class="toolbar top-gap"><button class="btn primary" :disabled="busy" @click="reconnectStoredAccount">{{ busy ? 'Reconectando…' : 'Reconectar com credenciais salvas' }}</button></div>
+          <p class="muted">Use “Desvincular conta Google” somente quando quiser remover as credenciais e realizar uma nova autenticação.</p>
+        </PanelCard>
+        <FindHubBrowserAuth v-else-if="!connected" :key="id" class="top-gap" :instance-id="id" :initial-email="auth?.email" @connected="load" />
         <div v-else class="instance-shortcuts top-gap">
           <button class="shortcut-card" @click="router.push(findHubPath(id,'dispositivos'))"><span><AppIcon name="channels" :size="22"/></span><div><strong>Dispositivos e localização</strong><small>Catálogo, mapa em tempo real e histórico.</small></div><AppIcon name="arrow" :size="18"/></button>
           <button class="shortcut-card" @click="router.push(findHubPath(id,'integracoes'))"><span><AppIcon name="workflow" :size="22"/></span><div><strong>Conexões e eventos</strong><small>Traccar, Webhooks, WebSocket e filas de eventos.</small></div><AppIcon name="arrow" :size="18"/></button>
