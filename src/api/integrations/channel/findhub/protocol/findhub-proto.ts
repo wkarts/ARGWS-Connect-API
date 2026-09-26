@@ -58,7 +58,7 @@ export function encodeExecuteSoundRequest(
   component: FindHubSoundComponent = 'UNSPECIFIED',
 ): Buffer {
   const componentId = SoundComponent[component];
-  const sound = fieldVarint(1, componentId);
+  const sound = componentId === 0 ? Buffer.alloc(0) : fieldVarint(1, componentId);
   return encodeExecuteActionRequest(args, fieldMessage(operation === 'start' ? 31 : 32, sound));
 }
 
