@@ -24,6 +24,22 @@ Falhas ao inicializar o runtime, ao inserir o registro ou ao tentar usar um nome
 
 Não execute exclusão em massa nem remova volumes para contornar uma criação que falhou. Verifique a instância pelo Manager/API e preserve contas previamente autenticadas.
 
+## Restauração após restart e vínculo persistido
+
+Uma conta Find Hub previamente validada não perde o vínculo apenas porque o transporte não conseguiu subir durante um restart. Falhas transitórias de rede, disponibilidade do Google, FCM, consulta de dispositivos ou outros passos do restore fecham o transporte, mas preservam as credenciais criptografadas e o catálogo persistido.
+
+O estado administrativo distingue agora:
+
+- `linked=true`: existem credenciais e chave compartilhada persistidas para a conta;
+- `ready=true`: as credenciais persistidas estão em estado `READY`;
+- `connected=true`: além do vínculo, o transporte Find Hub está efetivamente ativo.
+
+Assim, uma conta pode estar `linked=true` e `connected=false`. Nesse caso o Manager oferece **Reconectar com credenciais salvas** e não inicia automaticamente uma nova autenticação Google.
+
+A ação `no.connection` é tratada como perda de transporte para Find Hub e não chama `logoutInstance()`. Somente uma ação explícita de **Desvincular conta Google** ou a exclusão da instância remove as credenciais persistidas.
+
+Durante a primeira validação de novas credenciais (`VERIFYING`), uma falha continua levando a `AUTH_REQUIRED`; isso não converte uma autenticação incompleta em uma conta válida.
+
 ## Regressão automatizada
 
 ```bash
