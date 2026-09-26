@@ -439,7 +439,9 @@ export class FindHubStartupService {
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
     const target = await this.device(deviceId);
     if (target.locateSupported === false) {
-      throw new Error('Este dispositivo é visível no catálogo Google, mas o protocolo de localização ainda não foi mapeado para este identificador.');
+      throw new Error(
+        'Este dispositivo é visível no catálogo Google, mas o protocolo de localização ainda não foi mapeado para este identificador.',
+      );
     }
     const existing = this.locating.get(deviceId);
     if (existing) return await existing;
@@ -1653,7 +1655,9 @@ export class FindHubStartupService {
       familyLinkUrl: row.familyLinkUrl || undefined,
       providerCapabilities: Array.isArray(row.providerCapabilities) ? row.providerCapabilities : [],
       providerFlags: row.providerFlags && typeof row.providerFlags === 'object' ? row.providerFlags : {},
-      locateSupported: Array.isArray(row.canonicalIds) ? row.canonicalIds.length > 0 : !String(row.googleDeviceId).startsWith('metadata:'),
+      locateSupported: Array.isArray(row.canonicalIds)
+        ? row.canonicalIds.length > 0
+        : !String(row.googleDeviceId).startsWith('metadata:'),
       fastPairModelId: row.fastPairModelId || undefined,
       pairedAt: row.pairedAt?.toISOString?.() || row.pairedAt || null,
       canonicalIds: Array.isArray(row.canonicalIds) ? row.canonicalIds : [],
