@@ -259,7 +259,12 @@ test('Find Hub legacy PHONE DeviceUpdate treats field 21 as product name and pre
   );
   const capability = (actionField: number) =>
     fieldMessage(2, concat(fieldMessage(1, fieldMessage(actionField, Buffer.alloc(0))), fieldVarint(2, 1)));
-  const description = concat(fieldString(1, 'Fixture Phone'), fieldVarint(2, 20));
+  const description = concat(
+    fieldString(1, 'Fixture Phone'),
+    fieldVarint(2, 20),
+    fieldVarint(11, 3),
+    fieldVarint(14, 1),
+  );
   const registration = concat(
     fieldMessage(2, description),
     fieldString(20, 'Example Manufacturer'),
@@ -282,6 +287,8 @@ test('Find Hub legacy PHONE DeviceUpdate treats field 21 as product name and pre
   assert.equal(device.deviceCodename, undefined);
   assert.equal(device.productName, 'fixture_product_global');
   assert.equal(device.fastPairModelId, undefined);
+  assert.equal(device.providerFlags?.['registration.2.11'], 3);
+  assert.equal(device.providerFlags?.['registration.2.14'], 1);
   assert.deepEqual(device.providerCapabilities, [
     { actionField: 31, state: 1 },
     { actionField: 32, state: 1 },
