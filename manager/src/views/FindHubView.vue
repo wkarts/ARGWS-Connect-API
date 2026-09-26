@@ -153,7 +153,7 @@ async function refreshDevices() {
   catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
-async function captureCatalog(catalog: 'spot'|'android') {
+async function captureCatalog(catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
   if (busy.value) return
   busy.value = true; error.value = ''; feedback.value = ''
   try {
@@ -336,7 +336,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('spot')">Capturar SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('android')">Capturar Android .pb</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
         <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p>
-        <div class="alert top-gap">O material de protocolo analisado ainda não nomeia bateria, IMEI, MEID ou número de série. Use as capturas protobuf brutas abaixo para análise forense de campos desconhecidos. Os arquivos podem conter identificadores, e-mails de acesso e material criptográfico cifrado do Find Hub; trate-os como dados sensíveis e compartilhe apenas quando necessário.</div>
+        <div class="alert top-gap">O material de protocolo analisado ainda não nomeia bateria, IMEI, MEID ou número de série. Use as capturas protobuf brutas abaixo para análise forense de campos desconhecidos. Os arquivos podem conter identificadores, e-mails de acesso e material criptográfico cifrado do Find Hub; trate-os como dados sensíveis e compartilhe apenas quando necessário.</div><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><p class="muted">Esses DeviceType existem no protobuf de referência. A disponibilidade depende da conta e do provider Google; falha em um catálogo complementar não altera o catálogo SPOT.</p></details>
         <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p>
           <div class="detail-list">
             <div><span>ID interno Connect|API</span><strong>{{ device.id }}</strong></div>
