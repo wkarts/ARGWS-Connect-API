@@ -837,6 +837,22 @@ model FindHubDevice {
   deviceType              String   @db.VarChar(32)
   manufacturer            String?  @db.VarChar(255)
   model                   String?  @db.VarChar(255)
+  deviceCodename          String?  @db.VarChar(255)
+  productName             String?  @db.VarChar(255)
+  carrier                 String?  @db.VarChar(255)
+  imei                    String?  @db.VarChar(32)
+  androidDeviceNumericId  String?  @db.VarChar(64)
+  providerOpaqueId        String?  @db.VarChar(128)
+  providerRegisteredAt    DateTime? @db.Timestamp
+  providerStatusAt        DateTime? @db.Timestamp
+  providerResponseAt      DateTime? @db.Timestamp
+  gmsCoreVersionCode      Int?
+  androidSdkVersion       Int?
+  familyLinkManaged       Boolean  @default(false) @db.Boolean
+  familyLinkMemberName    String?  @db.VarChar(255)
+  familyLinkUrl           String?  @db.VarChar(1000)
+  providerCapabilities    Json?
+  providerFlags           Json?
   fastPairModelId         String?  @db.VarChar(255)
   pairedAt                DateTime? @db.Timestamp
   canonicalIds            Json?

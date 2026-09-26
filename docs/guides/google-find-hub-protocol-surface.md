@@ -13,9 +13,9 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 | --- | --- | --- |
 | Catálogo SPOT e Android | Nova ListDevices | Suportado |
 | Todos os IDs canônicos | DeviceMetadata / CanonicIds | Persistidos e expostos |
-| Tipo do identificador | IdentifierInformationType | ANDROID / SPOT / UNKNOWN |
+| Tipo do identificador | IdentifierInformationType + captura viva | ANDROID / SPOT / SUPERVISED_ANDROID / UNKNOWN |
 | Tipos detalhados | SpotDeviceType | Suportados sem reduzir tudo a TRACKER |
-| Fabricante e modelo | DeviceRegistration | Persistidos |
+| Fabricante e modelo | DeviceRegistration + catálogo vivo 2026 | Persistidos |
 | Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido |
 | Data de pareamento | DeviceRegistration.pairDate | Persistida |
 | Ownership/acesso | DeviceInformation.accessInformation | Persistido e exibido |
@@ -34,21 +34,44 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 | Histórico local | Connect|API | Persistente e opcional |
 | Reconciliação | Connect|API sobre os reports devolvidos | Best effort, sem prometer timeline completa |
 
-## Campos não demonstrados pelas referências fornecidas
+## Metadados descobertos no protocolo vivo de 2026
 
-Os arquivos analisados **não expõem**, na superfície usada por essas referências:
+Capturas reais de `DevicesList` mostraram que o backend atual possui um layout mais novo que o `DeviceUpdate.proto` original usado pelo GoogleFindMyTools. O decoder da Connect|API mantém compatibilidade com o layout legado e passou a reconhecer, quando presentes:
+
+- fabricante;
+- modelo;
+- codinome do dispositivo;
+- produto/variant name;
+- operadora;
+- IMEI validado por formato/check digit;
+- ID numérico Android;
+- ID opaco estável do metadata;
+- timestamps de registro/status/resposta do provider;
+- versão numérica do Google Play Services;
+- Android SDK;
+- capacidades brutas numeradas pelo provider;
+- flags numéricas ainda sem semântica oficial;
+- indicação de dispositivo supervisionado Family Link, nome do membro e URL devolvida pelo Google;
+- metadata offline/E2EE legado ainda embutido no layout novo.
+
+O layout vivo também apresentou `IdentifierInformationType = 6` em um aparelho supervisionado do Family Link. A Connect|API o representa semanticamente como `SUPERVISED_ANDROID`, sem fingir que esse nome constava no proto legado.
+
+Dispositivos supervisionados podem aparecer sem um ID canônico compatível com o wire de `ExecuteAction.locateTracker`. Nesses casos eles continuam visíveis no catálogo e com seus metadados preservados, mas `locateSupported=false` impede a aplicação de enviar uma ação com identificador inventado.
+
+### Ainda não confirmado
+
+Os catálogos capturados **não demonstraram de forma segura**:
 
 - percentual de bateria;
-- IMEI;
 - MEID;
 - número de série;
 - SSID atual;
 - RSSI Wi-Fi;
 - intensidade do sinal celular.
 
-O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`; portanto o Connect|API não converte esse placeholder em telemetria real.
+O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`. Embora o produto oficial Find Hub apresente bateria e conectividade para aparelhos online, é necessário mapear a superfície/status protobuf correspondente antes de expor esses campos.
 
-Se uma futura referência comprovada revelar outra RPC/superfície Google para esses dados, ela deve ser incorporada como capacidade adicional, preservando a origem do dado.
+O próximo artefato preferencial para essa análise é o `DeviceUpdate .pb` capturado após uma solicitação ativa de localização.
 
 ## Frescor de localização: solicitação não é observação nova
 

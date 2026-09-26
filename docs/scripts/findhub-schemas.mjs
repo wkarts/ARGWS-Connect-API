@@ -54,7 +54,7 @@ export const findHubSchemas = {
       googleDeviceId: text,
       canonicalIds: { type: 'array', items: text, description: 'Todos os IDs canônicos devolvidos pelo catálogo Google para o mesmo metadata.' },
       name: text,
-      identifierType: { type: 'string', enum: ['ANDROID', 'SPOT', 'UNKNOWN'] },
+      identifierType: { type: 'string', enum: ['ANDROID', 'SPOT', 'SUPERVISED_ANDROID', 'UNKNOWN'] },
       deviceType: {
         type: 'string',
         enum: [
@@ -65,6 +65,34 @@ export const findHubSchemas = {
       },
       manufacturer: text,
       model: text,
+      deviceCodename: text,
+      productName: text,
+      carrier: text,
+      imei: {
+        type: 'string',
+        pattern: '^\\d{15}$',
+        description: 'IMEI quando o provider Google o entrega; o Connect|API valida formato/check digit e não o infere.',
+      },
+      androidDeviceNumericId: text,
+      providerOpaqueId: text,
+      providerRegisteredAt: { type: ['string', 'null'], format: 'date-time' },
+      providerStatusAt: { type: ['string', 'null'], format: 'date-time' },
+      providerResponseAt: { type: ['string', 'null'], format: 'date-time' },
+      gmsCoreVersionCode: { type: 'integer' },
+      androidSdkVersion: { type: 'integer' },
+      familyLinkManaged: { type: 'boolean' },
+      familyLinkMemberName: text,
+      familyLinkUrl: text,
+      providerCapabilities: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['actionField', 'state'],
+          properties: { actionField: { type: 'integer' }, state: { type: 'integer' } },
+        },
+      },
+      providerFlags: { type: 'object', additionalProperties: { type: 'integer' } },
+      locateSupported: { type: 'boolean' },
       fastPairModelId: text,
       pairedAt: { type: ['string', 'null'], format: 'date-time' },
       accessInformation: {
@@ -142,7 +170,7 @@ export const findHubOperations = {
   'POST /findhub/auth/start/{instanceName}': operation('Iniciar vinculação da conta Google', 'Cria sessão de dez minutos e devolve bridgeToken sensível. Não devolve URL OAuth, QR Code ou callback Google: o CredentialProvider externo precisa obter o bundle autorizado.', ref('FindHubAuthSession'), { requestBody: body('FindHubAuthStartRequest', { email: 'operador@example.com' }), responses: response(ref('FindHubAuthSession'), 'Sessão temporária criada; aguarda o CredentialProvider.', '201') }),
   'POST /findhub/auth/import/{instanceName}': operation('Importar bundle autorizado e conectar', 'Exige apikey da instância, sessionId e bridgeToken. Cifra o bundle com FINDHUB_CREDENTIALS_KEY e tenta conectar o canal. Não recebe senha, cookies do navegador nem a chave de criptografia do servidor. Um login comum no Google não produz automaticamente esse bundle.', ref('FindHubAuthResult'), { requestBody: body('FindHubCredentialBundleRequest') }),
   'GET /findhub/auth/status/{instanceName}': operation('Consultar estado da autenticação', 'Consulta estado persistido sem devolver tokens nem chaves. Use para acompanhar a vinculação tanto pelo Manager quanto por integração externa.', ref('FindHubAuthStatus')),
-  'GET /findhub/devices/{instanceName}': operation('Listar dispositivos cadastrados', 'Retorna o catálogo local da instância; não força uma consulta nova ao Google. Telefones usam identifierType ANDROID e deviceType PHONE quando o protocolo informa esse tipo.', { type: 'array', items: ref('FindHubDevice') }),
+  'GET /findhub/devices/{instanceName}': operation('Listar dispositivos cadastrados', 'Retorna o catálogo local da instância; não força uma consulta nova ao Google. O decoder aceita o layout legado e o layout vivo observado em 2026, incluindo metadados Android e dispositivos supervisionados do Family Link quando o provider os entrega.', { type: 'array', items: ref('FindHubDevice') }),
   'POST /findhub/devices/refresh/{instanceName}': operation('Atualizar catálogo pelo Google Find Hub', 'Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.', { type: 'array', items: ref('FindHubDevice') }),
   'POST /findhub/protocol/capture/catalog/{catalog}/{instanceName}': operation(
     'Capturar DevicesList protobuf bruto',
