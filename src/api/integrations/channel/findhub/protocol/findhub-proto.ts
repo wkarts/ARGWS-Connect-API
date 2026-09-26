@@ -269,8 +269,7 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     providerCapabilities: capabilities,
     providerFlags: flags,
     locateSupported: ids.length > 0,
-    fastPairModelId:
-      legacyInformation && normalizedDeviceType !== 'PHONE' ? legacyRegistrationField21 : undefined,
+    fastPairModelId: legacyInformation && normalizedDeviceType !== 'PHONE' ? legacyRegistrationField21 : undefined,
     pairedAt: pairedAtSeconds > 0 ? new Date(pairedAtSeconds * 1000).toISOString() : null,
     accessInformation,
     imageUrl: image ? string(image, 1) : undefined,
