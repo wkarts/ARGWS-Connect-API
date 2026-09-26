@@ -40,6 +40,23 @@ A ação `no.connection` é tratada como perda de transporte para Find Hub e nã
 
 Durante a primeira validação de novas credenciais (`VERIFYING`), uma falha **antes de as credenciais serem confirmadas** continua levando a `AUTH_REQUIRED`; depois da validação, falhas em etapas auxiliares de restore não desfazem o vínculo.
 
+## Desvinculação sem perda de dados
+
+Desvincular uma conta Google Find Hub é uma operação de autenticação, não de exclusão de dados.
+
+A ação **Desvincular conta Google**:
+
+- fecha o transporte atual;
+- invalida sessões de autenticação pendentes do runtime;
+- remove somente `encryptedCredentials` e `encryptedSharedKey`;
+- altera o estado para `WAITING_AUTH`;
+- preserva o mesmo `FindHubAccount`, `clientUuid` e e-mail conhecido;
+- preserva dispositivos, avatares, últimas posições, histórico, tracking, configurações da conta e vínculos Traccar.
+
+Se houver dados preservados, a próxima vinculação deve usar a mesma conta Google. Isso impede misturar o histórico de uma identidade com outra conta.
+
+A remoção destrutiva (`FindHubAccount`, catálogo, posições e bindings relacionados) fica restrita a **Excluir instância**. O método interno de purge continua existindo exclusivamente para esse ciclo de exclusão definitiva.
+
 ## Renovação de credenciais rejeitadas pelo Google
 
 Falhas transitórias continuam preservando uma conta previamente validada. Porém, quando o próprio Google rejeita explicitamente as credenciais persistidas com uma condição de autenticação (`BadAuthentication`, `InvalidToken`, `ExpiredToken` e equivalentes classificados pelo cliente), o estado passa para `AUTH_REQUIRED` sem apagar a conta nem os dados associados.
