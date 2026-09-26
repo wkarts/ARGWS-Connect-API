@@ -197,13 +197,7 @@ export class FindHubAuthBrokerService {
   }
 
   public async unlink(instanceId: string): Promise<void> {
-    for (const [id, session] of this.sessions) {
-      const instance = await this.prisma.instance.findUnique({
-        where: { name: session.instanceName },
-        select: { id: true },
-      });
-      if (instance?.id === instanceId) this.sessions.delete(id);
-    }
+    this.sessions.clear();
     await (this.prisma as any).findHubAccount.updateMany({
       where: { instanceId },
       data: {
