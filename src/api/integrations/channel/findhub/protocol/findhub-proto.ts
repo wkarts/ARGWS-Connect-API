@@ -223,10 +223,11 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
   const deviceType = Number(int(deviceDescription, 2) ?? 0n);
   const normalizedDeviceType = normalizeDeviceType(deviceType);
   const legacyRegistrationField21 = legacyInformation ? string(registration, 21) : undefined;
-  // A real 2026 PHONE DeviceUpdate uses legacy registration field 21 for the Android
-  // codename (for example a build/device codename), despite the older reference proto
-  // naming this field fastPairModelId. Do not mislabel phone metadata as Fast Pair.
-  const legacyPhoneCodename = normalizedDeviceType === 'PHONE' ? legacyRegistrationField21 : undefined;
+  // Cross-correlation of the same Redmi Note 14 in DevicesList + DeviceUpdate proves
+  // registration field 21 carries the product/variant name (tanzanite_global) for PHONE.
+  // The live catalogue separately exposes the Android codename (tanzanite) in status field 5.
+  // Keep the old fastPairModelId interpretation only for non-PHONE legacy payloads.
+  const legacyPhoneProductName = normalizedDeviceType === 'PHONE' ? legacyRegistrationField21 : undefined;
   const encryptedIdentityKey = bytes(secrets, 1);
   const ownerKeyVersion = Number(int(secrets, 3) ?? 0n);
   const pairedAtSeconds = legacyInformation ? Number(int(registration, 23) ?? 0n) : 0;
@@ -252,8 +253,8 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     deviceType: normalizedDeviceType,
     manufacturer: string(status, 4) || string(registration, 20),
     model: string(status, 3) || string(registration, 34),
-    deviceCodename: string(status, 5) || legacyPhoneCodename,
-    productName: legacyInformation ? undefined : string(registration, 21),
+    deviceCodename: string(status, 5),
+    productName: legacyInformation ? legacyPhoneProductName : string(registration, 21),
     carrier: string(status, 6),
     imei: validImei(string(status, 7)),
     androidDeviceNumericId,
