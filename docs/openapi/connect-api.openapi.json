@@ -2423,6 +2423,74 @@
         }
       }
     },
+    "/chat/markMessageAsPlayed/{instanceName}": {
+      "post": {
+        "tags": [
+          "Chats & Contacts"
+        ],
+        "summary": "Marcar áudio recebido como reproduzido (PLAYED)",
+        "operationId": "post_chat_markmessageasplayed_instancename",
+        "description": "Envia o receipt nativo PLAYED ao WhatsApp somente quando o cliente confirma reprodução real do áudio. Não substitui markMessageAsRead, não é disparado por download, histórico ou sincronização e aceita participant opcional para grupos. fromMe deve ser false.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Receipt PLAYED enviado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayedMessageResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/chat.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayedMessageRequest"
+              },
+              "example": {
+                "playedMessages": [
+                  {
+                    "id": "3EB0123456789ABCDEF",
+                    "fromMe": false,
+                    "remoteJid": "5575988881111@s.whatsapp.net"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/chat/markMessageAsRead/{instanceName}": {
       "post": {
         "tags": [
@@ -20161,6 +20229,68 @@
           }
         },
         "additionalProperties": true
+      },
+      "PlayedMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "playedMessages"
+        ],
+        "properties": {
+          "playedMessages": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "fromMe",
+                "remoteJid"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "fromMe": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "remoteJid": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "participant": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "PlayedMessageResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "receipt",
+          "processed"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "receipt": {
+            "const": "played"
+          },
+          "processed": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
       }
     },
     "responses": {
