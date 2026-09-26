@@ -9,6 +9,7 @@ import {
   FindHubLocateDto,
   FindHubReconciliationDto,
   FindHubSettingsDto,
+  FindHubSoundDto,
   FindHubTraccarConnectionDto,
   FindHubTraccarDto,
   FindHubTrackingDto,
@@ -25,6 +26,7 @@ import {
   findHubLocateSchema,
   findHubReconciliationSchema,
   findHubSettingsSchema,
+  findHubSoundSchema,
   findHubTraccarConnectionSchema,
   findHubTraccarSchema,
   findHubTrackingSchema,
@@ -189,6 +191,28 @@ export class FindHubRouter extends RouterBroker {
             ClassRef: FindHubLocateDto,
             execute: (instance, data) =>
               findHubController.locate(instance.instanceName, req.params.deviceId, data.timeoutMs),
+          }),
+        ),
+      )
+      .post('/sound/start/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubSoundDto>({
+            request: req,
+            schema: findHubSoundSchema,
+            ClassRef: FindHubSoundDto,
+            execute: (instance, data) =>
+              findHubController.sound(instance.instanceName, req.params.deviceId, 'start', data),
+          }),
+        ),
+      )
+      .post('/sound/stop/:deviceId/:instanceName', ...guards, async (req, res) =>
+        res.json(
+          await this.dataValidate<FindHubSoundDto>({
+            request: req,
+            schema: findHubSoundSchema,
+            ClassRef: FindHubSoundDto,
+            execute: (instance, data) =>
+              findHubController.sound(instance.instanceName, req.params.deviceId, 'stop', data),
           }),
         ),
       )
