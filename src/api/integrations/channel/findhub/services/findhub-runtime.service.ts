@@ -11,7 +11,13 @@ import { FindHubAuthError } from '../auth/findhub-auth.error';
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
 import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
-import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
+import {
+  FindHubDevice,
+  FindHubPosition,
+  FindHubRuntimeState,
+  FindHubSoundComponent,
+  FindHubTraccarConfig,
+} from '../findhub.types';
 import { normalizeFindHubAvatar } from './findhub-avatar';
 import { createFindHubLocateDiagnostics, FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
@@ -297,6 +303,16 @@ export class FindHubStartupService {
           deviceType: device.deviceType,
           manufacturer: device.manufacturer,
           model: device.model,
+          fastPairModelId: device.fastPairModelId,
+          pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
+          canonicalIds: device.canonicalIds || [],
+          accessInformation: device.accessInformation || [],
+          ownerKeyVersion: device.ownerKeyVersion ?? null,
+          identityKeyFingerprint: device.identityKeyFingerprint,
+          accountKeyFingerprint: device.accountKeyFingerprint,
+          publicAddressFingerprint: device.publicAddressFingerprint,
+          secretsCreatedAt: device.secretsCreatedAt ? new Date(device.secretsCreatedAt) : null,
+          networkAggregationMinReports: device.networkAggregationMinReports ?? null,
           imageUrl: device.imageUrl,
         },
         create: {
@@ -308,6 +324,16 @@ export class FindHubStartupService {
           deviceType: device.deviceType,
           manufacturer: device.manufacturer,
           model: device.model,
+          fastPairModelId: device.fastPairModelId,
+          pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
+          canonicalIds: device.canonicalIds || [],
+          accessInformation: device.accessInformation || [],
+          ownerKeyVersion: device.ownerKeyVersion ?? null,
+          identityKeyFingerprint: device.identityKeyFingerprint,
+          accountKeyFingerprint: device.accountKeyFingerprint,
+          publicAddressFingerprint: device.publicAddressFingerprint,
+          secretsCreatedAt: device.secretsCreatedAt ? new Date(device.secretsCreatedAt) : null,
+          networkAggregationMinReports: device.networkAggregationMinReports ?? null,
           imageUrl: device.imageUrl,
           trackingIntervalSeconds: (await this.settings()).intervalSeconds,
         },
@@ -352,6 +378,16 @@ export class FindHubStartupService {
     return this.device(deviceId);
   }
 
+  public async sound(
+    deviceId: string,
+    operation: 'start' | 'stop',
+    component: FindHubSoundComponent = 'UNSPECIFIED',
+  ): Promise<any> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    const device = await this.device(deviceId);
+    return await this.protocol.sound(device, operation, component);
+  }
+
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
     const existing = this.locating.get(deviceId);
     if (existing) return await existing;
@@ -382,11 +418,17 @@ export class FindHubStartupService {
     try {
       await (this.prisma as any).findHubDevice.update({
         where: { id: deviceId },
-        data: { lastAttemptAt: new Date(startedAt), lastErrorCode: null },
+        data: {
+          lastAttemptAt: new Date(startedAt),
+          lastErrorCode: null,
+          providerRequestCount: { increment: 1 },
+          lastProviderRequestAt: new Date(startedAt),
+        },
       });
       const positions = (await protocol.locate(device, settings.timeoutMs))
         .filter((position) => validPosition(position))
         .sort(comparePositionPreference);
+      await this.recordProviderReports(device, positions);
       return await this.queueObservation(deviceId, async () => {
         if (generation !== this.generation || protocol !== this.protocol)
           throw new Error('A conexão de localização foi encerrada.');
@@ -457,14 +499,15 @@ export class FindHubStartupService {
       const device = await this.device(deviceId); // Never use an unscoped device from a push.
       if (generation !== this.generation) return;
       const previous = device.latestPosition || null;
-      const positions = reports
-        .filter(
-          (position) =>
-            validPosition(position) &&
-            position.deviceId === device.id &&
-            position.googleDeviceId === device.googleDeviceId &&
-            isNewPositionObservation(position, previous),
-        )
+      const providerReports = reports.filter(
+        (position) =>
+          validPosition(position) &&
+          position.deviceId === device.id &&
+          position.googleDeviceId === device.googleDeviceId,
+      );
+      await this.recordProviderReports(device, providerReports);
+      const positions = providerReports
+        .filter((position) => isNewPositionObservation(position, previous))
         .sort(comparePositionPreference);
       if (!positions.length) return;
       for (const position of positions) await this.persistPosition(device, position);
@@ -1072,7 +1115,12 @@ export class FindHubStartupService {
           const startedAt = new Date();
           await (this.prisma as any).findHubDevice.updateMany({
             where: { id: deviceId, instanceId: this.instance.id },
-            data: { lastAttemptAt: startedAt, lastErrorCode: null },
+            data: {
+              lastAttemptAt: startedAt,
+              lastErrorCode: null,
+              providerRequestCount: { increment: 1 },
+              lastProviderRequestAt: startedAt,
+            },
           });
           await this.protocol.requestLocation(device);
           failures = 0;
@@ -1108,6 +1156,22 @@ export class FindHubStartupService {
     // Continuous tracking schedules the next command after the previous command was accepted,
     // not after waiting for the location report. FCM observations arrive independently and update SSE/map.
     schedule(0);
+  }
+
+  private async recordProviderReports(device: FindHubDevice, reports: FindHubPosition[]): Promise<void> {
+    const valid = reports.filter((position) => validPosition(position));
+    if (!valid.length) return;
+    const previous = device.latestPosition || null;
+    const repeated = valid.filter((position) => !isNewPositionObservation(position, previous)).length;
+    const newest = [...valid].sort(comparePositionPreference)[0];
+    await (this.prisma as any).findHubDevice.updateMany({
+      where: { id: device.id, instanceId: this.instance.id },
+      data: {
+        providerReportCount: { increment: valid.length },
+        providerRepeatedReportCount: { increment: repeated },
+        lastProviderReportAt: new Date(newest.timestamp),
+      },
+    });
   }
 
   private async persistPosition(device: FindHubDevice, position: FindHubPosition): Promise<void> {
@@ -1486,6 +1550,21 @@ export class FindHubStartupService {
       deviceType: row.deviceType,
       manufacturer: row.manufacturer || undefined,
       model: row.model || undefined,
+      fastPairModelId: row.fastPairModelId || undefined,
+      pairedAt: row.pairedAt?.toISOString?.() || row.pairedAt || null,
+      canonicalIds: Array.isArray(row.canonicalIds) ? row.canonicalIds : [],
+      accessInformation: Array.isArray(row.accessInformation) ? row.accessInformation : [],
+      ownerKeyVersion: row.ownerKeyVersion ?? undefined,
+      identityKeyFingerprint: row.identityKeyFingerprint || undefined,
+      accountKeyFingerprint: row.accountKeyFingerprint || undefined,
+      publicAddressFingerprint: row.publicAddressFingerprint || undefined,
+      secretsCreatedAt: row.secretsCreatedAt?.toISOString?.() || row.secretsCreatedAt || null,
+      networkAggregationMinReports: row.networkAggregationMinReports ?? undefined,
+      providerRequestCount: Number(row.providerRequestCount || 0),
+      providerReportCount: Number(row.providerReportCount || 0),
+      providerRepeatedReportCount: Number(row.providerRepeatedReportCount || 0),
+      lastProviderRequestAt: row.lastProviderRequestAt?.toISOString?.() || row.lastProviderRequestAt || null,
+      lastProviderReportAt: row.lastProviderReportAt?.toISOString?.() || row.lastProviderReportAt || null,
       imageUrl: row.imageUrl || undefined,
       avatarData: row.avatarData || null,
       trackingEnabled: Boolean(row.trackingEnabled),
@@ -1503,11 +1582,27 @@ export class FindHubStartupService {
   private publicDevice(device: FindHubDevice) {
     return {
       id: device.id,
+      googleDeviceId: device.googleDeviceId,
+      canonicalIds: device.canonicalIds || [],
       name: device.name,
       identifierType: device.identifierType,
       deviceType: device.deviceType,
       manufacturer: device.manufacturer,
       model: device.model,
+      fastPairModelId: device.fastPairModelId,
+      pairedAt: device.pairedAt,
+      accessInformation: device.accessInformation || [],
+      ownerKeyVersion: device.ownerKeyVersion,
+      identityKeyFingerprint: device.identityKeyFingerprint,
+      accountKeyFingerprint: device.accountKeyFingerprint,
+      publicAddressFingerprint: device.publicAddressFingerprint,
+      secretsCreatedAt: device.secretsCreatedAt,
+      networkAggregationMinReports: device.networkAggregationMinReports,
+      providerRequestCount: device.providerRequestCount || 0,
+      providerReportCount: device.providerReportCount || 0,
+      providerRepeatedReportCount: device.providerRepeatedReportCount || 0,
+      lastProviderRequestAt: device.lastProviderRequestAt || null,
+      lastProviderReportAt: device.lastProviderReportAt || null,
       imageUrl: device.imageUrl,
       avatarVersion: device.avatarData
         ? createHash('sha256').update(device.avatarData).digest('hex').slice(0, 16)
