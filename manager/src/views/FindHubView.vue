@@ -107,7 +107,15 @@ function navigate(item: typeof navigation[number]) { void router.push({path:find
 async function saveEditor() { if(editor.value && !editor.value.busy) await editor.value.save() }
 
 const stamp = (value: any) => value ? new Date(value).toLocaleString('pt-BR') : 'Não disponível'
-const deviceType = (value: string) => ({ PHONE:'Smartphone', TABLET:'Tablet', WATCH:'Relógio', HEADPHONES:'Fone', EARBUDS:'Fone', TRACKER:'Rastreador', UNKNOWN:'Não informado' }[value] || value)
+const deviceType = (value: string) => ({
+  BEACON:'Beacon', HEADPHONES:'Fone de ouvido', KEYS:'Chaves', WATCH:'Relógio', WALLET:'Carteira', BAG:'Bolsa',
+  LAPTOP:'Notebook/Laptop', CAR:'Veículo', REMOTE_CONTROL:'Controle remoto', BADGE:'Crachá', BIKE:'Bicicleta',
+  CAMERA:'Câmera', CAT:'Gato', CHARGER:'Carregador', CLOTHING:'Vestuário', DOG:'Cachorro', NOTEBOOK:'Caderno',
+  PASSPORT:'Passaporte', PHONE:'Smartphone', SPEAKER:'Caixa de som', TABLET:'Tablet', TOY:'Brinquedo',
+  UMBRELLA:'Guarda-chuva', STYLUS:'Caneta/Stylus', EARBUDS:'Earbuds', TRACKER:'Rastreador',
+  UNKNOWN:'Não informado',
+}[value] || value)
+const accessRole = (item: any) => item?.thisAccount ? 'Esta conta' : item?.isOwner ? 'Proprietário' : item?.hasAccess ? 'Com acesso' : 'Sem acesso'
 async function load() {
   busy.value = true; error.value = ''
   try {
@@ -227,6 +235,17 @@ async function tracking(device: any) {
   } catch (e) { error.value = friendlyError(e) }
   finally { device.saving = false }
 }
+async function sound(device: any, operation: 'start'|'stop') {
+  if (device.soundBusy) return
+  device.soundBusy = true; error.value = ''; feedback.value = ''
+  try {
+    await connect.findHubSound(id.value, device.id, operation, device.soundComponent || 'UNSPECIFIED')
+    feedback.value = operation === 'start'
+      ? `Comando para tocar som enviado ao Google para ${device.name}.`
+      : `Comando para parar o som enviado ao Google para ${device.name}.`
+  } catch (e) { error.value = friendlyError(e) }
+  finally { device.soundBusy = false }
+}
 async function accountAction() {
   busy.value = true; error.value = ''
   try {
@@ -297,7 +316,52 @@ onBeforeUnmount(() => { sequence++; stopStream() })
       <PanelCard v-else-if="section==='dispositivos'" title="Dispositivos" description="Somente dispositivos retornados pela conta Google vinculada.">
         <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
-        <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p><div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p><div class="detail-list"><div><span>Último relatório</span><strong>{{ stamp(device.lastLocationAt) }}</strong></div><div><span>Rastreamento</span><strong>{{ device.trackingEnabled ? 'Habilitado' : 'Desabilitado' }}</strong></div></div><label class="field top-gap"><span>Intervalo entre consultas (segundos)</span><input v-model.number="device.trackingIntervalSeconds" type="number" min="0" step="1" max="86400" :disabled="device.trackingEnabled" /></label><FindHubPositionDetails :device="device" :stale-after-seconds="snapshot?.settings?.staleAfterSeconds"/><footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
+        <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p>
+        <div class="alert top-gap">O material de protocolo analisado não expõe bateria, IMEI, MEID ou número de série. Esses campos não são simulados. Quando o provider disponibilizar uma superfície comprovada para eles, poderão ser incorporados sem alterar os identificadores já persistidos.</div>
+        <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p>
+          <div class="detail-list">
+            <div><span>ID interno Connect|API</span><strong>{{ device.id }}</strong></div>
+            <div><span>Google Device ID</span><strong>{{ device.googleDeviceId || 'Não informado' }}</strong></div>
+            <div><span>Tipo do identificador</span><strong>{{ device.identifierType || 'Não informado' }}</strong></div>
+            <div><span>Fast Pair Model ID</span><strong>{{ device.fastPairModelId || 'Não informado' }}</strong></div>
+            <div><span>Pareado em</span><strong>{{ stamp(device.pairedAt) }}</strong></div>
+            <div><span>Owner key version</span><strong>{{ device.ownerKeyVersion ?? 'Não informado' }}</strong></div>
+            <div><span>Mínimo para agregação de rede</span><strong>{{ device.networkAggregationMinReports ?? 'Não informado' }}</strong></div>
+            <div><span>Último relatório de posição</span><strong>{{ stamp(device.lastLocationAt) }}</strong></div>
+            <div><span>Rastreamento</span><strong>{{ device.trackingEnabled ? 'Habilitado' : 'Desabilitado' }}</strong></div>
+          </div>
+          <details class="device-metadata top-gap">
+            <summary>Identificadores e metadados completos</summary>
+            <div class="detail-list top-gap">
+              <div><span>IDs canônicos</span><strong>{{ device.canonicalIds?.length ? device.canonicalIds.join(' · ') : device.googleDeviceId || 'Não informado' }}</strong></div>
+              <div><span>Fabricante</span><strong>{{ device.manufacturer || 'Não informado' }}</strong></div>
+              <div><span>Modelo</span><strong>{{ device.model || 'Não informado' }}</strong></div>
+              <div><span>Fingerprint identity key</span><strong>{{ device.identityKeyFingerprint || 'Não informado' }}</strong></div>
+              <div><span>Fingerprint account key</span><strong>{{ device.accountKeyFingerprint || 'Não informado' }}</strong></div>
+              <div><span>Fingerprint public address</span><strong>{{ device.publicAddressFingerprint || 'Não informado' }}</strong></div>
+              <div><span>Segredos criados em</span><strong>{{ stamp(device.secretsCreatedAt) }}</strong></div>
+            </div>
+            <div v-if="device.accessInformation?.length" class="findhub-table top-gap"><table><thead><tr><th>Conta com acesso</th><th>Papel</th><th>Acesso</th></tr></thead><tbody><tr v-for="(access,index) in device.accessInformation" :key="access.email || index"><td>{{ access.email || 'Não informado' }}</td><td>{{ accessRole(access) }}</td><td>{{ access.hasAccess ? 'Permitido' : 'Não permitido' }}</td></tr></tbody></table></div>
+          </details>
+          <details class="device-metadata top-gap" open>
+            <summary>Frescor real do provider Google</summary>
+            <div class="detail-list top-gap">
+              <div><span>Solicitações enviadas</span><strong>{{ device.providerRequestCount ?? 0 }}</strong></div>
+              <div><span>Relatórios recebidos</span><strong>{{ device.providerReportCount ?? 0 }}</strong></div>
+              <div><span>Relatórios repetidos/sem posição nova</span><strong>{{ device.providerRepeatedReportCount ?? 0 }}</strong></div>
+              <div><span>Última solicitação enviada</span><strong>{{ stamp(device.lastProviderRequestAt) }}</strong></div>
+              <div><span>Timestamp do último relatório Google</span><strong>{{ stamp(device.lastProviderReportAt) }}</strong></div>
+              <div><span>Recebido pela Connect|API</span><strong>{{ stamp(device.lastReceivedAt) }}</strong></div>
+            </div>
+            <p class="muted">Esses tempos distinguem a frequência das solicitações da frequência em que o Google realmente fornece uma observação nova.</p>
+          </details>
+          <label class="field top-gap"><span>Intervalo entre consultas (segundos)</span><input v-model.number="device.trackingIntervalSeconds" type="number" min="0" step="1" max="86400" :disabled="device.trackingEnabled" /></label>
+          <FindHubPositionDetails :device="device" :stale-after-seconds="snapshot?.settings?.staleAfterSeconds"/>
+          <div v-if="device.identifierType==='SPOT'" class="field-grid two top-gap">
+            <label class="field"><span>Componente do som</span><select v-model="device.soundComponent" class="select" :disabled="device.soundBusy"><option value="UNSPECIFIED">Dispositivo</option><option value="RIGHT">Direito</option><option value="LEFT">Esquerdo</option><option value="CASE">Estojo/Case</option></select></label>
+            <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'stop')">Parar som</button></div>
+          </div>
+          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
       </PanelCard>
       <FindHubLiveTracking v-else-if="section==='mapa' && snapshot" :key="id" :instance-id="id" :snapshot="snapshot" :stream-state="streamState" :initial-device="String(route.query.device || '')" @refresh="reloadSnapshot" />
       <FindHubTrackingSettings ref="editor" header-actions v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />
@@ -317,5 +381,5 @@ onBeforeUnmount(() => { sequence++; stopStream() })
   </FindHubShell>
 </template>
 <style scoped>
-.findhub-table{overflow:auto;margin-top:20px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid var(--border)}.instance-card h3{margin:0}.instance-card footer{margin-top:20px}.device-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.device-actions .btn{flex:1 0 auto;min-height:36px;margin:0;white-space:nowrap;justify-content:center}.reconciliation-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.reconciliation-metrics span{display:flex;flex-direction:column;gap:2px}.reconciliation-details{margin-top:12px}.reconciliation-details summary{cursor:pointer;font-weight:600}
+.findhub-table{overflow:auto;margin-top:20px}.device-metadata summary{cursor:pointer;font-weight:600}.device-metadata strong{overflow-wrap:anywhere}.sound-actions{align-self:end;margin-bottom:2px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid var(--border)}.instance-card h3{margin:0}.instance-card footer{margin-top:20px}.device-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.device-actions .btn{flex:1 0 auto;min-height:36px;margin:0;white-space:nowrap;justify-content:center}.reconciliation-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px}.reconciliation-metrics span{display:flex;flex-direction:column;gap:2px}.reconciliation-details{margin-top:12px}.reconciliation-details summary{cursor:pointer;font-weight:600}
 </style>
