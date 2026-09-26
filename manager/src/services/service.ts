@@ -1,6 +1,6 @@
 import { request, setCsrf, clearCsrf } from './http'
 import * as normalize from './normalizers'
-import type { AuditItem, ConnectionItem, Conversation, Message, Overview, Session, UserItem } from '@/types/domain'
+import type { AuditItem, ConnectionItem, Conversation, ManagerEmbeddingSettings, Message, Overview, Session, UserItem } from '@/types/domain'
 
 export const connect = {
   async status() { return request<any>('/status') },
@@ -20,6 +20,8 @@ export const connect = {
     const value = normalize.session(await request<any>('/auth/me')); setCsrf(value.csrf); return value
   },
   async logout() { try { return await request('/auth/logout', { method: 'POST' }) } finally { clearCsrf() } },
+  async embeddingSettings(): Promise<ManagerEmbeddingSettings> { return request<ManagerEmbeddingSettings>('/embedding') },
+  async saveEmbeddingSettings(data: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> { return request<ManagerEmbeddingSettings>('/embedding', { method: 'PUT', data }) },
   async security() { return normalize.security((await request<any>('/auth/security'))?.security) },
   async beginTwoStep(password: string) { return request<any>('/auth/2fa/setup', { method: 'POST', data: { password } }) },
   async confirmTwoStep(code: string) { const raw = await request<any>('/auth/2fa/confirm', { method: 'POST', data: { code } }); const value = normalize.session(raw); setCsrf(value.csrf); return { session: value, recoveryCodes: raw?.recoveryCodes || [] } },
