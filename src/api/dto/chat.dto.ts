@@ -70,6 +70,17 @@ export class ReadMessageDto {
   readMessages: Key[];
 }
 
+export class PlayedMessageKey {
+  id: string;
+  fromMe: boolean;
+  remoteJid: string;
+  participant?: string;
+}
+
+export class PlayedMessageDto {
+  playedMessages: PlayedMessageKey[];
+}
+
 export class LastMessage {
   key: Key;
   messageTimestamp?: number;
