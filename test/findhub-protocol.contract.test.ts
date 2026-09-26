@@ -72,6 +72,13 @@ test('Find Hub catalogue discovery falls back across live-equivalent selectors a
   assert.equal(devices[0].googleDeviceId, 'catalog-fallback-id');
   assert.equal(devices[0].name, 'Fallback Phone');
 
+  const empty = new FindHubNovaClient(null as never, null as never);
+  empty.captureDevicesListRaw = async (catalog) => {
+    if (catalog === 'spot') return Buffer.alloc(0);
+    throw new Error(`${catalog} unavailable`);
+  };
+  assert.deepEqual(await empty.listDevices(), []);
+
   const failure = new Error('credential/provider failure');
   const unavailable = new FindHubNovaClient(null as never, null as never);
   unavailable.captureDevicesListRaw = async () => {
