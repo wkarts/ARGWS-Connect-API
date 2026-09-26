@@ -252,6 +252,10 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
   const networkAggregationMinReports = Number(int(recentAndNetwork ?? Buffer.alloc(0), 9) ?? 0n) || undefined;
   const capabilities = providerCapabilities(metadata);
   const flags = status.length ? providerFlags(status) : {};
+  for (const field of [11, 14]) {
+    const value = int(deviceDescription, field);
+    if (value !== undefined) flags[`registration.2.${field}`] = Number(value);
+  }
 
   return stableIds.map((googleDeviceId) => ({
     googleDeviceId,
