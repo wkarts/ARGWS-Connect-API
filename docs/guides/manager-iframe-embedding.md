@@ -2,80 +2,108 @@
 
 O Manager da Connect|API pode ser aberto dentro de um Hub, portal ou console externo sem alterar as rotas normais da API.
 
-## Configuração
+## Cadastro de origens
 
-Por padrão a aplicação permite incorporação:
+A técnica segue o mesmo princípio usado no PIGE360-self: o ambiente serve apenas como
+bootstrap e a configuração persistida pela interface passa a ser a fonte efetiva.
+
+Antes do primeiro salvamento:
 
 ```env
 MANAGER_IFRAME_ENABLED=true
 MANAGER_FRAME_ANCESTORS=*
 ```
 
-`*` permite qualquer origem HTTP/HTTPS. Para restringir:
-
-```env
-MANAGER_IFRAME_ENABLED=true
-MANAGER_FRAME_ANCESTORS='self' https://hub-dev.argws.com.br https://hub.argws.com.br
-```
-
-Para bloquear novamente:
-
-```env
-MANAGER_IFRAME_ENABLED=false
-```
-
-A política é aplicada somente ao router do Manager. APIs, webhooks, WhatsApp, ZAPO, Find Hub, VOIP e demais providers não recebem alteração de latência, autenticação ou fluxo por causa desse recurso.
-
-## Headers esperados
-
-Uma página como:
+Depois, em **Configurações → Incorporação em iframe**, cadastre as origens exatas:
 
 ```text
-https://d.api.connect.argws.com.br/manager/login
+https://hub-dev.argws.com.br
+https://hub.argws.com.br
 ```
 
-deve responder com:
+Regras do cadastro:
+
+- uma origem por linha;
+- somente HTTPS em produção;
+- sem caminho, query, fragmento, credenciais ou curingas;
+- máximo de 12 origens;
+- duplicidades são normalizadas;
+- quando desativado, a política passa a `frame-ancestors 'none'`;
+- depois que existe configuração persistida, o `.env` não a substitui.
+
+O endpoint administrativo é protegido pela API key global e não aceita token de instância:
 
 ```text
-Content-Security-Policy: frame-ancestors *
+GET /manager-api/v1/embedding
+PUT /manager-api/v1/embedding
+```
+
+A alteração usa versão otimista para evitar sobrescrever silenciosamente uma edição concorrente.
+
+## Política efetiva
+
+Com o Hub de desenvolvimento cadastrado:
+
+```text
+Content-Security-Policy: frame-ancestors 'self' https://hub-dev.argws.com.br
 X-Connect-Manager-Embedding: enabled
-X-Connect-Manager-Frame-Ancestors: *
+X-Connect-Manager-Frame-Ancestors: 'self' https://hub-dev.argws.com.br
 ```
 
-A aplicação remove `X-Frame-Options` de sua própria resposta, pois `SAMEORIGIN` e `DENY` impedem Hub cross-origin.
+A aplicação não emite `X-Frame-Options` no Manager quando a política é calculada.
+`SAMEORIGIN` ou `DENY` impediria um Hub cross-origin.
+
+O Manager consulta a configuração persistida com cache curto para não criar uma query
+de banco para cada JS/CSS/imagem. Uma alteração salva invalida a decisão imediatamente.
+Em uma falha transitória do banco, a última política conhecida é preservada; antes da
+primeira leitura persistida, vale o bootstrap explícito do ambiente.
+
+## Verificação pública
+
+A própria tela possui **Verificar resposta pública**. O teste executa HEAD anônimo em
+`/manager/login`, sem enviar a API key, e mostra:
+
+- status HTTP;
+- diretiva `frame-ancestors` realmente recebida;
+- eventual `X-Frame-Options`;
+- estado de embedding informado pela aplicação.
+
+Isso diferencia configuração da aplicação de um header acrescentado depois por proxy.
 
 ## Reverse proxies
 
-Um proxy externo pode inserir `X-Frame-Options: SAMEORIGIN` depois que a Connect|API já respondeu corretamente. Nesse caso a correção precisa ocorrer nessa camada.
-
-O deployment CloudPanel inclui um exemplo específico em:
+O deployment CloudPanel inclui:
 
 ```text
 deploy/cloudpanel/nginx/api-location.conf.example
 ```
 
-Ele trata `/manager/` separadamente, elimina o bloqueio legado e publica `frame-ancestors *`.
+O bloco de `/manager/` não fixa `frame-ancestors *`. Ele apenas neutraliza
+`X-Frame-Options` legado e deixa a CSP dinâmica da Connect|API atravessar.
 
-Para outros Nginx/reverse proxies, a regra equivalente é:
+Para outros Nginx/reverse proxies, preserve a mesma ideia:
 
 ```nginx
 location ^~ /manager/ {
     proxy_pass http://127.0.0.1:38080;
     proxy_hide_header X-Frame-Options;
-    proxy_hide_header Content-Security-Policy;
 
-    add_header Content-Security-Policy "frame-ancestors *" always;
-    add_header X-Connect-Manager-Embedding "enabled" always;
+    # Qualquer add_header local evita herdar, em Nginx tradicional,
+    # um add_header X-Frame-Options definido no nível server.
+    add_header X-Connect-Manager-Proxy "iframe-policy-from-app" always;
 }
 ```
 
-Se o vhost pai possuir `add_header X-Frame-Options SAMEORIGIN`, remova essa diretiva para `/manager/` ou defina a política no nível da location de modo que o header pai não seja herdado.
+Não use `proxy_hide_header Content-Security-Policy` nem fixe uma CSP no proxy, pois isso
+anularia o cadastro feito pelo Manager.
 
 ## CORS não é a política de iframe
 
-`CORS_ORIGIN` controla requisições JavaScript cross-origin. Quem decide se a página pode aparecer dentro de um iframe é principalmente `Content-Security-Policy: frame-ancestors` e, em stacks legadas, `X-Frame-Options`.
+`CORS_ORIGIN` controla requisições JavaScript cross-origin. A permissão para exibir a
+página em iframe é definida por `Content-Security-Policy: frame-ancestors`.
 
-O Manager servido em `/manager/` continua falando com a Connect|API no próprio origin. No modo `access-code`, a chave validada permanece somente em memória do documento; o iframe não depende de cookie de terceiro para esse fluxo.
+O Manager em `/manager/` continua falando com a Connect|API no mesmo origin. No modo
+`access-code`, a chave validada permanece somente em memória do documento.
 
 ## Validação
 
@@ -83,10 +111,8 @@ O Manager servido em `/manager/` continua falando com a Connect|API no próprio 
 curl -sSI https://d.api.connect.argws.com.br/manager/login
 ```
 
-Confirme:
+Confirme que a CSP contém somente `'self'` e as origens cadastradas e que não existe
+`X-Frame-Options: SAMEORIGIN` ou `DENY`.
 
-1. `Content-Security-Policy` contém `frame-ancestors *` ou a origem autorizada;
-2. não existe `X-Frame-Options: SAMEORIGIN` nem `DENY`;
-3. `X-Connect-Manager-Embedding: enabled` está presente.
-
-Se o header `X-Frame-Options` continuar aparecendo, a origem é um reverse proxy, CDN ou WAF posterior à aplicação.
+A política se aplica somente ao Manager. WhatsApp, ZAPO, Find Hub, VOIP, webhooks,
+RabbitMQ, NATS, Kafka e demais providers não têm fluxo ou latência alterados por esse recurso.
