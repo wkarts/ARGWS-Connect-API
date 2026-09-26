@@ -4548,6 +4548,85 @@
           }
         }
       },
+      "ManagerEmbeddingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "configured",
+          "enabled",
+          "allowedOrigins",
+          "effectiveFrameAncestors",
+          "source",
+          "allowAnyOrigin"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "effectiveFrameAncestors": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "database",
+              "environment"
+            ]
+          },
+          "allowAnyOrigin": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagerEmbeddingUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "enabled",
+          "allowedOrigins"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
       "GenericResponse": {
         "type": "object",
         "additionalProperties": true
