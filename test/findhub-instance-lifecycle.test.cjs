@@ -70,6 +70,14 @@ function harness(options = {}) {
   class BadRequestException extends Error {
     constructor(message) { super(message); this.status = 400; }
   }
+  class FindHubAuthError extends Error {
+    constructor(code) {
+      super(`[FH-AUTH-${code}] synthetic auth failure`);
+      this.name = 'FindHubAuthError';
+      this.code = code;
+      this.diagnosticContext = { phase: 'adm', http: 403, fields: '0010' };
+    }
+  }
   const matches = (row, where) => Object.entries(where).every(([key, value]) => value === undefined || row[key] === value);
   const config = {
     get(name) {
@@ -165,6 +173,7 @@ function harness(options = {}) {
     },
     '../findhub.constants': { FINDHUB_INTEGRATION: Integration.GOOGLE_FIND_HUB, FINDHUB_EVENTS: {} },
     '../../../../../diagnostics/diagnostics.service': { diagnostics: { record() {} } },
+    '../auth/findhub-auth.error': { FindHubAuthError },
     '../auth/findhub-auth-broker.service': {
       FindHubAuthBrokerService: class {
         async load() {
@@ -192,6 +201,7 @@ function harness(options = {}) {
       FindHubProtocolClient: class {
         ready = false;
         async connect() {
+          if (options.findHubAuthErrorCode) throw new FindHubAuthError(options.findHubAuthErrorCode);
           if (options.findHubConnectError) throw new Error('temporary Google transport failure');
           this.ready = true;
         }
@@ -509,6 +519,36 @@ test('transient restore failure preserves a previously READY Find Hub account fo
   assert.equal(h.calls.filter(([name, id, state]) => name === 'auth.state' && id === 'google-id' && state === 'AUTH_REQUIRED').length, 0);
   assert.equal(h.calls.filter(([name]) => name === 'auth.clear').length, 0);
   assert.ok(h.errors.length > 0);
+});
+
+test('explicit Google credential rejection moves a previously READY account to AUTH_REQUIRED without unlinking data', async () => {
+  const h = harness({ loadedFindHubAuth: true, findHubAuthState: 'READY', findHubAuthErrorCode: 9102 });
+  h.rows.set('google-expired', {
+    id: 'google-id',
+    name: 'google-expired',
+    integration: Integration.GOOGLE_FIND_HUB,
+    token: 'persisted-token',
+    connectionStatus: 'open',
+  });
+
+  await h.monitor.setInstance({
+    instanceId: 'google-id',
+    instanceName: 'google-expired',
+    integration: Integration.GOOGLE_FIND_HUB,
+    token: 'persisted-token',
+    connectionStatus: 'open',
+  });
+
+  const runtime = h.monitor.waInstances['google-expired'];
+  assert.ok(runtime);
+  assert.equal(runtime.connectionStatus.state, 'close');
+  assert.equal(h.rows.get('google-expired').connectionStatus, 'close');
+  assert.equal(
+    h.calls.filter(([name, id, state]) => name === 'auth.state' && id === 'google-id' && state === 'AUTH_REQUIRED').length,
+    1,
+  );
+  assert.equal(h.calls.filter(([name]) => name === 'auth.clear').length, 0);
+  assert.equal(h.calls.filter(([name]) => name === 'devices.deleteMany').length, 0);
 });
 
 test('failed first verification still requires authentication without deleting stored credentials', async () => {

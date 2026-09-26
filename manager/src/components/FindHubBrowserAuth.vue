@@ -6,7 +6,7 @@ import { runtime } from '@/config/runtime'
 import { FINDHUB_EXTENSION_ID } from '@/services/findhub-extension-id'
 import { compatibleFindHubHelper, consumedFindHubAttempt } from '@/services/findhub-auth-state'
 import { friendlyError } from '@/services/errors'
-const props = defineProps<{ instanceId: string; initialEmail?: string }>()
+const props = defineProps<{ instanceId: string; initialEmail?: string; renewal?: boolean }>()
 const emit = defineEmits<{ connected: [] }>()
 const email = ref(props.initialEmail || ''), busy = ref(false), stage = ref(''), error = ref(''), downloading = ref(false)
 let port: any = null
@@ -116,14 +116,15 @@ async function download() {
 onBeforeUnmount(() => { void cancel() })
 </script>
 <template>
-  <PanelCard title="Conectar conta Google" description="Você faz login diretamente no Google. A Connect|API valida e protege as credenciais recebidas.">
+  <PanelCard :title="props.renewal ? 'Renovar autenticação Google' : 'Conectar conta Google'" :description="props.renewal ? 'Atualize somente as credenciais Google desta conta. Dispositivos, histórico e configurações permanecem na mesma instância.' : 'Você faz login diretamente no Google. A Connect|API valida e protege as credenciais recebidas.'">
     <div class="form-stack">
+      <div v-if="props.renewal" class="alert">O Google recusou as credenciais anteriores. Esta renovação substitui somente o material de autenticação após a nova conta ser validada com sucesso; os dados locais existentes não são removidos.</div>
       <div class="alert">Autenticação assistida por extensão própria, para Chrome/Edge no computador. É uma alternativa experimental ao fluxo puramente web; não funciona em qualquer navegador mobile e ainda exige homologação com sua conta. Nenhum aplicativo é instalado no smartphone que será localizado.</div>
       <details><summary>Preparar o navegador uma única vez</summary><p>Obtenha a extensão desta instalação, extraia o ZIP e abra a página de extensões do navegador. Ative o modo de desenvolvedor, escolha “Carregar sem compactação” e selecione a pasta extraída. Para atualizar, substitua os arquivos da pasta já carregada e clique em “Recarregar” na extensão. Para esta correção, confirme a versão 0.1.7 e recarregue a interface. Durante a vinculação, confira os destinos na janela da extensão antes de autorizar.</p><p>O protocolo privado pode produzir credenciais Google de alcance amplo. Use somente sua própria instalação confiável. Senha, PIN e confirmações são informados exclusivamente nas páginas Google.</p><button class="btn ghost" :disabled="downloading || busy" @click="download">{{ downloading ? 'Preparando…' : 'Obter extensão de autenticação' }}</button><p><a class="btn ghost" href="https://github.com/wkarts/ARGWS-Connect-API/releases?q=findhub" target="_blank" rel="noopener noreferrer">Instalador Windows e versões publicadas</a></p><p>O instalador prepara/atualiza os arquivos. O navegador ainda exige Carregar sem compactação ou Recarregar; nenhuma permissão é concedida silenciosamente. Escolha a distribuição correspondente ao seu canal e à versão da API.</p></details>
-      <label class="field"><span>Conta Google a vincular</span><input v-model="email" type="email" maxlength="320" autocomplete="email" :disabled="busy" placeholder="sua-conta@gmail.com" /></label>
+      <label class="field"><span>{{ props.renewal ? 'Conta Google a renovar' : 'Conta Google a vincular' }}</span><input v-model="email" type="email" maxlength="320" autocomplete="email" :disabled="busy || props.renewal" placeholder="sua-conta@gmail.com" /></label>
       <div v-if="error" class="alert error" role="alert">{{ error }}</div>
       <p v-if="stage" role="status">{{ stage }}</p>
-      <div class="toolbar"><button class="btn primary" :disabled="busy || !email.trim()" @click="start">{{ busy ? 'Aguardando vinculação…' : 'Conectar conta Google' }}</button><button v-if="busy" class="btn ghost" @click="cancel">Cancelar</button></div>
+      <div class="toolbar"><button class="btn primary" :disabled="busy || !email.trim()" @click="start">{{ busy ? (props.renewal ? 'Renovando autenticação…' : 'Aguardando vinculação…') : (props.renewal ? 'Renovar autenticação Google' : 'Conectar conta Google') }}</button><button v-if="busy" class="btn ghost" @click="cancel">Cancelar</button></div>
       <p class="muted">A mesma sequência está disponível na API para frontends externos. Você não precisa copiar identificadores nem tokens internos. Fechar esta página interrompe a tentativa, exceto uma verificação final já aceita pelo servidor.</p>
     </div>
   </PanelCard>

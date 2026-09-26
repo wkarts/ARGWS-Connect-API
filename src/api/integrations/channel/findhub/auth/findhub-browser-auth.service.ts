@@ -208,14 +208,18 @@ export class FindHubBrowserAuthService {
       }
       if (!sharedKey) throw new FindHubAuthError(9112);
       this.require(runtime, data);
-      await runtime.auth().importBundle(runtime.instanceName, {
-        ...data,
-        email: attempt.credentials.email,
-        androidId: attempt.credentials.androidId,
-        accountToken: attempt.credentials.aasToken,
-        fcm: attempt.fcm,
-        sharedKey: sharedKey.toString('base64'),
-      });
+      await runtime.auth().importBundle(
+        runtime.instanceName,
+        {
+          ...data,
+          email: attempt.credentials.email,
+          androidId: attempt.credentials.androidId,
+          accountToken: attempt.credentials.aasToken,
+          fcm: attempt.fcm,
+          sharedKey: sharedKey.toString('base64'),
+        },
+        { validated: true },
+      );
       await runtime.connect();
       if (!runtime.transportReady) throw new FindHubAuthError(9113);
       return { state: 'READY', email: attempt.email, connected: runtime.transportReady };

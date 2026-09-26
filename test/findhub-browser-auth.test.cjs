@@ -27,7 +27,7 @@ function harness(options = {}) {
   const key = crypto.randomBytes(32), iv = crypto.randomBytes(12), owner = crypto.randomBytes(32);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encryptedOwnerKey = Buffer.concat([iv, cipher.update(owner), cipher.final(), cipher.getAuthTag()]);
-  const stored = [], stages = [];
+  const stored = [], stages = [], imports = [];
   const overrides = {
     '../protocol/fcm.client': { FindHubFcmClient: class { async ensureRegistered() {
       if (options.registrationFailure) throw new Error('SENSITIVE');
@@ -43,14 +43,14 @@ function harness(options = {}) {
   const { FindHubBrowserAuthService, findHubVaultKeys } = load('src/api/integrations/channel/findhub/auth/findhub-browser-auth.service.ts', overrides);
   const broker = { async start(name, email) { const sessionId = crypto.randomUUID(), bridgeToken = crypto.randomBytes(32).toString('base64url');
     return { sessionId, bridgeToken, state: 'WAITING_AUTH', expiresAt: new Date(Date.now()+600000).toISOString() }; },
-    async importBundle(name, data) { stages.push('import'); stored.push(data); }, cancel() { stages.push('cancel'); },
+    async importBundle(name, data, options) { stages.push('import'); stored.push(data); imports.push(options || {}); }, cancel() { stages.push('cancel'); },
   };
   const runtime = { instanceId: 'google-local-id', instanceName: 'google', connectionStatus: { state: 'close' }, transportReady: false, auth: () => broker,
     async connect() { stages.push('connect'); if (options.connectFailure) throw new Error('SENSITIVE'); runtime.connectionStatus.state = 'open'; runtime.transportReady = true; },
   };
   const service = new FindHubBrowserAuthService();
   const vaultKeys = JSON.stringify({ finder_hw: [{ epoch: 1, key: Object.fromEntries([...key].map((v,i)=>[i,v])) }] });
-  return { service, runtime, stored, stages, vaultKeys, findHubVaultKeys, key };
+  return { service, runtime, stored, stages, imports, vaultKeys, findHubVaultKeys, key };
 }
 test('stored Find Hub credentials are reported as linked independently from live transport', async () => {
   const { FindHubAuthBrokerService } = load(
@@ -84,6 +84,79 @@ test('stored Find Hub credentials are reported as linked independently from live
   assert.equal(newAccount.ready, false);
 });
 
+test('AUTH_REQUIRED account renews credentials in place without unlinking persisted resources', async () => {
+  const env = { FINDHUB_CREDENTIALS_KEY: '11'.repeat(32) };
+  const { FindHubAuthBrokerService } = load(
+    'src/api/integrations/channel/findhub/auth/findhub-auth-broker.service.ts',
+    { '@api/repository/repository.service': {} },
+    { process: { env } },
+  );
+  const account = {
+    id: 'account-stable-id',
+    instanceId: 'google-id',
+    googleEmail: 'operator@example.com',
+    authState: 'AUTH_REQUIRED',
+    encryptedCredentials: 'old-credentials',
+    encryptedSharedKey: 'old-shared-key',
+    clientUuid: 'stable-client-uuid',
+  };
+  let deletes = 0;
+  const prisma = {
+    instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubAccount: {
+      async findUnique() { return account; },
+      async upsert() { throw new Error('renewal must not replace the account row'); },
+      async update({ data }) { Object.assign(account, data); return account; },
+      async deleteMany() { deletes++; return { count: 1 }; },
+    },
+  };
+  const broker = new FindHubAuthBrokerService(prisma);
+  const session = await broker.start('google', 'operator@example.com');
+  assert.equal(session.renewal, true);
+  assert.equal(account.id, 'account-stable-id');
+  assert.equal(account.clientUuid, 'stable-client-uuid');
+  assert.equal(account.authState, 'AUTH_REQUIRED');
+  assert.equal(account.encryptedCredentials, 'old-credentials');
+  assert.equal(account.encryptedSharedKey, 'old-shared-key');
+
+  await broker.importBundle('google', {
+    ...session,
+    email: 'operator@example.com',
+    androidId: '123456789',
+    accountToken: 'new-account-token',
+    sharedKey: Buffer.alloc(32, 7).toString('base64'),
+  });
+  assert.equal(account.id, 'account-stable-id');
+  assert.equal(account.clientUuid, 'stable-client-uuid');
+  assert.equal(account.authState, 'VERIFYING');
+  assert.notEqual(account.encryptedCredentials, 'old-credentials');
+  assert.notEqual(account.encryptedSharedKey, 'old-shared-key');
+  assert.equal(deletes, 0);
+});
+
+test('credential renewal cannot switch Google identity or overwrite a still READY account', async () => {
+  const { FindHubAuthBrokerService } = load(
+    'src/api/integrations/channel/findhub/auth/findhub-auth-broker.service.ts',
+    { '@api/repository/repository.service': {} },
+    { process: { env: { FINDHUB_CREDENTIALS_KEY: '22'.repeat(32) } } },
+  );
+  const account = {
+    instanceId: 'google-id',
+    googleEmail: 'operator@example.com',
+    authState: 'AUTH_REQUIRED',
+    encryptedCredentials: 'stored-credentials',
+    encryptedSharedKey: 'stored-shared-key',
+  };
+  const prisma = {
+    instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubAccount: { async findUnique() { return account; } },
+  };
+  const broker = new FindHubAuthBrokerService(prisma);
+  await assert.rejects(broker.start('google', 'other@example.com'), /mesma conta Google/);
+  account.authState = 'READY';
+  await assert.rejects(broker.start('google', 'operator@example.com'), /reconexão existente/);
+});
+
 test('browser flow starts without authenticating; nonce and expiry are internal', async () => {
   const h = harness(); const session = await h.service.start(h.runtime, 'operator@example.com');
   assert.equal(session.authMode, 'browser-extension'); assert.equal(session.state, 'WAITING_USER');
@@ -99,7 +172,7 @@ test('complete validates owner-key encryption before saving; connection checked 
   const url = new URL(exchange.unlockUrl); assert.equal(url.origin,'https://accounts.google.com'); assert.ok(url.searchParams.get('kdi'));
   const result = await h.service.complete(h.runtime, { ...session, vaultKeys: h.vaultKeys });
   assert.equal(result.connected,true); assert.equal(result.state,'READY');
-  assert.deepEqual(h.stages,['exchange','import','connect']); assert.equal(h.service.pending(h.runtime),null);
+  assert.deepEqual(h.stages,['exchange','import','connect']); assert.equal(h.imports[0].validated,true); assert.equal(h.service.pending(h.runtime),null);
   await assert.rejects(h.service.complete(h.runtime,{...session,vaultKeys:h.vaultKeys}),/FH-AUTH-9110/);
 });
 test('wrong account key is refused without persisting any bundle', async () => {
