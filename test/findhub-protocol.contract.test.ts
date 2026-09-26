@@ -247,6 +247,7 @@ test('Find Hub live catalogue preserves supervised Family Link devices without i
     fieldVarint(20, 263436067),
     fieldVarint(21, 35),
     fieldString(23, 'family-status-id'),
+    fieldMessage(32, fieldVarint(1, 53)),
     fieldMessage(38, family),
     fieldVarint(40, 2),
   );
@@ -265,6 +266,7 @@ test('Find Hub live catalogue preserves supervised Family Link devices without i
   assert.equal(device.familyLinkMemberName, 'Family member');
   assert.match(device.familyLinkUrl || '', /familylink\.google\.com/);
   assert.equal(device.androidSdkVersion, 35);
+  assert.equal(device.providerFlags?.['32.1'], 53);
   assert.equal(device.locateSupported, false);
 });
 
