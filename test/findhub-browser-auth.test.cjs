@@ -52,6 +52,38 @@ function harness(options = {}) {
   const vaultKeys = JSON.stringify({ finder_hw: [{ epoch: 1, key: Object.fromEntries([...key].map((v,i)=>[i,v])) }] });
   return { service, runtime, stored, stages, vaultKeys, findHubVaultKeys, key };
 }
+test('stored Find Hub credentials are reported as linked independently from live transport', async () => {
+  const { FindHubAuthBrokerService } = load(
+    'src/api/integrations/channel/findhub/auth/findhub-auth-broker.service.ts',
+    { '@api/repository/repository.service': {} },
+    { process: { env: { FINDHUB_CREDENTIALS_KEY: '11'.repeat(32) } } },
+  );
+  let account = {
+    authState: 'READY',
+    googleEmail: 'operator@example.com',
+    encryptedCredentials: 'stored-credentials',
+    encryptedSharedKey: 'stored-shared-key',
+  };
+  const prisma = {
+    instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubAccount: { async findUnique() { return account; } },
+  };
+  const broker = new FindHubAuthBrokerService(prisma);
+  const linked = await broker.status('google');
+  assert.equal(linked.linked, true);
+  assert.equal(linked.ready, true);
+
+  account = { ...account, authState: 'AUTH_REQUIRED' };
+  const disconnected = await broker.status('google');
+  assert.equal(disconnected.linked, true);
+  assert.equal(disconnected.ready, false);
+
+  account = { authState: 'WAITING_AUTH', googleEmail: 'operator@example.com' };
+  const newAccount = await broker.status('google');
+  assert.equal(newAccount.linked, false);
+  assert.equal(newAccount.ready, false);
+});
+
 test('browser flow starts without authenticating; nonce and expiry are internal', async () => {
   const h = harness(); const session = await h.service.start(h.runtime, 'operator@example.com');
   assert.equal(session.authMode, 'browser-extension'); assert.equal(session.state, 'WAITING_USER');
