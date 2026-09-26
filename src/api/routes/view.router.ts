@@ -2,7 +2,7 @@ import { RouterBroker } from '@api/abstract/abstract.router';
 import { ManagerEmbeddingService } from '@api/services/manager-embedding.service';
 import { managerFeatures } from '@config/manager-features.config';
 import { internalDocsTarget } from '@utils/internalDocsTarget';
-import { managerFramePolicy, type ManagerFramePolicy } from '@utils/managerFramePolicy';
+import { type ManagerFramePolicy, managerFramePolicy } from '@utils/managerFramePolicy';
 import express, { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -68,7 +68,10 @@ export class ViewsRouter extends RouterBroker {
     // Runtime configuration is emitted by the API container so production can
     // hide unfinished screens through ENV without rebuilding the Manager.
     this.router.get('/assets/runtime-config.js', async (_req, res) => {
-      const config = JSON.stringify(managerRuntimeConfig(await this.embeddingService.policy())).replace(/</g, '\\u003c');
+      const config = JSON.stringify(managerRuntimeConfig(await this.embeddingService.policy())).replace(
+        /</g,
+        '\\u003c',
+      );
       res
         .status(200)
         .type('application/javascript')
