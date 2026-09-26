@@ -185,7 +185,7 @@ FASTPAIR_DEVICE = 5
 SUPERVISED_ANDROID_DEVICE = 7
 ```
 
-As capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. Por isso a Connect|API trata os cinco valores como caminhos de descoberta best-effort: consulta SPOT primeiro e, em seguida, Android, Auto, Fast Pair e Supervised em paralelo; aceita qualquer resposta legível e deduplica por `googleDeviceId`. SPOT permanece apenas como desempate final de compatibilidade quando o mesmo dispositivo aparece em múltiplas respostas; sua indisponibilidade isolada não derruba a descoberta.
+As capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. Por isso a Connect|API trata os cinco valores como caminhos de descoberta best-effort: consulta SPOT primeiro e, em seguida, Android, Auto, Fast Pair e Supervised em paralelo; aceita qualquer resposta legível e deduplica por `googleDeviceId`. SPOT permanece apenas como desempate final de compatibilidade quando o mesmo dispositivo aparece em múltiplas respostas, enquanto `providerResponseAt` preserva o timestamp mais recente observado entre os seletores. Sua indisponibilidade isolada não derruba a descoberta.
 
 ## Recursos presentes no material e que pertencem a outro ciclo
 
