@@ -1,7 +1,8 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
+import { ManagerEmbeddingService } from '@api/services/manager-embedding.service';
 import { managerFeatures } from '@config/manager-features.config';
 import { internalDocsTarget } from '@utils/internalDocsTarget';
-import { managerFramePolicy } from '@utils/managerFramePolicy';
+import { managerFramePolicy, type ManagerFramePolicy } from '@utils/managerFramePolicy';
 import express, { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -26,8 +27,7 @@ function readApplicationVersion(): string {
 
 const applicationVersion = readApplicationVersion();
 
-function managerRuntimeConfig() {
-  const embedding = managerFramePolicy();
+function managerRuntimeConfig(embedding: ManagerFramePolicy = managerFramePolicy()) {
   return {
     compatibility: 'current',
     apiBaseUrl: process.env.MANAGER_API_BASE_URL?.trim() || '',
@@ -43,19 +43,17 @@ function managerRuntimeConfig() {
 export class ViewsRouter extends RouterBroker {
   public readonly router: Router;
 
-  constructor() {
+  constructor(private readonly embeddingService: ManagerEmbeddingService) {
     super();
     this.router = Router();
 
     const basePath = path.join(process.cwd(), 'manager', 'dist');
     const indexPath = path.join(basePath, 'index.html');
     const indexHtml = fs.readFileSync(indexPath, 'utf8');
-    const embedding = managerFramePolicy();
-
-    // The Manager is intentionally embeddable when enabled. CSP frame-ancestors
-    // is the standards-based control; X-Frame-Options would conflict with
-    // cross-origin hubs and is therefore removed from the application response.
-    this.router.use((_req, res, next) => {
+    // Resolve the persisted allowlist with a short cache. The database decision
+    // overrides ENV bootstrap after the first save, without adding a query for every asset.
+    this.router.use(async (_req, res, next) => {
+      const embedding = await this.embeddingService.policy();
       res.removeHeader('X-Frame-Options');
       res.set('Content-Security-Policy', embedding.contentSecurityPolicy);
       res.set('X-Connect-Manager-Embedding', embedding.enabled ? 'enabled' : 'disabled');
@@ -65,8 +63,8 @@ export class ViewsRouter extends RouterBroker {
 
     // Runtime configuration is emitted by the API container so production can
     // hide unfinished screens through ENV without rebuilding the Manager.
-    this.router.get('/assets/runtime-config.js', (_req, res) => {
-      const config = JSON.stringify(managerRuntimeConfig()).replace(/</g, '\\u003c');
+    this.router.get('/assets/runtime-config.js', async (_req, res) => {
+      const config = JSON.stringify(managerRuntimeConfig(await this.embeddingService.policy())).replace(/</g, '\\u003c');
       res
         .status(200)
         .type('application/javascript')
