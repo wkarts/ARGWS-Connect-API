@@ -9,7 +9,7 @@ import { findHubChannelBoundary } from '@api/integrations/channel/findhub/findhu
 import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
-import { managerEmbeddingService, prismaRepository, waMonitor } from '@api/server.module';
+import { managerEmbeddingService, waMonitor } from '@api/server.module';
 import { observeOperations } from '@api/services/operations.service';
 import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
