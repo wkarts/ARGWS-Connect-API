@@ -2,7 +2,12 @@ import { randomUUID } from 'crypto';
 
 import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
 import { decryptIdentityKey, decryptLocationReport, decryptOwnerKey } from '../crypto/findhub-crypto';
-import { FindHubDevice, FindHubPosition, FindHubStoredCredentials } from '../findhub.types';
+import {
+  FindHubDevice,
+  FindHubPosition,
+  FindHubSoundComponent,
+  FindHubStoredCredentials,
+} from '../findhub.types';
 import { FindHubFcmClient } from '../protocol/fcm.client';
 import {
   decodeDeviceMetadata,
@@ -155,6 +160,30 @@ export class FindHubProtocolClient {
     }
   }
 
+  public async sound(
+    device: FindHubDevice,
+    operation: 'start' | 'stop',
+    component: FindHubSoundComponent = 'UNSPECIFIED',
+  ): Promise<{ requestUuid: string; operation: 'start' | 'stop'; component: FindHubSoundComponent }> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    if (device.identifierType !== 'SPOT') {
+      throw new Error('O protocolo de som fornecido pela referência está disponível somente para dispositivos SPOT.');
+    }
+    const requestUuid = randomUUID();
+    await this.nova.sound(
+      {
+        googleDeviceId: device.googleDeviceId,
+        fcmRegistrationId: this.fcm.registrationToken,
+        requestUuid,
+        clientUuid: this.clientUuid,
+      },
+      operation,
+      component,
+      AbortSignal.timeout(commandTimeoutMs()),
+    );
+    return { requestUuid, operation, component };
+  }
+
   public async locate(
     device: FindHubDevice,
     timeoutMs?: number,
@@ -279,7 +308,16 @@ export class FindHubProtocolClient {
           altitude: location.altitude,
           accuracy: report.accuracy,
           timestamp: new Date(report.timestampSeconds * 1000).toISOString(),
-          source: report.ownReport ? 'RECENT' : 'NETWORK',
+          source:
+            report.status === 1
+              ? 'LAST_KNOWN'
+              : report.status === 2
+                ? 'CROWDSOURCED'
+                : report.status === 3
+                  ? 'AGGREGATED'
+                  : report.ownReport
+                    ? 'RECENT'
+                    : 'NETWORK',
           semanticLocation: report.semanticLocation,
           ownReport: report.ownReport,
         };
