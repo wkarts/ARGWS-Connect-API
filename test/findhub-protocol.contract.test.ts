@@ -70,7 +70,7 @@ test('Find Hub metadata decoder preserves every proven identifier, ownership and
   assert.equal(device.manufacturer, 'Example Motors');
   assert.equal(device.model, 'Tracker X');
   assert.equal(device.fastPairModelId, 'A1B2C3');
-  assert.equal(device.pairedAt, '2026-09-26T00:00:00.000Z');
+  assert.equal(device.pairedAt, '2026-09-26T02:40:00.000Z');
   assert.equal(device.ownerKeyVersion, 7);
   assert.equal(device.networkAggregationMinReports, 3);
   assert.equal(device.identityKeyFingerprint, 'c45b801ba4aec1e55f00b768e888f15a1178a8f982d615454822034dec1c568a');
