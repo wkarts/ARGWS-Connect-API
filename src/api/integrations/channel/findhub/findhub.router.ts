@@ -169,10 +169,7 @@ export class FindHubRouter extends RouterBroker {
         const payload = await findHubController.captureProtocolCatalog(req.params.instanceName, catalog);
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Type', 'application/x-protobuf');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="findhub-devices-${catalog}-${Date.now()}.pb"`,
-        );
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-devices-${catalog}-${Date.now()}.pb"`);
         res.send(payload);
       })
       .get('/device/avatar/:deviceId/:instanceName', ...guards, async (req, res) => {
@@ -211,11 +208,7 @@ export class FindHubRouter extends RouterBroker {
           schema: findHubLocateSchema,
           ClassRef: FindHubLocateDto,
           execute: (instance, data) =>
-            findHubController.captureProtocolDeviceUpdate(
-              instance.instanceName,
-              req.params.deviceId,
-              data.timeoutMs,
-            ),
+            findHubController.captureProtocolDeviceUpdate(instance.instanceName, req.params.deviceId, data.timeoutMs),
         });
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Type', 'application/x-protobuf');
