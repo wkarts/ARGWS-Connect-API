@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { FindHubNovaClient } from '../src/api/integrations/channel/findhub/protocol/nova.client';
 import {
   decodeDeviceMetadata,
   decodeLocationReports,
@@ -45,6 +46,38 @@ test('Find Hub exposes every catalogue DeviceType defined by the supplied refere
   assert.equal(encodeDeviceListRequest('req', DeviceType.AUTO).toString('hex'), '0a0708041a03726571');
   assert.equal(encodeDeviceListRequest('req', DeviceType.FASTPAIR).toString('hex'), '0a0708051a03726571');
   assert.equal(encodeDeviceListRequest('req', DeviceType.SUPERVISED_ANDROID).toString('hex'), '0a0708071a03726571');
+});
+
+test('Find Hub catalogue discovery falls back across live-equivalent selectors and preserves total failure', async () => {
+  const identifier = concat(
+    fieldMessage(3, fieldMessage(1, fieldString(1, 'catalog-fallback-id'))),
+    fieldVarint(2, 2),
+  );
+  const description = concat(fieldString(1, 'Fallback Phone'), fieldVarint(2, 20));
+  const registration = fieldMessage(2, description);
+  const metadata = concat(
+    fieldMessage(1, identifier),
+    fieldMessage(4, fieldMessage(1, registration)),
+    fieldString(5, 'Fallback Phone'),
+  );
+  const response = fieldMessage(2, metadata);
+
+  const fallback = new FindHubNovaClient(null as never, null as never);
+  fallback.captureDevicesListRaw = async (catalog) => {
+    if (catalog === 'android') return response;
+    throw new Error(`${catalog} unavailable`);
+  };
+  const devices = await fallback.listDevices();
+  assert.equal(devices.length, 1);
+  assert.equal(devices[0].googleDeviceId, 'catalog-fallback-id');
+  assert.equal(devices[0].name, 'Fallback Phone');
+
+  const failure = new Error('credential/provider failure');
+  const unavailable = new FindHubNovaClient(null as never, null as never);
+  unavailable.captureDevicesListRaw = async () => {
+    throw failure;
+  };
+  await assert.rejects(unavailable.listDevices(), (error) => error === failure);
 });
 
 test('Find Hub locate protobuf matches reference wire format', () => {
