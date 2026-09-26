@@ -1164,13 +1164,21 @@ export class FindHubStartupService {
     const previous = device.latestPosition || null;
     const repeated = valid.filter((position) => !isNewPositionObservation(position, previous)).length;
     const newest = [...valid].sort(comparePositionPreference)[0];
+    const newestAt = new Date(newest.timestamp);
     await (this.prisma as any).findHubDevice.updateMany({
       where: { id: device.id, instanceId: this.instance.id },
       data: {
         providerReportCount: { increment: valid.length },
         providerRepeatedReportCount: { increment: repeated },
-        lastProviderReportAt: new Date(newest.timestamp),
       },
+    });
+    await (this.prisma as any).findHubDevice.updateMany({
+      where: {
+        id: device.id,
+        instanceId: this.instance.id,
+        OR: [{ lastProviderReportAt: null }, { lastProviderReportAt: { lte: newestAt } }],
+      },
+      data: { lastProviderReportAt: newestAt },
     });
   }
 
