@@ -119,8 +119,9 @@ const accessRole = (item: any) => item?.thisAccount ? 'Esta conta' : item?.isOwn
 function soundOperationSupported(device: any, operation: 'start'|'stop') {
   const actionField = operation === 'start' ? 31 : 32
   const capabilities = Array.isArray(device?.providerCapabilities) ? device.providerCapabilities : []
-  if (capabilities.length) return capabilities.some((item: any) => Number(item?.actionField) === actionField && Number(item?.state) > 0)
-  return device?.identifierType === 'SPOT' && device?.locateSupported !== false
+  if (device?.locateSupported === false) return false
+  if (capabilities.length) return capabilities.some((item: any) => Number(item?.actionField) === actionField && Number(item?.state) === 1)
+  return device?.identifierType === 'SPOT'
 }
 const soundSupported = (device: any) => soundOperationSupported(device,'start') || soundOperationSupported(device,'stop')
 const soundComponentSelectionSupported = (device: any) => ['HEADPHONES','EARBUDS'].includes(String(device?.deviceType || ''))
