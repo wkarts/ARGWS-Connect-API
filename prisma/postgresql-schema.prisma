@@ -60,6 +60,16 @@ enum DifyBotType {
   workflow
 }
 
+model ManagerEmbeddingSetting {
+  id             Int      @id
+  configured     Boolean  @default(false)
+  enabled        Boolean  @default(false)
+  allowedOrigins Json?
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @db.Timestamp
+  updatedAt      DateTime @updatedAt @db.Timestamp
+}
+
 model Instance {
   id                      String                   @id @default(cuid())
   name                    String                   @unique @db.VarChar(255)
