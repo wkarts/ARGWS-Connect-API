@@ -73,9 +73,7 @@ export class FindHubNovaClient {
       const failure = results.find((result) => result.error !== undefined)?.error;
       if (failure instanceof Error) throw failure;
       throw new Error(
-        failure === undefined
-          ? 'Google Find Hub did not return any readable device catalogue'
-          : String(failure),
+        failure === undefined ? 'Google Find Hub did not return any readable device catalogue' : String(failure),
       );
     }
 
