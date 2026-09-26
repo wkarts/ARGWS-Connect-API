@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-24T11:30:34.884Z",
   "version": "1.1.3",
-  "sourceDigest": "a0be560764c97b70387725244bae88e4de669ee6ae3cd0d3e1e1e930f7670443",
+  "sourceDigest": "878ba723e83a438e94a44ca0c2ea5b2c9762633c31131d528676c9f88673a2cd",
   "operations": [
     {
       "method": "GET",
@@ -516,6 +516,16 @@
     {
       "method": "POST",
       "path": "/findhub/positions/reconcile/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/catalog/{catalog}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/device-update/{deviceId}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {
