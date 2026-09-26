@@ -49,6 +49,8 @@ test('Find Hub sound follows advertised action capabilities instead of catalogue
   assert.match(protocol, /findHubSupportsSoundAction/);
   assert.match(protocol, /operation === 'start' \? 31 : 32/);
   assert.match(protocol, /capability\.actionField === actionField/);
+  assert.match(protocol, /capability\.state === 1/);
+  assert.match(protocol, /device\.locateSupported === false/);
   assert.match(protocol, /device\.identifierType === 'SPOT'/);
   assert.doesNotMatch(protocol, /disponível somente para dispositivos SPOT/);
 
