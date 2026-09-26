@@ -67,5 +67,7 @@ test('Nova treats SPOT, Android, Auto, Fast Pair and supervised selectors as res
   assert.match(nova, /result\.catalog !== 'spot'/);
   assert.match(nova, /result\.catalog === 'spot'/);
   assert.match(nova, /never make it a hard dependency/);
+  assert.match(nova, /result\.error !== undefined/);
+  assert.match(nova, /failure instanceof Error/);
   assert.match(nova, /did not return any readable device catalogue/);
 });
