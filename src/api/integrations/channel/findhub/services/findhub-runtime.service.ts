@@ -303,6 +303,22 @@ export class FindHubStartupService {
           deviceType: device.deviceType,
           manufacturer: device.manufacturer,
           model: device.model,
+          deviceCodename: device.deviceCodename,
+          productName: device.productName,
+          carrier: device.carrier,
+          imei: device.imei,
+          androidDeviceNumericId: device.androidDeviceNumericId,
+          providerOpaqueId: device.providerOpaqueId,
+          providerRegisteredAt: device.providerRegisteredAt ? new Date(device.providerRegisteredAt) : null,
+          providerStatusAt: device.providerStatusAt ? new Date(device.providerStatusAt) : null,
+          providerResponseAt: device.providerResponseAt ? new Date(device.providerResponseAt) : null,
+          gmsCoreVersionCode: device.gmsCoreVersionCode ?? null,
+          androidSdkVersion: device.androidSdkVersion ?? null,
+          familyLinkManaged: Boolean(device.familyLinkManaged),
+          familyLinkMemberName: device.familyLinkMemberName,
+          familyLinkUrl: device.familyLinkUrl,
+          providerCapabilities: device.providerCapabilities || [],
+          providerFlags: device.providerFlags || {},
           fastPairModelId: device.fastPairModelId,
           pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
           canonicalIds: device.canonicalIds || [],
@@ -324,6 +340,22 @@ export class FindHubStartupService {
           deviceType: device.deviceType,
           manufacturer: device.manufacturer,
           model: device.model,
+          deviceCodename: device.deviceCodename,
+          productName: device.productName,
+          carrier: device.carrier,
+          imei: device.imei,
+          androidDeviceNumericId: device.androidDeviceNumericId,
+          providerOpaqueId: device.providerOpaqueId,
+          providerRegisteredAt: device.providerRegisteredAt ? new Date(device.providerRegisteredAt) : null,
+          providerStatusAt: device.providerStatusAt ? new Date(device.providerStatusAt) : null,
+          providerResponseAt: device.providerResponseAt ? new Date(device.providerResponseAt) : null,
+          gmsCoreVersionCode: device.gmsCoreVersionCode ?? null,
+          androidSdkVersion: device.androidSdkVersion ?? null,
+          familyLinkManaged: Boolean(device.familyLinkManaged),
+          familyLinkMemberName: device.familyLinkMemberName,
+          familyLinkUrl: device.familyLinkUrl,
+          providerCapabilities: device.providerCapabilities || [],
+          providerFlags: device.providerFlags || {},
           fastPairModelId: device.fastPairModelId,
           pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
           canonicalIds: device.canonicalIds || [],
@@ -405,6 +437,10 @@ export class FindHubStartupService {
   }
 
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
+    const target = await this.device(deviceId);
+    if (target.locateSupported === false) {
+      throw new Error('Este dispositivo é visível no catálogo Google, mas o protocolo de localização ainda não foi mapeado para este identificador.');
+    }
     const existing = this.locating.get(deviceId);
     if (existing) return await existing;
     const operation = this.locateOnce(deviceId, timeoutMs);
@@ -548,6 +584,9 @@ export class FindHubStartupService {
 
   public async startTracking(deviceId: string, intervalSeconds?: number, timeoutMs?: number): Promise<any> {
     const device = await this.device(deviceId);
+    if (device.locateSupported === false) {
+      throw new Error('Rastreamento ainda não suportado para este tipo de identificador Google.');
+    }
     const selected = trackingSettings({
       ...(await this.settings()),
       intervalSeconds: intervalSeconds ?? device.trackingIntervalSeconds ?? (await this.settings()).intervalSeconds,
@@ -1598,6 +1637,23 @@ export class FindHubStartupService {
       deviceType: row.deviceType,
       manufacturer: row.manufacturer || undefined,
       model: row.model || undefined,
+      deviceCodename: row.deviceCodename || undefined,
+      productName: row.productName || undefined,
+      carrier: row.carrier || undefined,
+      imei: row.imei || undefined,
+      androidDeviceNumericId: row.androidDeviceNumericId || undefined,
+      providerOpaqueId: row.providerOpaqueId || undefined,
+      providerRegisteredAt: row.providerRegisteredAt?.toISOString?.() || row.providerRegisteredAt || null,
+      providerStatusAt: row.providerStatusAt?.toISOString?.() || row.providerStatusAt || null,
+      providerResponseAt: row.providerResponseAt?.toISOString?.() || row.providerResponseAt || null,
+      gmsCoreVersionCode: row.gmsCoreVersionCode ?? undefined,
+      androidSdkVersion: row.androidSdkVersion ?? undefined,
+      familyLinkManaged: Boolean(row.familyLinkManaged),
+      familyLinkMemberName: row.familyLinkMemberName || undefined,
+      familyLinkUrl: row.familyLinkUrl || undefined,
+      providerCapabilities: Array.isArray(row.providerCapabilities) ? row.providerCapabilities : [],
+      providerFlags: row.providerFlags && typeof row.providerFlags === 'object' ? row.providerFlags : {},
+      locateSupported: Array.isArray(row.canonicalIds) ? row.canonicalIds.length > 0 : !String(row.googleDeviceId).startsWith('metadata:'),
       fastPairModelId: row.fastPairModelId || undefined,
       pairedAt: row.pairedAt?.toISOString?.() || row.pairedAt || null,
       canonicalIds: Array.isArray(row.canonicalIds) ? row.canonicalIds : [],
@@ -1637,6 +1693,23 @@ export class FindHubStartupService {
       deviceType: device.deviceType,
       manufacturer: device.manufacturer,
       model: device.model,
+      deviceCodename: device.deviceCodename,
+      productName: device.productName,
+      carrier: device.carrier,
+      imei: device.imei,
+      androidDeviceNumericId: device.androidDeviceNumericId,
+      providerOpaqueId: device.providerOpaqueId,
+      providerRegisteredAt: device.providerRegisteredAt,
+      providerStatusAt: device.providerStatusAt,
+      providerResponseAt: device.providerResponseAt,
+      gmsCoreVersionCode: device.gmsCoreVersionCode,
+      androidSdkVersion: device.androidSdkVersion,
+      familyLinkManaged: Boolean(device.familyLinkManaged),
+      familyLinkMemberName: device.familyLinkMemberName,
+      familyLinkUrl: device.familyLinkUrl,
+      providerCapabilities: device.providerCapabilities || [],
+      providerFlags: device.providerFlags || {},
+      locateSupported: device.locateSupported !== false,
       fastPairModelId: device.fastPairModelId,
       pairedAt: device.pairedAt,
       accessInformation: device.accessInformation || [],
