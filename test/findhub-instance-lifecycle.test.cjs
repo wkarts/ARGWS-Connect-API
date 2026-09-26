@@ -167,12 +167,38 @@ function harness(options = {}) {
     '../../../../../diagnostics/diagnostics.service': { diagnostics: { record() {} } },
     '../auth/findhub-auth-broker.service': {
       FindHubAuthBrokerService: class {
-        async load() { return null; }
-        async status() { return { state: 'WAITING_AUTH', email: null, ready: false }; }
+        async load() {
+          if (!options.loadedFindHubAuth) return null;
+          return {
+            credentials: { aas: { email: 'operator@example.com', androidId: '123456789', aasToken: 'stored-token' } },
+            sharedKey: Buffer.alloc(32, 7),
+            account: {
+              id: 'findhub-account',
+              clientUuid: 'persisted-client-uuid',
+              authState: options.findHubAuthState || 'READY',
+            },
+          };
+        }
+        async status() {
+          return options.loadedFindHubAuth
+            ? { state: options.findHubAuthState || 'READY', email: 'operator@example.com', linked: true, ready: true }
+            : { state: 'WAITING_AUTH', email: null, linked: false, ready: false };
+        }
+        async setAuthState(id, state) { calls.push(['auth.state', id, state]); }
         async clear(id) { calls.push(['auth.clear', id]); }
       },
     },
-    './findhub-protocol.client': { FindHubProtocolClient: class { constructor() { throw new Error('Unexpected Google connection'); } } },
+    './findhub-protocol.client': {
+      FindHubProtocolClient: class {
+        ready = false;
+        async connect() {
+          if (options.findHubConnectError) throw new Error('temporary Google transport failure');
+          this.ready = true;
+        }
+        async close() { this.ready = false; }
+        async listDevices() { return []; }
+      },
+    },
     './findhub-traccar.service': { FindHubTraccarService: class {} },
     '@prisma/client': { Prisma: { DbNull: null } },
     '../auth/findhub-credential-vault': { FindHubCredentialVault: class { constructor() { throw new Error('Unexpected credential access in lifecycle test'); } } },
@@ -398,13 +424,15 @@ test('generic logout event skips the WhatsApp-only Chatwoot runtime hook', async
   assert.equal(h.rows.get('findhub-test').connectionStatus, 'close');
 });
 
-test('generic no.connection event does not fabricate WhatsApp QR state on Find Hub', async () => {
+test('generic no.connection event closes Find Hub transport without clearing persisted account data', async () => {
   const h = harness();
   await h.controller.createInstance(findHub());
   const runtime = h.monitor.waInstances['findhub-test'];
   await h.emitter.listeners('no.connection')[0]('findhub-test');
   assert.equal(runtime.instance.qrcode, undefined);
   assert.equal(runtime.connectionStatus.state, 'close');
+  assert.equal(h.calls.filter(([name]) => name === 'auth.clear').length, 0);
+  assert.equal(h.calls.filter(([name]) => name === 'devices.deleteMany').length, 0);
   assert.equal(h.errors.length, 0);
 });
 
@@ -455,6 +483,55 @@ test('legacy monitor save error handling is unchanged for WhatsApp', async () =>
   assert.equal(h.errors.length, 1);
 });
 
+
+test('transient restore failure preserves a previously READY Find Hub account for retry', async () => {
+  const h = harness({ loadedFindHubAuth: true, findHubAuthState: 'READY', findHubConnectError: true });
+  h.rows.set('google-restore', {
+    id: 'google-id',
+    name: 'google-restore',
+    integration: Integration.GOOGLE_FIND_HUB,
+    token: 'persisted-token',
+    connectionStatus: 'open',
+  });
+
+  await h.monitor.setInstance({
+    instanceId: 'google-id',
+    instanceName: 'google-restore',
+    integration: Integration.GOOGLE_FIND_HUB,
+    token: 'persisted-token',
+    connectionStatus: 'open',
+  });
+
+  const runtime = h.monitor.waInstances['google-restore'];
+  assert.ok(runtime);
+  assert.equal(runtime.connectionStatus.state, 'close');
+  assert.equal(h.rows.get('google-restore').connectionStatus, 'close');
+  assert.equal(h.calls.filter(([name, id, state]) => name === 'auth.state' && id === 'google-id' && state === 'AUTH_REQUIRED').length, 0);
+  assert.equal(h.calls.filter(([name]) => name === 'auth.clear').length, 0);
+  assert.ok(h.errors.length > 0);
+});
+
+test('failed first verification still requires authentication without deleting stored credentials', async () => {
+  const h = harness({ loadedFindHubAuth: true, findHubAuthState: 'VERIFYING', findHubConnectError: true });
+  h.rows.set('google-verify', {
+    id: 'google-id',
+    name: 'google-verify',
+    integration: Integration.GOOGLE_FIND_HUB,
+    token: 'persisted-token',
+    connectionStatus: 'connecting',
+  });
+
+  await h.monitor.setInstance({
+    instanceId: 'google-id',
+    instanceName: 'google-verify',
+    integration: Integration.GOOGLE_FIND_HUB,
+    token: 'persisted-token',
+    connectionStatus: 'connecting',
+  });
+
+  assert.equal(h.calls.filter(([name, id, state]) => name === 'auth.state' && id === 'google-id' && state === 'AUTH_REQUIRED').length, 1);
+  assert.equal(h.calls.filter(([name]) => name === 'auth.clear').length, 0);
+});
 
 test('restoring a failed Google account does not reject loading unrelated WhatsApp runtimes', async () => {
   const h = harness({ factoryError: true });
