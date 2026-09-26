@@ -7,8 +7,8 @@ import { createHash, randomUUID } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 
 import { diagnostics } from '../../../../../diagnostics/diagnostics.service';
-import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
 import { FindHubAuthError } from '../auth/findhub-auth.error';
+import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
 import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
 import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
@@ -214,8 +214,7 @@ export class FindHubStartupService {
       });
     } catch (error) {
       await this.closeClient().catch(() => undefined);
-      const credentialRejected =
-        error instanceof FindHubAuthError && [9102, 9103, 9104, 9105].includes(error.code);
+      const credentialRejected = error instanceof FindHubAuthError && [9102, 9103, 9104, 9105].includes(error.code);
       if (!credentialsValidated || credentialRejected) {
         await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
       }
