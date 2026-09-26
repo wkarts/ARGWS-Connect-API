@@ -164,6 +164,17 @@ export class FindHubRouter extends RouterBroker {
       .post('/devices/refresh/:instanceName', ...guards, async (req, res) =>
         res.json(await findHubController.refreshDevices(req.params.instanceName)),
       )
+      .post('/protocol/capture/catalog/:catalog/:instanceName', ...guards, async (req, res) => {
+        const catalog = String(req.params.catalog || '').toLowerCase();
+        const payload = await findHubController.captureProtocolCatalog(req.params.instanceName, catalog);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="findhub-devices-${catalog}-${Date.now()}.pb"`,
+        );
+        res.send(payload);
+      })
       .get('/device/avatar/:deviceId/:instanceName', ...guards, async (req, res) => {
         const device = await findHubController.device(req.params.instanceName, req.params.deviceId);
         res.setHeader('Cache-Control', 'private, no-store');
@@ -194,6 +205,27 @@ export class FindHubRouter extends RouterBroker {
           }),
         ),
       )
+      .post('/protocol/capture/device-update/:deviceId/:instanceName', ...guards, async (req, res) => {
+        const result = await this.dataValidate<FindHubLocateDto>({
+          request: req,
+          schema: findHubLocateSchema,
+          ClassRef: FindHubLocateDto,
+          execute: (instance, data) =>
+            findHubController.captureProtocolDeviceUpdate(
+              instance.instanceName,
+              req.params.deviceId,
+              data.timeoutMs,
+            ),
+        });
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader('X-FindHub-Device-Metadata-Bytes', String(result.deviceMetadata.length));
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="findhub-device-update-${req.params.deviceId}-${Date.now()}.pb"`,
+        );
+        res.send(result.payload);
+      })
       .post('/sound/start/:deviceId/:instanceName', ...guards, async (req, res) =>
         res.json(
           await this.dataValidate<FindHubSoundDto>({
