@@ -151,6 +151,7 @@ test('credential renewal cannot switch Google identity or overwrite a still READ
   };
   const prisma = {
     instance: { async findUnique() { return { id: 'google-id' }; } },
+    findHubDevice: { async count() { return 1; } },
     findHubAccount: { async findUnique() { return account; } },
   };
   const broker = new FindHubAuthBrokerService(prisma);
