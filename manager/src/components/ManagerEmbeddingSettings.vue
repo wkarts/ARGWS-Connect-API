@@ -48,7 +48,7 @@ async function save() {
       allowedOrigins,
     })
     apply(updated)
-    message.value = 'Origens de iframe atualizadas. A política já passa a valer nas novas respostas do Manager.'
+    message.value = 'Origens de iframe atualizadas. A política já passa a valer nas novas respostas da aplicação.'
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -87,7 +87,7 @@ onMounted(load)
   <PanelCard
     v-if="supported"
     title="Incorporação em iframe"
-    description="Autorize exatamente quais Hubs, portais ou sistemas podem exibir o Manager dentro de um iframe."
+    description="Autorize exatamente quais Hubs, portais ou sistemas podem exibir esta interface dentro de um iframe."
   >
     <div v-if="error" class="alert error">{{ error }}</div>
     <div v-if="message" class="alert success">{{ message }}</div>
@@ -101,7 +101,7 @@ onMounted(load)
         <input v-model="enabled" type="checkbox" />
         <span>
           <strong>Permitir incorporação</strong>
-          <small>Quando desativado, o Manager responde com <code>frame-ancestors 'none'</code>.</small>
+          <small>Quando desativado, a aplicação responde com <code>frame-ancestors 'none'</code>.</small>
         </span>
       </label>
 
@@ -131,7 +131,7 @@ onMounted(load)
       </div>
 
       <div v-if="probe" class="probe-box">
-        <strong>Resposta pública do Manager</strong>
+        <strong>Resposta pública da aplicação</strong>
         <span>HTTP {{ probe.status }}</span>
         <span>CSP: <code>{{ probe.frameAncestors || 'sem frame-ancestors' }}</code></span>
         <span>X-Frame-Options: <code>{{ probe.xFrameOptions || 'ausente' }}</code></span>
