@@ -221,7 +221,9 @@ export class FindHubStartupService {
         level: 'warn',
         error,
       });
-      throw new Error('Não foi possível validar a conexão Google Find Hub. As credenciais armazenadas foram preservadas.');
+      throw new Error(
+        'Não foi possível validar a conexão Google Find Hub. As credenciais armazenadas foram preservadas.',
+      );
     }
     return { instance: { instanceName: this.instance.name, status: 'open' }, auth: { state: 'READY' } };
   }
