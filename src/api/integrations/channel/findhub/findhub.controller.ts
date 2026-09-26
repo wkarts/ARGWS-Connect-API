@@ -139,6 +139,18 @@ export class FindHubController {
   public locate(instanceName: string, deviceId: string, timeoutMs?: number) {
     return this.runtime(instanceName).locate(deviceId, timeoutMs);
   }
+  public async sound(
+    instanceName: string,
+    deviceId: string,
+    operation: 'start' | 'stop',
+    data: { component?: 'UNSPECIFIED' | 'RIGHT' | 'LEFT' | 'CASE' },
+  ) {
+    try {
+      return await this.runtime(instanceName).sound(deviceId, operation, data.component || 'UNSPECIFIED');
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao executar som no dispositivo.');
+    }
+  }
   public startTracking(instanceName: string, deviceId: string, data: any) {
     return this.runtime(instanceName).startTracking(deviceId, data.intervalSeconds, data.timeoutMs);
   }
