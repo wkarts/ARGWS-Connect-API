@@ -169,6 +169,41 @@ test('Find Hub live 2026 catalogue decodes Android hardware metadata without usi
   assert.equal(device.accessInformation?.[0]?.isOwner, true);
 });
 
+test('Find Hub legacy PHONE DeviceUpdate treats field 21 as Android codename and preserves sound capabilities', () => {
+  const identifier = concat(
+    fieldVarint(2, 2),
+    fieldMessage(3, fieldMessage(1, fieldString(1, 'phone-device-test-uuid'))),
+  );
+  const capability = (actionField: number) =>
+    fieldMessage(2, concat(fieldMessage(1, fieldMessage(actionField, Buffer.alloc(0))), fieldVarint(2, 1)));
+  const description = concat(fieldString(1, 'Fixture Phone'), fieldVarint(2, 20));
+  const registration = concat(
+    fieldMessage(2, description),
+    fieldString(20, 'Example Manufacturer'),
+    fieldString(21, 'fixture_codename'),
+    fieldString(34, 'Fixture Model'),
+  );
+  const metadata = concat(
+    fieldMessage(1, identifier),
+    capability(31),
+    capability(32),
+    fieldMessage(4, fieldMessage(1, registration)),
+    fieldString(5, 'Fixture Phone'),
+  );
+
+  const [device] = decodeDeviceMetadata(metadata);
+  assert.equal(device.identifierType, 'SPOT');
+  assert.equal(device.deviceType, 'PHONE');
+  assert.equal(device.manufacturer, 'Example Manufacturer');
+  assert.equal(device.model, 'Fixture Model');
+  assert.equal(device.deviceCodename, 'fixture_codename');
+  assert.equal(device.fastPairModelId, undefined);
+  assert.deepEqual(device.providerCapabilities, [
+    { actionField: 31, state: 1 },
+    { actionField: 32, state: 1 },
+  ]);
+});
+
 test('Find Hub live catalogue preserves supervised Family Link devices without inventing a canonical ID', () => {
   const identifier = concat(
     fieldMessage(1, concat(fieldVarint(1, 555n), fieldVarint(3, 999n))),
