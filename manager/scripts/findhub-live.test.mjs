@@ -20,6 +20,15 @@ test('Find Hub map complies with tile identification without changing platform p
  assert.doesNotMatch(source,/no-cache|cacheBust|Date.now\(\).*tile/);
  assert.match(source,/OpenStreetMap contributors/);
 });
+test('linked Find Hub account reconnects stored credentials instead of starting a new login',()=>{
+ const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
+ assert.match(source,/const linked = computed\(\(\) => auth\.value\?\.linked === true\)/);
+ assert.match(source,/connect\.connectConnection\(id\.value\)/);
+ assert.match(source,/v-if="!connected && linked"/);
+ assert.match(source,/v-else-if="!connected"/);
+ assert.match(source,/Reconectar com credenciais salvas/);
+});
+
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  for(const name of ['config-layout','config-nav','config-nav-item','config-workspace','PageHeader','shortcut-card'])assert.ok(source.includes(name));
