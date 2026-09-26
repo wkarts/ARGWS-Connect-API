@@ -1365,9 +1365,9 @@ export class FindHubStartupService {
           providerFreshnessTelemetry: true,
           battery: {
             supported: false,
-            candidateWireField: 'status.32.1',
+            candidateWireFields: ['registration.2.11', 'status.32.1'],
             reason:
-              'Foi observado status.32.1=53 em um dispositivo supervisionado, mas ainda não há correlação suficiente para afirmar que o valor é percentual de bateria.',
+              'O Redmi Note 14 mantém registration.2.11=3 nos cinco seletores; uma implementação pública independente interpreta 1/2/3 nesse caminho como tiers low/medium/high para telefones. status.32.1=53 também foi observado em dispositivo supervisionado. Nenhum dos dois campos é promovido a bateria sem correlação física adicional.',
           },
           imei: {
             supported: true,
