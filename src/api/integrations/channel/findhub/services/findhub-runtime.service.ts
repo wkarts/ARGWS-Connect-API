@@ -1362,8 +1362,9 @@ export class FindHubStartupService {
             reason: 'O protocolo de referência fornecido não expõe percentual de bateria.',
           },
           imei: {
-            supported: false,
-            reason: 'O protocolo de referência fornecido não expõe IMEI.',
+            supported: true,
+            reason:
+              'O catálogo vivo de 2026 expõe IMEI quando o Google fornece um valor de 15 dígitos com check digit válido.',
           },
           meid: {
             supported: false,
