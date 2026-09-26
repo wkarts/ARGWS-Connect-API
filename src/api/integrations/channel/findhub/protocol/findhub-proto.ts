@@ -15,7 +15,15 @@ import {
   string,
 } from './protobuf';
 
-export const DeviceType = { ANDROID: 1, SPOT: 2 } as const;
+export const DeviceType = {
+  UNKNOWN: 0,
+  ANDROID: 1,
+  SPOT: 2,
+  TEST: 3,
+  AUTO: 4,
+  FASTPAIR: 5,
+  SUPERVISED_ANDROID: 7,
+} as const;
 export const IdentifierType = { ANDROID: 1, SPOT: 2 } as const;
 export const SoundComponent = { UNSPECIFIED: 0, RIGHT: 1, LEFT: 2, CASE: 3 } as const;
 
