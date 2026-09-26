@@ -87,10 +87,24 @@ export class FindHubNovaClient {
       ...available.filter((result) => result.catalog !== 'spot'),
       ...available.filter((result) => result.catalog === 'spot'),
     ];
+    const newestResponseAt = new Map<string, string>();
+    for (const result of available) {
+      for (const device of result.devices) {
+        if (!device.providerResponseAt) continue;
+        const current = newestResponseAt.get(device.googleDeviceId);
+        if (!current || Date.parse(device.providerResponseAt) > Date.parse(current)) {
+          newestResponseAt.set(device.googleDeviceId, device.providerResponseAt);
+        }
+      }
+    }
+
     const devices = new Map(
       ordered.flatMap((result) => result.devices).map((device) => [device.googleDeviceId, device]),
     );
-    return [...devices.values()];
+    return [...devices.values()].map((device) => ({
+      ...device,
+      providerResponseAt: newestResponseAt.get(device.googleDeviceId) || device.providerResponseAt,
+    }));
   }
 
   public async locate(
