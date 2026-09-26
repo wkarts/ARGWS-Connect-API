@@ -58,8 +58,9 @@ export class ManagerEmbeddingService {
       return managerFramePolicy(process.env, row.value);
     } catch {
       // Preserve the last known database decision during a transient DB failure.
-      // If no decision has ever been loaded, fall back to the explicit ENV bootstrap.
-      return managerFramePolicy(process.env, this.lastKnown?.value);
+      // Without a known database state, fail closed instead of widening access from ENV.
+      if (this.lastKnown) return managerFramePolicy(process.env, this.lastKnown.value);
+      return managerFramePolicy(process.env, { configured: true, enabled: false, allowedOrigins: [] });
     }
   }
 
@@ -115,31 +116,48 @@ export class ManagerEmbeddingService {
       throw new ManagerEmbeddingError('Cadastre pelo menos uma origem antes de habilitar a incorporação.');
     }
 
-    const current = await (this.prisma as any).managerEmbeddingSetting.findUnique({ where: { id: 1 } });
-    const currentVersion = Number(current?.version || 1);
-    if (current && currentVersion !== input.version) {
-      throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
-    }
-    if (!current && input.version !== 1) {
-      throw new ManagerEmbeddingError('A configuração foi alterada. Recarregue e tente novamente.', 409);
+    const delegate = (this.prisma as any).managerEmbeddingSetting;
+    const current = await delegate.findUnique({ where: { id: 1 } });
+    let row: any;
+
+    if (current) {
+      if (Number(current.version) !== input.version) {
+        throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
+      }
+      const updated = await delegate.updateMany({
+        where: { id: 1, version: input.version },
+        data: {
+          configured: true,
+          enabled: input.enabled,
+          allowedOrigins,
+          version: { increment: 1 },
+        },
+      });
+      if (Number(updated?.count || 0) !== 1) {
+        throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
+      }
+      row = await delegate.findUnique({ where: { id: 1 } });
+    } else {
+      if (input.version !== 1) {
+        throw new ManagerEmbeddingError('A configuração foi alterada. Recarregue e tente novamente.', 409);
+      }
+      try {
+        row = await delegate.create({
+          data: {
+            id: 1,
+            configured: true,
+            enabled: input.enabled,
+            allowedOrigins,
+            version: 2,
+          },
+        });
+      } catch {
+        // A concurrent first save can win between findUnique and create.
+        throw new ManagerEmbeddingError('A configuração foi alterada por outra sessão. Recarregue e tente novamente.', 409);
+      }
     }
 
-    const row = await (this.prisma as any).managerEmbeddingSetting.upsert({
-      where: { id: 1 },
-      create: {
-        id: 1,
-        configured: true,
-        enabled: input.enabled,
-        allowedOrigins,
-        version: 2,
-      },
-      update: {
-        configured: true,
-        enabled: input.enabled,
-        allowedOrigins,
-        version: { increment: 1 },
-      },
-    });
+    if (!row) throw new ManagerEmbeddingError('Configuração de iframe temporariamente indisponível.', 503);
 
     const value: ManagerEmbeddingOverride = {
       configured: true,
