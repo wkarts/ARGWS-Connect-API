@@ -124,7 +124,7 @@ export const connect = {
   findHubImportCredentials: (id: string, data: any): Promise<any> => invoke('findHubImportCredentials', id, data),
   findHubDevices: (id: string): Promise<any[]> => invoke('findHubDevices', id),
   findHubRefreshDevices: (id: string): Promise<any[]> => invoke('findHubRefreshDevices', id),
-  findHubCaptureCatalog: (id: string, catalog: 'spot' | 'android'): Promise<void> => invoke('findHubCaptureCatalog', id, catalog),
+  findHubCaptureCatalog: (id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Promise<void> => invoke('findHubCaptureCatalog', id, catalog),
   findHubCaptureDeviceUpdate: (id: string, deviceId: string, timeoutMs?: number): Promise<void> => invoke('findHubCaptureDeviceUpdate', id, deviceId, timeoutMs),
   findHubLocate: (id: string, deviceId: string, timeoutMs?: number): Promise<any> => invoke('findHubLocate', id, deviceId, timeoutMs),
   findHubSound: (id: string, deviceId: string, operation: 'start' | 'stop', component = 'UNSPECIFIED'): Promise<any> => invoke('findHubSound', id, deviceId, operation, component),
