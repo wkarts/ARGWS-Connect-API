@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
   decodeDeviceMetadata,
+  decodeLocationReports,
   DeviceType,
   encodeDeviceListRequest,
   encodeExecuteLocateRequest,
@@ -167,6 +168,32 @@ test('Find Hub live 2026 catalogue decodes Android hardware metadata without usi
   assert.equal(device.androidSdkVersion, 36);
   assert.equal(device.locateSupported, true);
   assert.equal(device.accessInformation?.[0]?.isOwner, true);
+});
+
+test('Find Hub DeviceUpdate float field is location accuracy, not a battery percentage', () => {
+  const encrypted = concat(
+    fieldMessage(2, Buffer.alloc(41, 0x5a)),
+    fieldVarint(3, 1),
+  );
+  const geo = concat(
+    fieldMessage(1, encrypted),
+    Buffer.from('1d0000c842', 'hex'),
+  );
+  const report = concat(fieldMessage(10, geo), fieldVarint(11, 1));
+  const recentAndNetwork = concat(
+    fieldMessage(1, report),
+    fieldMessage(2, fieldVarint(1, 1790459270)),
+  );
+  const metadata = fieldMessage(
+    4,
+    fieldMessage(2, fieldMessage(3, fieldMessage(4, recentAndNetwork))),
+  );
+
+  const [decoded] = decodeLocationReports(metadata);
+  assert.equal(decoded.status, 1);
+  assert.equal(decoded.accuracy, 100);
+  assert.equal(decoded.ownReport, true);
+  assert.equal(decoded.timestampSeconds, 1790459270);
 });
 
 test('Find Hub legacy PHONE DeviceUpdate treats field 21 as Android codename and preserves sound capabilities', () => {
