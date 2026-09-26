@@ -23,8 +23,9 @@ location /docs/ {
 # volte a bloquear /manager. Se quiser restringir, troque "*" pela lista de origens.
 location = /manager {
     return 302 /manager/;
-    add_header Content-Security-Policy "frame-ancestors *" always;
-    add_header X-Connect-Manager-Embedding "enabled" always;
+    # Definir um header nesta location impede herdar add_header X-Frame-Options
+    # do nível server em Nginx tradicional. A política efetiva vem da resposta final.
+    add_header X-Connect-Manager-Embedding "redirect" always;
 }
 
 location ^~ /manager/ {
@@ -41,13 +42,10 @@ location ^~ /manager/ {
     proxy_connect_timeout 60s;
     client_max_body_size 136m;
 
+    # Nunca substitua a CSP da aplicação aqui: ela é calculada a partir do cadastro
+    # persistido de origens. Esta location só neutraliza X-Frame-Options legado.
     proxy_hide_header X-Frame-Options;
-    proxy_hide_header Content-Security-Policy;
-    add_header Content-Security-Policy "frame-ancestors *" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer" always;
-    add_header Permissions-Policy "camera=(), microphone=(self), geolocation=()" always;
-    add_header X-Connect-Manager-Embedding "enabled" always;
+    add_header X-Connect-Manager-Proxy "iframe-policy-from-app" always;
 }
 
 location / {
