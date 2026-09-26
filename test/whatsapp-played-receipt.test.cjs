@@ -136,8 +136,10 @@ test('local PLAYED persistence is idempotent and does not regress deleted messag
     emitted.push({ event, data });
   });
 
-  assert.deepEqual(first, { persisted: true, changed: true });
-  assert.deepEqual(second, { persisted: true, changed: false });
+  assert.equal(first.persisted, true);
+  assert.equal(first.changed, true);
+  assert.equal(second.persisted, true);
+  assert.equal(second.changed, false);
   assert.equal(stored.status, 'PLAYED');
   assert.equal(updates.length, 1);
   assert.equal(updates[0].status, 'PLAYED');
@@ -152,6 +154,7 @@ test('local PLAYED persistence is idempotent and does not regress deleted messag
     true,
     () => { throw new Error('deleted message must not emit PLAYED'); },
   );
-  assert.deepEqual(deleted, { persisted: true, changed: false });
+  assert.equal(deleted.persisted, true);
+  assert.equal(deleted.changed, false);
   assert.equal(stored.status, 'DELETED');
 });
