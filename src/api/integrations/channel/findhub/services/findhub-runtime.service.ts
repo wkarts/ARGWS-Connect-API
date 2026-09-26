@@ -319,7 +319,7 @@ export class FindHubStartupService {
           familyLinkUrl: device.familyLinkUrl,
           providerCapabilities: device.providerCapabilities || [],
           providerFlags: device.providerFlags || {},
-          fastPairModelId: device.fastPairModelId,
+          fastPairModelId: device.fastPairModelId ?? null,
           pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
           canonicalIds: device.canonicalIds || [],
           accessInformation: device.accessInformation || [],
