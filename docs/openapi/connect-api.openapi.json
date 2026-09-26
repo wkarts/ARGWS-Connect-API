@@ -7483,7 +7483,7 @@
         ],
         "summary": "Atualizar catálogo pelo Google Find Hub",
         "operationId": "post_findhub_devices_refresh_instancename",
-        "description": "Consulta os catálogos SPOT e Android disponíveis à conta e une identificadores canônicos, sem descartar acessórios quando coexistirem com identificadores de telefone. O catálogo principal é preservado se a consulta complementar for recusada. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.",
+        "description": "Consulta em paralelo os seletores SPOT, Android, Auto, Fast Pair e Supervised. Capturas reais de 2026 mostraram que esses seletores podem devolver o mesmo catálogo completo; portanto são tratados como caminhos de descoberta best-effort e não como tipo semântico do aparelho. Qualquer catálogo legível pode sustentar a sincronização, os resultados são deduplicados por Google Device ID e SPOT é apenas desempate de compatibilidade. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.",
         "parameters": [
           {
             "name": "instanceName",
