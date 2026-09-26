@@ -8,6 +8,7 @@ import EventEmitter2 from 'eventemitter2';
 
 import { diagnostics } from '../../../../../diagnostics/diagnostics.service';
 import { FindHubAuthBrokerService } from '../auth/findhub-auth-broker.service';
+import { FindHubAuthError } from '../auth/findhub-auth.error';
 import { FindHubCredentialVault } from '../auth/findhub-credential-vault';
 import { FINDHUB_EVENTS, FINDHUB_INTEGRATION } from '../findhub.constants';
 import { FindHubDevice, FindHubPosition, FindHubRuntimeState, FindHubTraccarConfig } from '../findhub.types';
@@ -213,18 +214,22 @@ export class FindHubStartupService {
       });
     } catch (error) {
       await this.closeClient().catch(() => undefined);
-      if (!credentialsValidated) {
+      const credentialRejected =
+        error instanceof FindHubAuthError && [9102, 9103, 9104, 9105].includes(error.code);
+      if (!credentialsValidated || credentialRejected) {
         await this.authBroker.setAuthState(this.instance.id, 'AUTH_REQUIRED');
       }
       diagnostics.record({
         code: 'runtime.error',
-        component: 'findhub',
+        component: error instanceof FindHubAuthError ? 'findhub-auth' : 'findhub',
         instanceId: this.instance.id,
         level: 'warn',
         error,
       });
       throw new Error(
-        'Não foi possível validar a conexão Google Find Hub. As credenciais armazenadas foram preservadas.',
+        credentialRejected
+          ? 'O Google recusou as credenciais armazenadas. Renove a autenticação desta mesma conta para preservar dispositivos, histórico e configurações.'
+          : 'Não foi possível validar a conexão Google Find Hub. As credenciais armazenadas foram preservadas.',
       );
     }
     return { instance: { instanceName: this.instance.name, status: 'open' }, auth: { state: 'READY' } };
