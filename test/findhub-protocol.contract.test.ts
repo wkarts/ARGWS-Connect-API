@@ -196,7 +196,7 @@ test('Find Hub DeviceUpdate float field is location accuracy, not a battery perc
   assert.equal(decoded.timestampSeconds, 1790459270);
 });
 
-test('Find Hub legacy PHONE DeviceUpdate treats field 21 as Android codename and preserves sound capabilities', () => {
+test('Find Hub legacy PHONE DeviceUpdate treats field 21 as product name and preserves sound capabilities', () => {
   const identifier = concat(
     fieldVarint(2, 2),
     fieldMessage(3, fieldMessage(1, fieldString(1, 'phone-device-test-uuid'))),
@@ -207,7 +207,7 @@ test('Find Hub legacy PHONE DeviceUpdate treats field 21 as Android codename and
   const registration = concat(
     fieldMessage(2, description),
     fieldString(20, 'Example Manufacturer'),
-    fieldString(21, 'fixture_codename'),
+    fieldString(21, 'fixture_product_global'),
     fieldString(34, 'Fixture Model'),
   );
   const metadata = concat(
@@ -223,7 +223,8 @@ test('Find Hub legacy PHONE DeviceUpdate treats field 21 as Android codename and
   assert.equal(device.deviceType, 'PHONE');
   assert.equal(device.manufacturer, 'Example Manufacturer');
   assert.equal(device.model, 'Fixture Model');
-  assert.equal(device.deviceCodename, 'fixture_codename');
+  assert.equal(device.deviceCodename, undefined);
+  assert.equal(device.productName, 'fixture_product_global');
   assert.equal(device.fastPairModelId, undefined);
   assert.deepEqual(device.providerCapabilities, [
     { actionField: 31, state: 1 },
