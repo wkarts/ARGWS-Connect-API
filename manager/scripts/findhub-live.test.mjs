@@ -28,7 +28,7 @@ test('linked Find Hub account retries transport, but AUTH_REQUIRED renews creden
  assert.match(source,/v-if="!connected && linked && !authRequiresRenewal"/);
  assert.match(source,/v-else-if="!connected && authRequiresRenewal"/);
  assert.match(source,/Reconectar com credenciais salvas/);
- assert.match(source,/Renovar autenticação Google/);
+ assert.match(source,/Autenticação Google precisa ser renovada/);
  assert.match(source,/renewal @connected="load"/);
  const auth=readFileSync(new URL('../src/components/FindHubBrowserAuth.vue',import.meta.url),'utf8');
  assert.match(auth,/renewal\?: boolean/);
