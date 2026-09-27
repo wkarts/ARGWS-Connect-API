@@ -1,5 +1,12 @@
 export type FindHubProtocolCaptureStatus = 'live' | 'internal-live' | 'request-template' | 'reference-only';
 
+export type FindHubProtocolEvidence =
+  | 'argws-native'
+  | 'live-wire-observation'
+  | 'public-research-reference'
+  | 'independent-public-cross-check'
+  | 'interop-public-cross-check';
+
 export type FindHubProtocolKind =
   | 'auth'
   | 'transport'
@@ -24,7 +31,7 @@ export interface FindHubProtocolInventoryItem {
   endpoint?: string;
   messages?: string[];
   enums?: string[];
-  sources: string[];
+  evidence: FindHubProtocolEvidence[];
   description: string;
   applicationAreas?: string[];
   enrichmentTargets?: string[];
@@ -33,8 +40,8 @@ export interface FindHubProtocolInventoryItem {
 
 export interface FindHubProtocolSchemaCatalogItem {
   key: string;
-  source: string;
-  provenance: string;
+  schemaPath: string;
+  evidence: FindHubProtocolEvidence;
   messages: string[];
   enums: string[];
 }
@@ -44,30 +51,33 @@ export interface FindHubZipEntry {
   data: Buffer | string;
 }
 
-const sourceGoogleFindMyTools = 'leonboe1/GoogleFindMyTools';
-const sourceGoFindMy = 'dylanmazurek/go-findmy';
-const sourceTraccarRelay = 'traccar/traccar-relay';
-const sourceConnectApi = 'wkarts/ARGWS-Connect-API';
+// Public repositories and operator-provided samples are research/cross-check material only.
+// They are not runtime dependencies, vendored libraries, forks or implementation packages.
+const evidenceNative: FindHubProtocolEvidence = 'argws-native';
+const evidenceLiveWire: FindHubProtocolEvidence = 'live-wire-observation';
+const evidencePublicResearch: FindHubProtocolEvidence = 'public-research-reference';
+const evidenceIndependentCrossCheck: FindHubProtocolEvidence = 'independent-public-cross-check';
+const evidenceInteropCrossCheck: FindHubProtocolEvidence = 'interop-public-cross-check';
 
 export const FINDHUB_PROTOBUF_SCHEMA_CATALOG: readonly FindHubProtocolSchemaCatalogItem[] = [
   {
     key: 'android-checkin',
-    source: 'Auth/firebase_messaging/proto/android_checkin.proto',
-    provenance: sourceGoogleFindMyTools,
+    schemaPath: 'Auth/firebase_messaging/proto/android_checkin.proto',
+    evidence: evidencePublicResearch,
     messages: ['ChromeBuildProto', 'AndroidCheckinProto'],
     enums: ['Platform', 'Channel', 'DeviceType'],
   },
   {
     key: 'checkin',
-    source: 'Auth/firebase_messaging/proto/checkin.proto',
-    provenance: sourceGoogleFindMyTools,
+    schemaPath: 'Auth/firebase_messaging/proto/checkin.proto',
+    evidence: evidencePublicResearch,
     messages: ['GservicesSetting', 'AndroidCheckinRequest', 'AndroidCheckinResponse'],
     enums: [],
   },
   {
     key: 'mcs',
-    source: 'Auth/firebase_messaging/proto/mcs.proto',
-    provenance: sourceGoogleFindMyTools,
+    schemaPath: 'Auth/firebase_messaging/proto/mcs.proto',
+    evidence: evidencePublicResearch,
     messages: [
       'HeartbeatPing',
       'HeartbeatAck',
@@ -91,8 +101,8 @@ export const FINDHUB_PROTOBUF_SCHEMA_CATALOG: readonly FindHubProtocolSchemaCata
   },
   {
     key: 'common',
-    source: 'ProtoDecoders/Common.proto',
-    provenance: sourceGoogleFindMyTools,
+    schemaPath: 'ProtoDecoders/Common.proto',
+    evidence: evidencePublicResearch,
     messages: [
       'Time',
       'LocationReport',
@@ -105,8 +115,8 @@ export const FINDHUB_PROTOBUF_SCHEMA_CATALOG: readonly FindHubProtocolSchemaCata
   },
   {
     key: 'device-update',
-    source: 'ProtoDecoders/DeviceUpdate.proto',
-    provenance: sourceGoogleFindMyTools,
+    schemaPath: 'ProtoDecoders/DeviceUpdate.proto',
+    evidence: evidencePublicResearch,
     messages: [
       'GetEidInfoForE2eeDevicesResponse',
       'EncryptedOwnerKeyAndMetadata',
@@ -155,8 +165,8 @@ export const FINDHUB_PROTOBUF_SCHEMA_CATALOG: readonly FindHubProtocolSchemaCata
   },
   {
     key: 'location-reports-upload',
-    source: 'ProtoDecoders/LocationReportsUpload.proto',
-    provenance: sourceGoogleFindMyTools,
+    schemaPath: 'ProtoDecoders/LocationReportsUpload.proto',
+    evidence: evidencePublicResearch,
     messages: [
       'LocationReportsUpload',
       'Report',
@@ -169,8 +179,8 @@ export const FINDHUB_PROTOBUF_SCHEMA_CATALOG: readonly FindHubProtocolSchemaCata
   },
   {
     key: 'tos-acceptance',
-    source: 'pkg/nova/models/protos/bindings/tosacceptance.pb.go',
-    provenance: sourceGoFindMy,
+    schemaPath: 'pkg/nova/models/protos/bindings/tosacceptance.pb.go',
+    evidence: evidenceIndependentCrossCheck,
     messages: ['ToSAcceptance'],
     enums: [],
   },
@@ -187,7 +197,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS',
     endpoint: 'https://accounts.google.com/EmbeddedSetup',
-    sources: [sourceConnectApi],
+    evidence: [evidenceNative],
     description: 'Superfície de bootstrap/vinculação de conta conhecida pelo produto; não exporta credenciais.',
     sensitive: true,
   },
@@ -201,7 +211,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS',
     endpoint: 'https://android.clients.google.com/auth',
-    sources: [sourceConnectApi, sourceGoogleFindMyTools],
+    evidence: [evidenceNative, evidencePublicResearch],
     description: 'Token AAS usado para derivar service tokens autorizados da conta.',
     sensitive: true,
   },
@@ -216,7 +226,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     variants: ['android_device_manager'],
     transport: 'HTTPS',
     endpoint: 'https://android.clients.google.com/auth',
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceGoFindMy],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck],
     description: 'Service token usado pelo transporte Nova/Android Device Manager.',
     sensitive: true,
   },
@@ -231,7 +241,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     variants: ['spot'],
     transport: 'HTTPS',
     endpoint: 'https://android.clients.google.com/auth',
-    sources: [sourceConnectApi, sourceGoogleFindMyTools],
+    evidence: [evidenceNative, evidencePublicResearch],
     description: 'Service token usado pela Spot gRPC API.',
     sensitive: true,
   },
@@ -246,7 +256,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf',
     endpoint: 'https://android.clients.google.com/checkin',
     messages: ['AndroidCheckinProto', 'ChromeBuildProto', 'AndroidCheckinRequest', 'AndroidCheckinResponse'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Check-in Android/GCM que fornece androidId e securityToken para o canal push.',
     sensitive: true,
   },
@@ -260,7 +270,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS form',
     endpoint: 'https://android.clients.google.com/c2dm/register3',
-    sources: [sourceConnectApi, sourceTraccarRelay],
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
     description: 'Registro GCM legado usado como etapa do bootstrap FCM.',
     sensitive: true,
   },
@@ -274,7 +284,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS JSON',
     endpoint: 'https://firebaseinstallations.googleapis.com/v1/',
-    sources: [sourceConnectApi, sourceTraccarRelay],
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
     description: 'Criação da Firebase Installation e obtenção do auth token da instalação.',
     sensitive: true,
   },
@@ -288,7 +298,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS JSON',
     endpoint: 'https://fcmregistrations.googleapis.com/v1/',
-    sources: [sourceConnectApi, sourceTraccarRelay],
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
     description: 'Registra endpoint WebPush/P-256 e devolve o registration token usado pelo Find Hub.',
     sensitive: true,
   },
@@ -302,7 +312,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS',
     endpoint: 'https://fcm.googleapis.com/fcm/send/',
-    sources: [sourceConnectApi, sourceTraccarRelay],
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
     description: 'Endpoint FCM embutido no registro WebPush que referencia o token GCM.',
     sensitive: true,
   },
@@ -316,7 +326,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS',
     endpoint: 'https://fcm.googleapis.com/fcm/connect/subscribe/',
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Endpoint de subscription definido pela biblioteca FCM de referência.',
     sensitive: true,
   },
@@ -330,7 +340,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS',
     endpoint: 'https://fcm.googleapis.com/v1/',
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Namespace FCM API v1 definido pela implementação de referência.',
     sensitive: true,
   },
@@ -344,7 +354,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTPS path',
     endpoint: '/clients_api/doorbots/{id}',
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Endpoint doorbells definido pela biblioteca FCM; uso Find Hub não comprovado no fluxo atual.',
     sensitive: true,
   },
@@ -370,7 +380,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
       'SelectiveAck',
       'StreamErrorStanza',
     ],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Canal persistente MCS usado para receber pushes FCM do Find Hub.',
     sensitive: true,
   },
@@ -385,7 +395,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'MCS protobuf tag 2/3',
     endpoint: 'mtalk.google.com:5228',
     messages: ['LoginRequest', 'LoginResponse', 'Setting', 'HeartbeatStat'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Autenticação da sessão MCS usando Android ID e security token.',
     sensitive: true,
   },
@@ -400,7 +410,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'MCS protobuf tag 0/1',
     endpoint: 'mtalk.google.com:5228',
     messages: ['HeartbeatPing', 'HeartbeatAck', 'HeartbeatConfig', 'HeartbeatStat'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Keepalive e detecção de saúde da conexão MCS.',
   },
   {
@@ -414,7 +424,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'MCS protobuf tag 8',
     endpoint: 'mtalk.google.com:5228',
     messages: ['DataMessageStanza', 'AppData'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Envelope push que transporta DeviceUpdate e outros dados FCM.',
     sensitive: true,
   },
@@ -429,7 +439,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'MCS protobuf tag 7',
     endpoint: 'mtalk.google.com:5228',
     messages: ['IqStanza', 'Extension'],
-    sources: [sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Stanza IQ do protocolo MCS.',
   },
   {
@@ -441,7 +451,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     messages: ['StreamAck'],
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'ACK de stream definido no proto MCS.',
   },
   {
@@ -453,7 +463,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     messages: ['SelectiveAck', 'Extension'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools],
+    evidence: [evidenceNative, evidencePublicResearch],
     description: 'ACK seletivo por persistentId usado pela Connect|API após mensagens MCS.',
     sensitive: true,
   },
@@ -466,7 +476,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     messages: ['Close', 'StreamErrorStanza', 'ErrorInfo'],
-    sources: [sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Encerramento e erro de stream MCS.',
   },
   {
@@ -481,7 +491,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf',
     endpoint: 'https://android.googleapis.com/nova/nbe_list_devices',
     messages: ['DevicesListRequest', 'DevicesListRequestPayload', 'DevicesList', 'DeviceMetadata'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceGoFindMy, sourceTraccarRelay],
+    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck, evidenceInteropCrossCheck],
     description: 'Request e response protobuf para os cinco seletores de catálogo observados.',
     sensitive: true,
   },
@@ -496,7 +506,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf + FCM/MCS response',
     endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
     messages: ['ExecuteActionRequest', 'ExecuteActionLocateTrackerType', 'DeviceUpdate'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceGoFindMy, sourceTraccarRelay],
+    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck, evidenceInteropCrossCheck],
     description: 'Request protobuf Locate e DeviceUpdate FCM correlacionado por dispositivo.',
     sensitive: true,
   },
@@ -511,7 +521,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf',
     endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
     messages: ['ExecuteActionRequest', 'ExecuteActionSoundType'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Request protobuf real de início de som; o Protocol Lab não envia o comando.',
     sensitive: true,
   },
@@ -526,7 +536,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf',
     endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
     messages: ['ExecuteActionRequest', 'ExecuteActionSoundType'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Request protobuf real de parada de som; o Protocol Lab não envia o comando.',
     sensitive: true,
   },
@@ -540,7 +550,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'MCS DataMessageStanza',
     messages: ['DeviceUpdate', 'DeviceMetadata', 'LocationInformation', 'RecentLocationAndNetworkLocations'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceGoFindMy, sourceTraccarRelay],
+    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck, evidenceInteropCrossCheck],
     description: 'Envelope Find Hub recebido via FCM/MCS após ações e atualizações do provider.',
     sensitive: true,
   },
@@ -555,7 +565,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTP/2 gRPC',
     endpoint: 'https://spot-pa.googleapis.com/google.internal.spot.v1.SpotService/GetEidInfoForE2eeDevices',
     messages: ['GetEidInfoForE2eeDevicesRequest', 'GetEidInfoForE2eeDevicesResponse', 'EncryptedOwnerKeyAndMetadata'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools, sourceTraccarRelay],
+    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
     description: 'Request e response protobuf E2EE/owner-key envelope da conta.',
     sensitive: true,
   },
@@ -576,7 +586,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
       'DeviceDescription',
       'DeviceComponentInformation',
     ],
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Provisionamento/fabricação de tracker BLE próprio; não é executado automaticamente.',
     sensitive: true,
   },
@@ -597,7 +607,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
       'PublicKeyIdInfo',
       'TruncatedEID',
     ],
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Upload de EIDs/precomputed public key IDs de trackers customizados.',
     sensitive: true,
   },
@@ -619,7 +629,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
       'ClientVersionInformation',
       'LocationReport',
     ],
-    sources: [sourceGoogleFindMyTools, sourceGoFindMy],
+    evidence: [evidencePublicResearch, evidenceIndependentCrossCheck],
     description: 'Upload de observações/crowdsourcing contendo advertisement, tempo e localização.',
     sensitive: true,
   },
@@ -634,7 +644,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS + protobuf/base64',
     endpoint: 'https://accounts.google.com/encryption/unlock/android',
     messages: ['EncryptionUnlockRequestExtras', 'SecurityDomain'],
-    sources: [sourceConnectApi, sourceGoogleFindMyTools],
+    evidence: [evidenceNative, evidencePublicResearch],
     description: 'Request do domínio finder_hw; o Protocol Lab não executa o desbloqueio.',
     sensitive: true,
   },
@@ -648,7 +658,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'Browser/security-domain flow',
     endpoint: 'https://accounts.google.com/encryption/unlock/android',
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Fluxo de recuperação da shared key E2EE usado para descriptografar relatórios.',
     sensitive: true,
   },
@@ -661,7 +671,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     messages: ['ToSAcceptance'],
-    sources: [sourceGoFindMy],
+    evidence: [evidenceIndependentCrossCheck],
     description: 'Mensagem ToSAcceptance observada em bindings públicos do ecossistema Nova.',
   },
   {
@@ -673,7 +683,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     transport: 'HTTPS owner-lookup link',
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Superfície DULT/anti-stalking associada a EIDs e identificação de owner.',
     sensitive: true,
   },
@@ -686,7 +696,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     messages: ['Advertisement', 'Identifier', 'TruncatedEID'],
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Estrutura BLE/EID representada nos reports de rede e provisionamento de trackers.',
     sensitive: true,
   },
@@ -698,7 +708,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     status: 'reference-only',
     individual: false,
     archive: true,
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Geração/rotação de EIDs usados por trackers e advertisements.',
     sensitive: true,
   },
@@ -710,7 +720,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     status: 'reference-only',
     individual: false,
     archive: true,
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Derivação de chaves usada pelos fluxos E2EE/FMDN.',
     sensitive: true,
   },
@@ -722,7 +732,7 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     status: 'reference-only',
     individual: false,
     archive: true,
-    sources: [sourceGoogleFindMyTools],
+    evidence: [evidencePublicResearch],
     description: 'Primitivas de criptografia para trackers estrangeiros/observados.',
     sensitive: true,
   },
@@ -855,7 +865,7 @@ export function findHubProtocolInventory(): FindHubProtocolInventoryItem[] {
     variants: item.variants ? [...item.variants] : undefined,
     messages: item.messages ? [...item.messages] : undefined,
     enums: item.enums ? [...item.enums] : undefined,
-    sources: [...item.sources],
+    evidence: [...item.sources],
   }));
 }
 

@@ -2,7 +2,7 @@
 
 Esta implementação foi revisada contra os dois pacotes de referência fornecidos para a evolução do Connect|API:
 
-- `GoogleFindMyTools`: referência principal do wire Nova/SPOT, protobufs, FCM/MCS, criptografia, catálogo, localização e ações;
+- material público de pesquisa: usado somente para aprendizado e cross-check do wire Nova/SPOT, protobufs, FCM/MCS, criptografia, catálogo, localização e ações; não é dependência da aplicação;
 - `find-my-device-rest-api`: wrapper REST sobre a mesma família de protocolo, útil para cache, force refresh, polling e seleção do relatório mais recente.
 
 Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capacidade, o Connect|API declara essa capacidade como indisponível em vez de devolver um valor sintético.
@@ -36,7 +36,7 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 
 ## Metadados descobertos no protocolo vivo de 2026
 
-Capturas reais de `DevicesList` mostraram que o backend atual possui um layout mais novo que o `DeviceUpdate.proto` original usado pelo GoogleFindMyTools. O decoder da Connect|API mantém compatibilidade com o layout legado e passou a reconhecer, quando presentes:
+Capturas reais de `DevicesList` mostraram que o backend atual possui um layout mais novo que o `DeviceUpdate.proto` público usado como referência de pesquisa. O decoder da Connect|API mantém compatibilidade com o layout legado e passou a reconhecer, quando presentes:
 
 - fabricante;
 - modelo;
@@ -241,7 +241,7 @@ Esses arquivos são os artefatos preferidos para investigar campos não nomeados
 
 ### Catálogos adicionais observados no proto de referência
 
-O `DeviceType` fornecido pelo GoogleFindMyTools declara:
+O `DeviceType` observado no material público de referência declara:
 
 ```text
 UNKNOWN_DEVICE_TYPE = 0
@@ -257,7 +257,7 @@ As capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervi
 
 ## Recursos presentes no material e que pertencem a outro ciclo
 
-`GoogleFindMyTools` também contém um fluxo de fabricação/provisionamento de rastreadores BLE próprios:
+O material público de pesquisa também descreve um fluxo de fabricação/provisionamento de rastreadores BLE próprios:
 
 - `CreateBleDevice`;
 - geração de EIK/EID;

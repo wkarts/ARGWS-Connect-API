@@ -3,8 +3,8 @@
 ## Base da comparação
 
 Código Connect|API: `develop` em `bc7d61a066e6859634c867beb6a56c57e9b87097` (merge da PR #131).
-Referência fornecida pelo operador: `GoogleFindMyTools-main(2).zip`, SHA-256 `1c3d09e1a7739cde0f7d10912f6e6041d16de596bccb16dfaf194872f5367b55`.
-O arquivo foi usado para leitura e comparação; não foi adicionado como dependência, fork ou serviço da aplicação.
+Pacote público de referência fornecido pelo operador, SHA-256 `1c3d09e1a7739cde0f7d10912f6e6041d16de596bccb16dfaf194872f5367b55`.
+O material foi usado exclusivamente para aprendizado, leitura e comparação do wire; **não é biblioteca, dependência, fork, vendor, submódulo ou serviço da ARGWS Connect|API**.
 
 Arquivos de referência examinados: `NovaApi/ExecuteAction/LocateTracker/location_request.py`, `decrypt_locations.py`, `NovaApi/ExecuteAction/nbe_execute_action.py`, `FMDNCrypto/foreign_tracker_cryptor.py`, `FMDNCrypto/eid_generator.py`, `Auth/fcm_receiver.py`, `Auth/firebase_messaging/fcmpushclient.py` e os schemas de `ProtoDecoders`.
 

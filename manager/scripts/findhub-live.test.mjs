@@ -77,6 +77,8 @@ test('Find Hub Protocol Lab lives in a dedicated integration section and support
  assert.match(lab,/findHubCaptureEidInfo/);
  assert.match(lab,/findHubProtocolState/);
  assert.match(lab,/dados sensíveis/);
+ assert.match(lab,/Evidência técnica/);
+ assert.doesNotMatch(lab,/GoogleFindMyTools|leonboe1|go-findmy|traccar-relay/i);
 });
 
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{
