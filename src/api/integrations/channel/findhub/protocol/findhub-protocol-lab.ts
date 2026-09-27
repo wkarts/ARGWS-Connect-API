@@ -491,7 +491,13 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf',
     endpoint: 'https://android.googleapis.com/nova/nbe_list_devices',
     messages: ['DevicesListRequest', 'DevicesListRequestPayload', 'DevicesList', 'DeviceMetadata'],
-    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck, evidenceInteropCrossCheck],
+    evidence: [
+      evidenceLiveWire,
+      evidenceNative,
+      evidencePublicResearch,
+      evidenceIndependentCrossCheck,
+      evidenceInteropCrossCheck,
+    ],
     description: 'Request e response protobuf para os cinco seletores de catálogo observados.',
     sensitive: true,
   },
@@ -506,7 +512,13 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     transport: 'HTTPS protobuf + FCM/MCS response',
     endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
     messages: ['ExecuteActionRequest', 'ExecuteActionLocateTrackerType', 'DeviceUpdate'],
-    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck, evidenceInteropCrossCheck],
+    evidence: [
+      evidenceLiveWire,
+      evidenceNative,
+      evidencePublicResearch,
+      evidenceIndependentCrossCheck,
+      evidenceInteropCrossCheck,
+    ],
     description: 'Request protobuf Locate e DeviceUpdate FCM correlacionado por dispositivo.',
     sensitive: true,
   },
@@ -550,7 +562,13 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'MCS DataMessageStanza',
     messages: ['DeviceUpdate', 'DeviceMetadata', 'LocationInformation', 'RecentLocationAndNetworkLocations'],
-    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck, evidenceInteropCrossCheck],
+    evidence: [
+      evidenceLiveWire,
+      evidenceNative,
+      evidencePublicResearch,
+      evidenceIndependentCrossCheck,
+      evidenceInteropCrossCheck,
+    ],
     description: 'Envelope Find Hub recebido via FCM/MCS após ações e atualizações do provider.',
     sensitive: true,
   },
@@ -865,7 +883,7 @@ export function findHubProtocolInventory(): FindHubProtocolInventoryItem[] {
     variants: item.variants ? [...item.variants] : undefined,
     messages: item.messages ? [...item.messages] : undefined,
     enums: item.enums ? [...item.enums] : undefined,
-    evidence: [...item.sources],
+    evidence: [...item.evidence],
   }));
 }
 
