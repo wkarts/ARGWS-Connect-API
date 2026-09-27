@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-09-24T11:30:34.884Z",
   "version": "1.1.3",
-  "sourceDigest": "878ba723e83a438e94a44ca0c2ea5b2c9762633c31131d528676c9f88673a2cd",
+  "sourceDigest": "20ce74e3c59f819eb51d249813d91f3a793da81ad4efb792ad67ea19a919ce53",
   "operations": [
     {
       "method": "GET",
@@ -520,12 +520,47 @@
     },
     {
       "method": "POST",
+      "path": "/findhub/protocol/capture/archive/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
       "path": "/findhub/protocol/capture/catalog/{catalog}/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {
       "method": "POST",
       "path": "/findhub/protocol/capture/device-update/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/eid-info/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/request/action/{action}/{deviceId}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/request/catalog/{catalog}/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/request/eid-info/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/findhub/protocol/capture/request/security-unlock/{instanceName}",
+      "source": "src/api/integrations/channel/findhub/findhub.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/findhub/protocol/inventory/{instanceName}",
       "source": "src/api/integrations/channel/findhub/findhub.router.ts"
     },
     {

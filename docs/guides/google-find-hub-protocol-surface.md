@@ -115,6 +115,27 @@ Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui 
 
 As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
+## Protocol Lab: download individual e pacote ZIP
+
+O Manager da instância Find Hub possui um **Protocol Lab** para explorar os artefatos comprovados sem persistir automaticamente os binários no banco. É possível baixar cada item separadamente ou usar **Baixar tudo em ZIP**.
+
+O pacote ZIP inclui, conforme disponibilidade:
+
+- requests e responses `DevicesList` dos seletores SPOT, ANDROID, AUTO, FASTPAIR e SUPERVISED;
+- request e response `GetEidInfoForE2eeDevices` da Spot API;
+- request `EncryptionUnlockRequestExtras` do security domain `finder_hw`, sem executar o desbloqueio;
+- requests `ExecuteAction` Locate, StartSound e StopSound por dispositivo; o empacotador **não envia os comandos de som**;
+- `DeviceUpdate` real e o `DeviceMetadata` extraído para dispositivos localizáveis, mediante Locate real;
+- `protocol-inventory.json`;
+- `manifest.json` com tamanho, SHA-256, falhas individuais e itens ignorados;
+- descritores em `references/*.json` para famílias conhecidas ainda não capturadas ativamente.
+
+O inventário distingue `live`, `request-template` e `reference-only`. `LocationReportsUpload`, `CreateBleDevice`, `UploadPrecomputedPublicKeyIds`, envelope bruto FCM/MCS, Key Backup e DULT Owner Lookup permanecem `reference-only` até existir captura ativa comprovada. A Connect|API não fabrica payloads para preencher essas lacunas.
+
+Uma falha isolada — por exemplo, ausência de DeviceUpdate de um aparelho offline — é registrada no `manifest.json` e não invalida os demais arquivos do ZIP.
+
+O pacote é material forense sensível: pode conter e-mails, IDs canônicos, registration IDs FCM e material criptográfico cifrado. Não deve ser publicado em repositórios ou logs.
+
 ## Frescor de localização: solicitação não é observação nova
 
 O tracking da Connect|API pode enviar comandos em intervalos menores que vinte minutos e aceita `intervalSeconds=0` para consultas serializadas contínuas. Isso **não obriga o provider a gerar um novo fix GPS**.

@@ -159,9 +159,7 @@ export class FindHubProtocolClient {
     return await this.nova.listDevices();
   }
 
-  public captureDevicesListRequestRaw(
-    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
-  ): Buffer {
+  public captureDevicesListRequestRaw(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
     return this.nova.buildDevicesListRequest(catalog);
   }
 
@@ -188,7 +186,8 @@ export class FindHubProtocolClient {
     action: 'locate' | 'sound-start' | 'sound-stop',
   ): Buffer {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
-    if (device.locateSupported === false) throw new Error('Google Find Hub device does not expose a canonical action ID');
+    if (device.locateSupported === false)
+      throw new Error('Google Find Hub device does not expose a canonical action ID');
     const args = {
       googleDeviceId: device.googleDeviceId,
       fcmRegistrationId: this.fcm.registrationToken,

@@ -35,9 +35,7 @@ export class FindHubNovaClient {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  public buildDevicesListRequest(
-    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
-  ): Buffer {
+  public buildDevicesListRequest(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
     const deviceType = {
       spot: DeviceType.SPOT,
       android: DeviceType.ANDROID,

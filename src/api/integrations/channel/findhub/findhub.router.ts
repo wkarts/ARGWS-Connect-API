@@ -175,7 +175,10 @@ export class FindHubRouter extends RouterBroker {
         const payload = findHubController.captureProtocolCatalogRequest(req.params.instanceName, catalog);
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Type', 'application/x-protobuf');
-        res.setHeader('Content-Disposition', `attachment; filename="findhub-request-devices-${catalog}-${Date.now()}.pb"`);
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="findhub-request-devices-${catalog}-${Date.now()}.pb"`,
+        );
         res.send(payload);
       })
       .post('/protocol/capture/request/eid-info/:instanceName', ...guards, async (req, res) => {
@@ -208,7 +211,10 @@ export class FindHubRouter extends RouterBroker {
         );
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Type', 'application/x-protobuf');
-        res.setHeader('Content-Disposition', `attachment; filename="findhub-request-${action}-${req.params.deviceId}-${Date.now()}.pb"`);
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="findhub-request-${action}-${req.params.deviceId}-${Date.now()}.pb"`,
+        );
         res.send(payload);
       })
       .post('/protocol/capture/archive/:instanceName', ...guards, async (req, res) => {
@@ -221,7 +227,10 @@ export class FindHubRouter extends RouterBroker {
         res.setHeader('Cache-Control', 'private, no-store');
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('X-FindHub-Protocol-Failures', String(result.failures));
-        res.setHeader('Content-Disposition', `attachment; filename="findhub-protocol-lab-${req.params.instanceName}-${Date.now()}.zip"`);
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="findhub-protocol-lab-${req.params.instanceName}-${Date.now()}.zip"`,
+        );
         res.send(result.payload);
       })
       .post('/protocol/capture/catalog/:catalog/:instanceName', ...guards, async (req, res) => {

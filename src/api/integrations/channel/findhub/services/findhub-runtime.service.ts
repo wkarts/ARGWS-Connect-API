@@ -468,9 +468,7 @@ export class FindHubStartupService {
     };
   }
 
-  public captureProtocolCatalogRequest(
-    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
-  ): Buffer {
+  public captureProtocolCatalogRequest(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     return this.protocol.captureDevicesListRequestRaw(catalog);
   }
@@ -544,11 +542,10 @@ export class FindHubStartupService {
       { kind: 'inventory' },
     );
     for (const item of inventory.filter((entry) => entry.status === 'reference-only')) {
-      add(
-        'references/' + safeProtocolPathSegment(item.key) + '.json',
-        JSON.stringify(item, null, 2),
-        { kind: 'reference-only', protocol: item.key },
-      );
+      add('references/' + safeProtocolPathSegment(item.key) + '.json', JSON.stringify(item, null, 2), {
+        kind: 'reference-only',
+        protocol: item.key,
+      });
     }
 
     const catalogs = ['spot', 'android', 'auto', 'fastpair', 'supervised'] as const;
@@ -588,8 +585,7 @@ export class FindHubStartupService {
 
     const devices = (await this.devices()).filter((device) => !selectedIds.size || selectedIds.has(device.id));
     for (const device of devices) {
-      const folder =
-        'devices/' + safeProtocolPathSegment(device.name) + '-' + safeProtocolPathSegment(device.id);
+      const folder = 'devices/' + safeProtocolPathSegment(device.name) + '-' + safeProtocolPathSegment(device.id);
       if (device.locateSupported === false) {
         manifest.skipped.push({ key: 'device.' + device.id, reason: 'Device does not expose a canonical action ID' });
         continue;

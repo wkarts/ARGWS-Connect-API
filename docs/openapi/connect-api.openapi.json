@@ -7935,6 +7935,80 @@
         }
       }
     },
+    "/findhub/protocol/capture/archive/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar pacote completo do Protocol Lab",
+        "operationId": "post_findhub_protocol_capture_archive_instancename",
+        "description": "Monta ZIP em memória com requests, responses, DeviceUpdate, manifest/checksums e referências das famílias ainda não capturáveis. Falha individual não elimina os demais artefatos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ZIP forense gerado sob demanda e não persistido pela captura.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubProtocolArchiveRequest"
+              },
+              "example": {
+                "includeDeviceUpdates": true,
+                "timeoutMs": 30000
+              }
+            }
+          }
+        }
+      }
+    },
     "/findhub/protocol/capture/catalog/{catalog}/{instanceName}": {
       "post": {
         "tags": [
@@ -8092,6 +8166,406 @@
             }
           }
         }
+      }
+    },
+    "/findhub/protocol/capture/eid-info/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Capturar GetEidInfo protobuf",
+        "operationId": "post_findhub_protocol_capture_eid_info_instancename",
+        "description": "Executa GetEidInfoForE2eeDevices na Spot API e devolve a response protobuf bruta. Pode conter envelope criptografado sensível.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/action/{action}/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request ExecuteAction protobuf",
+        "operationId": "post_findhub_protocol_capture_request_action_action_deviceid_instancename",
+        "description": "Gera request Locate/StartSound/StopSound com o dispositivo selecionado. O download não envia o comando.",
+        "parameters": [
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "locate",
+                "sound-start",
+                "sound-stop"
+              ]
+            },
+            "description": "Parâmetro de rota action."
+          },
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/catalog/{catalog}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request DevicesList protobuf",
+        "operationId": "post_findhub_protocol_capture_request_catalog_catalog_instancename",
+        "description": "Gera o request Nova DevicesList para o seletor informado sem executar uma segunda leitura de catálogo.",
+        "parameters": [
+          {
+            "name": "catalog",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "spot",
+                "android",
+                "auto",
+                "fastpair",
+                "supervised"
+              ]
+            },
+            "description": "Parâmetro de rota catalog."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/eid-info/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request GetEidInfo protobuf",
+        "operationId": "post_findhub_protocol_capture_request_eid_info_instancename",
+        "description": "Gera o request Spot GetEidInfoForE2eeDevices sem executar a chamada.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/security-unlock/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request finder_hw protobuf",
+        "operationId": "post_findhub_protocol_capture_request_security_unlock_instancename",
+        "description": "Gera EncryptionUnlockRequestExtras do security domain finder_hw sem executar o desbloqueio.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/inventory/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Inventário do Protocol Lab",
+        "operationId": "get_findhub_protocol_inventory_instancename",
+        "description": "Lista superfícies live, request-template e reference-only disponíveis para exploração. Não retorna credenciais ou segredos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventário do Protocol Lab",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
     "/findhub/sound/start/{deviceId}/{instanceName}": {
@@ -19742,6 +20216,30 @@
           },
           "traccar": {
             "$ref": "#/components/schemas/FindHubTraccarConnection"
+          }
+        }
+      },
+      "FindHubProtocolArchiveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "includeDeviceUpdates": {
+            "type": "boolean",
+            "default": true
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 120000,
+            "default": 30000
+          },
+          "deviceIds": {
+            "type": "array",
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
