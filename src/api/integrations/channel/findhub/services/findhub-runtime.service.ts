@@ -37,6 +37,15 @@ import { resolveTraccarConnection, TraccarClient, TraccarConnection, traccarDest
 type FindHubReconciliationTrigger = 'manual' | 'boot' | 'periodic';
 type FindHubReconciliationCandidate = { deviceId: string; from: string; to: string };
 
+function batteryTierFromProviderFlags(
+  deviceType: FindHubDevice['deviceType'],
+  flags: Record<string, number>,
+): FindHubDevice['batteryTier'] {
+  if (deviceType !== 'PHONE') return undefined;
+  const value = Number(flags['registration.2.11']);
+  return value === 1 ? 'LOW' : value === 2 ? 'MEDIUM' : value === 3 ? 'HIGH' : undefined;
+}
+
 export class FindHubStartupService {
   public readonly integration = FINDHUB_INTEGRATION;
   public readonly capabilities = Object.freeze({
@@ -1364,10 +1373,14 @@ export class FindHubStartupService {
           },
           providerFreshnessTelemetry: true,
           battery: {
-            supported: false,
-            candidateWireFields: ['registration.2.11', 'status.32.1'],
+            supported: true,
+            mode: 'tier',
+            tierField: 'registration.2.11',
+            tiers: { 1: 'LOW', 2: 'MEDIUM', 3: 'HIGH' },
+            percentageSupported: false,
+            percentageCandidateWireField: 'status.32.1',
             reason:
-              'O Redmi Note 14 mantém registration.2.11=3 nos cinco seletores; uma implementação pública independente interpreta 1/2/3 nesse caminho como tiers low/medium/high para telefones. status.32.1=53 também foi observado em dispositivo supervisionado. Nenhum dos dois campos é promovido a bateria sem correlação física adicional.',
+              'Telefones Android expõem registration.2.11 como tier LOW/MEDIUM/HIGH, corroborado por implementação independente e pelas capturas Redmi Note 7/14. Percentual exato ainda não foi comprovado; status.32.1 permanece apenas candidato.',
           },
           imei: {
             supported: true,
@@ -1640,6 +1653,9 @@ export class FindHubStartupService {
   }
 
   private toDevice(row: any): FindHubDevice {
+    const providerFlags =
+      row.providerFlags && typeof row.providerFlags === 'object' ? (row.providerFlags as Record<string, number>) : {};
+    const batteryTier = batteryTierFromProviderFlags(row.deviceType, providerFlags);
     return {
       id: row.id,
       googleDeviceId: row.googleDeviceId,
@@ -1663,7 +1679,9 @@ export class FindHubStartupService {
       familyLinkMemberName: row.familyLinkMemberName || undefined,
       familyLinkUrl: row.familyLinkUrl || undefined,
       providerCapabilities: Array.isArray(row.providerCapabilities) ? row.providerCapabilities : [],
-      providerFlags: row.providerFlags && typeof row.providerFlags === 'object' ? row.providerFlags : {},
+      providerFlags,
+      batteryTier,
+      batteryTierSource: batteryTier ? 'registration.2.11' : undefined,
       locateSupported: Array.isArray(row.canonicalIds)
         ? row.canonicalIds.length > 0
         : !String(row.googleDeviceId).startsWith('metadata:'),
@@ -1722,6 +1740,8 @@ export class FindHubStartupService {
       familyLinkUrl: device.familyLinkUrl,
       providerCapabilities: device.providerCapabilities || [],
       providerFlags: device.providerFlags || {},
+      batteryTier: device.batteryTier,
+      batteryTierSource: device.batteryTierSource,
       locateSupported: device.locateSupported !== false,
       fastPairModelId: device.fastPairModelId,
       pairedAt: device.pairedAt,
