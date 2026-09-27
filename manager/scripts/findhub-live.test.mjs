@@ -52,19 +52,30 @@ test('Find Hub device view exposes proven protocol metadata, provider freshness 
  assert.match(source,/soundOperationSupported/);
  assert.match(source,/actionField.*31/);
  assert.match(source,/actionField.*32/);
- assert.match(source,/modelo, fabricante, codinome, operadora, IMEI/);
- assert.match(source,/Percentual exato de bateria, MEID e número de série continuam sem mapeamento confirmado/);
+
  assert.match(source,/Bateria \(faixa\)/);
  assert.match(source,/batteryTierLabel/);
  assert.doesNotMatch(source,/batteryLevel|imeiValue|serialNumberValue/);
  for(const value of ['IMEI','Operadora','Codinome','Android SDK','Google Play Services','Family Link'])assert.match(source,new RegExp(value));
  assert.match(source,/device\.locateSupported===false/);
- assert.match(source,/Capturar SPOT \.pb/);
- assert.match(source,/Capturar DeviceUpdate \.pb/);
- assert.match(source,/Protocol Lab/);
- assert.match(source,/Baixar tudo em ZIP/);
- assert.match(source,/GetEidInfo response \.pb/);
- assert.match(source,/Request Locate \.pb/);
+ assert.doesNotMatch(source,/Capturar DeviceUpdate \.pb/);
+ assert.doesNotMatch(source,/Baixar tudo em ZIP/);
+});
+
+test('Find Hub Protocol Lab lives in a dedicated integration section and supports complete, per-device and per-protocol downloads',()=>{
+ const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
+ const lab=readFileSync(new URL('../src/components/FindHubProtocolLab.vue',import.meta.url),'utf8');
+ const router=readFileSync(new URL('../src/router/index.ts',import.meta.url),'utf8');
+ assert.match(source,/key:'protocol-lab'/);
+ assert.match(source,/FindHubProtocolLab/);
+ assert.match(router,/protocol-lab/);
+ for(const value of ['Baixar tudo em ZIP','Por dispositivo','Por protocolo','Schemas protobuf','ZIP deste device','Descritor JSON'])assert.match(lab,new RegExp(value));
+ assert.match(lab,/findHubCaptureProtocolArchive/);
+ assert.match(lab,/findHubCaptureDeviceUpdate/);
+ assert.match(lab,/findHubCaptureActionRequest/);
+ assert.match(lab,/findHubCaptureCatalogRequest/);
+ assert.match(lab,/findHubCaptureEidInfo/);
+ assert.match(lab,/dados sensíveis/);
 });
 
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{

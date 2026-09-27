@@ -21,7 +21,9 @@ import {
 import {
   createFindHubProtocolZip,
   findHubProtocolInventory,
+  findHubProtocolInventorySummary,
   findHubProtocolLabReadme,
+  findHubProtocolSchemaCatalog,
   safeProtocolPathSegment,
 } from '../protocol/findhub-protocol-lab';
 import { normalizeFindHubAvatar } from './findhub-avatar';
@@ -457,7 +459,9 @@ export class FindHubStartupService {
       version: 1,
       generatedAt: new Date().toISOString(),
       connected: this.transportReady,
+      summary: findHubProtocolInventorySummary(),
       artifacts: findHubProtocolInventory(),
+      schemas: findHubProtocolSchemaCatalog(),
       devices: devices.map((device) => ({
         id: device.id,
         name: device.name,
@@ -507,6 +511,8 @@ export class FindHubStartupService {
     const timeoutMs = options.timeoutMs ?? 30000;
     const selectedIds = new Set(options.deviceIds || []);
     const inventory = findHubProtocolInventory();
+    const schemaCatalog = findHubProtocolSchemaCatalog();
+    const summary = findHubProtocolInventorySummary();
     const entries: Array<{ name: string; data: Buffer | string }> = [];
     const manifest: any = {
       version: 1,
@@ -538,13 +544,35 @@ export class FindHubStartupService {
     add('README.txt', findHubProtocolLabReadme(), { kind: 'documentation' });
     add(
       'protocol-inventory.json',
-      JSON.stringify({ version: 1, generatedAt: createdAt.toISOString(), artifacts: inventory }, null, 2),
+      JSON.stringify(
+        { version: 2, generatedAt: createdAt.toISOString(), summary, artifacts: inventory, schemas: schemaCatalog },
+        null,
+        2,
+      ),
       { kind: 'inventory' },
     );
-    for (const item of inventory.filter((entry) => entry.status === 'reference-only')) {
-      add('references/' + safeProtocolPathSegment(item.key) + '.json', JSON.stringify(item, null, 2), {
-        kind: 'reference-only',
+    add(
+      'protocol-schema-catalog.json',
+      JSON.stringify({ version: 1, generatedAt: createdAt.toISOString(), schemas: schemaCatalog }, null, 2),
+      { kind: 'schema-catalog' },
+    );
+    for (const item of inventory) {
+      add('protocols/' + safeProtocolPathSegment(item.key) + '.json', JSON.stringify(item, null, 2), {
+        kind: 'protocol-descriptor',
         protocol: item.key,
+        status: item.status,
+      });
+      if (item.status === 'reference-only') {
+        add('references/' + safeProtocolPathSegment(item.key) + '.json', JSON.stringify(item, null, 2), {
+          kind: 'reference-only',
+          protocol: item.key,
+        });
+      }
+    }
+    for (const schema of schemaCatalog) {
+      add('schemas/' + safeProtocolPathSegment(schema.key) + '.json', JSON.stringify(schema, null, 2), {
+        kind: 'protobuf-schema-descriptor',
+        schema: schema.key,
       });
     }
 

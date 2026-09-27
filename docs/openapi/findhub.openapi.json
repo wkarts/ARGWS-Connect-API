@@ -1887,9 +1887,9 @@
         "tags": [
           "Google Find Hub"
         ],
-        "summary": "Inventário do Protocol Lab",
+        "summary": "Inventário completo do Protocol Lab",
         "operationId": "get_findhub_protocol_inventory_instancename",
-        "description": "Lista superfícies live, request-template e reference-only disponíveis para exploração. Não retorna credenciais ou segredos.",
+        "description": "Lista todas as superfícies conhecidas catalogadas pela Connect|API, incluindo live, internal-live, request-template e reference-only, além do catálogo completo de mensagens/enums protobuf. Não retorna credenciais ou segredos.",
         "parameters": [
           {
             "name": "instanceName",
@@ -1909,7 +1909,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Inventário do Protocol Lab",
+            "description": "Inventário completo do Protocol Lab",
             "content": {
               "application/json": {
                 "schema": {

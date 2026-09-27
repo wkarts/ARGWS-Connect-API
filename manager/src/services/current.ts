@@ -732,7 +732,7 @@ export const current = {
     })
   },
 
-  async findHubCaptureProtocolArchive(id: string, timeoutMs = 30000) {
+  async findHubCaptureProtocolArchive(id: string, timeoutMs = 30000, deviceIds?: string[]) {
     return withInstance(id, async (_item, name, token) => {
       const response = await fetch(
         `${runtime.apiBaseUrl}/findhub/protocol/capture/archive/${encodeURIComponent(name)}`,
@@ -740,7 +740,7 @@ export const current = {
           method: 'POST',
           credentials: 'same-origin',
           headers: { apikey: token || accessCode, 'content-type': 'application/json' },
-          body: JSON.stringify({ includeDeviceUpdates: true, timeoutMs }),
+          body: JSON.stringify({ includeDeviceUpdates: true, timeoutMs, deviceIds }),
           signal: AbortSignal.timeout(600000),
         },
       )

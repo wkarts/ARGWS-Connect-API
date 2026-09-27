@@ -19,6 +19,7 @@ import FindHubTrackingModal from '@/components/FindHubTrackingModal.vue'
 import FindHubDeviceAvatar from '@/components/FindHubDeviceAvatar.vue'
 import FindHubTrackingSettings from '@/components/FindHubTrackingSettings.vue'
 import FindHubTraccarConnection from '@/components/FindHubTraccarConnection.vue'
+import FindHubProtocolLab from '@/components/FindHubProtocolLab.vue'
 import { useFindHubAvatar } from '@/services/use-findhub-avatar'
 import { applyFindHubUpdate } from '@/services/findhub-live-state'
 import { connect } from '@/services/connect'
@@ -28,6 +29,7 @@ const route = useRoute(), router = useRouter()
 const id = computed(() => String(route.params.id))
 const section = computed(() => String(route.params.section || 'conta'))
 const instance = ref<any>(null), auth = ref<any>(null), devices = ref<any[]>([]), history = ref<any[]>([])
+const protocolInventory = ref<any>(null)
 const busy = ref(false), error = ref(''), feedback = ref(''), chosen = ref(''), confirm = ref<'disconnect'|'delete'|null>(null)
 const reconciliationBusy = ref(false), reconciliationResult = ref<any>(null)
 function reconciliationTimestamp(value: any) { return Date.parse(value?.completedAt || value?.startedAt || '') || 0 }
@@ -93,17 +95,18 @@ const trackingCount = computed(() => devices.value.filter(d => d.trackingEnabled
 const editor = ref<any>(null)
 const eventTransports = ['webhook','websocket','rabbitmq','nats','sqs','kafka','pusher'] as const
 const eventTransport = computed<InstanceConfigKey>(() => eventTransports.includes(route.query.transport as any) ? route.query.transport as InstanceConfigKey : 'webhook')
-const navigation = [
+const navigation = computed(() => [
   { key:'dispositivos', label:'Dispositivos', icon:'channels', description:'Catálogo e localização dos dispositivos desta conta.' },
   { key:'mapa', label:'Mapa em tempo real', icon:'location', description:'Posições recebidas e acompanhamento da movimentação.' },
   { key:'configuracao', label:'Rastreamento', icon:'settings', description:'Intervalo, timeout, histórico e retenção.' },
   { key:'historico', label:'Histórico', icon:'list', description:'Consultar as posições armazenadas por período.' },
   { key:'integracoes', label:'Traccar', icon:'workflow', description:'Conexão com o serviço interno ou externo.' },
+  ...(protocolInventory.value ? [{ key:'protocol-lab', label:'Protocol Lab', icon:'workflow', description:'Capturas, requests, schemas e pacotes forenses do Find Hub.' }] : []),
   ...eventTransports.map(transport => ({ key:'eventos', transport, label:({webhook:'Webhooks',websocket:'WebSocket',rabbitmq:'RabbitMQ',nats:'NATS',sqs:'SQS',kafka:'Kafka',pusher:'Pusher'})[transport], icon:'workflow', description:'Entrega de eventos de localização.' })),
-]
-const activeNavigation = computed(() => navigation.find(item => item.key === section.value && (!('transport' in item) || item.transport === eventTransport.value)))
+])
+const activeNavigation = computed(() => navigation.value.find(item => item.key === section.value && (!('transport' in item) || item.transport === eventTransport.value)))
 const editableSection = computed(() => ['configuracao','integracoes','eventos'].includes(section.value))
-function navigate(item: typeof navigation[number]) { void router.push({path:findHubPath(id.value,item.key),query:'transport' in item ? {transport:item.transport} : {}}) }
+function navigate(item: any) { void router.push({path:findHubPath(id.value,item.key),query:'transport' in item ? {transport:item.transport} : {}}) }
 async function saveEditor() { if(editor.value && !editor.value.busy) await editor.value.save() }
 
 const stamp = (value: any) => value ? new Date(value).toLocaleString('pt-BR') : 'Não disponível'
@@ -129,15 +132,27 @@ function soundOperationSupported(device: any, operation: 'start'|'stop') {
 }
 const soundSupported = (device: any) => soundOperationSupported(device,'start') || soundOperationSupported(device,'stop')
 const soundComponentSelectionSupported = (device: any) => ['HEADPHONES','EARBUDS'].includes(String(device?.deviceType || ''))
+const protocolStatusLabel = (value: string) => ({
+  live:'Live · captura/exportação disponível',
+  'internal-live':'Live interno · usado pelo runtime',
+  'request-template':'Request template · não executa operação mutável',
+  'reference-only':'Referência completa · sem captura ativa',
+}[value] || value)
+const protocolArtifacts = computed<any[]>(() => protocolInventory.value?.artifacts || [])
+const protocolSchemas = computed<any[]>(() => protocolInventory.value?.schemas || [])
 async function load() {
   busy.value = true; error.value = ''
   try {
     const currentId = id.value
     const data = await connect.connection(currentId)
     if (!isFindHub(data)) { await router.replace('/findhub'); return }
-    const [status, list] = await Promise.all([connect.findHubAuthStatus(currentId), connect.findHubDevices(currentId)])
+    const [status, list, protocols] = await Promise.all([
+      connect.findHubAuthStatus(currentId),
+      connect.findHubDevices(currentId),
+      connect.findHubProtocolInventory(currentId).catch(() => null),
+    ])
     if (currentId !== id.value) return
-    instance.value = data; auth.value = status; devices.value = list
+    instance.value = data; auth.value = status; devices.value = list; protocolInventory.value = protocols
     if (!list.some(d => d.id === chosen.value)) chosen.value = list[0]?.id || ''
     await reloadSnapshot()
     await loadSelected()
@@ -163,70 +178,6 @@ async function loadSelected() {
 async function refreshDevices() {
   busy.value = true; error.value = ''
   try { devices.value = await connect.findHubRefreshDevices(id.value) }
-  catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
-async function captureCatalog(catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
-  if (busy.value) return
-  busy.value = true; error.value = ''; feedback.value = ''
-  try {
-    await connect.findHubCaptureCatalog(id.value, catalog)
-    feedback.value = `Catálogo ${catalog.toUpperCase()} capturado em protobuf bruto (.pb).`
-  } catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
-async function captureDeviceUpdate(device: any) {
-  if (device.captureBusy) return
-  device.captureBusy = true; error.value = ''; feedback.value = ''
-  try {
-    const timeoutMs = Number(device.locationTimeoutMs ?? snapshot.value?.settings?.timeoutMs ?? 120000)
-    await connect.findHubCaptureDeviceUpdate(id.value, device.id, timeoutMs)
-    feedback.value = `DeviceUpdate bruto capturado para ${device.name}.`
-  } catch (e) { error.value = friendlyError(e) }
-  finally { device.captureBusy = false }
-}
-async function captureCatalogRequest(catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
-  if (busy.value) return
-  busy.value = true; error.value = ''; feedback.value = ''
-  try { await connect.findHubCaptureCatalogRequest(id.value, catalog); feedback.value = `Request DevicesList ${catalog.toUpperCase()} baixado.` }
-  catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
-async function captureEidInfo(requestOnly = false) {
-  if (busy.value) return
-  busy.value = true; error.value = ''; feedback.value = ''
-  try { await connect.findHubCaptureEidInfo(id.value, requestOnly); feedback.value = requestOnly ? 'Request GetEidInfo baixado.' : 'Response GetEidInfo capturada.' }
-  catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
-async function captureSecurityUnlockRequest() {
-  if (busy.value) return
-  busy.value = true; error.value = ''; feedback.value = ''
-  try { await connect.findHubCaptureSecurityUnlockRequest(id.value); feedback.value = 'Request finder_hw Security Unlock baixado.' }
-  catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
-async function captureActionRequest(device: any, action: 'locate'|'sound-start'|'sound-stop') {
-  if (device.protocolBusy) return
-  device.protocolBusy = true; error.value = ''; feedback.value = ''
-  try { await connect.findHubCaptureActionRequest(id.value, device.id, action); feedback.value = `Request ${action} baixado para ${device.name}.` }
-  catch (e) { error.value = friendlyError(e) }
-  finally { device.protocolBusy = false }
-}
-async function downloadProtocolArchive() {
-  if (busy.value) return
-  busy.value = true; error.value = ''; feedback.value = ''
-  try {
-    const timeoutMs = Math.min(120000, Math.max(1000, Number(snapshot.value?.settings?.timeoutMs ?? 30000)))
-    await connect.findHubCaptureProtocolArchive(id.value, timeoutMs)
-    feedback.value = 'Pacote completo do Protocol Lab baixado em ZIP.'
-  } catch (e) { error.value = friendlyError(e) }
-  finally { busy.value = false }
-}
-async function downloadProtocolInventory() {
-  if (busy.value) return
-  busy.value = true; error.value = ''; feedback.value = ''
-  try { await connect.findHubDownloadProtocolInventory(id.value); feedback.value = 'Inventário de protocolos baixado em JSON.' }
   catch (e) { error.value = friendlyError(e) }
   finally { busy.value = false }
 }
@@ -392,10 +343,9 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <div class="danger-zone"><div><strong>Conta Google e dados locais</strong><p>Desvincular remove somente as credenciais Google e encerra a conexão. Dispositivos, histórico, rastreamento, configurações e vínculos locais permanecem preservados para reconexão. Somente “Excluir instância” remove definitivamente os dados locais.</p></div><div class="toolbar"><button class="btn ghost" :disabled="busy" @click="confirm='disconnect'">Desvincular conta Google</button><button class="btn danger" :disabled="busy" @click="confirm='delete'">Excluir instância</button></div></div>
       </template>
       <PanelCard v-else-if="section==='dispositivos'" title="Dispositivos" description="Somente dispositivos retornados pela conta Google vinculada.">
-        <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><button class="btn ghost" :disabled="busy || !connected" @click="downloadProtocolArchive">Baixar tudo · Protocol Lab ZIP</button><button class="btn ghost" :disabled="busy" @click="downloadProtocolInventory">Inventário JSON</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('spot')">Capturar SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('android')">Capturar Android .pb</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
+        <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
         <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p>
-        <div class="alert top-gap">As capturas reais de 2026 revelaram um layout mais novo que o protobuf original: modelo, fabricante, codinome, operadora, IMEI, versão do Google Play Services, SDK Android e Family Link já são decodificados quando o Google os fornece. Percentual exato de bateria, MEID e número de série continuam sem mapeamento confirmado; a faixa de bateria LOW/MEDIUM/HIGH permanece disponível quando o Google fornece o tier comprovado no wire. Os arquivos .pb e o ZIP do Protocol Lab podem conter dados sensíveis da conta e do dispositivo, incluindo identificadores, e-mails, IDs canônicos, token de registro FCM e material criptográfico cifrado; use-os somente para diagnóstico e não os publique.</div><details class="device-metadata top-gap" open><summary>Protocol Lab · baixar protocolos um a um ou em ZIP</summary><div class="toolbar top-gap"><button class="btn primary" :disabled="busy || !connected" @click="downloadProtocolArchive">Baixar tudo em ZIP</button><button class="btn ghost" :disabled="busy" @click="downloadProtocolInventory">Baixar inventário JSON</button><button class="btn ghost" :disabled="busy || !connected" @click="captureEidInfo(false)">GetEidInfo response .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureEidInfo(true)">GetEidInfo request .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureSecurityUnlockRequest">finder_hw request .pb</button></div><p class="muted top-gap">O ZIP inclui requests e responses dos cinco DevicesList, GetEidInfo, finder_hw, requests ExecuteAction por dispositivo e tenta capturar um DeviceUpdate real para cada dispositivo localizável. Falhas individuais entram no manifest.json sem invalidar o pacote. Comandos de som são somente gerados e não são enviados.</p><div class="findhub-table top-gap"><table><thead><tr><th>Família conhecida</th><th>Estado no Lab</th></tr></thead><tbody><tr><td>Nova · DevicesList / ExecuteAction</td><td>Requests + responses reais</td></tr><tr><td>Spot · GetEidInfoForE2eeDevices</td><td>Request + response real</td></tr><tr><td>Security Domain · finder_hw</td><td>Request template</td></tr><tr><td>LocationReportsUpload</td><td>Referência no inventário/ZIP</td></tr><tr><td>CreateBleDevice / UploadPrecomputedPublicKeyIds</td><td>Referência no inventário/ZIP · não executado</td></tr><tr><td>FCM/MCS raw transport / Key Backup / DULT Owner Lookup</td><td>Referência no inventário/ZIP</td></tr></tbody></table></div></details><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('spot')">Request SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('android')">Request ANDROID .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('auto')">Request AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('fastpair')">Request FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('supervised')">Request SUPERVISED .pb</button></div><p class="muted">Esses valores existem como seletores no protobuf de referência, mas capturas reais mostraram que os cinco seletores podem devolver o mesmo catálogo completo.</p></details>
         <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}<span v-if="device.familyLinkManaged"> · Family Link</span></p>
           <div class="detail-list">
             <div><span>ID interno Connect|API</span><strong>{{ device.id }}</strong></div>
@@ -434,7 +384,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
               <div><span>Capabilities provider (wire)</span><strong>{{ providerCapabilitiesLabel(device) }}</strong></div>
               <div><span>Flags provider (wire)</span><strong>{{ device.providerFlags && Object.keys(device.providerFlags).length ? JSON.stringify(device.providerFlags) : 'Não informado' }}</strong></div>
             </div>
-            <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p><div class="toolbar top-gap"><button class="btn ghost" :disabled="!connected || device.protocolBusy || device.locateSupported===false" @click="captureActionRequest(device,'locate')">Request Locate .pb</button><button class="btn ghost" :disabled="!connected || device.protocolBusy || device.locateSupported===false" @click="captureActionRequest(device,'sound-start')">Request Sound Start .pb</button><button class="btn ghost" :disabled="!connected || device.protocolBusy || device.locateSupported===false" @click="captureActionRequest(device,'sound-stop')">Request Sound Stop .pb</button></div>
+            <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p>
             <div v-if="device.accessInformation?.length" class="findhub-table top-gap"><table><thead><tr><th>Conta com acesso</th><th>Papel</th><th>Acesso</th></tr></thead><tbody><tr v-for="(access,index) in device.accessInformation" :key="access.email || index"><td>{{ access.email || 'Não informado' }}</td><td>{{ accessRole(access) }}</td><td>{{ access.hasAccess ? 'Permitido' : 'Não permitido' }}</td></tr></tbody></table></div>
             <p v-if="device.familyLinkManaged" class="muted top-gap">O Google devolveu este aparelho como dispositivo supervisionado do Family Link. Metadados podem ser reduzidos por privacidade e algumas ações ainda não possuem wire mapeado.</p>
           </details>
@@ -457,7 +407,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
             <div v-else class="field"><span>Som remoto</span><p class="muted">Capability anunciada pelo Google para este dispositivo. O comando usa o componente padrão do aparelho.</p></div>
             <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy || !soundOperationSupported(device,'start')" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy || !soundOperationSupported(device,'stop')" @click="sound(device,'stop')">Parar som</button></div>
           </div>
-          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.captureBusy || device.locateSupported===false" @click="captureDeviceUpdate(device)">{{ device.captureBusy ? 'Capturando .pb…' : 'Capturar DeviceUpdate .pb' }}</button><button class="btn ghost" :disabled="!connected || device.locating || device.locateSupported===false" @click="locate(device)">{{ device.locating ? 'Localizando…' : device.locateSupported===false ? 'Localização ainda não mapeada' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || device.locateSupported===false || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
+          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.locating || device.locateSupported===false" @click="locate(device)">{{ device.locating ? 'Localizando…' : device.locateSupported===false ? 'Localização ainda não mapeada' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || device.locateSupported===false || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
       </PanelCard>
       <FindHubLiveTracking v-else-if="section==='mapa' && snapshot" :key="id" :instance-id="id" :snapshot="snapshot" :stream-state="streamState" :initial-device="String(route.query.device || '')" @refresh="reloadSnapshot" />
       <FindHubTrackingSettings ref="editor" header-actions v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />
@@ -467,6 +417,8 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <EmptyState v-if="!history.length" icon="location" title="Nenhuma posição no período" description="Ative o histórico e o rastreamento para armazenar novos relatórios. Você também pode tentar reconciliar uma lacuna recente com o Google Find Hub." />
         <div v-else class="findhub-table"><FindHubMap :key="chosen" :position="historyTrail[historyTrail.length-1]" :trail="historyTrail" :tile-url="snapshot?.map?.tileUrl" :avatar-data="historyAvatar" :device-name="devices.find(d => d.id===chosen)?.name"/><table><thead><tr><th>Relatório</th><th>Latitude</th><th>Longitude</th><th>Precisão</th><th>Origem</th></tr></thead><tbody><tr v-for="(p,index) in history" :key="p.id || index"><td>{{stamp(p.recordedAt)}}</td><td>{{p.latitude}}</td><td>{{p.longitude}}</td><td>{{p.accuracy ?? '—'}} m</td><td>{{p.source}}</td></tr></tbody></table><p class="muted">Até 1.000 posições mais recentes do período. Use intervalos menores para consultar o restante.</p></div>
       </PanelCard>
+      <FindHubProtocolLab v-else-if="section==='protocol-lab' && protocolInventory" :key="id" :instance-id="id" :devices="devices" :connected="connected" :inventory="protocolInventory" :timeout-ms="snapshot?.settings?.timeoutMs" />
+      <PanelCard v-else-if="section==='protocol-lab'" title="Protocol Lab indisponível" description="O laboratório está desabilitado nesta instalação. Em develop use FINDHUB_PROTOCOL_LAB_ENABLED=true; em produção mantenha false/auto para ocultar também os endpoints." />
       <FindHubTraccarConnection ref="editor" header-actions v-else-if="section==='integracoes'" :key="id" :instance-id="id" :devices="devices" />
       <FindHubEvents ref="editor" header-actions :transport="eventTransport" v-else-if="section==='eventos'" :key="id+eventTransport" :instance-id="id" />
     </template>
