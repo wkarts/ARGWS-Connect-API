@@ -18,6 +18,12 @@ import {
   FindHubSoundComponent,
   FindHubTraccarConfig,
 } from '../findhub.types';
+import {
+  createFindHubProtocolZip,
+  findHubProtocolInventory,
+  findHubProtocolLabReadme,
+  safeProtocolPathSegment,
+} from '../protocol/findhub-protocol-lab';
 import { normalizeFindHubAvatar } from './findhub-avatar';
 import { createFindHubLocateDiagnostics, FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
@@ -443,6 +449,202 @@ export class FindHubStartupService {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     const device = await this.device(deviceId);
     return await this.protocol.captureDeviceUpdateRaw(device, timeoutMs);
+  }
+
+  public async protocolInventory() {
+    const devices = await this.devices();
+    return {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      connected: this.transportReady,
+      artifacts: findHubProtocolInventory(),
+      devices: devices.map((device) => ({
+        id: device.id,
+        name: device.name,
+        deviceType: device.deviceType,
+        identifierType: device.identifierType,
+        locateSupported: device.locateSupported !== false,
+      })),
+    };
+  }
+
+  public captureProtocolCatalogRequest(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Buffer {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return this.protocol.captureDevicesListRequestRaw(catalog);
+  }
+
+  public captureProtocolEidInfoRequest(): Buffer {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return this.protocol.captureGetEidInfoRequestRaw();
+  }
+
+  public async captureProtocolEidInfo(): Promise<Buffer> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return await this.protocol.captureGetEidInfoRaw();
+  }
+
+  public captureProtocolSecurityUnlockRequest(): Buffer {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return this.protocol.captureSecurityUnlockRequestRaw();
+  }
+
+  public async captureProtocolActionRequest(
+    deviceId: string,
+    action: 'locate' | 'sound-start' | 'sound-stop',
+  ): Promise<Buffer> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    const device = await this.device(deviceId);
+    return this.protocol.captureExecuteActionRequestRaw(device, action);
+  }
+
+  public async captureProtocolArchive(
+    options: { includeDeviceUpdates?: boolean; timeoutMs?: number; deviceIds?: string[] } = {},
+  ): Promise<{ payload: Buffer; failures: number }> {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    const protocol = this.protocol;
+    const createdAt = new Date();
+    const includeDeviceUpdates = options.includeDeviceUpdates !== false;
+    const timeoutMs = options.timeoutMs ?? 30000;
+    const selectedIds = new Set(options.deviceIds || []);
+    const inventory = findHubProtocolInventory();
+    const entries: Array<{ name: string; data: Buffer | string }> = [];
+    const manifest: any = {
+      version: 1,
+      generatedAt: createdAt.toISOString(),
+      instanceName: this.instance.name,
+      includeDeviceUpdates,
+      timeoutMs,
+      artifacts: [],
+      failures: [],
+      skipped: [],
+    };
+    const add = (path: string, data: Buffer | string, meta: Record<string, unknown> = {}) => {
+      const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');
+      entries.push({ name: path, data: bytes });
+      manifest.artifacts.push({
+        path,
+        bytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        ...meta,
+      });
+    };
+    const failure = (key: string, captureError: unknown) => {
+      manifest.failures.push({
+        key,
+        message: captureError instanceof Error ? captureError.message : String(captureError),
+      });
+    };
+
+    add('README.txt', findHubProtocolLabReadme(), { kind: 'documentation' });
+    add(
+      'protocol-inventory.json',
+      JSON.stringify({ version: 1, generatedAt: createdAt.toISOString(), artifacts: inventory }, null, 2),
+      { kind: 'inventory' },
+    );
+    for (const item of inventory.filter((entry) => entry.status === 'reference-only')) {
+      add(
+        'references/' + safeProtocolPathSegment(item.key) + '.json',
+        JSON.stringify(item, null, 2),
+        { kind: 'reference-only', protocol: item.key },
+      );
+    }
+
+    const catalogs = ['spot', 'android', 'auto', 'fastpair', 'supervised'] as const;
+    for (const catalog of catalogs) {
+      add('requests/nova/devices-list-' + catalog + '.pb', protocol.captureDevicesListRequestRaw(catalog), {
+        kind: 'request',
+        protocol: 'nova.devices-list',
+        catalog,
+      });
+      try {
+        add('responses/nova/devices-list-' + catalog + '.pb', await protocol.captureDevicesListRaw(catalog), {
+          kind: 'response',
+          protocol: 'nova.devices-list',
+          catalog,
+        });
+      } catch (captureError) {
+        failure('nova.devices-list.' + catalog, captureError);
+      }
+    }
+
+    add('requests/spot/get-eid-info.pb', protocol.captureGetEidInfoRequestRaw(), {
+      kind: 'request',
+      protocol: 'spot.get-eid-info',
+    });
+    try {
+      add('responses/spot/get-eid-info.pb', await protocol.captureGetEidInfoRaw(), {
+        kind: 'response',
+        protocol: 'spot.get-eid-info',
+      });
+    } catch (captureError) {
+      failure('spot.get-eid-info', captureError);
+    }
+    add('requests/security-domain/finder-hw-unlock-extras.pb', protocol.captureSecurityUnlockRequestRaw(), {
+      kind: 'request-template',
+      protocol: 'security-domain.finder-hw',
+    });
+
+    const devices = (await this.devices()).filter((device) => !selectedIds.size || selectedIds.has(device.id));
+    for (const device of devices) {
+      const folder =
+        'devices/' + safeProtocolPathSegment(device.name) + '-' + safeProtocolPathSegment(device.id);
+      if (device.locateSupported === false) {
+        manifest.skipped.push({ key: 'device.' + device.id, reason: 'Device does not expose a canonical action ID' });
+        continue;
+      }
+      try {
+        add(folder + '/requests/locate.pb', protocol.captureExecuteActionRequestRaw(device, 'locate'), {
+          kind: 'request-template',
+          protocol: 'nova.execute-action.locate',
+          deviceId: device.id,
+        });
+        add(folder + '/requests/sound-start.pb', protocol.captureExecuteActionRequestRaw(device, 'sound-start'), {
+          kind: 'request-template',
+          protocol: 'nova.execute-action.sound-start',
+          deviceId: device.id,
+        });
+        add(folder + '/requests/sound-stop.pb', protocol.captureExecuteActionRequestRaw(device, 'sound-stop'), {
+          kind: 'request-template',
+          protocol: 'nova.execute-action.sound-stop',
+          deviceId: device.id,
+        });
+      } catch (captureError) {
+        failure('device-requests.' + device.id, captureError);
+      }
+      if (!includeDeviceUpdates) continue;
+      try {
+        const captured = await protocol.captureDeviceUpdateRaw(device, timeoutMs);
+        add(folder + '/responses/device-update.pb', captured.payload, {
+          kind: 'response',
+          protocol: 'nova.execute-action.locate.device-update',
+          deviceId: device.id,
+        });
+        add(folder + '/responses/device-metadata.pb', captured.deviceMetadata, {
+          kind: 'response-extract',
+          protocol: 'device-metadata',
+          deviceId: device.id,
+        });
+      } catch (captureError) {
+        failure('device-update.' + device.id, captureError);
+      }
+    }
+
+    entries.push({
+      name: 'manifest.json',
+      data: JSON.stringify(
+        {
+          ...manifest,
+          fileCount: entries.length + 1,
+          warning:
+            'Sensitive forensic package: may contain identifiers, account e-mails, FCM registration IDs and encrypted key material.',
+        },
+        null,
+        2,
+      ),
+    });
+    return { payload: createFindHubProtocolZip(entries, createdAt), failures: manifest.failures.length };
   }
 
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {

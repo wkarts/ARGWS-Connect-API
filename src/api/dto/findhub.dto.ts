@@ -18,6 +18,12 @@ export class FindHubLocateDto {
   timeoutMs?: number;
 }
 
+export class FindHubProtocolArchiveDto {
+  includeDeviceUpdates?: boolean;
+  timeoutMs?: number;
+  deviceIds?: string[];
+}
+
 export class FindHubTrackingDto {
   intervalSeconds?: number;
   timeoutMs?: number;

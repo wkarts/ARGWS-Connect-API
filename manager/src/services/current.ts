@@ -180,6 +180,21 @@ function publicInstance(item: any) {
   }
 }
 
+async function downloadCurrentFile(response: Response, fallbackName: string, errorMessage: string) {
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new CurrentApiError(text || errorMessage, response.status)
+  }
+  const disposition = response.headers.get('content-disposition') || ''
+  const fileName = disposition.match(/filename="([^"]+)"/i)?.[1] || fallbackName
+  const url = URL.createObjectURL(await response.blob())
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
 async function withInstance<T>(ref: string, fn: (item: any, name: string, token: string) => Promise<T>, refresh = false) {
   const item = await rawInstance(ref, refresh)
   if (!item) throw new CurrentApiError('Instância não encontrada.', 404)
@@ -657,6 +672,79 @@ export const current = {
       anchor.download = fileName
       anchor.click()
       setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+
+  async findHubProtocolInventory(id: string) {
+    return withInstance(id, async (_item, name, token) =>
+      api<any>(`/findhub/protocol/inventory/${encodeURIComponent(name)}`, { token }),
+    )
+  },
+
+  async findHubDownloadProtocolInventory(id: string) {
+    const inventory = await this.findHubProtocolInventory(id)
+    const url = URL.createObjectURL(new Blob([JSON.stringify(inventory, null, 2)], { type: 'application/json' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `findhub-protocol-inventory-${id}.json`
+    anchor.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  },
+
+  async findHubCaptureCatalogRequest(id: string, catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/request/catalog/${catalog}/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(45000) },
+      )
+      await downloadCurrentFile(response, `findhub-request-devices-${catalog}.pb`, 'Não foi possível gerar o request DevicesList.')
+    })
+  },
+
+  async findHubCaptureEidInfo(id: string, requestOnly = false) {
+    return withInstance(id, async (_item, name, token) => {
+      const suffix = requestOnly ? 'request/eid-info' : 'eid-info'
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/${suffix}/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(45000) },
+      )
+      await downloadCurrentFile(response, requestOnly ? 'findhub-request-get-eid-info.pb' : 'findhub-get-eid-info.pb', 'Não foi possível obter o protobuf GetEidInfo.')
+    })
+  },
+
+  async findHubCaptureSecurityUnlockRequest(id: string) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/request/security-unlock/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(30000) },
+      )
+      await downloadCurrentFile(response, 'findhub-request-security-unlock.pb', 'Não foi possível gerar o request finder_hw.')
+    })
+  },
+
+  async findHubCaptureActionRequest(id: string, deviceId: string, action: 'locate'|'sound-start'|'sound-stop') {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/request/action/${action}/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(30000) },
+      )
+      await downloadCurrentFile(response, `findhub-request-${action}-${deviceId}.pb`, 'Não foi possível gerar o ExecuteAction protobuf.')
+    })
+  },
+
+  async findHubCaptureProtocolArchive(id: string, timeoutMs = 30000) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/archive/${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { apikey: token || accessCode, 'content-type': 'application/json' },
+          body: JSON.stringify({ includeDeviceUpdates: true, timeoutMs }),
+          signal: AbortSignal.timeout(600000),
+        },
+      )
+      await downloadCurrentFile(response, `findhub-protocol-lab-${id}.zip`, 'Não foi possível montar o pacote Protocol Lab.')
     })
   },
 

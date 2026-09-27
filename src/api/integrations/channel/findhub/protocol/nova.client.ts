@@ -35,9 +35,9 @@ export class FindHubNovaClient {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  public async captureDevicesListRaw(
+  public buildDevicesListRequest(
     catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
-  ): Promise<Buffer> {
+  ): Buffer {
     const deviceType = {
       spot: DeviceType.SPOT,
       android: DeviceType.ANDROID,
@@ -45,7 +45,13 @@ export class FindHubNovaClient {
       fastpair: DeviceType.FASTPAIR,
       supervised: DeviceType.SUPERVISED_ANDROID,
     }[catalog];
-    return await this.request(NOVA_SCOPES.listDevices, encodeDeviceListRequest(undefined, deviceType));
+    return encodeDeviceListRequest(undefined, deviceType);
+  }
+
+  public async captureDevicesListRaw(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<Buffer> {
+    return await this.request(NOVA_SCOPES.listDevices, this.buildDevicesListRequest(catalog));
   }
 
   public async listDevices() {

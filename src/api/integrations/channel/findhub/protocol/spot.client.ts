@@ -94,7 +94,15 @@ export class FindHubSpotClient {
     });
   }
 
+  public getEidInfoRequestPayload(): Buffer {
+    return encodeGetEidInfoRequest();
+  }
+
+  public async captureGetEidInfoRaw(): Promise<Buffer> {
+    return await this.request('GetEidInfoForE2eeDevices', this.getEidInfoRequestPayload());
+  }
+
   public async ownerKeyEnvelope() {
-    return decodeEncryptedOwnerKey(await this.request('GetEidInfoForE2eeDevices', encodeGetEidInfoRequest()));
+    return decodeEncryptedOwnerKey(await this.captureGetEidInfoRaw());
   }
 }

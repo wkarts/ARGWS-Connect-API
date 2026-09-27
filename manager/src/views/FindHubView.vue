@@ -185,6 +185,51 @@ async function captureDeviceUpdate(device: any) {
   } catch (e) { error.value = friendlyError(e) }
   finally { device.captureBusy = false }
 }
+async function captureCatalogRequest(catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try { await connect.findHubCaptureCatalogRequest(id.value, catalog); feedback.value = `Request DevicesList ${catalog.toUpperCase()} baixado.` }
+  catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
+async function captureEidInfo(requestOnly = false) {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try { await connect.findHubCaptureEidInfo(id.value, requestOnly); feedback.value = requestOnly ? 'Request GetEidInfo baixado.' : 'Response GetEidInfo capturada.' }
+  catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
+async function captureSecurityUnlockRequest() {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try { await connect.findHubCaptureSecurityUnlockRequest(id.value); feedback.value = 'Request finder_hw Security Unlock baixado.' }
+  catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
+async function captureActionRequest(device: any, action: 'locate'|'sound-start'|'sound-stop') {
+  if (device.protocolBusy) return
+  device.protocolBusy = true; error.value = ''; feedback.value = ''
+  try { await connect.findHubCaptureActionRequest(id.value, device.id, action); feedback.value = `Request ${action} baixado para ${device.name}.` }
+  catch (e) { error.value = friendlyError(e) }
+  finally { device.protocolBusy = false }
+}
+async function downloadProtocolArchive() {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try {
+    const timeoutMs = Math.min(120000, Math.max(1000, Number(snapshot.value?.settings?.timeoutMs ?? 30000)))
+    await connect.findHubCaptureProtocolArchive(id.value, timeoutMs)
+    feedback.value = 'Pacote completo do Protocol Lab baixado em ZIP.'
+  } catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
+async function downloadProtocolInventory() {
+  if (busy.value) return
+  busy.value = true; error.value = ''; feedback.value = ''
+  try { await connect.findHubDownloadProtocolInventory(id.value); feedback.value = 'Inventário de protocolos baixado em JSON.' }
+  catch (e) { error.value = friendlyError(e) }
+  finally { busy.value = false }
+}
 async function reconnectStoredAccount() {
   if (busy.value) return
   busy.value = true; error.value = ''; feedback.value = ''
@@ -347,10 +392,10 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <div class="danger-zone"><div><strong>Conta Google e dados locais</strong><p>Desvincular remove somente as credenciais Google e encerra a conexão. Dispositivos, histórico, rastreamento, configurações e vínculos locais permanecem preservados para reconexão. Somente “Excluir instância” remove definitivamente os dados locais.</p></div><div class="toolbar"><button class="btn ghost" :disabled="busy" @click="confirm='disconnect'">Desvincular conta Google</button><button class="btn danger" :disabled="busy" @click="confirm='delete'">Excluir instância</button></div></div>
       </template>
       <PanelCard v-else-if="section==='dispositivos'" title="Dispositivos" description="Somente dispositivos retornados pela conta Google vinculada.">
-        <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('spot')">Capturar SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('android')">Capturar Android .pb</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
+        <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><button class="btn ghost" :disabled="busy || !connected" @click="downloadProtocolArchive">Baixar tudo · Protocol Lab ZIP</button><button class="btn ghost" :disabled="busy" @click="downloadProtocolInventory">Inventário JSON</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('spot')">Capturar SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('android')">Capturar Android .pb</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
         <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p>
-        <div class="alert top-gap">As capturas reais de 2026 revelaram um layout mais novo que o protobuf original: modelo, fabricante, codinome, operadora, IMEI, versão do Google Play Services, SDK Android e Family Link já são decodificados quando o Google os fornece. Percentual exato de bateria, MEID e número de série continuam sem mapeamento confirmado; a faixa de bateria LOW/MEDIUM/HIGH é exibida quando o Google fornece o tier comprovado no wire; use o DeviceUpdate .pb para avançar essa análise. Os arquivos .pb podem conter dados sensíveis da conta e do dispositivo, incluindo identificadores, metadados e material criptográfico; use-os somente para diagnóstico, não os publique e não os persista em logs ou repositórios.</div><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><p class="muted">Esses valores existem como seletores no protobuf de referência, mas capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. A sincronização trata cada seletor como caminho de descoberta best-effort; nenhum deles define sozinho o tipo semântico do aparelho.</p></details>
+        <div class="alert top-gap">As capturas reais de 2026 revelaram um layout mais novo que o protobuf original. Os arquivos .pb e o ZIP do Protocol Lab podem conter dados sensíveis da conta e do dispositivo, incluindo identificadores, e-mails, IDs canônicos, token de registro FCM e material criptográfico cifrado; use-os somente para diagnóstico e não os publique.</div><details class="device-metadata top-gap" open><summary>Protocol Lab · baixar protocolos um a um ou em ZIP</summary><div class="toolbar top-gap"><button class="btn primary" :disabled="busy || !connected" @click="downloadProtocolArchive">Baixar tudo em ZIP</button><button class="btn ghost" :disabled="busy" @click="downloadProtocolInventory">Baixar inventário JSON</button><button class="btn ghost" :disabled="busy || !connected" @click="captureEidInfo(false)">GetEidInfo response .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureEidInfo(true)">GetEidInfo request .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureSecurityUnlockRequest">finder_hw request .pb</button></div><p class="muted top-gap">O ZIP inclui requests e responses dos cinco DevicesList, GetEidInfo, finder_hw, requests ExecuteAction por dispositivo e tenta capturar um DeviceUpdate real para cada dispositivo localizável. Falhas individuais entram no manifest.json sem invalidar o pacote. Comandos de som são somente gerados e não são enviados.</p><div class="findhub-table top-gap"><table><thead><tr><th>Família conhecida</th><th>Estado no Lab</th></tr></thead><tbody><tr><td>Nova · DevicesList / ExecuteAction</td><td>Requests + responses reais</td></tr><tr><td>Spot · GetEidInfoForE2eeDevices</td><td>Request + response real</td></tr><tr><td>Security Domain · finder_hw</td><td>Request template</td></tr><tr><td>LocationReportsUpload</td><td>Referência no inventário/ZIP</td></tr><tr><td>CreateBleDevice / UploadPrecomputedPublicKeyIds</td><td>Referência no inventário/ZIP · não executado</td></tr><tr><td>FCM/MCS raw transport / Key Backup / DULT Owner Lookup</td><td>Referência no inventário/ZIP</td></tr></tbody></table></div></details><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('spot')">Request SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('android')">Request ANDROID .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('auto')">Request AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('fastpair')">Request FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalogRequest('supervised')">Request SUPERVISED .pb</button></div><p class="muted">Esses valores existem como seletores no protobuf de referência, mas capturas reais mostraram que os cinco seletores podem devolver o mesmo catálogo completo.</p></details>
         <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}<span v-if="device.familyLinkManaged"> · Family Link</span></p>
           <div class="detail-list">
             <div><span>ID interno Connect|API</span><strong>{{ device.id }}</strong></div>
@@ -389,7 +434,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
               <div><span>Capabilities provider (wire)</span><strong>{{ providerCapabilitiesLabel(device) }}</strong></div>
               <div><span>Flags provider (wire)</span><strong>{{ device.providerFlags && Object.keys(device.providerFlags).length ? JSON.stringify(device.providerFlags) : 'Não informado' }}</strong></div>
             </div>
-            <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p>
+            <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p><div class="toolbar top-gap"><button class="btn ghost" :disabled="!connected || device.protocolBusy || device.locateSupported===false" @click="captureActionRequest(device,'locate')">Request Locate .pb</button><button class="btn ghost" :disabled="!connected || device.protocolBusy || device.locateSupported===false" @click="captureActionRequest(device,'sound-start')">Request Sound Start .pb</button><button class="btn ghost" :disabled="!connected || device.protocolBusy || device.locateSupported===false" @click="captureActionRequest(device,'sound-stop')">Request Sound Stop .pb</button></div>
             <div v-if="device.accessInformation?.length" class="findhub-table top-gap"><table><thead><tr><th>Conta com acesso</th><th>Papel</th><th>Acesso</th></tr></thead><tbody><tr v-for="(access,index) in device.accessInformation" :key="access.email || index"><td>{{ access.email || 'Não informado' }}</td><td>{{ accessRole(access) }}</td><td>{{ access.hasAccess ? 'Permitido' : 'Não permitido' }}</td></tr></tbody></table></div>
             <p v-if="device.familyLinkManaged" class="muted top-gap">O Google devolveu este aparelho como dispositivo supervisionado do Family Link. Metadados podem ser reduzidos por privacidade e algumas ações ainda não possuem wire mapeado.</p>
           </details>

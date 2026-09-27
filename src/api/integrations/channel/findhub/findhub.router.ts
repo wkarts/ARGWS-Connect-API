@@ -7,6 +7,7 @@ import {
   FindHubCredentialBundleDto,
   FindHubDeviceAvatarDto,
   FindHubLocateDto,
+  FindHubProtocolArchiveDto,
   FindHubReconciliationDto,
   FindHubSettingsDto,
   FindHubSoundDto,
@@ -24,6 +25,7 @@ import {
   findHubCredentialBundleSchema,
   findHubDeviceAvatarSchema,
   findHubLocateSchema,
+  findHubProtocolArchiveSchema,
   findHubReconciliationSchema,
   findHubSettingsSchema,
   findHubSoundSchema,
@@ -164,6 +166,64 @@ export class FindHubRouter extends RouterBroker {
       .post('/devices/refresh/:instanceName', ...guards, async (req, res) =>
         res.json(await findHubController.refreshDevices(req.params.instanceName)),
       )
+      .get('/protocol/inventory/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json(await findHubController.protocolInventory(req.params.instanceName));
+      })
+      .post('/protocol/capture/request/catalog/:catalog/:instanceName', ...guards, async (req, res) => {
+        const catalog = String(req.params.catalog || '').toLowerCase();
+        const payload = findHubController.captureProtocolCatalogRequest(req.params.instanceName, catalog);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-request-devices-${catalog}-${Date.now()}.pb"`);
+        res.send(payload);
+      })
+      .post('/protocol/capture/request/eid-info/:instanceName', ...guards, async (req, res) => {
+        const payload = findHubController.captureProtocolEidInfoRequest(req.params.instanceName);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-request-get-eid-info-${Date.now()}.pb"`);
+        res.send(payload);
+      })
+      .post('/protocol/capture/eid-info/:instanceName', ...guards, async (req, res) => {
+        const payload = await findHubController.captureProtocolEidInfo(req.params.instanceName);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-get-eid-info-${Date.now()}.pb"`);
+        res.send(payload);
+      })
+      .post('/protocol/capture/request/security-unlock/:instanceName', ...guards, async (req, res) => {
+        const payload = findHubController.captureProtocolSecurityUnlockRequest(req.params.instanceName);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-request-security-unlock-${Date.now()}.pb"`);
+        res.send(payload);
+      })
+      .post('/protocol/capture/request/action/:action/:deviceId/:instanceName', ...guards, async (req, res) => {
+        const action = String(req.params.action || '').toLowerCase();
+        const payload = await findHubController.captureProtocolActionRequest(
+          req.params.instanceName,
+          req.params.deviceId,
+          action,
+        );
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/x-protobuf');
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-request-${action}-${req.params.deviceId}-${Date.now()}.pb"`);
+        res.send(payload);
+      })
+      .post('/protocol/capture/archive/:instanceName', ...guards, async (req, res) => {
+        const result = await this.dataValidate<FindHubProtocolArchiveDto>({
+          request: req,
+          schema: findHubProtocolArchiveSchema,
+          ClassRef: FindHubProtocolArchiveDto,
+          execute: (instance, data) => findHubController.captureProtocolArchive(instance.instanceName, data),
+        });
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('X-FindHub-Protocol-Failures', String(result.failures));
+        res.setHeader('Content-Disposition', `attachment; filename="findhub-protocol-lab-${req.params.instanceName}-${Date.now()}.zip"`);
+        res.send(result.payload);
+      })
       .post('/protocol/capture/catalog/:catalog/:instanceName', ...guards, async (req, res) => {
         const catalog = String(req.params.catalog || '').toLowerCase();
         const payload = await findHubController.captureProtocolCatalog(req.params.instanceName, catalog);
