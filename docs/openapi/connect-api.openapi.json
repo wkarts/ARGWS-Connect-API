@@ -8515,7 +8515,7 @@
         ],
         "summary": "Inventário completo do Protocol Lab",
         "operationId": "get_findhub_protocol_inventory_instancename",
-        "description": "Lista todas as superfícies conhecidas catalogadas pela Connect|API, incluindo live, internal-live, request-template e reference-only, além do catálogo completo de mensagens/enums protobuf. Não retorna credenciais ou segredos.",
+        "description": "Lista todas as superfícies conhecidas catalogadas pela Connect|API, incluindo live, internal-live, request-template e reference-only, além do catálogo completo de mensagens/enums protobuf e seu impacto de enriquecimento na aplicação. Não retorna credenciais ou segredos.",
         "parameters": [
           {
             "name": "instanceName",
@@ -8541,6 +8541,65 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/state/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar estado vivo sanitizado dos protocolos",
+        "operationId": "get_findhub_protocol_state_instancename",
+        "description": "Consulta E2EE/owner-key metadata e saúde FCM/MCS sem retornar tokens, securityToken, private key, shared key ou owner key brutos. Os campos wire ainda sem semântica permanecem identificados pelo caminho numérico.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar estado vivo sanitizado dos protocolos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubProtocolState"
                 }
               }
             }
@@ -20216,6 +20275,122 @@
           },
           "traccar": {
             "$ref": "#/components/schemas/FindHubTraccarConnection"
+          }
+        }
+      },
+      "FindHubProtocolState": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "connected",
+          "auth",
+          "e2ee",
+          "push"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "auth": {
+            "type": "object",
+            "required": [
+              "aasAvailable",
+              "sharedKeyAvailable",
+              "ownerKeyCached"
+            ],
+            "properties": {
+              "aasAvailable": {
+                "type": "boolean"
+              },
+              "sharedKeyAvailable": {
+                "type": "boolean"
+              },
+              "ownerKeyCached": {
+                "type": "boolean"
+              }
+            }
+          },
+          "e2ee": {
+            "type": "object",
+            "required": [
+              "available"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "ownerKeyVersion": {
+                "type": "integer"
+              },
+              "securityDomain": {
+                "type": "string"
+              },
+              "encryptedOwnerKeyBytes": {
+                "type": "integer"
+              },
+              "encryptedOwnerKeyFingerprint": {
+                "type": "string"
+              },
+              "providerWire": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "push": {
+            "type": "object",
+            "properties": {
+              "ready": {
+                "type": "boolean"
+              },
+              "registered": {
+                "type": "boolean"
+              },
+              "checkinReady": {
+                "type": "boolean"
+              },
+              "gcmRegistered": {
+                "type": "boolean"
+              },
+              "firebaseInstallationReady": {
+                "type": "boolean"
+              },
+              "webPushRegistered": {
+                "type": "boolean"
+              },
+              "publicKeyFingerprint": {
+                "type": "string"
+              },
+              "hasRefreshToken": {
+                "type": "boolean"
+              },
+              "persistentIdCount": {
+                "type": "integer"
+              },
+              "inputStreamId": {
+                "type": "integer"
+              },
+              "lastFrameAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "heartbeatPending": {
+                "type": "boolean"
+              },
+              "reconnectScheduled": {
+                "type": "boolean"
+              },
+              "receiveBufferBytes": {
+                "type": "integer"
+              }
+            }
           }
         }
       },

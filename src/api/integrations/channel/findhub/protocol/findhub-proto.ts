@@ -322,14 +322,38 @@ export function decodeDeviceUpdate(payload: Buffer): DecodedDeviceUpdate {
   };
 }
 
-export function decodeEncryptedOwnerKey(payload: Buffer): { encryptedOwnerKey: Buffer; ownerKeyVersion: number } {
+export type FindHubOwnerKeyEnvelope = {
+  encryptedOwnerKey: Buffer;
+  ownerKeyVersion: number;
+  securityDomain?: string;
+  encryptedOwnerKeyBytes: number;
+  encryptedOwnerKeyFingerprint?: string;
+  providerWire: Record<string, number | string>;
+};
+
+export function decodeEncryptedOwnerKey(payload: Buffer): FindHubOwnerKeyEnvelope {
   const metadata = bytes(payload, 4);
   if (!metadata) throw new Error('Find Hub owner-key metadata missing');
   const encryptedOwnerKey = bytes(metadata, 1);
   if (!encryptedOwnerKey) throw new Error('Find Hub encrypted owner key missing');
+
+  const providerWire: Record<string, number | string> = {};
+  const responseField3 = bytes(payload, 3);
+  const responseField5 = bytes(payload, 5);
+  const metadataField4 = int(metadata, 4);
+  const metadataField5 = int(metadata, 5);
+  if (responseField3?.length) providerWire['response.3.hex'] = responseField3.toString('hex');
+  if (metadataField4 !== undefined) providerWire['metadata.4'] = Number(metadataField4);
+  if (metadataField5 !== undefined) providerWire['metadata.5'] = Number(metadataField5);
+  if (responseField5?.length) providerWire['response.5.hex'] = responseField5.toString('hex');
+
   return {
     encryptedOwnerKey,
     ownerKeyVersion: Number(int(metadata, 2) ?? 0n),
+    securityDomain: string(metadata, 3) || undefined,
+    encryptedOwnerKeyBytes: encryptedOwnerKey.length,
+    encryptedOwnerKeyFingerprint: fingerprint(encryptedOwnerKey),
+    providerWire,
   };
 }
 

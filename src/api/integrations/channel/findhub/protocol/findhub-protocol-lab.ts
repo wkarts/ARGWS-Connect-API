@@ -26,6 +26,8 @@ export interface FindHubProtocolInventoryItem {
   enums?: string[];
   sources: string[];
   description: string;
+  applicationAreas?: string[];
+  enrichmentTargets?: string[];
   sensitive?: boolean;
 }
 
@@ -726,9 +728,130 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
   },
 ];
 
+const PROTOCOL_KIND_ENRICHMENT: Record<
+  FindHubProtocolKind,
+  { applicationAreas: string[]; enrichmentTargets: string[] }
+> = {
+  auth: {
+    applicationAreas: ['Conta e autenticação', 'Prontidão de credenciais'],
+    enrichmentTargets: ['Estado de vinculação e disponibilidade dos service tokens sem expor os segredos'],
+  },
+  transport: {
+    applicationAreas: ['Realtime e transporte push', 'Saúde operacional'],
+    enrichmentTargets: ['Prontidão do canal, heartbeat, frames, ACKs e registro FCM/MCS'],
+  },
+  operation: {
+    applicationAreas: ['Dispositivos e comandos', 'Operações Find Hub'],
+    enrichmentTargets: ['Descoberta, localização, som e capacidades anunciadas pelo provider'],
+  },
+  push: {
+    applicationAreas: ['Realtime', 'Atualização de dispositivo'],
+    enrichmentTargets: ['DeviceUpdate, metadata viva, localização e correlação de request UUID'],
+  },
+  network: {
+    applicationAreas: ['Localização de rede', 'Crowdsourcing e EID'],
+    enrichmentTargets: ['Reports de rede, advertisements, EIDs e contribuição para a Find Hub Network'],
+  },
+  security: {
+    applicationAreas: ['E2EE e Security Domain', 'Integridade de chaves'],
+    enrichmentTargets: ['Versões, domínio, fingerprints e disponibilidade do material criptográfico sem expor chaves'],
+  },
+  provisioning: {
+    applicationAreas: ['Provisionamento BLE', 'Trackers e acessórios'],
+    enrichmentTargets: [
+      'Registro, capabilities, EIDs e lifecycle de trackers próprios quando a superfície for implementada',
+    ],
+  },
+  'anti-stalking': {
+    applicationAreas: ['Anti-stalking e segurança', 'DULT'],
+    enrichmentTargets: ['Owner Lookup e identificação controlada de acessórios desconhecidos'],
+  },
+  crypto: {
+    applicationAreas: ['Criptografia Find Hub', 'EID e descriptografia'],
+    enrichmentTargets: ['Derivação de chaves, geração de EID e validação/descriptografia dos reports'],
+  },
+};
+
+function protocolEnrichment(item: FindHubProtocolInventoryItem) {
+  const base = PROTOCOL_KIND_ENRICHMENT[item.kind];
+  const specific: Record<string, { applicationAreas?: string[]; enrichmentTargets: string[] }> = {
+    'fcm.android-checkin': {
+      applicationAreas: ['Registro FCM', 'Saúde do transporte push'],
+      enrichmentTargets: ['Prontidão do Android Check-in e identidade de transporte sem revelar securityToken'],
+    },
+    'fcm.gcm-register3': {
+      enrichmentTargets: ['Prontidão do registro GCM usado para montar o endpoint FCM'],
+    },
+    'fcm.firebase-installations': {
+      enrichmentTargets: ['Prontidão da Firebase Installation e presença de refresh token sem revelar tokens'],
+    },
+    'fcm.webpush-registration': {
+      enrichmentTargets: ['Prontidão WebPush e fingerprint da chave pública usada pelo canal'],
+    },
+    'mcs.tls-transport': {
+      enrichmentTargets: ['Conectividade TLS/MCS, último frame recebido e reconexão pendente'],
+    },
+    'mcs.login': { enrichmentTargets: ['Estado de autenticação MCS e stream id da sessão'] },
+    'mcs.heartbeat': { enrichmentTargets: ['Heartbeat pendente e frescor do último frame MCS'] },
+    'mcs.data-message': { enrichmentTargets: ['Atividade push e quantidade de persistent IDs reconhecidos'] },
+    'nova.devices-list': {
+      enrichmentTargets: ['Catálogo de dispositivos, IDs, modelo, IMEI, Family Link, capabilities e metadata viva'],
+    },
+    'nova.execute-action.locate': {
+      enrichmentTargets: ['Localização sob demanda e correlação de DeviceUpdate'],
+    },
+    'nova.execute-action.sound-start': {
+      enrichmentTargets: ['Capability de iniciar som por dispositivo/componente'],
+    },
+    'nova.execute-action.sound-stop': {
+      enrichmentTargets: ['Capability de parar som por dispositivo/componente'],
+    },
+    'fcm.device-update': { enrichmentTargets: ['Metadata viva, posição, timestamps e atualização realtime'] },
+    'spot.get-eid-info': {
+      applicationAreas: ['E2EE e owner key', 'Security Domain'],
+      enrichmentTargets: [
+        'securityDomain, ownerKeyVersion, fingerprint/bytes do envelope e campos wire ainda sem semântica',
+      ],
+    },
+    'findhub.location-reports-upload': {
+      enrichmentTargets: ['Crowdsourcing, EID, timestamps e reports de localização enviados à rede'],
+    },
+    'security-domain.finder-hw': {
+      enrichmentTargets: ['Identidade do domínio finder_hw e fluxo autorizado de desbloqueio E2EE'],
+    },
+    'key-backup.shared-key': {
+      enrichmentTargets: ['Disponibilidade do shared-key flow e recuperação E2EE sem exportar a chave'],
+    },
+    'spot.create-ble-device': {
+      enrichmentTargets: ['Provisionamento de tracker, capabilities, descrição e chaves cifradas'],
+    },
+    'spot.upload-precomputed-public-key-ids': {
+      enrichmentTargets: ['Rotação/agenda de EIDs e IDs públicos pré-computados de trackers'],
+    },
+    'nova.tos-acceptance': {
+      enrichmentTargets: ['Estado técnico da superfície de aceite de termos quando implementada'],
+    },
+    'dult.owner-lookup': { enrichmentTargets: ['Owner Lookup e investigação anti-stalking baseada em EID'] },
+    'ble.findhub-advertisement': {
+      enrichmentTargets: ['Advertisement BLE, EID, estado de tracking indesejado e capacidades de acessórios'],
+    },
+    'crypto.eid-generation': { enrichmentTargets: ['Geração/rotação de EID para trackers e correlação temporal'] },
+    'crypto.key-derivation': { enrichmentTargets: ['Derivação criptográfica usada por reports e trackers'] },
+    'crypto.foreign-tracker': {
+      enrichmentTargets: ['Descriptografia/validação de trackers observados sem misturar segredos da conta'],
+    },
+  };
+  const override = specific[item.key];
+  return {
+    applicationAreas: [...(override?.applicationAreas || base.applicationAreas)],
+    enrichmentTargets: [...(override?.enrichmentTargets || base.enrichmentTargets)],
+  };
+}
+
 export function findHubProtocolInventory(): FindHubProtocolInventoryItem[] {
   return FINDHUB_PROTOCOL_INVENTORY.map((item) => ({
     ...item,
+    ...protocolEnrichment(item),
     variants: item.variants ? [...item.variants] : undefined,
     messages: item.messages ? [...item.messages] : undefined,
     enums: item.enums ? [...item.enums] : undefined,
@@ -757,6 +880,8 @@ export function findHubProtocolInventorySummary() {
     protobufSchemas: schemas.length,
     protobufMessages: schemas.reduce((count, item) => count + item.messages.length, 0),
     protobufEnums: schemas.reduce((count, item) => count + item.enums.length, 0),
+    enrichedProtocols: artifacts.filter((item) => item.applicationAreas?.length && item.enrichmentTargets?.length)
+      .length,
   };
 }
 

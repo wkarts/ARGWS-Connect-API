@@ -681,6 +681,12 @@ export const current = {
     )
   },
 
+  async findHubProtocolState(id: string) {
+    return withInstance(id, async (_item, name, token) =>
+      api<any>(`/findhub/protocol/state/${encodeURIComponent(name)}`, { token, timeout: 45000 }),
+    )
+  },
+
   async findHubDownloadProtocolInventory(id: string) {
     const inventory = await this.findHubProtocolInventory(id)
     const url = URL.createObjectURL(new Blob([JSON.stringify(inventory, null, 2)], { type: 'application/json' }))

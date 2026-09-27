@@ -472,6 +472,11 @@ export class FindHubStartupService {
     };
   }
 
+  public async protocolState() {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return await this.protocol.protocolState();
+  }
+
   public captureProtocolCatalogRequest(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     return this.protocol.captureDevicesListRequestRaw(catalog);
@@ -542,6 +547,13 @@ export class FindHubStartupService {
     };
 
     add('README.txt', findHubProtocolLabReadme(), { kind: 'documentation' });
+    try {
+      add('runtime/protocol-state.json', JSON.stringify(await protocol.protocolState(), null, 2), {
+        kind: 'sanitized-runtime-state',
+      });
+    } catch (captureError) {
+      failure('protocol-state', captureError);
+    }
     add(
       'protocol-inventory.json',
       JSON.stringify(

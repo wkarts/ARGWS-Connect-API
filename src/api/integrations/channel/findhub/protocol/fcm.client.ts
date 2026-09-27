@@ -1,4 +1,4 @@
-import { createECDH, randomBytes, randomUUID } from 'crypto';
+import { createECDH, createHash, randomBytes, randomUUID } from 'crypto';
 import tls, { TLSSocket } from 'tls';
 
 import { decryptLegacyWebPush, webPushParams } from '../crypto/webpush';
@@ -257,6 +257,29 @@ export class FindHubFcmClient {
 
   public get currentCredentials(): FindHubFcmCredentials | null {
     return this.credentials;
+  }
+
+  public diagnostics() {
+    const credentials = this.credentials;
+    const publicKey = credentials?.keys?.publicKey;
+    return {
+      ready: this.ready,
+      registered: Boolean(credentials?.registration?.token),
+      checkinReady: Boolean(credentials?.gcm?.androidId && credentials?.gcm?.securityToken),
+      gcmRegistered: Boolean(credentials?.gcm?.token),
+      firebaseInstallationReady: Boolean(credentials?.installation?.fid && credentials?.installation?.authToken),
+      webPushRegistered: Boolean(credentials?.registration?.token),
+      publicKeyFingerprint: publicKey
+        ? createHash('sha256').update(Buffer.from(publicKey, 'base64')).digest('hex')
+        : undefined,
+      hasRefreshToken: Boolean(credentials?.installation?.refreshToken),
+      persistentIdCount: credentials?.persistentIds?.length ?? 0,
+      inputStreamId: this.inputStreamId,
+      lastFrameAt: this.lastFrameAt > 0 ? new Date(this.lastFrameAt).toISOString() : null,
+      heartbeatPending: this.heartbeatSentAt !== undefined,
+      reconnectScheduled: Boolean(this.reconnectTimer),
+      receiveBufferBytes: this.receiveBuffer.length,
+    };
   }
 
   public async ensureRegistered(): Promise<FindHubFcmCredentials> {

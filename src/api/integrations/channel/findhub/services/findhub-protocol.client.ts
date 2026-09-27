@@ -159,6 +159,35 @@ export class FindHubProtocolClient {
     return await this.nova.listDevices();
   }
 
+  public async protocolState() {
+    let e2ee: any = { available: false };
+    try {
+      const envelope = await this.spot.ownerKeyEnvelope();
+      e2ee = {
+        available: true,
+        ownerKeyVersion: envelope.ownerKeyVersion,
+        securityDomain: envelope.securityDomain,
+        encryptedOwnerKeyBytes: envelope.encryptedOwnerKeyBytes,
+        encryptedOwnerKeyFingerprint: envelope.encryptedOwnerKeyFingerprint,
+        providerWire: envelope.providerWire,
+      };
+    } catch {
+      // Sanitized diagnostic: never reflect provider bodies, tokens or encrypted key material.
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      connected: this.ready,
+      auth: {
+        aasAvailable: Boolean(this.credentials.aas?.androidId && this.credentials.aas?.aasToken),
+        sharedKeyAvailable: this.sharedKey.length > 0,
+        ownerKeyCached: Boolean(this.ownerKey || this.credentials.ownerKey),
+      },
+      e2ee,
+      push: this.fcm.diagnostics(),
+    };
+  }
+
   public captureDevicesListRequestRaw(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
     return this.nova.buildDevicesListRequest(catalog);
   }
