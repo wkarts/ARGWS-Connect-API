@@ -132,7 +132,7 @@ O pacote ZIP inclui, conforme disponibilidade:
 
 O inventário não é uma seleção manual de poucos protocolos. Ele cataloga todas as superfícies atualmente comprovadas nas referências utilizadas pela Connect|API e separa `live`, `internal-live`, `request-template` e `reference-only`.
 
-Além de Nova/Spot, o catálogo inclui Android Check-in, GCM register3, Firebase Installations, FCM registration/WebPush, MCS TLS/Login/Heartbeat/DataMessage/IQ/Acks/Close, DeviceUpdate, LocationReportsUpload, ToSAcceptance, Security Domain/Key Backup, DULT Owner Lookup e as primitivas FMDN de EID/key derivation/foreign-tracker.
+Além de Nova/Spot, o catálogo inclui Android Check-in, GCM register3, Firebase Installations, FCM registration/WebPush, FCM subscribe, namespace FCM API v1, Doorbells client API, MCS TLS/Login/Heartbeat/DataMessage/IQ/Acks/Close, DeviceUpdate, LocationReportsUpload, ToSAcceptance, Security Domain/Key Backup, DULT Owner Lookup e as primitivas FMDN de EID/key derivation/foreign-tracker.
 
 O ZIP inclui ainda `protocol-schema-catalog.json` e um descritor em `schemas/*.json` para cada schema protobuf conhecido. O catálogo atual cobre 7 conjuntos de schema, 77 mensagens e 12 enums, incluindo os protos Android Check-in, Check-in, MCS, Common, DeviceUpdate, LocationReportsUpload e ToSAcceptance.
 

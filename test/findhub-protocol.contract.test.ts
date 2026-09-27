@@ -51,6 +51,9 @@ test('Find Hub Protocol Lab inventories every known protocol family and protobuf
     'fcm.gcm-register3',
     'fcm.firebase-installations',
     'fcm.webpush-registration',
+    'fcm.subscribe',
+    'fcm.api-v1',
+    'fcm.doorbells',
     'mcs.tls-transport',
     'mcs.login',
     'mcs.heartbeat',
@@ -82,7 +85,7 @@ test('Find Hub Protocol Lab inventories every known protocol family and protobuf
   assert.ok(inventory.some((item) => item.status === 'internal-live'));
   assert.ok(inventory.some((item) => item.status === 'request-template'));
   assert.ok(inventory.some((item) => item.status === 'reference-only'));
-  assert.ok(summary.protocols >= 34);
+  assert.ok(summary.protocols >= 37);
   assert.equal(summary.protobufSchemas, 7);
   assert.equal(summary.protobufMessages, 77);
   assert.equal(summary.protobufEnums, 12);
