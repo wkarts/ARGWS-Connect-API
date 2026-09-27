@@ -38,6 +38,7 @@ export type FindHubDeviceType =
   | 'UNKNOWN';
 
 export type FindHubSoundComponent = 'UNSPECIFIED' | 'RIGHT' | 'LEFT' | 'CASE';
+export type FindHubBatteryTier = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface FindHubAccessInformation {
   email?: string;
@@ -71,6 +72,8 @@ export interface FindHubDevice {
   familyLinkUrl?: string;
   providerCapabilities?: Array<{ actionField: number; state: number }>;
   providerFlags?: Record<string, number>;
+  batteryTier?: FindHubBatteryTier;
+  batteryTierSource?: 'registration.2.11';
   locateSupported?: boolean;
   fastPairModelId?: string;
   pairedAt?: string | null;
