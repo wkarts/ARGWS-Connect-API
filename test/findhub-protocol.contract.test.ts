@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import {
   createFindHubProtocolZip,
   findHubProtocolInventory,
+  findHubProtocolInventorySummary,
+  findHubProtocolSchemaCatalog,
 } from '../src/api/integrations/channel/findhub/protocol/findhub-protocol-lab';
 import { FindHubNovaClient } from '../src/api/integrations/channel/findhub/protocol/nova.client';
 import {
@@ -36,17 +38,68 @@ test('Find Hub device list protobuf matches reference wire format', () => {
   );
 });
 
-test('Find Hub Protocol Lab inventory and ZIP are downloadable artifacts', () => {
+test('Find Hub Protocol Lab inventories every known protocol family and protobuf schema', () => {
   const inventory = findHubProtocolInventory();
-  assert.ok(inventory.some((item) => item.key === 'spot.get-eid-info' && item.status === 'live'));
-  assert.ok(inventory.some((item) => item.key === 'location-reports-upload' && item.status === 'reference-only'));
+  const schemas = findHubProtocolSchemaCatalog();
+  const summary = findHubProtocolInventorySummary();
+
+  for (const key of [
+    'auth.android-aas-token',
+    'auth.android-adm-token',
+    'auth.android-spot-token',
+    'fcm.android-checkin',
+    'fcm.gcm-register3',
+    'fcm.firebase-installations',
+    'fcm.webpush-registration',
+    'mcs.tls-transport',
+    'mcs.login',
+    'mcs.heartbeat',
+    'mcs.data-message',
+    'mcs.iq-stanza',
+    'mcs.stream-ack',
+    'mcs.selective-ack',
+    'nova.devices-list',
+    'nova.execute-action.locate',
+    'nova.execute-action.sound-start',
+    'nova.execute-action.sound-stop',
+    'fcm.device-update',
+    'spot.get-eid-info',
+    'spot.create-ble-device',
+    'spot.upload-precomputed-public-key-ids',
+    'findhub.location-reports-upload',
+    'security-domain.finder-hw',
+    'key-backup.shared-key',
+    'nova.tos-acceptance',
+    'dult.owner-lookup',
+    'ble.findhub-advertisement',
+    'crypto.eid-generation',
+    'crypto.key-derivation',
+    'crypto.foreign-tracker',
+  ]) {
+    assert.ok(inventory.some((item) => item.key === key), key);
+  }
+
+  assert.ok(inventory.some((item) => item.status === 'internal-live'));
+  assert.ok(inventory.some((item) => item.status === 'request-template'));
+  assert.ok(inventory.some((item) => item.status === 'reference-only'));
+  assert.ok(summary.protocols >= 34);
+  assert.equal(summary.protobufSchemas, 7);
+  assert.equal(summary.protobufMessages, 77);
+  assert.equal(summary.protobufEnums, 12);
+  assert.equal(schemas.reduce((count, item) => count + item.messages.length, 0), 77);
+  assert.ok(schemas.some((item) => item.messages.includes('ToSAcceptance')));
+  assert.ok(schemas.some((item) => item.messages.includes('SelectiveAck')));
+  assert.ok(schemas.some((item) => item.messages.includes('RegisterBleDeviceRequest')));
+
   const zip = createFindHubProtocolZip([
     { name: 'manifest.json', data: '{"ok":true}' },
+    { name: 'protocol-inventory.json', data: JSON.stringify({ artifacts: inventory, schemas }) },
     { name: 'requests/test.pb', data: Buffer.from([1, 2, 3]) },
   ]);
   assert.equal(zip.readUInt32LE(0), 0x04034b50);
   assert.equal(zip.readUInt32LE(zip.length - 22), 0x06054b50);
   assert.ok(zip.includes(Buffer.from('manifest.json')));
+  assert.ok(zip.includes(Buffer.from('protocol-inventory.json')));
   assert.ok(zip.includes(Buffer.from('requests/test.pb')));
 });
 
