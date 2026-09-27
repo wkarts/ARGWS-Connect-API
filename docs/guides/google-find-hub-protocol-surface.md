@@ -95,20 +95,23 @@ A correlação mostrou:
 
 O decoder preserva a interpretação legada de field `21` como Fast Pair apenas para tipos não-`PHONE`, onde essa semântica ainda é compatível com o proto de referência.
 
-### Candidatos ainda não confirmados para bateria
+### Bateria: tier suportado, percentual ainda não comprovado
 
-As cinco capturas do Redmi Note 14 preservam `DeviceRegistration.deviceTypeInformation.field11 = 3` e `field14 = 1`. A Connect|API passa a conservar esses escalares sem nome semântico como:
+As cinco capturas do Redmi Note 14 preservam `DeviceRegistration.deviceTypeInformation.field11 = 3` e `field14 = 1`. O mesmo caminho `field11=3` também aparece no Redmi Note 7 analisado.
+
+Uma implementação pública independente do protocolo Google Find Hub interpreta especificamente `DeviceTypeInformation.field11` em telefones Android como **tier de bateria**, com:
 
 ```text
-providerFlags["registration.2.11"] = 3
-providerFlags["registration.2.14"] = 1
+1 = LOW
+2 = MEDIUM
+3 = HIGH
 ```
 
-Uma implementação pública independente do protocolo Google Find Hub interpreta especificamente `DeviceTypeInformation.field11` em telefones Android como **tier de bateria**, com `1=low`, `2=medium` e `3=high`. Essa é evidência externa útil e estruturalmente compatível com o wire real do Redmi Note 14, mas não é uma especificação oficial do Google nem foi ainda correlacionada com um nível de bateria conhecido deste aparelho. Por isso a Connect|API **não** converte `3` em `batteryLevel` nem declara bateria suportada.
+A estrutura coincide exatamente com o wire real capturado nos telefones. A Connect|API passa a expor essa informação como `batteryTier` e preserva a origem em `batteryTierSource="registration.2.11"`. O valor bruto continua disponível em `providerFlags["registration.2.11"]`.
 
-Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui `status.32.1 = 53`. O valor é numericamente compatível com percentual, mas também permanece sem semântica comprovada e é preservado somente como `providerFlags["32.1"] = 53`.
+Isso **não** autoriza inferir percentual. Portanto não existe `batteryLevel=NN` sintético: o contrato suporta a faixa LOW/MEDIUM/HIGH e declara `percentageSupported=false`.
 
-Assim, `battery.supported=false` continua correto. A promoção de qualquer um desses caminhos exige comparação com estados físicos conhecidos do mesmo aparelho em capturas posteriores.
+Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui `status.32.1 = 53`. Esse campo permanece somente como candidato a algum valor percentual/telemetria; é preservado cru em `providerFlags["32.1"]` e não é apresentado como bateria até haver correlação suficiente.
 
 As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
