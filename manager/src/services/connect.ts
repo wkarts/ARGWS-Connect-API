@@ -140,8 +140,8 @@ export const connect = {
     deviceId: string,
     action: 'locate' | 'sound-start' | 'sound-stop',
   ): Promise<void> => invoke('findHubCaptureActionRequest', id, deviceId, action),
-  findHubCaptureProtocolArchive: (id: string, timeoutMs = 30000): Promise<void> =>
-    invoke('findHubCaptureProtocolArchive', id, timeoutMs),
+  findHubCaptureProtocolArchive: (id: string, timeoutMs = 30000, deviceIds?: string[]): Promise<void> =>
+    invoke('findHubCaptureProtocolArchive', id, timeoutMs, deviceIds),
   findHubCaptureDeviceUpdate: (id: string, deviceId: string, timeoutMs?: number): Promise<void> => invoke('findHubCaptureDeviceUpdate', id, deviceId, timeoutMs),
   findHubLocate: (id: string, deviceId: string, timeoutMs?: number): Promise<any> => invoke('findHubLocate', id, deviceId, timeoutMs),
   findHubSound: (id: string, deviceId: string, operation: 'start' | 'stop', component = 'UNSPECIFIED'): Promise<any> => invoke('findHubSound', id, deviceId, operation, component),

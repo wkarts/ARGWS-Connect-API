@@ -5,6 +5,7 @@ import {
   createFindHubProtocolZip,
   findHubProtocolInventory,
   findHubProtocolInventorySummary,
+  findHubProtocolLabEnabled,
   findHubProtocolSchemaCatalog,
 } from '../src/api/integrations/channel/findhub/protocol/findhub-protocol-lab';
 import { FindHubNovaClient } from '../src/api/integrations/channel/findhub/protocol/nova.client';
@@ -36,6 +37,13 @@ test('Find Hub device list protobuf matches reference wire format', () => {
     encodeDeviceListRequest(REQUEST_UUID).toString('hex'),
     '0a2808021a2431313131313131312d323232322d333333332d343434342d353535353535353535353535',
   );
+});
+
+test('Find Hub Protocol Lab can be restricted to develop or explicitly enabled/disabled', () => {
+  assert.equal(findHubProtocolLabEnabled({ NODE_ENV: 'development', FINDHUB_PROTOCOL_LAB_ENABLED: 'auto' }), true);
+  assert.equal(findHubProtocolLabEnabled({ NODE_ENV: 'PROD', FINDHUB_PROTOCOL_LAB_ENABLED: 'auto' }), false);
+  assert.equal(findHubProtocolLabEnabled({ NODE_ENV: 'PROD', FINDHUB_PROTOCOL_LAB_ENABLED: 'true' }), true);
+  assert.equal(findHubProtocolLabEnabled({ NODE_ENV: 'development', FINDHUB_PROTOCOL_LAB_ENABLED: 'false' }), false);
 });
 
 test('Find Hub Protocol Lab inventories every known protocol family and protobuf schema', () => {

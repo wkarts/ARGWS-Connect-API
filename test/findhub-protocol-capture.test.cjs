@@ -38,13 +38,16 @@ test('Find Hub raw protocol capture returns binary artifacts and never persists 
   }
 });
 
-test('Find Hub manager offers direct .pb capture without disconnecting or relinking the account', () => {
+test('Find Hub manager keeps raw protocol downloads isolated inside the dedicated Protocol Lab', () => {
   const view = read('manager/src/views/FindHubView.vue');
+  const lab = read('manager/src/components/FindHubProtocolLab.vue');
   const current = read('manager/src/services/current.ts');
-  assert.match(view, /Capturar SPOT \.pb/);
-  assert.match(view, /Capturar Android \.pb/);
-  assert.match(view, /Capturar DeviceUpdate \.pb/);
-  assert.match(view, /dados sensíveis/);
+  assert.doesNotMatch(view, /Capturar SPOT \.pb/);
+  assert.doesNotMatch(view, /Capturar DeviceUpdate \.pb/);
+  assert.match(view, /protocol-lab/);
+  assert.match(lab, /DeviceUpdate \.pb/);
+  assert.match(lab, /Request Locate \.pb/);
+  assert.match(lab, /dados sensíveis/);
   assert.match(current, /findHubCaptureCatalog/);
   assert.match(current, /findHubCaptureDeviceUpdate/);
   assert.match(current, /response\.blob\(\)/);

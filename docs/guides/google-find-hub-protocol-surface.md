@@ -115,9 +115,9 @@ Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui 
 
 As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
-## Protocol Lab: download individual e pacote ZIP
+## Protocol Lab: integração dedicada, download individual e pacote ZIP
 
-O Manager da instância Find Hub possui um **Protocol Lab** para explorar os artefatos comprovados sem persistir automaticamente os binários no banco. É possível baixar cada item separadamente ou usar **Baixar tudo em ZIP**.
+O Manager da instância Find Hub possui um **Protocol Lab** como item próprio do menu de integrações, no mesmo nível de Traccar, Webhooks e demais transportes. A tela de Dispositivos permanece dedicada à operação do aparelho e não carrega controles forenses. No Lab é possível baixar tudo, filtrar/baixar por protocolo, baixar schemas individualmente ou gerar um ZIP restrito a um único device.
 
 O pacote ZIP inclui, conforme disponibilidade:
 
@@ -141,6 +141,16 @@ Superfícies sem captura ativa continuam `reference-only`; a Connect|API as incl
 Uma falha isolada — por exemplo, ausência de DeviceUpdate de um aparelho offline — é registrada no `manifest.json` e não invalida os demais arquivos do ZIP.
 
 O pacote é material forense sensível: pode conter e-mails, IDs canônicos, registration IDs FCM e material criptográfico cifrado. Não deve ser publicado em repositórios ou logs.
+
+### Disponibilidade por ambiente
+
+`FINDHUB_PROTOCOL_LAB_ENABLED` controla tanto a UI quanto os endpoints `/findhub/protocol/*`:
+
+- `auto`: habilita fora de `NODE_ENV=PROD|production` e desabilita em produção;
+- `true`: habilita explicitamente, inclusive em produção;
+- `false`: desabilita completamente.
+
+Os deploys `develop` usam `true` explicitamente porque executam o bundle otimizado com `NODE_ENV=PROD`; os demais ambientes podem manter `auto` para ficarem fechados por padrão.
 
 ## Frescor de localização: solicitação não é observação nova
 

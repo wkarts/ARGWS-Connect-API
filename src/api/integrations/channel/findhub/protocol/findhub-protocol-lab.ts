@@ -760,6 +760,18 @@ export function findHubProtocolInventorySummary() {
   };
 }
 
+export function findHubProtocolLabEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const configured = String(env.FINDHUB_PROTOCOL_LAB_ENABLED || 'auto')
+    .trim()
+    .toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(configured)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(configured)) return false;
+  const nodeEnv = String(env.NODE_ENV || 'development').trim().toLowerCase();
+  return nodeEnv !== 'prod' && nodeEnv !== 'production';
+}
+
 export function safeProtocolPathSegment(value: unknown): string {
   const normalized = String(value || 'artifact')
     .normalize('NFKD')

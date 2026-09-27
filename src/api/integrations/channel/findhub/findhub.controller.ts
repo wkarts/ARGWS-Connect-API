@@ -6,6 +6,7 @@ import { FindHubAuthError } from './auth/findhub-auth.error';
 import { FindHubBrowserAuthService } from './auth/findhub-browser-auth.service';
 import { FINDHUB_EXTENSION_ID } from './auth/findhub-extension.constants';
 import { FINDHUB_INTEGRATION } from './findhub.constants';
+import { findHubProtocolLabEnabled } from './protocol/findhub-protocol-lab';
 import { FindHubStartupService } from './services/findhub-runtime.service';
 
 export class FindHubController {
@@ -20,6 +21,13 @@ export class FindHubController {
       throw new BadRequestException('The selected instance is not a Google Find Hub instance');
     }
     return runtime as FindHubStartupService;
+  }
+
+  private protocolLab(instanceName: string): FindHubStartupService {
+    if (!findHubProtocolLabEnabled()) {
+      throw new NotFoundException('Google Find Hub Protocol Lab is disabled in this deployment');
+    }
+    return this.runtime(instanceName);
   }
 
   public snapshot(instanceName: string) {
@@ -72,7 +80,7 @@ export class FindHubController {
       throw new BadRequestException('catalog must be spot, android, auto, fastpair or supervised');
     }
     try {
-      return await this.runtime(instanceName).captureProtocolCatalog(
+      return await this.protocolLab(instanceName).captureProtocolCatalog(
         catalog as 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
       );
     } catch (error) {
@@ -86,7 +94,7 @@ export class FindHubController {
     timeoutMs?: number,
   ): Promise<{ payload: Buffer; deviceMetadata: Buffer }> {
     try {
-      return await this.runtime(instanceName).captureProtocolDeviceUpdate(deviceId, timeoutMs);
+      return await this.protocolLab(instanceName).captureProtocolDeviceUpdate(deviceId, timeoutMs);
     } catch (error) {
       throw new BadRequestException(
         error instanceof Error ? error.message : 'Falha ao capturar DeviceUpdate Find Hub.',
@@ -95,32 +103,32 @@ export class FindHubController {
   }
 
   public protocolInventory(instanceName: string) {
-    return this.runtime(instanceName).protocolInventory();
+    return this.protocolLab(instanceName).protocolInventory();
   }
 
   public captureProtocolCatalogRequest(instanceName: string, catalog: string): Buffer {
     if (!['spot', 'android', 'auto', 'fastpair', 'supervised'].includes(catalog)) {
       throw new BadRequestException('catalog must be spot, android, auto, fastpair or supervised');
     }
-    return this.runtime(instanceName).captureProtocolCatalogRequest(
+    return this.protocolLab(instanceName).captureProtocolCatalogRequest(
       catalog as 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
     );
   }
 
   public captureProtocolEidInfoRequest(instanceName: string): Buffer {
-    return this.runtime(instanceName).captureProtocolEidInfoRequest();
+    return this.protocolLab(instanceName).captureProtocolEidInfoRequest();
   }
 
   public async captureProtocolEidInfo(instanceName: string): Promise<Buffer> {
     try {
-      return await this.runtime(instanceName).captureProtocolEidInfo();
+      return await this.protocolLab(instanceName).captureProtocolEidInfo();
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao capturar GetEidInfo.');
     }
   }
 
   public captureProtocolSecurityUnlockRequest(instanceName: string): Buffer {
-    return this.runtime(instanceName).captureProtocolSecurityUnlockRequest();
+    return this.protocolLab(instanceName).captureProtocolSecurityUnlockRequest();
   }
 
   public async captureProtocolActionRequest(instanceName: string, deviceId: string, action: string): Promise<Buffer> {
@@ -128,7 +136,7 @@ export class FindHubController {
       throw new BadRequestException('action must be locate, sound-start or sound-stop');
     }
     try {
-      return await this.runtime(instanceName).captureProtocolActionRequest(
+      return await this.protocolLab(instanceName).captureProtocolActionRequest(
         deviceId,
         action as 'locate' | 'sound-start' | 'sound-stop',
       );
@@ -139,7 +147,7 @@ export class FindHubController {
 
   public async captureProtocolArchive(instanceName: string, data: any): Promise<{ payload: Buffer; failures: number }> {
     try {
-      return await this.runtime(instanceName).captureProtocolArchive(data);
+      return await this.protocolLab(instanceName).captureProtocolArchive(data);
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao montar pacote Protocol Lab.');
     }
