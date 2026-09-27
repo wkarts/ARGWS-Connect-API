@@ -20,6 +20,8 @@ const error = ref('')
 const query = ref('')
 const statusFilter = ref('all')
 const catalog = ref<'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'>('spot')
+const liveState = ref<any>(null)
+const liveStateBusy = ref(false)
 
 const artifacts = computed<any[]>(() => props.inventory?.artifacts || [])
 const schemas = computed<any[]>(() => props.inventory?.schemas || [])
@@ -29,7 +31,17 @@ const filteredArtifacts = computed(() => {
   return artifacts.value.filter((item) => {
     if (statusFilter.value !== 'all' && item.status !== statusFilter.value) return false
     if (!term) return true
-    return [item.key, item.family, item.protocol, item.kind, item.transport, item.endpoint, ...(item.messages || [])]
+    return [
+      item.key,
+      item.family,
+      item.protocol,
+      item.kind,
+      item.transport,
+      item.endpoint,
+      ...(item.messages || []),
+      ...(item.applicationAreas || []),
+      ...(item.enrichmentTargets || []),
+    ]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
@@ -108,6 +120,19 @@ function downloadSchemaCatalog() {
     schemas: schemas.value,
   })
 }
+async function refreshLiveState() {
+  if (liveStateBusy.value || !props.connected) return
+  liveStateBusy.value = true
+  clearMessages()
+  try {
+    liveState.value = await connect.findHubProtocolState(props.instanceId)
+    feedback.value = 'Estado vivo sanitizado atualizado.'
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    liveStateBusy.value = false
+  }
+}
 async function downloadEverything() {
   await run(
     () => connect.findHubCaptureProtocolArchive(props.instanceId, effectiveTimeout()),
@@ -183,8 +208,31 @@ async function captureSecurityUnlock() {
         <button class="btn primary" :disabled="busy || !connected" @click="downloadEverything">Baixar tudo em ZIP</button>
         <button class="btn ghost" :disabled="busy" @click="downloadInventory">Inventário completo JSON</button>
         <button class="btn ghost" :disabled="busy" @click="downloadSchemaCatalog">Catálogo protobuf JSON</button>
+        <button class="btn ghost" :disabled="busy || liveStateBusy || !connected" @click="refreshLiveState">{{ liveStateBusy ? 'Consultando…' : 'Atualizar estado vivo' }}</button>
       </div>
       <div class="alert top-gap">Os arquivos do Protocol Lab podem conter dados sensíveis, IDs canônicos, e-mails, registration IDs FCM e material criptográfico cifrado. Use somente em desenvolvimento/diagnóstico e não publique o ZIP.</div>
+    </PanelCard>
+
+    <PanelCard v-if="liveState" title="Estado vivo sanitizado" description="Diagnóstico operacional derivado dos protocolos ativos. Nenhum token, securityToken, private key, shared key ou owner key bruto é retornado.">
+      <div class="summary-tiles">
+        <div><b>{{ liveState.connected ? 'Online' : 'Offline' }}</b><span>MCS / push</span></div>
+        <div><b>{{ liveState.e2ee?.securityDomain || '—' }}</b><span>Security Domain</span></div>
+        <div><b>{{ liveState.e2ee?.ownerKeyVersion ?? '—' }}</b><span>Owner key version</span></div>
+        <div><b>{{ liveState.push?.persistentIdCount ?? 0 }}</b><span>Persistent IDs</span></div>
+      </div>
+      <div class="findhub-table top-gap"><table><tbody>
+        <tr><th>E2EE disponível</th><td>{{ liveState.e2ee?.available ? 'Sim' : 'Não' }}</td></tr>
+        <tr><th>Envelope cifrado</th><td>{{ liveState.e2ee?.encryptedOwnerKeyBytes ?? '—' }} bytes</td></tr>
+        <tr><th>Fingerprint do envelope</th><td><code>{{ liveState.e2ee?.encryptedOwnerKeyFingerprint || '—' }}</code></td></tr>
+        <tr><th>Wire extra preservado</th><td><code>{{ liveState.e2ee?.providerWire ? JSON.stringify(liveState.e2ee.providerWire) : '—' }}</code></td></tr>
+        <tr><th>FCM registrado</th><td>{{ liveState.push?.registered ? 'Sim' : 'Não' }}</td></tr>
+        <tr><th>Android Check-in</th><td>{{ liveState.push?.checkinReady ? 'Pronto' : 'Não disponível' }}</td></tr>
+        <tr><th>Firebase Installation</th><td>{{ liveState.push?.firebaseInstallationReady ? 'Pronta' : 'Não disponível' }}</td></tr>
+        <tr><th>WebPush</th><td>{{ liveState.push?.webPushRegistered ? 'Registrado' : 'Não disponível' }}</td></tr>
+        <tr><th>Último frame MCS</th><td>{{ liveState.push?.lastFrameAt || 'Ainda não observado' }}</td></tr>
+        <tr><th>Heartbeat pendente</th><td>{{ liveState.push?.heartbeatPending ? 'Sim' : 'Não' }}</td></tr>
+        <tr><th>Reconexão agendada</th><td>{{ liveState.push?.reconnectScheduled ? 'Sim' : 'Não' }}</td></tr>
+      </tbody></table></div>
     </PanelCard>
 
     <PanelCard title="Por dispositivo" description="Baixe somente o material de um aparelho, sem misturar os demais devices da conta.">
@@ -215,12 +263,13 @@ async function captureSecurityUnlock() {
       </div>
       <div class="findhub-table top-gap">
         <table>
-          <thead><tr><th>Família</th><th>Protocolo</th><th>Estado</th><th>Transporte / endpoint</th><th>Arquivo</th></tr></thead>
+          <thead><tr><th>Família</th><th>Protocolo</th><th>Estado</th><th>Enriquecimento da aplicação</th><th>Transporte / endpoint</th><th>Arquivo</th></tr></thead>
           <tbody>
             <tr v-for="item in filteredArtifacts" :key="item.key">
               <td><strong>{{ item.family }}</strong><small>{{ item.kind }}</small></td>
               <td><strong>{{ item.protocol }}</strong><small>{{ item.key }}<template v-if="item.messages?.length"> · {{ item.messages.join(' · ') }}</template></small></td>
               <td>{{ statusLabel(item.status) }}</td>
+              <td><strong>{{ (item.applicationAreas || []).join(' · ') }}</strong><small>{{ (item.enrichmentTargets || []).join(' · ') }}</small></td>
               <td><span>{{ item.transport || 'Não especificado' }}</span><small v-if="item.endpoint">{{ item.endpoint }}</small></td>
               <td>
                 <div class="protocol-actions">

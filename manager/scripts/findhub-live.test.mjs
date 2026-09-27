@@ -69,12 +69,13 @@ test('Find Hub Protocol Lab lives in a dedicated integration section and support
  assert.match(source,/key:'protocol-lab'/);
  assert.match(source,/FindHubProtocolLab/);
  assert.match(router,/protocol-lab/);
- for(const value of ['Baixar tudo em ZIP','Por dispositivo','Por protocolo','Schemas protobuf','ZIP deste device','Descritor JSON'])assert.match(lab,new RegExp(value));
+ for(const value of ['Baixar tudo em ZIP','Por dispositivo','Por protocolo','Schemas protobuf','ZIP deste device','Descritor JSON','Atualizar estado vivo','Estado vivo sanitizado','Enriquecimento da aplicação'])assert.match(lab,new RegExp(value));
  assert.match(lab,/findHubCaptureProtocolArchive/);
  assert.match(lab,/findHubCaptureDeviceUpdate/);
  assert.match(lab,/findHubCaptureActionRequest/);
  assert.match(lab,/findHubCaptureCatalogRequest/);
  assert.match(lab,/findHubCaptureEidInfo/);
+ assert.match(lab,/findHubProtocolState/);
  assert.match(lab,/dados sensíveis/);
 });
 

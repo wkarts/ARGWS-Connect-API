@@ -472,6 +472,11 @@ export class FindHubStartupService {
     };
   }
 
+  public async protocolState() {
+    if (!this.protocol) throw new Error('Find Hub account is not connected');
+    return await this.protocol.protocolState();
+  }
+
   public captureProtocolCatalogRequest(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
     if (!this.protocol) throw new Error('Find Hub account is not connected');
     return this.protocol.captureDevicesListRequestRaw(catalog);

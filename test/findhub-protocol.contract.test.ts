@@ -11,6 +11,7 @@ import {
 import { FindHubNovaClient } from '../src/api/integrations/channel/findhub/protocol/nova.client';
 import {
   decodeDeviceMetadata,
+  decodeEncryptedOwnerKey,
   decodeLocationReports,
   DeviceType,
   encodeDeviceListRequest,
@@ -22,6 +23,7 @@ import {
 import {
   bytes,
   concat,
+  fieldBytes,
   fieldMessage,
   fieldString,
   fieldVarint,
@@ -31,6 +33,33 @@ import {
 
 const REQUEST_UUID = '11111111-2222-3333-4444-555555555555';
 const CLIENT_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+test('Find Hub live GetEidInfo preserves stable 2026 metadata without inventing semantics', () => {
+  const encryptedOwnerKey = Buffer.alloc(60, 7);
+  const metadata = concat(
+    fieldBytes(1, encryptedOwnerKey),
+    fieldVarint(2, 1),
+    fieldString(3, 'finder_hw'),
+    fieldVarint(4, 83),
+    fieldVarint(5, 1),
+  );
+  const response = concat(
+    fieldBytes(3, Buffer.from([1])),
+    fieldMessage(4, metadata),
+    fieldBytes(5, Buffer.from([3])),
+  );
+  const decoded = decodeEncryptedOwnerKey(response);
+  assert.equal(decoded.ownerKeyVersion, 1);
+  assert.equal(decoded.securityDomain, 'finder_hw');
+  assert.equal(decoded.encryptedOwnerKeyBytes, 60);
+  assert.equal(decoded.encryptedOwnerKeyFingerprint?.length, 64);
+  assert.deepEqual(decoded.providerWire, {
+    'response.3.hex': '01',
+    'metadata.4': 83,
+    'metadata.5': 1,
+    'response.5.hex': '03',
+  });
+});
 
 test('Find Hub device list protobuf matches reference wire format', () => {
   assert.equal(
@@ -94,6 +123,11 @@ test('Find Hub Protocol Lab inventories every known protocol family and protobuf
   assert.ok(inventory.some((item) => item.status === 'request-template'));
   assert.ok(inventory.some((item) => item.status === 'reference-only'));
   assert.ok(summary.protocols >= 37);
+  assert.equal(summary.enrichedProtocols, summary.protocols);
+  for (const item of inventory) {
+    assert.ok(item.applicationAreas?.length, `${item.key}: applicationAreas`);
+    assert.ok(item.enrichmentTargets?.length, `${item.key}: enrichmentTargets`);
+  }
   assert.equal(summary.protobufSchemas, 7);
   assert.equal(summary.protobufMessages, 77);
   assert.equal(summary.protobufEnums, 12);

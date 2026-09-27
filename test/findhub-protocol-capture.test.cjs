@@ -15,6 +15,7 @@ test('Find Hub raw protocol capture returns binary artifacts and never persists 
   assert.match(router, /protocol\/capture\/catalog\/:catalog\/:instanceName/);
   assert.match(router, /protocol\/capture\/device-update\/:deviceId\/:instanceName/);
   assert.match(router, /protocol\/inventory\/:instanceName/);
+  assert.match(router, /protocol\/state\/:instanceName/);
   assert.match(router, /protocol\/capture\/archive\/:instanceName/);
   assert.match(router, /protocol\/capture\/eid-info\/:instanceName/);
   assert.match(router, /protocol\/capture\/request\/catalog\/:catalog\/:instanceName/);

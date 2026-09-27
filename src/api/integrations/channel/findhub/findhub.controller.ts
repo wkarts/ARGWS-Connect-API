@@ -106,6 +106,16 @@ export class FindHubController {
     return this.protocolLab(instanceName).protocolInventory();
   }
 
+  public async protocolState(instanceName: string) {
+    try {
+      return await this.protocolLab(instanceName).protocolState();
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Falha ao consultar o estado vivo do Protocol Lab.',
+      );
+    }
+  }
+
   public captureProtocolCatalogRequest(instanceName: string, catalog: string): Buffer {
     if (!['spot', 'android', 'auto', 'fastpair', 'supervised'].includes(catalog)) {
       throw new BadRequestException('catalog must be spot, android, auto, fastpair or supervised');

@@ -126,6 +126,7 @@ export const connect = {
   findHubRefreshDevices: (id: string): Promise<any[]> => invoke('findHubRefreshDevices', id),
   findHubCaptureCatalog: (id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Promise<void> => invoke('findHubCaptureCatalog', id, catalog),
   findHubProtocolInventory: (id: string): Promise<any> => invoke('findHubProtocolInventory', id),
+  findHubProtocolState: (id: string): Promise<any> => invoke('findHubProtocolState', id),
   findHubDownloadProtocolInventory: (id: string): Promise<void> => invoke('findHubDownloadProtocolInventory', id),
   findHubCaptureCatalogRequest: (
     id: string,

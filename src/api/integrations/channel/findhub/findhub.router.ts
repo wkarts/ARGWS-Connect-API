@@ -170,6 +170,10 @@ export class FindHubRouter extends RouterBroker {
         res.setHeader('Cache-Control', 'private, no-store');
         res.json(await findHubController.protocolInventory(req.params.instanceName));
       })
+      .get('/protocol/state/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json(await findHubController.protocolState(req.params.instanceName));
+      })
       .post('/protocol/capture/request/catalog/:catalog/:instanceName', ...guards, async (req, res) => {
         const catalog = String(req.params.catalog || '').toLowerCase();
         const payload = findHubController.captureProtocolCatalogRequest(req.params.instanceName, catalog);
