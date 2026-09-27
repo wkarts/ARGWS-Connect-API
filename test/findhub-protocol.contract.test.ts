@@ -289,6 +289,8 @@ test('Find Hub legacy PHONE DeviceUpdate treats field 21 as product name and pre
   assert.equal(device.fastPairModelId, undefined);
   assert.equal(device.providerFlags?.['registration.2.11'], 3);
   assert.equal(device.providerFlags?.['registration.2.14'], 1);
+  assert.equal(device.batteryTier, 'HIGH');
+  assert.equal(device.batteryTierSource, 'registration.2.11');
   assert.deepEqual(device.providerCapabilities, [
     { actionField: 31, state: 1 },
     { actionField: 32, state: 1 },
