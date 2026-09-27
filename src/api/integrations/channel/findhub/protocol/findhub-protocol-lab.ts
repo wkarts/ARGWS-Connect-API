@@ -1,8 +1,4 @@
-export type FindHubProtocolCaptureStatus =
-  | 'live'
-  | 'internal-live'
-  | 'request-template'
-  | 'reference-only';
+export type FindHubProtocolCaptureStatus = 'live' | 'internal-live' | 'request-template' | 'reference-only';
 
 export type FindHubProtocolKind =
   | 'auth'
@@ -529,7 +525,13 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTP/2 gRPC',
     endpoint: 'https://spot-pa.googleapis.com/google.internal.spot.v1.SpotService/CreateBleDevice',
-    messages: ['RegisterBleDeviceRequest', 'E2EEPublicKeyRegistration', 'DeviceCapabilities', 'DeviceDescription', 'DeviceComponentInformation'],
+    messages: [
+      'RegisterBleDeviceRequest',
+      'E2EEPublicKeyRegistration',
+      'DeviceCapabilities',
+      'DeviceDescription',
+      'DeviceComponentInformation',
+    ],
     sources: [sourceGoogleFindMyTools],
     description: 'Provisionamento/fabricação de tracker BLE próprio; não é executado automaticamente.',
     sensitive: true,
@@ -544,7 +546,13 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     archive: true,
     transport: 'HTTP/2 gRPC',
     endpoint: 'https://spot-pa.googleapis.com/google.internal.spot.v1.SpotService/UploadPrecomputedPublicKeyIds',
-    messages: ['UploadPrecomputedPublicKeyIdsRequest', 'DevicePublicKeyIds', 'PublicKeyIdList', 'PublicKeyIdInfo', 'TruncatedEID'],
+    messages: [
+      'UploadPrecomputedPublicKeyIdsRequest',
+      'DevicePublicKeyIds',
+      'PublicKeyIdList',
+      'PublicKeyIdInfo',
+      'TruncatedEID',
+    ],
     sources: [sourceGoogleFindMyTools],
     description: 'Upload de EIDs/precomputed public key IDs de trackers customizados.',
     sensitive: true,
@@ -558,7 +566,15 @@ export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[]
     individual: false,
     archive: true,
     transport: 'protobuf',
-    messages: ['LocationReportsUpload', 'Report', 'Advertisement', 'Identifier', 'ClientMetadata', 'ClientVersionInformation', 'LocationReport'],
+    messages: [
+      'LocationReportsUpload',
+      'Report',
+      'Advertisement',
+      'Identifier',
+      'ClientMetadata',
+      'ClientVersionInformation',
+      'LocationReport',
+    ],
     sources: [sourceGoogleFindMyTools, sourceGoFindMy],
     description: 'Upload de observações/crowdsourcing contendo advertisement, tempo e localização.',
     sensitive: true,
