@@ -116,6 +116,9 @@ const deviceType = (value: string) => ({
   UNKNOWN:'Não informado',
 }[value] || value)
 const accessRole = (item: any) => item?.thisAccount ? 'Esta conta' : item?.isOwner ? 'Proprietário' : item?.hasAccess ? 'Com acesso' : 'Sem acesso'
+const providerCapabilitiesLabel = (device: any) => Array.isArray(device?.providerCapabilities) && device.providerCapabilities.length
+  ? device.providerCapabilities.map((item: any) => String(item?.actionField)+':'+String(item?.state)).join(' · ')
+  : 'Não informado'
 function soundOperationSupported(device: any, operation: 'start'|'stop') {
   const actionField = operation === 'start' ? 31 : 32
   const capabilities = Array.isArray(device?.providerCapabilities) ? device.providerCapabilities : []
@@ -381,7 +384,7 @@ onBeforeUnmount(() => { sequence++; stopStream() })
               <div><span>Fingerprint account key</span><strong>{{ device.accountKeyFingerprint || 'Não informado' }}</strong></div>
               <div><span>Fingerprint public address</span><strong>{{ device.publicAddressFingerprint || 'Não informado' }}</strong></div>
               <div><span>Segredos criados em</span><strong>{{ stamp(device.secretsCreatedAt) }}</strong></div>
-              <div><span>Capabilities provider (wire)</span><strong>{{ device.providerCapabilities?.length ? device.providerCapabilities.map(item => String(item.actionField)+':'+String(item.state)).join(' · ') : 'Não informado' }}</strong></div>
+              <div><span>Capabilities provider (wire)</span><strong>{{ providerCapabilitiesLabel(device) }}</strong></div>
               <div><span>Flags provider (wire)</span><strong>{{ device.providerFlags && Object.keys(device.providerFlags).length ? JSON.stringify(device.providerFlags) : 'Não informado' }}</strong></div>
             </div>
             <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p>
