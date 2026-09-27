@@ -53,7 +53,9 @@ test('Find Hub device view exposes proven protocol metadata, provider freshness 
  assert.match(source,/actionField.*31/);
  assert.match(source,/actionField.*32/);
  assert.match(source,/modelo, fabricante, codinome, operadora, IMEI/);
- assert.match(source,/Bateria, MEID e número de série continuam sem mapeamento confirmado/);
+ assert.match(source,/Percentual exato de bateria, MEID e número de série continuam sem mapeamento confirmado/);
+ assert.match(source,/Bateria \(faixa\)/);
+ assert.match(source,/batteryTierLabel/);
  assert.doesNotMatch(source,/batteryLevel|imeiValue|serialNumberValue/);
  for(const value of ['IMEI','Operadora','Codinome','Android SDK','Google Play Services','Family Link'])assert.match(source,new RegExp(value));
  assert.match(source,/device\.locateSupported===false/);
