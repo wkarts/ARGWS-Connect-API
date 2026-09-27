@@ -85,7 +85,7 @@ export function findHubSupportsSoundAction(device: FindHubDevice, operation: 'st
     return capabilities.some((capability) => capability.actionField === actionField && capability.state === 1);
   }
   // Compatibility fallback for legacy catalogues that predate advertised action capabilities.
-  return device.identifierType === 'SPOT' && device.locateSupported !== false;
+  return device.identifierType === 'SPOT';
 }
 
 function commandTimeoutMs(): number {
