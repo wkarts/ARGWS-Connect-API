@@ -50,6 +50,15 @@ const filteredArtifacts = computed(() => {
 })
 
 const effectiveTimeout = () => Math.min(120000, Math.max(1000, Number(props.timeoutMs ?? 30000)))
+const evidenceLabel = (value: string) =>
+  ({
+    'argws-native': 'ARGWS Connect|API · implementação nativa',
+    'live-wire-observation': 'Captura real / wire observado',
+    'public-research-reference': 'Referência pública de pesquisa',
+    'independent-public-cross-check': 'Cross-check público independente',
+    'interop-public-cross-check': 'Cross-check público de interoperabilidade',
+  })[value] || value
+
 const statusLabel = (value: string) =>
   ({
     live: 'Live · exportação/captura disponível',
@@ -298,13 +307,13 @@ async function captureSecurityUnlock() {
     <PanelCard title="Schemas protobuf" description="Catálogo completo de mensagens e enums conhecidos nas referências utilizadas pela Connect|API.">
       <div class="findhub-table">
         <table>
-          <thead><tr><th>Schema</th><th>Mensagens</th><th>Enums</th><th>Proveniência</th><th>Arquivo</th></tr></thead>
+          <thead><tr><th>Schema</th><th>Mensagens</th><th>Enums</th><th>Evidência técnica</th><th>Arquivo</th></tr></thead>
           <tbody>
             <tr v-for="schema in schemas" :key="schema.key">
-              <td><strong>{{ schema.key }}</strong><small>{{ schema.source }}</small></td>
+              <td><strong>{{ schema.key }}</strong><small>{{ schema.schemaPath }}</small></td>
               <td>{{ schema.messages.join(' · ') }}</td>
               <td>{{ schema.enums.length ? schema.enums.join(' · ') : '—' }}</td>
-              <td>{{ schema.provenance }}</td>
+              <td>{{ evidenceLabel(schema.evidence) }}</td>
               <td><button class="btn ghost" @click="downloadSchema(schema)">JSON</button></td>
             </tr>
           </tbody>

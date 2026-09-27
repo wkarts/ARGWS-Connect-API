@@ -34,6 +34,19 @@ import {
 const REQUEST_UUID = '11111111-2222-3333-4444-555555555555';
 const CLIENT_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
+test('Find Hub Protocol Lab keeps public research distinct from runtime dependencies', () => {
+  const inventory = findHubProtocolInventory();
+  const schemas = findHubProtocolSchemaCatalog();
+  const serialized = JSON.stringify({ inventory, schemas });
+
+  assert.doesNotMatch(serialized, /leonboe1|GoogleFindMyTools|go-findmy|traccar-relay/i);
+  assert.ok(inventory.every((item) => Array.isArray(item.evidence) && item.evidence.length > 0));
+  assert.ok(schemas.every((item) => item.evidence && item.schemaPath));
+  assert.ok(inventory.some((item) => item.evidence.includes('argws-native')));
+  assert.ok(inventory.some((item) => item.evidence.includes('live-wire-observation')));
+  assert.ok(inventory.some((item) => item.evidence.includes('public-research-reference')));
+});
+
 test('Find Hub live GetEidInfo preserves stable 2026 metadata without inventing semantics', () => {
   const encryptedOwnerKey = Buffer.alloc(60, 7);
   const metadata = concat(
@@ -231,7 +244,7 @@ test('Find Hub locate protobuf matches reference wire format', () => {
   );
 });
 
-test('Find Hub start/stop sound protobufs match the supplied GoogleFindMyTools reference', () => {
+test('Find Hub start/stop sound protobufs match the supplied public wire reference', () => {
   const args = {
     googleDeviceId: 'abc123',
     fcmRegistrationId: 'fcm-token',
