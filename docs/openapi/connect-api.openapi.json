@@ -20278,6 +20278,122 @@
           }
         }
       },
+      "FindHubProtocolState": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "connected",
+          "auth",
+          "e2ee",
+          "push"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "auth": {
+            "type": "object",
+            "required": [
+              "aasAvailable",
+              "sharedKeyAvailable",
+              "ownerKeyCached"
+            ],
+            "properties": {
+              "aasAvailable": {
+                "type": "boolean"
+              },
+              "sharedKeyAvailable": {
+                "type": "boolean"
+              },
+              "ownerKeyCached": {
+                "type": "boolean"
+              }
+            }
+          },
+          "e2ee": {
+            "type": "object",
+            "required": [
+              "available"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "ownerKeyVersion": {
+                "type": "integer"
+              },
+              "securityDomain": {
+                "type": "string"
+              },
+              "encryptedOwnerKeyBytes": {
+                "type": "integer"
+              },
+              "encryptedOwnerKeyFingerprint": {
+                "type": "string"
+              },
+              "providerWire": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "push": {
+            "type": "object",
+            "properties": {
+              "ready": {
+                "type": "boolean"
+              },
+              "registered": {
+                "type": "boolean"
+              },
+              "checkinReady": {
+                "type": "boolean"
+              },
+              "gcmRegistered": {
+                "type": "boolean"
+              },
+              "firebaseInstallationReady": {
+                "type": "boolean"
+              },
+              "webPushRegistered": {
+                "type": "boolean"
+              },
+              "publicKeyFingerprint": {
+                "type": "string"
+              },
+              "hasRefreshToken": {
+                "type": "boolean"
+              },
+              "persistentIdCount": {
+                "type": "integer"
+              },
+              "inputStreamId": {
+                "type": "integer"
+              },
+              "lastFrameAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "heartbeatPending": {
+                "type": "boolean"
+              },
+              "reconnectScheduled": {
+                "type": "boolean"
+              },
+              "receiveBufferBytes": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
       "FindHubProtocolArchiveRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -21110,122 +21226,6 @@
           "processed": {
             "type": "integer",
             "minimum": 1
-          }
-        }
-      },
-      "FindHubProtocolState": {
-        "type": "object",
-        "required": [
-          "generatedAt",
-          "connected",
-          "auth",
-          "e2ee",
-          "push"
-        ],
-        "properties": {
-          "generatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "connected": {
-            "type": "boolean"
-          },
-          "auth": {
-            "type": "object",
-            "required": [
-              "aasAvailable",
-              "sharedKeyAvailable",
-              "ownerKeyCached"
-            ],
-            "properties": {
-              "aasAvailable": {
-                "type": "boolean"
-              },
-              "sharedKeyAvailable": {
-                "type": "boolean"
-              },
-              "ownerKeyCached": {
-                "type": "boolean"
-              }
-            }
-          },
-          "e2ee": {
-            "type": "object",
-            "required": [
-              "available"
-            ],
-            "properties": {
-              "available": {
-                "type": "boolean"
-              },
-              "ownerKeyVersion": {
-                "type": "integer"
-              },
-              "securityDomain": {
-                "type": "string"
-              },
-              "encryptedOwnerKeyBytes": {
-                "type": "integer"
-              },
-              "encryptedOwnerKeyFingerprint": {
-                "type": "string"
-              },
-              "providerWire": {
-                "type": "object",
-                "additionalProperties": true
-              }
-            }
-          },
-          "push": {
-            "type": "object",
-            "properties": {
-              "ready": {
-                "type": "boolean"
-              },
-              "registered": {
-                "type": "boolean"
-              },
-              "checkinReady": {
-                "type": "boolean"
-              },
-              "gcmRegistered": {
-                "type": "boolean"
-              },
-              "firebaseInstallationReady": {
-                "type": "boolean"
-              },
-              "webPushRegistered": {
-                "type": "boolean"
-              },
-              "publicKeyFingerprint": {
-                "type": "string"
-              },
-              "hasRefreshToken": {
-                "type": "boolean"
-              },
-              "persistentIdCount": {
-                "type": "integer"
-              },
-              "inputStreamId": {
-                "type": "integer"
-              },
-              "lastFrameAt": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
-              },
-              "heartbeatPending": {
-                "type": "boolean"
-              },
-              "reconnectScheduled": {
-                "type": "boolean"
-              },
-              "receiveBufferBytes": {
-                "type": "integer"
-              }
-            }
           }
         }
       }
