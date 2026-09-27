@@ -93,6 +93,8 @@ export const findHubSchemas = {
         },
       },
       providerFlags: { type: 'object', additionalProperties: { type: 'integer' }, description: 'Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1.' },
+      batteryTier: { type: 'string', enum: ['LOW','MEDIUM','HIGH'], description: 'Faixa de bateria do telefone, derivada de DeviceTypeInformation field 11. Não representa percentual exato.' },
+      batteryTierSource: { type: 'string', enum: ['registration.2.11'], description: 'Caminho wire usado para a faixa de bateria.' },
       locateSupported: { type: 'boolean' },
       fastPairModelId: { ...text, description: 'Fast Pair Model ID somente quando a semântica é compatível; PHONE não reutiliza registration field 21 como Fast Pair.' },
       pairedAt: { type: ['string', 'null'], format: 'date-time' },
@@ -130,7 +132,7 @@ export const findHubSchemas = {
     properties: {
       deviceId: text, googleDeviceId: text, latitude: { type: 'number' }, longitude: { type: 'number' },
       altitude: { type: 'number' }, accuracy: { type: 'number' }, timestamp,
-      source: { type: 'string', enum: ['RECENT', 'NETWORK', 'LAST_KNOWN', 'CROWDSOURCED', 'AGGREGATED', 'UNKNOWN'] },
+      source: { type: 'string', enum: ['RECENT', 'NETWORK', 'LAST_KNOWN', 'CROWDSOURCED', 'AGGREGATED', 'TRACCAR', 'UNKNOWN'] },
       semanticLocation: text, ownReport: { type: 'boolean' },
     },
   },
