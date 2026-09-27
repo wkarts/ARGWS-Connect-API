@@ -54,7 +54,7 @@ export const findHubSchemas = {
       googleDeviceId: text,
       canonicalIds: { type: 'array', items: text, description: 'Todos os IDs canônicos devolvidos pelo catálogo Google para o mesmo metadata.' },
       name: text,
-      identifierType: { type: 'string', enum: ['ANDROID', 'SPOT', 'UNKNOWN'] },
+      identifierType: { type: 'string', enum: ['ANDROID', 'SPOT', 'SUPERVISED_ANDROID', 'UNKNOWN'] },
       deviceType: {
         type: 'string',
         enum: [
@@ -65,7 +65,38 @@ export const findHubSchemas = {
       },
       manufacturer: text,
       model: text,
-      fastPairModelId: text,
+      deviceCodename: { ...text, description: 'Codinome Android devolvido pelo status vivo do provider, por exemplo tanzanite.' },
+      productName: { ...text, description: 'Nome de produto/variant devolvido no registration field 21 para PHONE, por exemplo tanzanite_global.' },
+      carrier: text,
+      imei: {
+        type: 'string',
+        pattern: '^\\d{15}$',
+        description: 'IMEI quando o provider Google o entrega; o Connect|API valida formato/check digit e não o infere.',
+      },
+      androidDeviceNumericId: text,
+      providerOpaqueId: text,
+      providerRegisteredAt: { type: ['string', 'null'], format: 'date-time' },
+      providerStatusAt: { type: ['string', 'null'], format: 'date-time' },
+      providerResponseAt: { type: ['string', 'null'], format: 'date-time' },
+      gmsCoreVersionCode: { type: 'integer' },
+      androidSdkVersion: { type: 'integer' },
+      familyLinkManaged: { type: 'boolean' },
+      familyLinkMemberName: text,
+      familyLinkUrl: text,
+      providerCapabilities: {
+        type: 'array',
+        description: 'Capabilities numéricas anunciadas pelo provider. Action fields 31 e 32 têm semântica comprovada como Start/Stop Sound; demais números permanecem sem nome até comprovação.',
+        items: {
+          type: 'object',
+          required: ['actionField', 'state'],
+          properties: { actionField: { type: 'integer' }, state: { type: 'integer' } },
+        },
+      },
+      providerFlags: { type: 'object', additionalProperties: { type: 'integer' }, description: 'Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1.' },
+      batteryTier: { type: 'string', enum: ['LOW','MEDIUM','HIGH'], description: 'Faixa de bateria do telefone, derivada de DeviceTypeInformation field 11. Não representa percentual exato.' },
+      batteryTierSource: { type: 'string', enum: ['registration.2.11'], description: 'Caminho wire usado para a faixa de bateria.' },
+      locateSupported: { type: 'boolean' },
+      fastPairModelId: { ...text, description: 'Fast Pair Model ID somente quando a semântica é compatível; PHONE não reutiliza registration field 21 como Fast Pair.' },
       pairedAt: { type: ['string', 'null'], format: 'date-time' },
       accessInformation: {
         type: 'array',
@@ -142,11 +173,11 @@ export const findHubOperations = {
   'POST /findhub/auth/start/{instanceName}': operation('Iniciar vinculação da conta Google', 'Cria sessão de dez minutos e devolve bridgeToken sensível. Não devolve URL OAuth, QR Code ou callback Google: o CredentialProvider externo precisa obter o bundle autorizado.', ref('FindHubAuthSession'), { requestBody: body('FindHubAuthStartRequest', { email: 'operador@example.com' }), responses: response(ref('FindHubAuthSession'), 'Sessão temporária criada; aguarda o CredentialProvider.', '201') }),
   'POST /findhub/auth/import/{instanceName}': operation('Importar bundle autorizado e conectar', 'Exige apikey da instância, sessionId e bridgeToken. Cifra o bundle com FINDHUB_CREDENTIALS_KEY e tenta conectar o canal. Não recebe senha, cookies do navegador nem a chave de criptografia do servidor. Um login comum no Google não produz automaticamente esse bundle.', ref('FindHubAuthResult'), { requestBody: body('FindHubCredentialBundleRequest') }),
   'GET /findhub/auth/status/{instanceName}': operation('Consultar estado da autenticação', 'Consulta estado persistido sem devolver tokens nem chaves. Use para acompanhar a vinculação tanto pelo Manager quanto por integração externa.', ref('FindHubAuthStatus')),
-  'GET /findhub/devices/{instanceName}': operation('Listar dispositivos cadastrados', 'Retorna o catálogo local da instância; não força uma consulta nova ao Google. Telefones usam identifierType ANDROID e deviceType PHONE quando o protocolo informa esse tipo.', { type: 'array', items: ref('FindHubDevice') }),
+  'GET /findhub/devices/{instanceName}': operation('Listar dispositivos cadastrados', 'Retorna o catálogo local da instância; não força uma consulta nova ao Google. O decoder aceita o layout legado e o layout vivo observado em 2026, incluindo metadados Android e dispositivos supervisionados do Family Link quando o provider os entrega.', { type: 'array', items: ref('FindHubDevice') }),
   'POST /findhub/devices/refresh/{instanceName}': operation('Atualizar catálogo pelo Google Find Hub', 'Consulta Nova usando a conta vinculada e atualiza os dispositivos dessa instância. Exige canal conectado.', { type: 'array', items: ref('FindHubDevice') }),
   'POST /findhub/protocol/capture/catalog/{catalog}/{instanceName}': operation(
     'Capturar DevicesList protobuf bruto',
-    'Executa diretamente a consulta Nova para o catálogo solicitado e devolve o corpo binário sem decodificação. Catálogos aceitos: spot, android, auto, fastpair e supervised. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.',
+    'Executa diretamente a consulta Nova com o seletor solicitado e devolve o corpo binário sem decodificação. Seletores aceitos: spot, android, auto, fastpair e supervised. Capturas reais de 2026 mostram que o provider pode devolver o mesmo catálogo completo para seletores diferentes; o seletor não deve ser interpretado como garantia do tipo semântico dos dispositivos retornados. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.',
     { type: 'string', format: 'binary' },
     {
       parameters: [
@@ -184,14 +215,14 @@ export const findHubOperations = {
     },
   ),
   'POST /findhub/sound/start/{deviceId}/{instanceName}': operation(
-    'Tocar som no dispositivo SPOT',
-    'Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.',
+    'Tocar som no dispositivo',
+    'Usa ExecuteAction.startSound (action field 31). O comando é permitido quando o provider anuncia a capability 31; catálogos legados sem capabilities mantêm fallback para SPOT. O mesmo telefone pode aparecer como ANDROID no catálogo e responder pelo wire SPOT. Componentes RIGHT, LEFT e CASE são opcionais somente para dispositivos compatíveis.',
     ref('FindHubSoundResult'),
     { requestBody: { ...body('FindHubSoundRequest', { component: 'UNSPECIFIED' }), required: false } },
   ),
   'POST /findhub/sound/stop/{deviceId}/{instanceName}': operation(
-    'Parar som no dispositivo SPOT',
-    'Porta o ExecuteAction.stopSound comprovado no material GoogleFindMyTools. Não inventa suporte para dispositivos ANDROID.',
+    'Parar som no dispositivo',
+    'Usa ExecuteAction.stopSound (action field 32). O comando é permitido quando o provider anuncia a capability 32; catálogos legados sem capabilities mantêm fallback para SPOT.',
     ref('FindHubSoundResult'),
     { requestBody: { ...body('FindHubSoundRequest', { component: 'UNSPECIFIED' }), required: false } },
   ),
@@ -292,7 +323,7 @@ Object.assign(findHubOperations, {
 findHubOperations['GET /findhub/positions/{deviceId}/{instanceName}'].description='Histórico local desta conta/dispositivo, mais recente primeiro. Gravação controlada nas configurações da conta; posições anteriores continuam legíveis ao desabilitar novas gravações. Sem recuperar histórico que nunca foi coletado. Retenção 0 é indefinida; valores positivos permitem limpeza em lotes.';
 findHubOperations['GET /findhub/positions/{deviceId}/{instanceName}'].parameters.push(...['from','to'].map(name=>({name,in:'query',required:false,schema:timestamp})));
 findHubOperations['POST /findhub/locate/{deviceId}/{instanceName}'].description='Solicita posição pelo protocolo Google. Timeout efetivo por dispositivo (1 a 2147483647 ms), independente do intervalo. A última posição é preservada mesmo com histórico desabilitado; não é substituída por relatório mais antigo. Integração Traccar opcional não impede a gravação nem a entrega do evento local quando indisponível.';
-findHubOperations['POST /findhub/devices/refresh/{instanceName}'].description='Consulta os catálogos SPOT e Android disponíveis à conta e une identificadores canônicos, sem descartar acessórios quando coexistirem com identificadores de telefone. O catálogo principal é preservado se a consulta complementar for recusada. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.';
+findHubOperations['POST /findhub/devices/refresh/{instanceName}'].description='Consulta SPOT primeiro e os seletores Android, Auto, Fast Pair e Supervised como caminhos complementares best-effort. Capturas reais de 2026 mostraram que esses seletores podem devolver o mesmo catálogo completo; portanto não são tratados como tipo semântico do aparelho. Qualquer catálogo legível pode sustentar a sincronização, os resultados são deduplicados por Google Device ID e SPOT é apenas desempate de compatibilidade. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.';
 findHubOperations['PUT /findhub/traccar/{deviceId}/{instanceName}'].description='Modo legado: vínculo manual com receptor OsmAnd explicitamente autorizado em TRACCAR_ALLOWED_ORIGINS. Não provisiona cadastro remoto nem altera a configuração global; use provision para a integração oficial automática. Destino interno só é aceito quando habilitado.';
 findHubEventMessages['findhub.tracking.update']={description:'Alteração do acompanhamento por dispositivo, configuração da conta ou estado do Traccar. Envelope segue o transporte existente; SSE acrescenta instanceId e at.',data:{type:'object',properties:{deviceId:text,enabled:{type:'boolean'},intervalSeconds:{type:'integer'},timeoutMs:{type:'integer'},providerStatus:text,traccarState:text,settings:findHubSchemas.FindHubTrackingSettings}}};
 

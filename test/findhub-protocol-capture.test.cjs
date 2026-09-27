@@ -42,10 +42,34 @@ test('Find Hub manager offers direct .pb capture without disconnecting or relink
   assert.doesNotMatch(current, /findHubDisconnect.*findHubCapture/i);
 });
 
-test('Nova probes optional Android, Auto, Fast Pair and supervised catalogues without replacing SPOT', () => {
+test('Find Hub sound follows advertised action capabilities instead of catalogue identifier type', () => {
+  const protocol = read('src/api/integrations/channel/findhub/services/findhub-protocol.client.ts');
+  const view = read('manager/src/views/FindHubView.vue');
+
+  assert.match(protocol, /findHubSupportsSoundAction/);
+  assert.match(protocol, /operation === 'start' \? 31 : 32/);
+  assert.match(protocol, /capability\.actionField === actionField/);
+  assert.match(protocol, /capability\.state === 1/);
+  assert.match(protocol, /device\.locateSupported === false/);
+  assert.match(protocol, /device\.identifierType === 'SPOT'/);
+  assert.doesNotMatch(protocol, /disponível somente para dispositivos SPOT/);
+
+  assert.match(view, /soundOperationSupported/);
+  assert.match(view, /actionField\) === actionField/);
+  assert.match(view, /soundComponentSelectionSupported/);
+  assert.doesNotMatch(view, /v-if="device\.identifierType==='SPOT'"/);
+});
+
+test('Nova treats SPOT, Android, Auto, Fast Pair and supervised selectors as resilient discovery paths', () => {
   const nova = read('src/api/integrations/channel/findhub/protocol/nova.client.ts');
-  assert.match(nova, /captureDevicesListRaw\('spot'\)/);
+  assert.match(nova, /capture\('spot'\)/);
   assert.match(nova, /\['android', 'auto', 'fastpair', 'supervised'\]/);
-  assert.match(nova, /catch \{/);
-  assert.match(nova, /\[\.\.\.complementary, \.\.\.primary\]/);
+  assert.match(nova, /Promise\.all/);
+  assert.match(nova, /SPOT failure no longer aborts discovery/);
+  assert.match(nova, /result\.catalog !== 'spot'/);
+  assert.match(nova, /result\.catalog === 'spot'/);
+  assert.match(nova, /never make it a hard dependency/);
+  assert.match(nova, /result\.error !== undefined/);
+  assert.match(nova, /failure instanceof Error/);
+  assert.match(nova, /did not return any readable device catalogue/);
 });

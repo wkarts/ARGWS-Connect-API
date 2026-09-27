@@ -37,6 +37,15 @@ import { resolveTraccarConnection, TraccarClient, TraccarConnection, traccarDest
 type FindHubReconciliationTrigger = 'manual' | 'boot' | 'periodic';
 type FindHubReconciliationCandidate = { deviceId: string; from: string; to: string };
 
+function batteryTierFromProviderFlags(
+  deviceType: FindHubDevice['deviceType'],
+  flags: Record<string, number>,
+): FindHubDevice['batteryTier'] {
+  if (deviceType !== 'PHONE') return undefined;
+  const value = Number(flags['registration.2.11']);
+  return value === 1 ? 'LOW' : value === 2 ? 'MEDIUM' : value === 3 ? 'HIGH' : undefined;
+}
+
 export class FindHubStartupService {
   public readonly integration = FINDHUB_INTEGRATION;
   public readonly capabilities = Object.freeze({
@@ -303,7 +312,23 @@ export class FindHubStartupService {
           deviceType: device.deviceType,
           manufacturer: device.manufacturer,
           model: device.model,
-          fastPairModelId: device.fastPairModelId,
+          deviceCodename: device.deviceCodename,
+          productName: device.productName,
+          carrier: device.carrier,
+          imei: device.imei,
+          androidDeviceNumericId: device.androidDeviceNumericId,
+          providerOpaqueId: device.providerOpaqueId,
+          providerRegisteredAt: device.providerRegisteredAt ? new Date(device.providerRegisteredAt) : null,
+          providerStatusAt: device.providerStatusAt ? new Date(device.providerStatusAt) : null,
+          providerResponseAt: device.providerResponseAt ? new Date(device.providerResponseAt) : null,
+          gmsCoreVersionCode: device.gmsCoreVersionCode ?? null,
+          androidSdkVersion: device.androidSdkVersion ?? null,
+          familyLinkManaged: Boolean(device.familyLinkManaged),
+          familyLinkMemberName: device.familyLinkMemberName,
+          familyLinkUrl: device.familyLinkUrl,
+          providerCapabilities: device.providerCapabilities || [],
+          providerFlags: device.providerFlags || {},
+          fastPairModelId: device.fastPairModelId ?? null,
           pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
           canonicalIds: device.canonicalIds || [],
           accessInformation: device.accessInformation || [],
@@ -324,6 +349,22 @@ export class FindHubStartupService {
           deviceType: device.deviceType,
           manufacturer: device.manufacturer,
           model: device.model,
+          deviceCodename: device.deviceCodename,
+          productName: device.productName,
+          carrier: device.carrier,
+          imei: device.imei,
+          androidDeviceNumericId: device.androidDeviceNumericId,
+          providerOpaqueId: device.providerOpaqueId,
+          providerRegisteredAt: device.providerRegisteredAt ? new Date(device.providerRegisteredAt) : null,
+          providerStatusAt: device.providerStatusAt ? new Date(device.providerStatusAt) : null,
+          providerResponseAt: device.providerResponseAt ? new Date(device.providerResponseAt) : null,
+          gmsCoreVersionCode: device.gmsCoreVersionCode ?? null,
+          androidSdkVersion: device.androidSdkVersion ?? null,
+          familyLinkManaged: Boolean(device.familyLinkManaged),
+          familyLinkMemberName: device.familyLinkMemberName,
+          familyLinkUrl: device.familyLinkUrl,
+          providerCapabilities: device.providerCapabilities || [],
+          providerFlags: device.providerFlags || {},
           fastPairModelId: device.fastPairModelId,
           pairedAt: device.pairedAt ? new Date(device.pairedAt) : null,
           canonicalIds: device.canonicalIds || [],
@@ -405,6 +446,12 @@ export class FindHubStartupService {
   }
 
   public async locate(deviceId: string, timeoutMs?: number): Promise<FindHubPosition | null> {
+    const target = await this.device(deviceId);
+    if (target.locateSupported === false) {
+      throw new Error(
+        'Este dispositivo é visível no catálogo Google, mas o protocolo de localização ainda não foi mapeado para este identificador.',
+      );
+    }
     const existing = this.locating.get(deviceId);
     if (existing) return await existing;
     const operation = this.locateOnce(deviceId, timeoutMs);
@@ -548,6 +595,9 @@ export class FindHubStartupService {
 
   public async startTracking(deviceId: string, intervalSeconds?: number, timeoutMs?: number): Promise<any> {
     const device = await this.device(deviceId);
+    if (device.locateSupported === false) {
+      throw new Error('Rastreamento ainda não suportado para este tipo de identificador Google.');
+    }
     const selected = trackingSettings({
       ...(await this.settings()),
       intervalSeconds: intervalSeconds ?? device.trackingIntervalSeconds ?? (await this.settings()).intervalSeconds,
@@ -1314,15 +1364,28 @@ export class FindHubStartupService {
           ownershipAndAccess: true,
           fastPairMetadata: true,
           detailedDeviceTypes: true,
-          sound: { supported: true, identifierType: 'SPOT', components: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'] },
+          sound: {
+            supported: true,
+            detection: 'provider-capability',
+            actionFields: { start: 31, stop: 32 },
+            legacyFallbackIdentifierType: 'SPOT',
+            components: ['UNSPECIFIED', 'RIGHT', 'LEFT', 'CASE'],
+          },
           providerFreshnessTelemetry: true,
           battery: {
-            supported: false,
-            reason: 'O protocolo de referência fornecido não expõe percentual de bateria.',
+            supported: true,
+            mode: 'tier',
+            tierField: 'registration.2.11',
+            tiers: { 1: 'LOW', 2: 'MEDIUM', 3: 'HIGH' },
+            percentageSupported: false,
+            percentageCandidateWireField: 'status.32.1',
+            reason:
+              'Telefones Android expõem registration.2.11 como tier LOW/MEDIUM/HIGH, corroborado por implementação independente e pelas capturas Redmi Note 7/14. Percentual exato ainda não foi comprovado; status.32.1 permanece apenas candidato.',
           },
           imei: {
-            supported: false,
-            reason: 'O protocolo de referência fornecido não expõe IMEI.',
+            supported: true,
+            reason:
+              'O catálogo vivo de 2026 expõe IMEI quando o Google fornece um valor de 15 dígitos com check digit válido.',
           },
           meid: {
             supported: false,
@@ -1590,6 +1653,9 @@ export class FindHubStartupService {
   }
 
   private toDevice(row: any): FindHubDevice {
+    const providerFlags =
+      row.providerFlags && typeof row.providerFlags === 'object' ? (row.providerFlags as Record<string, number>) : {};
+    const batteryTier = batteryTierFromProviderFlags(row.deviceType, providerFlags);
     return {
       id: row.id,
       googleDeviceId: row.googleDeviceId,
@@ -1598,6 +1664,27 @@ export class FindHubStartupService {
       deviceType: row.deviceType,
       manufacturer: row.manufacturer || undefined,
       model: row.model || undefined,
+      deviceCodename: row.deviceCodename || undefined,
+      productName: row.productName || undefined,
+      carrier: row.carrier || undefined,
+      imei: row.imei || undefined,
+      androidDeviceNumericId: row.androidDeviceNumericId || undefined,
+      providerOpaqueId: row.providerOpaqueId || undefined,
+      providerRegisteredAt: row.providerRegisteredAt?.toISOString?.() || row.providerRegisteredAt || null,
+      providerStatusAt: row.providerStatusAt?.toISOString?.() || row.providerStatusAt || null,
+      providerResponseAt: row.providerResponseAt?.toISOString?.() || row.providerResponseAt || null,
+      gmsCoreVersionCode: row.gmsCoreVersionCode ?? undefined,
+      androidSdkVersion: row.androidSdkVersion ?? undefined,
+      familyLinkManaged: Boolean(row.familyLinkManaged),
+      familyLinkMemberName: row.familyLinkMemberName || undefined,
+      familyLinkUrl: row.familyLinkUrl || undefined,
+      providerCapabilities: Array.isArray(row.providerCapabilities) ? row.providerCapabilities : [],
+      providerFlags,
+      batteryTier,
+      batteryTierSource: batteryTier ? 'registration.2.11' : undefined,
+      locateSupported: Array.isArray(row.canonicalIds)
+        ? row.canonicalIds.length > 0
+        : !String(row.googleDeviceId).startsWith('metadata:'),
       fastPairModelId: row.fastPairModelId || undefined,
       pairedAt: row.pairedAt?.toISOString?.() || row.pairedAt || null,
       canonicalIds: Array.isArray(row.canonicalIds) ? row.canonicalIds : [],
@@ -1637,6 +1724,25 @@ export class FindHubStartupService {
       deviceType: device.deviceType,
       manufacturer: device.manufacturer,
       model: device.model,
+      deviceCodename: device.deviceCodename,
+      productName: device.productName,
+      carrier: device.carrier,
+      imei: device.imei,
+      androidDeviceNumericId: device.androidDeviceNumericId,
+      providerOpaqueId: device.providerOpaqueId,
+      providerRegisteredAt: device.providerRegisteredAt,
+      providerStatusAt: device.providerStatusAt,
+      providerResponseAt: device.providerResponseAt,
+      gmsCoreVersionCode: device.gmsCoreVersionCode,
+      androidSdkVersion: device.androidSdkVersion,
+      familyLinkManaged: Boolean(device.familyLinkManaged),
+      familyLinkMemberName: device.familyLinkMemberName,
+      familyLinkUrl: device.familyLinkUrl,
+      providerCapabilities: device.providerCapabilities || [],
+      providerFlags: device.providerFlags || {},
+      batteryTier: device.batteryTier,
+      batteryTierSource: device.batteryTierSource,
+      locateSupported: device.locateSupported !== false,
       fastPairModelId: device.fastPairModelId,
       pairedAt: device.pairedAt,
       accessInformation: device.accessInformation || [],

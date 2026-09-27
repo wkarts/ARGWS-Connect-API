@@ -7421,7 +7421,7 @@
         ],
         "summary": "Listar dispositivos cadastrados",
         "operationId": "get_findhub_devices_instancename",
-        "description": "Retorna o catálogo local da instância; não força uma consulta nova ao Google. Telefones usam identifierType ANDROID e deviceType PHONE quando o protocolo informa esse tipo.",
+        "description": "Retorna o catálogo local da instância; não força uma consulta nova ao Google. O decoder aceita o layout legado e o layout vivo observado em 2026, incluindo metadados Android e dispositivos supervisionados do Family Link quando o provider os entrega.",
         "parameters": [
           {
             "name": "instanceName",
@@ -7483,7 +7483,7 @@
         ],
         "summary": "Atualizar catálogo pelo Google Find Hub",
         "operationId": "post_findhub_devices_refresh_instancename",
-        "description": "Consulta os catálogos SPOT e Android disponíveis à conta e une identificadores canônicos, sem descartar acessórios quando coexistirem com identificadores de telefone. O catálogo principal é preservado se a consulta complementar for recusada. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.",
+        "description": "Consulta SPOT primeiro e os seletores Android, Auto, Fast Pair e Supervised como caminhos complementares best-effort. Capturas reais de 2026 mostraram que esses seletores podem devolver o mesmo catálogo completo; portanto não são tratados como tipo semântico do aparelho. Qualquer catálogo legível pode sustentar a sincronização, os resultados são deduplicados por Google Device ID e SPOT é apenas desempate de compatibilidade. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.",
         "parameters": [
           {
             "name": "instanceName",
@@ -7942,7 +7942,7 @@
         ],
         "summary": "Capturar DevicesList protobuf bruto",
         "operationId": "post_findhub_protocol_capture_catalog_catalog_instancename",
-        "description": "Executa diretamente a consulta Nova para o catálogo solicitado e devolve o corpo binário sem decodificação. Catálogos aceitos: spot, android, auto, fastpair e supervised. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.",
+        "description": "Executa diretamente a consulta Nova com o seletor solicitado e devolve o corpo binário sem decodificação. Seletores aceitos: spot, android, auto, fastpair e supervised. Capturas reais de 2026 mostram que o provider pode devolver o mesmo catálogo completo para seletores diferentes; o seletor não deve ser interpretado como garantia do tipo semântico dos dispositivos retornados. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.",
         "parameters": [
           {
             "name": "catalog",
@@ -8099,9 +8099,9 @@
         "tags": [
           "Google Find Hub"
         ],
-        "summary": "Tocar som no dispositivo SPOT",
+        "summary": "Tocar som no dispositivo",
         "operationId": "post_findhub_sound_start_deviceid_instancename",
-        "description": "Porta o ExecuteAction.startSound comprovado no material GoogleFindMyTools. O wire atual é SPOT e não é aplicado a ANDROID por inferência. Componentes RIGHT, LEFT e CASE são opcionais quando o dispositivo os implementa.",
+        "description": "Usa ExecuteAction.startSound (action field 31). O comando é permitido quando o provider anuncia a capability 31; catálogos legados sem capabilities mantêm fallback para SPOT. O mesmo telefone pode aparecer como ANDROID no catálogo e responder pelo wire SPOT. Componentes RIGHT, LEFT e CASE são opcionais somente para dispositivos compatíveis.",
         "parameters": [
           {
             "name": "deviceId",
@@ -8131,7 +8131,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Tocar som no dispositivo SPOT",
+            "description": "Tocar som no dispositivo",
             "content": {
               "application/json": {
                 "schema": {
@@ -8181,9 +8181,9 @@
         "tags": [
           "Google Find Hub"
         ],
-        "summary": "Parar som no dispositivo SPOT",
+        "summary": "Parar som no dispositivo",
         "operationId": "post_findhub_sound_stop_deviceid_instancename",
-        "description": "Porta o ExecuteAction.stopSound comprovado no material GoogleFindMyTools. Não inventa suporte para dispositivos ANDROID.",
+        "description": "Usa ExecuteAction.stopSound (action field 32). O comando é permitido quando o provider anuncia a capability 32; catálogos legados sem capabilities mantêm fallback para SPOT.",
         "parameters": [
           {
             "name": "deviceId",
@@ -8213,7 +8213,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Parar som no dispositivo SPOT",
+            "description": "Parar som no dispositivo",
             "content": {
               "application/json": {
                 "schema": {
@@ -18769,6 +18769,7 @@
             "enum": [
               "ANDROID",
               "SPOT",
+              "SUPERVISED_ANDROID",
               "UNKNOWN"
             ]
           },
@@ -18810,8 +18811,112 @@
           "model": {
             "type": "string"
           },
-          "fastPairModelId": {
+          "deviceCodename": {
+            "type": "string",
+            "description": "Codinome Android devolvido pelo status vivo do provider, por exemplo tanzanite."
+          },
+          "productName": {
+            "type": "string",
+            "description": "Nome de produto/variant devolvido no registration field 21 para PHONE, por exemplo tanzanite_global."
+          },
+          "carrier": {
             "type": "string"
+          },
+          "imei": {
+            "type": "string",
+            "pattern": "^\\d{15}$",
+            "description": "IMEI quando o provider Google o entrega; o Connect|API valida formato/check digit e não o infere."
+          },
+          "androidDeviceNumericId": {
+            "type": "string"
+          },
+          "providerOpaqueId": {
+            "type": "string"
+          },
+          "providerRegisteredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "providerStatusAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "providerResponseAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "gmsCoreVersionCode": {
+            "type": "integer"
+          },
+          "androidSdkVersion": {
+            "type": "integer"
+          },
+          "familyLinkManaged": {
+            "type": "boolean"
+          },
+          "familyLinkMemberName": {
+            "type": "string"
+          },
+          "familyLinkUrl": {
+            "type": "string"
+          },
+          "providerCapabilities": {
+            "type": "array",
+            "description": "Capabilities numéricas anunciadas pelo provider. Action fields 31 e 32 têm semântica comprovada como Start/Stop Sound; demais números permanecem sem nome até comprovação.",
+            "items": {
+              "type": "object",
+              "required": [
+                "actionField",
+                "state"
+              ],
+              "properties": {
+                "actionField": {
+                  "type": "integer"
+                },
+                "state": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "providerFlags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1."
+          },
+          "batteryTier": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ],
+            "description": "Faixa de bateria do telefone, derivada de DeviceTypeInformation field 11. Não representa percentual exato."
+          },
+          "batteryTierSource": {
+            "type": "string",
+            "enum": [
+              "registration.2.11"
+            ],
+            "description": "Caminho wire usado para a faixa de bateria."
+          },
+          "locateSupported": {
+            "type": "boolean"
+          },
+          "fastPairModelId": {
+            "type": "string",
+            "description": "Fast Pair Model ID somente quando a semântica é compatível; PHONE não reutiliza registration field 21 como Fast Pair."
           },
           "pairedAt": {
             "type": [

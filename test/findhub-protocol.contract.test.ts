@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { FindHubNovaClient } from '../src/api/integrations/channel/findhub/protocol/nova.client';
 import {
   decodeDeviceMetadata,
+  decodeLocationReports,
   DeviceType,
   encodeDeviceListRequest,
   encodeExecuteLocateRequest,
@@ -10,7 +12,15 @@ import {
   encodeGetEidInfoRequest,
   encodeSecurityUnlockExtras,
 } from '../src/api/integrations/channel/findhub/protocol/findhub-proto';
-import { bytes, fieldVarint, int, string } from '../src/api/integrations/channel/findhub/protocol/protobuf';
+import {
+  bytes,
+  concat,
+  fieldMessage,
+  fieldString,
+  fieldVarint,
+  int,
+  string,
+} from '../src/api/integrations/channel/findhub/protocol/protobuf';
 
 const REQUEST_UUID = '11111111-2222-3333-4444-555555555555';
 const CLIENT_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -36,6 +46,61 @@ test('Find Hub exposes every catalogue DeviceType defined by the supplied refere
   assert.equal(encodeDeviceListRequest('req', DeviceType.AUTO).toString('hex'), '0a0708041a03726571');
   assert.equal(encodeDeviceListRequest('req', DeviceType.FASTPAIR).toString('hex'), '0a0708051a03726571');
   assert.equal(encodeDeviceListRequest('req', DeviceType.SUPERVISED_ANDROID).toString('hex'), '0a0708071a03726571');
+});
+
+test('Find Hub catalogue discovery falls back across live-equivalent selectors and preserves total failure', async () => {
+  const identifier = concat(
+    fieldMessage(3, fieldMessage(1, fieldString(1, 'catalog-fallback-id'))),
+    fieldVarint(2, 2),
+  );
+  const description = concat(fieldString(1, 'Fallback Phone'), fieldVarint(2, 20));
+  const registration = fieldMessage(2, description);
+  const metadata = concat(
+    fieldMessage(1, identifier),
+    fieldMessage(4, fieldMessage(1, registration)),
+    fieldString(5, 'Fallback Phone'),
+  );
+  const responseAt = (seconds: number) =>
+    concat(fieldMessage(2, metadata), fieldMessage(4, fieldVarint(1, seconds)));
+  const response = responseAt(200);
+
+  const fallback = new FindHubNovaClient(null as never, null as never);
+  fallback.captureDevicesListRaw = async (catalog) => {
+    if (catalog === 'android') return response;
+    throw new Error(`${catalog} unavailable`);
+  };
+  const devices = await fallback.listDevices();
+  assert.equal(devices.length, 1);
+  assert.equal(devices[0].googleDeviceId, 'catalog-fallback-id');
+  assert.equal(devices[0].name, 'Fallback Phone');
+  assert.equal(devices[0].providerResponseAt, '1970-01-01T00:03:20.000Z');
+
+  const merged = new FindHubNovaClient(null as never, null as never);
+  merged.captureDevicesListRaw = async (catalog) => {
+    if (catalog === 'spot') return responseAt(100);
+    if (catalog === 'android') return responseAt(200);
+    throw new Error(`${catalog} unavailable`);
+  };
+  const [mergedDevice] = await merged.listDevices();
+  assert.equal(
+    mergedDevice.providerResponseAt,
+    '1970-01-01T00:03:20.000Z',
+    'The latest provider response time must survive the SPOT compatibility tie-breaker',
+  );
+
+  const empty = new FindHubNovaClient(null as never, null as never);
+  empty.captureDevicesListRaw = async (catalog) => {
+    if (catalog === 'spot') return Buffer.alloc(0);
+    throw new Error(`${catalog} unavailable`);
+  };
+  assert.deepEqual(await empty.listDevices(), []);
+
+  const failure = new Error('credential/provider failure');
+  const unavailable = new FindHubNovaClient(null as never, null as never);
+  unavailable.captureDevicesListRaw = async () => {
+    throw failure;
+  };
+  await assert.rejects(unavailable.listDevices(), (error) => error === failure);
 });
 
 test('Find Hub locate protobuf matches reference wire format', () => {
@@ -98,6 +163,176 @@ test('Find Hub metadata decoder preserves every proven identifier, ownership and
     { email: 'owner@example.com', hasAccess: true, isOwner: true, thisAccount: true },
     { email: 'shared@example.com', hasAccess: true, isOwner: false, thisAccount: false },
   ]);
+});
+
+test('Find Hub live 2026 catalogue decodes Android hardware metadata without using private captures', () => {
+  const time = (seconds: number) => fieldMessage(2, fieldVarint(1, seconds));
+  const canonicId = fieldMessage(1, fieldString(1, 'device-test-uuid'));
+  const canonicIds = fieldMessage(2, fieldMessage(1, fieldString(1, 'device-test-uuid')));
+  const identifier = concat(
+    fieldMessage(1, concat(fieldVarint(1, 123456789n), canonicIds)),
+    fieldVarint(2, 1),
+  );
+  const description = concat(fieldString(1, 'Test Phone'), fieldVarint(2, 20));
+  const secrets = concat(fieldString(1, 'encrypted-fixture'), fieldVarint(3, 1), fieldMessage(8, fieldVarint(1, 1790000000)));
+  const registration = concat(
+    canonicId,
+    fieldMessage(2, description),
+    fieldMessage(19, secrets),
+    fieldString(20, 'Example'),
+    fieldString(21, 'example_global'),
+    fieldString(34, 'MODEL-TEST'),
+  );
+  const access = concat(fieldString(1, 'owner@example.invalid'), fieldVarint(2, 1), fieldVarint(3, 1), fieldVarint(4, 1));
+  const modernInformation = concat(fieldMessage(1, registration), fieldMessage(3, access));
+  const status = concat(
+    time(1780000000),
+    fieldString(3, 'MODEL-TEST'),
+    fieldString(4, 'Example'),
+    fieldString(5, 'codename'),
+    fieldString(6, 'Carrier'),
+    fieldString(7, '490154203237518'),
+    fieldMessage(10, fieldVarint(1, 1790457000)),
+    fieldVarint(20, 262434029),
+    fieldVarint(21, 36),
+    fieldString(23, '0123456789abcdef0123456789abcdef'),
+    fieldMessage(26, modernInformation),
+    fieldVarint(40, 2),
+  );
+  const metadata = concat(
+    fieldMessage(1, identifier),
+    fieldMessage(3, status),
+    fieldString(5, 'Test Phone'),
+    fieldMessage(6, fieldString(1, 'https://example.invalid/device.png')),
+    fieldMessage(12, fieldVarint(1, 1790458403)),
+    fieldString(13, 'opaque-test'),
+  );
+
+  const [device] = decodeDeviceMetadata(metadata);
+  assert.equal(device.googleDeviceId, 'device-test-uuid');
+  assert.equal(device.identifierType, 'ANDROID');
+  assert.equal(device.deviceType, 'PHONE');
+  assert.equal(device.manufacturer, 'Example');
+  assert.equal(device.model, 'MODEL-TEST');
+  assert.equal(device.deviceCodename, 'codename');
+  assert.equal(device.productName, 'example_global');
+  assert.equal(device.carrier, 'Carrier');
+  assert.equal(device.imei, '490154203237518');
+  assert.equal(device.androidDeviceNumericId, '123456789');
+  assert.equal(device.providerOpaqueId, 'opaque-test');
+  assert.equal(device.gmsCoreVersionCode, 262434029);
+  assert.equal(device.androidSdkVersion, 36);
+  assert.equal(device.locateSupported, true);
+  assert.equal(device.accessInformation?.[0]?.isOwner, true);
+});
+
+test('Find Hub DeviceUpdate float field is location accuracy, not a battery percentage', () => {
+  const encrypted = concat(
+    fieldMessage(2, Buffer.alloc(41, 0x5a)),
+    fieldVarint(3, 1),
+  );
+  const geo = concat(
+    fieldMessage(1, encrypted),
+    Buffer.from('1d0000c842', 'hex'),
+  );
+  const report = concat(fieldMessage(10, geo), fieldVarint(11, 1));
+  const recentAndNetwork = concat(
+    fieldMessage(1, report),
+    fieldMessage(2, fieldVarint(1, 1790459270)),
+  );
+  const metadata = fieldMessage(
+    4,
+    fieldMessage(2, fieldMessage(3, fieldMessage(4, recentAndNetwork))),
+  );
+
+  const [decoded] = decodeLocationReports(metadata);
+  assert.equal(decoded.status, 1);
+  assert.equal(decoded.accuracy, 100);
+  assert.equal(decoded.ownReport, true);
+  assert.equal(decoded.timestampSeconds, 1790459270);
+});
+
+test('Find Hub legacy PHONE DeviceUpdate treats field 21 as product name and preserves sound capabilities', () => {
+  const identifier = concat(
+    fieldVarint(2, 2),
+    fieldMessage(3, fieldMessage(1, fieldString(1, 'phone-device-test-uuid'))),
+  );
+  const capability = (actionField: number) =>
+    fieldMessage(2, concat(fieldMessage(1, fieldMessage(actionField, Buffer.alloc(0))), fieldVarint(2, 1)));
+  const description = concat(
+    fieldString(1, 'Fixture Phone'),
+    fieldVarint(2, 20),
+    fieldVarint(11, 3),
+    fieldVarint(14, 1),
+  );
+  const registration = concat(
+    fieldMessage(2, description),
+    fieldString(20, 'Example Manufacturer'),
+    fieldString(21, 'fixture_product_global'),
+    fieldString(34, 'Fixture Model'),
+  );
+  const metadata = concat(
+    fieldMessage(1, identifier),
+    capability(31),
+    capability(32),
+    fieldMessage(4, fieldMessage(1, registration)),
+    fieldString(5, 'Fixture Phone'),
+  );
+
+  const [device] = decodeDeviceMetadata(metadata);
+  assert.equal(device.identifierType, 'SPOT');
+  assert.equal(device.deviceType, 'PHONE');
+  assert.equal(device.manufacturer, 'Example Manufacturer');
+  assert.equal(device.model, 'Fixture Model');
+  assert.equal(device.deviceCodename, undefined);
+  assert.equal(device.productName, 'fixture_product_global');
+  assert.equal(device.fastPairModelId, undefined);
+  assert.equal(device.providerFlags?.['registration.2.11'], 3);
+  assert.equal(device.providerFlags?.['registration.2.14'], 1);
+  assert.equal(device.batteryTier, 'HIGH');
+  assert.equal(device.batteryTierSource, 'registration.2.11');
+  assert.deepEqual(device.providerCapabilities, [
+    { actionField: 31, state: 1 },
+    { actionField: 32, state: 1 },
+  ]);
+});
+
+test('Find Hub live catalogue preserves supervised Family Link devices without inventing a canonical ID', () => {
+  const identifier = concat(
+    fieldMessage(1, concat(fieldVarint(1, 555n), fieldVarint(3, 999n))),
+    fieldVarint(2, 6),
+  );
+  const family = concat(
+    fieldString(1, 'https://familylink.google.com/member/123/device/test-device/settings?generate_history=false'),
+    fieldString(2, 'Family member'),
+  );
+  const status = concat(
+    fieldString(3, 'MODEL-FAMILY'),
+    fieldMessage(10, fieldVarint(1, 1790457000)),
+    fieldVarint(20, 263436067),
+    fieldVarint(21, 35),
+    fieldString(23, 'family-status-id'),
+    fieldMessage(32, fieldVarint(1, 53)),
+    fieldMessage(38, family),
+    fieldVarint(40, 2),
+  );
+  const metadata = concat(
+    fieldMessage(1, identifier),
+    fieldMessage(3, status),
+    fieldString(5, 'MODEL-FAMILY'),
+    fieldString(13, 'family-opaque-id'),
+  );
+
+  const [device] = decodeDeviceMetadata(metadata);
+  assert.equal(device.identifierType, 'SUPERVISED_ANDROID');
+  assert.equal(device.googleDeviceId, 'metadata:family-opaque-id');
+  assert.deepEqual(device.canonicalIds, []);
+  assert.equal(device.familyLinkManaged, true);
+  assert.equal(device.familyLinkMemberName, 'Family member');
+  assert.match(device.familyLinkUrl || '', /familylink\.google\.com/);
+  assert.equal(device.androidSdkVersion, 35);
+  assert.equal(device.providerFlags?.['32.1'], 53);
+  assert.equal(device.locateSupported, false);
 });
 
 test('Find Hub EID and security unlock requests match reference protobufs', () => {

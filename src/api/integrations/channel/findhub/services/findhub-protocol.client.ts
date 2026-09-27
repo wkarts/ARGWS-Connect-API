@@ -77,6 +77,17 @@ type PendingRawCapture = {
 const OBSERVATION_TTL_MS = 120_000;
 const MAX_RECENT_REQUESTS = 256;
 
+export function findHubSupportsSoundAction(device: FindHubDevice, operation: 'start' | 'stop'): boolean {
+  if (device.locateSupported === false) return false;
+  const actionField = operation === 'start' ? 31 : 32;
+  const capabilities = Array.isArray(device.providerCapabilities) ? device.providerCapabilities : [];
+  if (capabilities.length) {
+    return capabilities.some((capability) => capability.actionField === actionField && capability.state === 1);
+  }
+  // Compatibility fallback for legacy catalogues that predate advertised action capabilities.
+  return device.identifierType === 'SPOT';
+}
+
 function commandTimeoutMs(): number {
   const value = Number(process.env.FINDHUB_COMMAND_TIMEOUT_MS || 30000);
   if (!Number.isInteger(value) || value < 1 || value > 2147483647)
@@ -210,8 +221,10 @@ export class FindHubProtocolClient {
     component: FindHubSoundComponent = 'UNSPECIFIED',
   ): Promise<{ requestUuid: string; operation: 'start' | 'stop'; component: FindHubSoundComponent }> {
     if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
-    if (device.identifierType !== 'SPOT') {
-      throw new Error('O protocolo de som fornecido pela referência está disponível somente para dispositivos SPOT.');
+    if (!findHubSupportsSoundAction(device, operation)) {
+      throw new Error(
+        'O Google Find Hub não anunciou a capability necessária para esta operação de som neste dispositivo.',
+      );
     }
     const requestUuid = randomUUID();
     await this.nova.sound(

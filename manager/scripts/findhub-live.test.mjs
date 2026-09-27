@@ -49,9 +49,16 @@ test('Find Hub device view exposes proven protocol metadata, provider freshness 
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  for(const value of ['Google Device ID','IDs canônicos','Fast Pair Model ID','Owner key version','Frescor real do provider Google','Solicitações enviadas','Relatórios repetidos/sem posição nova','Tocar som','Parar som'])assert.match(source,new RegExp(value));
  assert.match(source,/findHubSound/);
- assert.match(source,/device\.identifierType==='SPOT'/);
- assert.match(source,/ainda não nomeia bateria, IMEI, MEID ou número de série/);
+ assert.match(source,/soundOperationSupported/);
+ assert.match(source,/actionField.*31/);
+ assert.match(source,/actionField.*32/);
+ assert.match(source,/modelo, fabricante, codinome, operadora, IMEI/);
+ assert.match(source,/Percentual exato de bateria, MEID e número de série continuam sem mapeamento confirmado/);
+ assert.match(source,/Bateria \(faixa\)/);
+ assert.match(source,/batteryTierLabel/);
  assert.doesNotMatch(source,/batteryLevel|imeiValue|serialNumberValue/);
+ for(const value of ['IMEI','Operadora','Codinome','Android SDK','Google Play Services','Family Link'])assert.match(source,new RegExp(value));
+ assert.match(source,/device\.locateSupported===false/);
  assert.match(source,/Capturar SPOT \.pb/);
  assert.match(source,/Capturar DeviceUpdate \.pb/);
 });

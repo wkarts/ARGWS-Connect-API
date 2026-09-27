@@ -116,6 +116,19 @@ const deviceType = (value: string) => ({
   UNKNOWN:'Não informado',
 }[value] || value)
 const accessRole = (item: any) => item?.thisAccount ? 'Esta conta' : item?.isOwner ? 'Proprietário' : item?.hasAccess ? 'Com acesso' : 'Sem acesso'
+const providerCapabilitiesLabel = (device: any) => Array.isArray(device?.providerCapabilities) && device.providerCapabilities.length
+  ? device.providerCapabilities.map((item: any) => String(item?.actionField)+':'+String(item?.state)).join(' · ')
+  : 'Não informado'
+const batteryTierLabel = (value: any) => value === 'HIGH' ? 'Alta' : value === 'MEDIUM' ? 'Média' : value === 'LOW' ? 'Baixa' : 'Não informado'
+function soundOperationSupported(device: any, operation: 'start'|'stop') {
+  const actionField = operation === 'start' ? 31 : 32
+  const capabilities = Array.isArray(device?.providerCapabilities) ? device.providerCapabilities : []
+  if (device?.locateSupported === false) return false
+  if (capabilities.length) return capabilities.some((item: any) => Number(item?.actionField) === actionField && Number(item?.state) === 1)
+  return device?.identifierType === 'SPOT'
+}
+const soundSupported = (device: any) => soundOperationSupported(device,'start') || soundOperationSupported(device,'stop')
+const soundComponentSelectionSupported = (device: any) => ['HEADPHONES','EARBUDS'].includes(String(device?.deviceType || ''))
 async function load() {
   busy.value = true; error.value = ''
   try {
@@ -258,7 +271,8 @@ async function sound(device: any, operation: 'start'|'stop') {
   if (device.soundBusy) return
   device.soundBusy = true; error.value = ''; feedback.value = ''
   try {
-    await connect.findHubSound(id.value, device.id, operation, device.soundComponent || 'UNSPECIFIED')
+    const component = soundComponentSelectionSupported(device) ? device.soundComponent || 'UNSPECIFIED' : 'UNSPECIFIED'
+    await connect.findHubSound(id.value, device.id, operation, component)
     feedback.value = operation === 'start'
       ? `Comando para tocar som enviado ao Google para ${device.name}.`
       : `Comando para parar o som enviado ao Google para ${device.name}.`
@@ -336,12 +350,23 @@ onBeforeUnmount(() => { sequence++; stopStream() })
         <div class="toolbar"><button class="btn primary" :disabled="busy || !connected" @click="refreshDevices">Sincronizar dispositivos</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('spot')">Capturar SPOT .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('android')">Capturar Android .pb</button><span class="muted">{{ connected ? 'Conexão validada' : 'Vincule a conta para obter novas posições' }}</span></div>
         <EmptyState v-if="!devices.length" icon="location" title="Nenhum dispositivo sincronizado" description="Conecte a conta Google e sincronize o catálogo." />
         <p class="muted">O catálogo combina os tipos disponibilizados pelo protocolo Google. Dispositivos compartilhados, Family Link e acessórios podem não estar acessíveis com as mesmas permissões; nenhum dispositivo é inventado a partir do e-mail.</p>
-        <div class="alert top-gap">O material de protocolo analisado ainda não nomeia bateria, IMEI, MEID ou número de série. Use as capturas protobuf brutas abaixo para análise forense de campos desconhecidos. Os arquivos podem conter identificadores, e-mails de acesso e material criptográfico cifrado do Find Hub; trate-os como dados sensíveis e compartilhe apenas quando necessário.</div><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><p class="muted">Esses DeviceType existem no protobuf de referência. A disponibilidade depende da conta e do provider Google; falha em um catálogo complementar não altera o catálogo SPOT.</p></details>
-        <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}</p>
+        <div class="alert top-gap">As capturas reais de 2026 revelaram um layout mais novo que o protobuf original: modelo, fabricante, codinome, operadora, IMEI, versão do Google Play Services, SDK Android e Family Link já são decodificados quando o Google os fornece. Percentual exato de bateria, MEID e número de série continuam sem mapeamento confirmado; a faixa de bateria LOW/MEDIUM/HIGH é exibida quando o Google fornece o tier comprovado no wire; use o DeviceUpdate .pb para avançar essa análise. Os arquivos .pb podem conter dados sensíveis da conta e do dispositivo, incluindo identificadores, metadados e material criptográfico; use-os somente para diagnóstico, não os publique e não os persista em logs ou repositórios.</div><details class="device-metadata top-gap"><summary>Capturas avançadas de catálogo</summary><div class="toolbar top-gap"><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('auto')">Capturar AUTO .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('fastpair')">Capturar FASTPAIR .pb</button><button class="btn ghost" :disabled="busy || !connected" @click="captureCatalog('supervised')">Capturar SUPERVISED .pb</button></div><p class="muted">Esses valores existem como seletores no protobuf de referência, mas capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. A sincronização trata cada seletor como caminho de descoberta best-effort; nenhum deles define sozinho o tipo semântico do aparelho.</p></details>
+        <div class="instance-grid top-gap"><article v-for="device in devices" :key="device.id" class="instance-card"><FindHubDeviceAvatar :instance-id="id" :device="device" @changed="reloadSnapshot" /><h3>{{ device.name }}</h3><p>{{ deviceType(device.deviceType) }} · {{ [device.manufacturer,device.model].filter(Boolean).join(' ') }}<span v-if="device.familyLinkManaged"> · Family Link</span></p>
           <div class="detail-list">
             <div><span>ID interno Connect|API</span><strong>{{ device.id }}</strong></div>
             <div><span>Google Device ID</span><strong>{{ device.googleDeviceId || 'Não informado' }}</strong></div>
             <div><span>Tipo do identificador</span><strong>{{ device.identifierType || 'Não informado' }}</strong></div>
+            <div><span>IMEI</span><strong>{{ device.imei || 'Não fornecido pelo Google para este dispositivo' }}</strong></div>
+            <div><span>Bateria (faixa)</span><strong>{{ batteryTierLabel(device.batteryTier) }}<small v-if="device.batteryTier" class="muted"> · sem percentual exato</small></strong></div>
+            <div><span>Operadora</span><strong>{{ device.carrier || 'Não informado' }}</strong></div>
+            <div><span>Codinome</span><strong>{{ device.deviceCodename || 'Não informado' }}</strong></div>
+            <div><span>Produto</span><strong>{{ device.productName || 'Não informado' }}</strong></div>
+            <div><span>Android SDK</span><strong>{{ device.androidSdkVersion ?? 'Não informado' }}</strong></div>
+            <div><span>Google Play Services</span><strong>{{ device.gmsCoreVersionCode ?? 'Não informado' }}</strong></div>
+            <div><span>Primeiro registro no provider</span><strong>{{ stamp(device.providerRegisteredAt) }}</strong></div>
+            <div><span>Último status do provider</span><strong>{{ stamp(device.providerStatusAt) }}</strong></div>
+            <div><span>Resposta do catálogo</span><strong>{{ stamp(device.providerResponseAt) }}</strong></div>
+            <div v-if="device.familyLinkManaged"><span>Family Link</span><strong>{{ device.familyLinkMemberName || 'Dispositivo supervisionado' }}</strong></div>
             <div><span>Fast Pair Model ID</span><strong>{{ device.fastPairModelId || 'Não informado' }}</strong></div>
             <div><span>Pareado em</span><strong>{{ stamp(device.pairedAt) }}</strong></div>
             <div><span>Owner key version</span><strong>{{ device.ownerKeyVersion ?? 'Não informado' }}</strong></div>
@@ -352,15 +377,21 @@ onBeforeUnmount(() => { sequence++; stopStream() })
           <details class="device-metadata top-gap">
             <summary>Identificadores e metadados completos</summary>
             <div class="detail-list top-gap">
-              <div><span>IDs canônicos</span><strong>{{ device.canonicalIds?.length ? device.canonicalIds.join(' · ') : device.googleDeviceId || 'Não informado' }}</strong></div>
+              <div><span>IDs canônicos</span><strong>{{ device.canonicalIds?.length ? device.canonicalIds.join(' · ') : 'Não fornecido' }}</strong></div>
+              <div><span>ID numérico Android</span><strong>{{ device.androidDeviceNumericId || 'Não informado' }}</strong></div>
+              <div><span>ID opaco do metadata</span><strong>{{ device.providerOpaqueId || 'Não informado' }}</strong></div>
               <div><span>Fabricante</span><strong>{{ device.manufacturer || 'Não informado' }}</strong></div>
               <div><span>Modelo</span><strong>{{ device.model || 'Não informado' }}</strong></div>
               <div><span>Fingerprint identity key</span><strong>{{ device.identityKeyFingerprint || 'Não informado' }}</strong></div>
               <div><span>Fingerprint account key</span><strong>{{ device.accountKeyFingerprint || 'Não informado' }}</strong></div>
               <div><span>Fingerprint public address</span><strong>{{ device.publicAddressFingerprint || 'Não informado' }}</strong></div>
               <div><span>Segredos criados em</span><strong>{{ stamp(device.secretsCreatedAt) }}</strong></div>
+              <div><span>Capabilities provider (wire)</span><strong>{{ providerCapabilitiesLabel(device) }}</strong></div>
+              <div><span>Flags provider (wire)</span><strong>{{ device.providerFlags && Object.keys(device.providerFlags).length ? JSON.stringify(device.providerFlags) : 'Não informado' }}</strong></div>
             </div>
+            <p class="muted top-gap">Capabilities e flags wire são preservadas numericamente. A interface só atribui nomes quando a semântica foi comprovada pelo protocolo; valores desconhecidos não são convertidos em bateria, sinal ou outros estados por hipótese.</p>
             <div v-if="device.accessInformation?.length" class="findhub-table top-gap"><table><thead><tr><th>Conta com acesso</th><th>Papel</th><th>Acesso</th></tr></thead><tbody><tr v-for="(access,index) in device.accessInformation" :key="access.email || index"><td>{{ access.email || 'Não informado' }}</td><td>{{ accessRole(access) }}</td><td>{{ access.hasAccess ? 'Permitido' : 'Não permitido' }}</td></tr></tbody></table></div>
+            <p v-if="device.familyLinkManaged" class="muted top-gap">O Google devolveu este aparelho como dispositivo supervisionado do Family Link. Metadados podem ser reduzidos por privacidade e algumas ações ainda não possuem wire mapeado.</p>
           </details>
           <details class="device-metadata top-gap" open>
             <summary>Frescor real do provider Google</summary>
@@ -376,11 +407,12 @@ onBeforeUnmount(() => { sequence++; stopStream() })
           </details>
           <label class="field top-gap"><span>Intervalo entre consultas (segundos)</span><input v-model.number="device.trackingIntervalSeconds" type="number" min="0" step="1" max="86400" :disabled="device.trackingEnabled" /></label>
           <FindHubPositionDetails :device="device" :stale-after-seconds="snapshot?.settings?.staleAfterSeconds"/>
-          <div v-if="device.identifierType==='SPOT'" class="field-grid two top-gap">
-            <label class="field"><span>Componente do som</span><select v-model="device.soundComponent" class="select" :disabled="device.soundBusy"><option value="UNSPECIFIED">Dispositivo</option><option value="RIGHT">Direito</option><option value="LEFT">Esquerdo</option><option value="CASE">Estojo/Case</option></select></label>
-            <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy" @click="sound(device,'stop')">Parar som</button></div>
+          <div v-if="soundSupported(device)" class="field-grid two top-gap">
+            <label v-if="soundComponentSelectionSupported(device)" class="field"><span>Componente do som</span><select v-model="device.soundComponent" class="select" :disabled="device.soundBusy"><option value="UNSPECIFIED">Dispositivo</option><option value="RIGHT">Direito</option><option value="LEFT">Esquerdo</option><option value="CASE">Estojo/Case</option></select></label>
+            <div v-else class="field"><span>Som remoto</span><p class="muted">Capability anunciada pelo Google para este dispositivo. O comando usa o componente padrão do aparelho.</p></div>
+            <div class="toolbar sound-actions"><button class="btn ghost" :disabled="!connected || device.soundBusy || !soundOperationSupported(device,'start')" @click="sound(device,'start')">Tocar som</button><button class="btn ghost" :disabled="!connected || device.soundBusy || !soundOperationSupported(device,'stop')" @click="sound(device,'stop')">Parar som</button></div>
           </div>
-          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.captureBusy" @click="captureDeviceUpdate(device)">{{ device.captureBusy ? 'Capturando .pb…' : 'Capturar DeviceUpdate .pb' }}</button><button class="btn ghost" :disabled="!connected || device.locating" @click="locate(device)">{{ device.locating ? 'Localizando…' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
+          <footer class="device-actions"><button class="btn ghost" type="button" @click="openDeviceMap(device.id)">Acompanhar no mapa</button><button class="btn ghost" :disabled="!connected || device.captureBusy || device.locateSupported===false" @click="captureDeviceUpdate(device)">{{ device.captureBusy ? 'Capturando .pb…' : 'Capturar DeviceUpdate .pb' }}</button><button class="btn ghost" :disabled="!connected || device.locating || device.locateSupported===false" @click="locate(device)">{{ device.locating ? 'Localizando…' : device.locateSupported===false ? 'Localização ainda não mapeada' : 'Localizar agora' }}</button><button class="btn primary" :disabled="device.saving || device.locateSupported===false || (!connected && !device.trackingEnabled)" @click="tracking(device)">{{ device.trackingEnabled ? 'Parar rastreamento' : 'Iniciar rastreamento' }}</button></footer></article></div>
       </PanelCard>
       <FindHubLiveTracking v-else-if="section==='mapa' && snapshot" :key="id" :instance-id="id" :snapshot="snapshot" :stream-state="streamState" :initial-device="String(route.query.device || '')" @refresh="reloadSnapshot" />
       <FindHubTrackingSettings ref="editor" header-actions v-else-if="section==='configuracao'" :key="id" :instance-id="id" @saved="load" />

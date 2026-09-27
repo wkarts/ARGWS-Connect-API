@@ -11,20 +11,20 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 
 | Recurso | Origem no material | Connect|API |
 | --- | --- | --- |
-| Catálogo SPOT e Android | Nova ListDevices | Suportado |
+| Catálogo por seletores SPOT / ANDROID / AUTO / FASTPAIR / SUPERVISED | Nova ListDevices | Suportado; seletores são tratados como caminhos de descoberta, não como tipo semântico do aparelho |
 | Todos os IDs canônicos | DeviceMetadata / CanonicIds | Persistidos e expostos |
-| Tipo do identificador | IdentifierInformationType | ANDROID / SPOT / UNKNOWN |
+| Tipo do identificador | IdentifierInformationType + captura viva | ANDROID / SPOT / SUPERVISED_ANDROID / UNKNOWN |
 | Tipos detalhados | SpotDeviceType | Suportados sem reduzir tudo a TRACKER |
-| Fabricante e modelo | DeviceRegistration | Persistidos |
-| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido |
+| Fabricante e modelo | DeviceRegistration + catálogo vivo 2026 | Persistidos |
+| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido quando a semântica é compatível; em PHONE o field 21 foi comprovado como product/variant name, não Fast Pair |
 | Data de pareamento | DeviceRegistration.pairDate | Persistida |
 | Ownership/acesso | DeviceInformation.accessInformation | Persistido e exibido |
 | Owner key version | EncryptedUserSecrets.ownerKeyVersion | Persistido |
 | Material criptográfico | EncryptedUserSecrets | Somente fingerprints SHA-256; chaves brutas não são expostas |
 | Mínimo de agregação de rede | minLocationsNeededForAggregation | Persistido |
 | Locate ativo | ExecuteAction.locateTracker | Suportado |
-| Tocar som | ExecuteAction.startSound | Suportado para wire SPOT comprovado |
-| Parar som | ExecuteAction.stopSound | Suportado para wire SPOT comprovado |
+| Tocar som | ExecuteAction.startSound | Suportado quando o provider anuncia action field 31; fallback legado para SPOT sem capabilities |
+| Parar som | ExecuteAction.stopSound | Suportado quando o provider anuncia action field 32; fallback legado para SPOT sem capabilities |
 | Componentes de som | DeviceComponent | UNSPECIFIED / RIGHT / LEFT / CASE |
 | Localização LAST_KNOWN | Common.Status | Preservada como origem |
 | Localização CROWDSOURCED | Common.Status | Preservada como origem |
@@ -34,21 +34,86 @@ Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capaci
 | Histórico local | Connect|API | Persistente e opcional |
 | Reconciliação | Connect|API sobre os reports devolvidos | Best effort, sem prometer timeline completa |
 
-## Campos não demonstrados pelas referências fornecidas
+## Metadados descobertos no protocolo vivo de 2026
 
-Os arquivos analisados **não expõem**, na superfície usada por essas referências:
+Capturas reais de `DevicesList` mostraram que o backend atual possui um layout mais novo que o `DeviceUpdate.proto` original usado pelo GoogleFindMyTools. O decoder da Connect|API mantém compatibilidade com o layout legado e passou a reconhecer, quando presentes:
+
+- fabricante;
+- modelo;
+- codinome do dispositivo;
+- produto/variant name;
+- operadora;
+- IMEI validado por formato/check digit;
+- ID numérico Android;
+- ID opaco estável do metadata;
+- timestamps de registro/status/resposta do provider;
+- versão numérica do Google Play Services;
+- Android SDK;
+- capacidades brutas numeradas pelo provider;
+- flags numéricas ainda sem semântica oficial;
+- indicação de dispositivo supervisionado Family Link, nome do membro e URL devolvida pelo Google;
+- metadata offline/E2EE legado ainda embutido no layout novo.
+
+O layout vivo também apresentou `IdentifierInformationType = 6` em um aparelho supervisionado do Family Link. A Connect|API o representa semanticamente como `SUPERVISED_ANDROID`, sem fingir que esse nome constava no proto legado.
+
+Dispositivos supervisionados podem aparecer sem um ID canônico compatível com o wire de `ExecuteAction.locateTracker`. Nesses casos eles continuam visíveis no catálogo e com seus metadados preservados, mas `locateSupported=false` impede a aplicação de enviar uma ação com identificador inventado.
+
+### Ainda não confirmado
+
+Os catálogos capturados **não demonstraram de forma segura**:
 
 - percentual de bateria;
-- IMEI;
 - MEID;
 - número de série;
 - SSID atual;
 - RSSI Wi-Fi;
 - intensidade do sinal celular.
 
-O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`; portanto o Connect|API não converte esse placeholder em telemetria real.
+O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`. Embora o produto oficial Find Hub apresente bateria e conectividade para aparelhos online, é necessário mapear a superfície/status protobuf correspondente antes de expor esses campos.
 
-Se uma futura referência comprovada revelar outra RPC/superfície Google para esses dados, ela deve ser incorporada como capacidade adicional, preservando a origem do dado.
+### Correlação real: Redmi Note 14 entre DevicesList e DeviceUpdate
+
+Em 2026-09-26 foram comparados, para o mesmo Redmi Note 14, `DevicesList` solicitados como `SPOT`, `ANDROID`, `AUTO`, `FASTPAIR` e `SUPERVISED`, além de um `DeviceUpdate` recebido após Locate. Os binários privados não são versionados; somente fixtures sintéticas sanitizadas entram nos testes.
+
+A correlação mostrou:
+
+- os catálogos solicitados como `SPOT`, `ANDROID`, `AUTO`, `FASTPAIR` e `SUPERVISED` devolveram o mesmo conjunto de dispositivos;
+- removendo somente `providerResponseAt`, o `DeviceMetadata` do Redmi Note 14 é byte a byte idêntico nos cinco seletores; o mesmo vale para o segundo dispositivo supervisionado retornado pela conta;
+- nas cinco respostas, o Redmi Note 14 continua declarando `identifierType=ANDROID`; o selector usado na requisição não reescreve o tipo do dispositivo;
+- a única diferença observada entre essas cinco capturas foi o timestamp de resposta do provider;
+- em cada resposta, o `responseTime` do envelope e o `DeviceMetadata.field12` dos dispositivos carregam o mesmo instante, validando o fallback `metadata.field12 -> payload.field4` usado pelo decoder;
+- a diferença de três bytes observada no arquivo SUPERVISED é explicada apenas pelo tamanho da codificação varint desse timestamp, não por ausência de campos;
+- no catálogo, o Redmi Note 14 aparece com `identifierType=ANDROID`, ID numérico Android, canonical ID, modelo `24117RN76L`, fabricante `Xiaomi`, codinome `tanzanite`, produto `tanzanite_global`, operadora e IMEI;
+- no `DeviceUpdate` de Locate, o mesmo canonical ID aparece com `identifierType=SPOT`;
+- portanto `identifierType` descreve a superfície/envelope retornado e **não deve ser usado isoladamente como capability gate**;
+- o catálogo do aparelho anuncia action fields `31` e `32`, e o DeviceUpdate conserva essas duas capabilities, confirmando Start Sound e Stop Sound para esse telefone mesmo quando o catálogo o classifica como `ANDROID`;
+- o `DeviceRegistration` embutido no DeviceUpdate é **byte a byte idêntico** ao registration embutido no catálogo moderno do mesmo aparelho;
+- por isso os registration fields ainda anônimos `11`, `22`, `24`, `25`, `33` e `40` observados nessa amostra pertencem ao bloco estável de registro/metadata e não devem ser tratados como bateria ou sinal;
+- registration field `21` contém `tanzanite_global`, enquanto o catálogo moderno expõe separadamente o codinome `tanzanite` em status field `5`. Para `PHONE`, field `21` é tratado como `productName`, não como `fastPairModelId` nem como `deviceCodename`;
+- o relatório de localização contém `accuracy=100.0`; esse valor é precisão em metros e **não** percentual de bateria;
+- o timestamp do relatório pode ser anterior ao horário em que a Connect|API recebeu o envelope, reforçando a distinção entre nova resposta do provider e nova observação de posição.
+
+O decoder preserva a interpretação legada de field `21` como Fast Pair apenas para tipos não-`PHONE`, onde essa semântica ainda é compatível com o proto de referência.
+
+### Bateria: tier suportado, percentual ainda não comprovado
+
+As cinco capturas do Redmi Note 14 preservam `DeviceRegistration.deviceTypeInformation.field11 = 3` e `field14 = 1`. O mesmo caminho `field11=3` também aparece no Redmi Note 7 analisado.
+
+Uma implementação pública independente do protocolo Google Find Hub interpreta especificamente `DeviceTypeInformation.field11` em telefones Android como **tier de bateria**, com:
+
+```text
+1 = LOW
+2 = MEDIUM
+3 = HIGH
+```
+
+A estrutura coincide exatamente com o wire real capturado nos telefones. A Connect|API passa a expor essa informação como `batteryTier` e preserva a origem em `batteryTierSource="registration.2.11"`. O valor bruto continua disponível em `providerFlags["registration.2.11"]`.
+
+Isso **não** autoriza inferir percentual. Portanto não existe `batteryLevel=NN` sintético: o contrato suporta a faixa LOW/MEDIUM/HIGH e declara `percentageSupported=false`.
+
+Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui `status.32.1 = 53`. Esse campo permanece somente como candidato a algum valor percentual/telemetria; é preservado cru em `providerFlags["32.1"]` e não é apresentado como bateria até haver correlação suficiente.
+
+As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
 ## Frescor de localização: solicitação não é observação nova
 
@@ -130,7 +195,7 @@ FASTPAIR_DEVICE = 5
 SUPERVISED_ANDROID_DEVICE = 7
 ```
 
-A sincronização da Connect|API mantém SPOT como catálogo principal e consulta Android, Auto, Fast Pair e Supervised Android como fontes complementares best-effort. Falha ou indisponibilidade de uma fonte complementar não remove o catálogo SPOT já obtido.
+As capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. Por isso a Connect|API trata os cinco valores como caminhos de descoberta best-effort: consulta SPOT primeiro e, em seguida, Android, Auto, Fast Pair e Supervised em paralelo; aceita qualquer resposta legível e deduplica por `googleDeviceId`. SPOT permanece apenas como desempate final de compatibilidade quando o mesmo dispositivo aparece em múltiplas respostas, enquanto `providerResponseAt` preserva o timestamp mais recente observado entre os seletores. Sua indisponibilidade isolada não derruba a descoberta.
 
 ## Recursos presentes no material e que pertencem a outro ciclo
 

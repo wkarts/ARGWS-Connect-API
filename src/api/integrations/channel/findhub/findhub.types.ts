@@ -38,6 +38,7 @@ export type FindHubDeviceType =
   | 'UNKNOWN';
 
 export type FindHubSoundComponent = 'UNSPECIFIED' | 'RIGHT' | 'LEFT' | 'CASE';
+export type FindHubBatteryTier = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export interface FindHubAccessInformation {
   email?: string;
@@ -51,10 +52,29 @@ export interface FindHubDevice {
   googleDeviceId: string;
   canonicalIds?: string[];
   name: string;
-  identifierType: 'ANDROID' | 'SPOT' | 'UNKNOWN';
+  identifierType: 'ANDROID' | 'SPOT' | 'SUPERVISED_ANDROID' | 'UNKNOWN';
   deviceType: FindHubDeviceType;
   manufacturer?: string;
   model?: string;
+  deviceCodename?: string;
+  productName?: string;
+  carrier?: string;
+  imei?: string;
+  androidDeviceNumericId?: string;
+  providerOpaqueId?: string;
+  providerRegisteredAt?: string | null;
+  providerStatusAt?: string | null;
+  providerResponseAt?: string | null;
+  gmsCoreVersionCode?: number;
+  androidSdkVersion?: number;
+  familyLinkManaged?: boolean;
+  familyLinkMemberName?: string;
+  familyLinkUrl?: string;
+  providerCapabilities?: Array<{ actionField: number; state: number }>;
+  providerFlags?: Record<string, number>;
+  batteryTier?: FindHubBatteryTier;
+  batteryTierSource?: 'registration.2.11';
+  locateSupported?: boolean;
   fastPairModelId?: string;
   pairedAt?: string | null;
   accessInformation?: FindHubAccessInformation[];
