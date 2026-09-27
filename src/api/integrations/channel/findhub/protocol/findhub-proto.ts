@@ -252,6 +252,9 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
   const networkAggregationMinReports = Number(int(recentAndNetwork ?? Buffer.alloc(0), 9) ?? 0n) || undefined;
   const capabilities = providerCapabilities(metadata);
   const flags = status.length ? providerFlags(status) : {};
+  const batteryTierCode = normalizedDeviceType === 'PHONE' ? Number(int(deviceDescription, 11) ?? 0n) : 0;
+  const batteryTier =
+    batteryTierCode === 1 ? 'LOW' : batteryTierCode === 2 ? 'MEDIUM' : batteryTierCode === 3 ? 'HIGH' : undefined;
   for (const field of [11, 14]) {
     const value = int(deviceDescription, field);
     if (value !== undefined) flags[`registration.2.${field}`] = Number(value);
@@ -281,6 +284,8 @@ export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'
     familyLinkUrl,
     providerCapabilities: capabilities,
     providerFlags: flags,
+    batteryTier,
+    batteryTierSource: batteryTier ? 'registration.2.11' : undefined,
     locateSupported: ids.length > 0,
     fastPairModelId: legacyInformation && normalizedDeviceType !== 'PHONE' ? legacyRegistrationField21 : undefined,
     pairedAt: pairedAtSeconds > 0 ? new Date(pairedAtSeconds * 1000).toISOString() : null,
