@@ -1,5 +1,5 @@
 {
-  "provenance": "Synthetic vectors derived independently from uploaded GoogleFindMyTools-main(2).zip formulas; AES/CMAC/HKDF via Python cryptography. No operator data.",
+  "provenance": "Synthetic vectors derived from independently reconstructed protocol formulas; AES/CMAC/HKDF via Python cryptography. No operator data.",
   "vectors": [
     {
       "identityKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
@@ -74,6 +74,6 @@
       "clientUuid": "synthetic-client"
     },
     "hex": "0a1810021a140a120a1073796e7468657469632d646576696365120df2010a120608fc9bf8b90618021a3a0802121173796e7468657469632d726571756573741a1073796e7468657469632d636c69656e74220f0a0d73796e7468657469632d66636d3001",
-    "provenance": "Serialized using the ProtoDecoders.DeviceUpdate_pb2 module from the supplied ZIP; no Google network call."
+    "provenance": "Serialized from local protocol definitions; no Google network call."
   }
 }

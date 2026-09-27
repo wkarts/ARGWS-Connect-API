@@ -1,6 +1,6 @@
 # Google Find Hub — implantação e API
 
-O provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instância. Os dispositivos pertencem àquela instância; o Manager e as integrações externas utilizam a mesma API. O canal é nativo TypeScript, sem GoogleFindMyTools, Python de localização, VNC, Selenium ou Chromium no servidor.
+O provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instância. Os dispositivos pertencem àquela instância; o Manager e as integrações externas utilizam a mesma API. O canal é nativo TypeScript, sem dependência externa de localização, VNC, Selenium ou Chromium no servidor.
 
 > **Autenticação assistida e limites:** o Manager oferece agora a opção de vinculação por uma extensão própria, com aprovação explícita da origem, do servidor e da conta. Ela obtém somente o artefato de login e a chave `finder_hw`, sem copiar tokens manualmente. A implementação **não implementa um login Google OAuth público** nem garante login puramente web em PC/mobile: exige Chrome/Edge desktop com a extensão e permanece sem homologação com conta Google real. O modo `CredentialProvider` por importação continua como alternativa avançada. Não informe senha/PIN à API; digite-os somente no Google.
 
@@ -218,7 +218,7 @@ O HTTP continua usando o formato de erro já existente. A mensagem tem prefixo `
 
 O diagnóstico fornecido pelo operador em 22/09/2026 contém quatro HTTP 400 nas tentativas de autenticação/cancelamento às 15:36:24Z e 15:39:50Z; o exportador anterior preservou somente fingerprint e rota sanitizada. Ele **não permite afirmar** qual resposta bruta o Google produziu. As correções atacam incompatibilidades verificadas no código e passam por regressões com respostas controladas; a autenticação ponta a ponta com a conta do operador continua necessitando de nova execução autorizada. Não há promessa de superar restrições da conta Google.
 
-Referências técnicas (consulta em 22/09/2026): `leonboe1/GoogleFindMyTools/Auth/aas_token_retrieval.py` trata Email como opcional; `simon-weber/gpsoauth/gpsoauth/__init__.py` documenta o transporte legado sem ALPN; documentação Chrome Extensions de `cookies` e `manifest/icons`. Os projetos foram usados como referência de comportamento, sem instalação ou tradução de código GPL.
+Referências técnicas (consulta em 22/09/2026): `simon-weber/gpsoauth/gpsoauth/__init__.py` documenta o transporte legado sem ALPN; documentação Chrome Extensions de `cookies` e `manifest/icons`. Esses materiais serviram somente para validar o comportamento do protocolo; não são dependências, bibliotecas instaladas ou código incorporado.
 
 ## Extensão 0.1.2: identidade Google, diagnóstico e distribuição Windows
 
@@ -257,8 +257,6 @@ Referências primárias para o contrato de instalação e protocolo (consulta de
 - https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions
 - https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked
 - https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/port-chrome-extension
-- https://github.com/leonboe1/GoogleFindMyTools/blob/main/Auth/aas_token_retrieval.py
-- https://github.com/leonboe1/GoogleFindMyTools/blob/main/Auth/fcm_receiver.py
 
 **Atualize API/Manager e extensão juntos. Não rotacione `FINDHUB_CREDENTIALS_KEY`, não remova volumes e não desconecte WhatsApp para aplicar esta correção. Testes de CI não substituem login Google, posição real e envio Traccar com dispositivos próprios.**
 

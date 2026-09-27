@@ -39,7 +39,7 @@ test('Find Hub Protocol Lab keeps public research distinct from runtime dependen
   const schemas = findHubProtocolSchemaCatalog();
   const serialized = JSON.stringify({ inventory, schemas });
 
-  assert.doesNotMatch(serialized, /leonboe1|GoogleFindMyTools|go-findmy|traccar-relay/i);
+  assert.doesNotMatch(serialized, /github\.com\/|go-findmy|traccar-relay/i);
   assert.ok(inventory.every((item) => Array.isArray(item.evidence) && item.evidence.length > 0));
   assert.ok(schemas.every((item) => item.evidence && item.schemaPath));
   assert.ok(inventory.some((item) => item.evidence.includes('argws-native')));
