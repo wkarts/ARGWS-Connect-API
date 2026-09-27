@@ -8515,7 +8515,7 @@
         ],
         "summary": "Inventário completo do Protocol Lab",
         "operationId": "get_findhub_protocol_inventory_instancename",
-        "description": "Lista todas as superfícies conhecidas catalogadas pela Connect|API, incluindo live, internal-live, request-template e reference-only, além do catálogo completo de mensagens/enums protobuf. Não retorna credenciais ou segredos.",
+        "description": "Lista todas as superfícies conhecidas catalogadas pela Connect|API, incluindo live, internal-live, request-template e reference-only, além do catálogo completo de mensagens/enums protobuf e seu impacto de enriquecimento na aplicação. Não retorna credenciais ou segredos.",
         "parameters": [
           {
             "name": "instanceName",
