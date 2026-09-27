@@ -132,7 +132,7 @@ export const findHubSchemas = {
     properties: {
       deviceId: text, googleDeviceId: text, latitude: { type: 'number' }, longitude: { type: 'number' },
       altitude: { type: 'number' }, accuracy: { type: 'number' }, timestamp,
-      source: { type: 'string', enum: ['RECENT', 'NETWORK', 'LAST_KNOWN', 'CROWDSOURCED', 'AGGREGATED', 'TRACCAR', 'UNKNOWN'] },
+      source: { type: 'string', enum: ['RECENT', 'NETWORK', 'LAST_KNOWN', 'CROWDSOURCED', 'AGGREGATED', 'UNKNOWN'] },
       semanticLocation: text, ownReport: { type: 'boolean' },
     },
   },
