@@ -1909,7 +1909,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Inventário do Protocol Lab",
+            "description": "Inventário completo do Protocol Lab",
             "content": {
               "application/json": {
                 "schema": {
