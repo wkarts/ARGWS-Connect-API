@@ -115,6 +115,27 @@ Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui 
 
 As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
 
+## Enriquecimento transversal por protocolo
+
+O Protocol Lab não é apenas um downloader. **Todas as superfícies catalogadas** recebem `applicationAreas` e `enrichmentTargets`, tornando explícito onde cada protocolo já alimenta — ou poderá alimentar, quando houver implementação comprovada — a conta, realtime, catálogo de devices, E2EE, localização de rede, provisioning BLE, DULT e criptografia.
+
+O status continua autoritativo: `reference-only` descreve potencial técnico conhecido e **não** disponibilidade atual. A Connect|API não fabrica payloads ou dados para preencher lacunas.
+
+### Estado vivo sanitizado
+
+`GET /findhub/protocol/state/:instanceName` produz um snapshot sob demanda:
+
+- E2EE: `securityDomain`, `ownerKeyVersion`, tamanho e SHA-256 do envelope cifrado;
+- campos wire adicionais do `GetEidInfoForE2eeDevices` são preservados pelo caminho numérico, sem receber nomes não comprovados;
+- FCM: prontidão de Check-in/GCM/Firebase Installation/WebPush e fingerprint da chave pública;
+- MCS: conexão, último frame, stream id, heartbeat, reconexão, buffer e quantidade de persistent IDs.
+
+A resposta **não retorna** AAS/service token, Android security token, registration token, private key, auth secret, shared key, owner key ou encrypted owner key bruto.
+
+Três capturas reais independentes do Protocol Lab analisadas em 2026-09-27 devolveram o mesmo `GetEidInfoForE2eeDevices` de 87 bytes. Além de `ownerKeyVersion=1` e `securityDomain=finder_hw`, o wire contém campos adicionais estáveis ainda ausentes dos protos públicos de referência. Esses valores permanecem como wire metadata; nenhuma semântica foi inventada.
+
+O ZIP completo inclui também `runtime/protocol-state.json` quando o estado vivo pode ser consultado.
+
 ## Protocol Lab: integração dedicada, download individual e pacote ZIP
 
 O Manager da instância Find Hub possui um **Protocol Lab** como item próprio do menu de integrações, no mesmo nível de Traccar, Webhooks e demais transportes. A tela de Dispositivos permanece dedicada à operação do aparelho e não carrega controles forenses. No Lab é possível baixar tudo, filtrar/baixar por protocolo, baixar schemas individualmente ou gerar um ZIP restrito a um único device.

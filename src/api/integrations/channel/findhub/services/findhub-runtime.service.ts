@@ -547,6 +547,13 @@ export class FindHubStartupService {
     };
 
     add('README.txt', findHubProtocolLabReadme(), { kind: 'documentation' });
+    try {
+      add('runtime/protocol-state.json', JSON.stringify(await protocol.protocolState(), null, 2), {
+        kind: 'sanitized-runtime-state',
+      });
+    } catch (captureError) {
+      failure('protocol-state', captureError);
+    }
     add(
       'protocol-inventory.json',
       JSON.stringify(

@@ -33,13 +33,14 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
   // Browser authentication plus tracking/SSE/settings, reconciliation, native Traccar, sound and Protocol Lab captures; shared-method paths count once.
-  assert.equal(implemented.length, 36);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 41);
+  assert.equal(implemented.length, 37);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 42);
   assert.ok(implemented.includes('/findhub/sound/start/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/sound/stop/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/catalog/{catalog}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/device-update/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/inventory/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/state/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/archive/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/eid-info/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/request/eid-info/{instanceName}'));
@@ -74,6 +75,7 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   assert.match(updateCapture.description, /DeviceUpdate FCM/);
 
   const protocolInventory = dedicated.paths['/findhub/protocol/inventory/{instanceName}'].get;
+  const protocolState = dedicated.paths['/findhub/protocol/state/{instanceName}'].get;
   const protocolArchive = dedicated.paths['/findhub/protocol/capture/archive/{instanceName}'].post;
   const eidInfo = dedicated.paths['/findhub/protocol/capture/eid-info/{instanceName}'].post;
   const eidInfoRequest = dedicated.paths['/findhub/protocol/capture/request/eid-info/{instanceName}'].post;
@@ -82,6 +84,10 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const actionRequest =
     dedicated.paths['/findhub/protocol/capture/request/action/{action}/{deviceId}/{instanceName}'].post;
   assert.ok(protocolInventory.responses['200'].content['application/json']);
+  assert.equal(
+    protocolState.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubProtocolState',
+  );
   assert.ok(protocolArchive.responses['200'].content['application/zip']);
   assert.ok(eidInfo.responses['200'].content['application/x-protobuf']);
   assert.ok(eidInfoRequest.responses['200'].content['application/x-protobuf']);
