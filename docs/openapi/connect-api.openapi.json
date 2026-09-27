@@ -18895,6 +18895,22 @@
             },
             "description": "Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1."
           },
+          "batteryTier": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ],
+            "description": "Faixa de bateria do telefone, derivada de DeviceTypeInformation field 11. Não representa percentual exato."
+          },
+          "batteryTierSource": {
+            "type": "string",
+            "enum": [
+              "registration.2.11"
+            ],
+            "description": "Caminho wire usado para a faixa de bateria."
+          },
           "locateSupported": {
             "type": "boolean"
           },
