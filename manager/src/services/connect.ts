@@ -125,6 +125,23 @@ export const connect = {
   findHubDevices: (id: string): Promise<any[]> => invoke('findHubDevices', id),
   findHubRefreshDevices: (id: string): Promise<any[]> => invoke('findHubRefreshDevices', id),
   findHubCaptureCatalog: (id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Promise<void> => invoke('findHubCaptureCatalog', id, catalog),
+  findHubProtocolInventory: (id: string): Promise<any> => invoke('findHubProtocolInventory', id),
+  findHubDownloadProtocolInventory: (id: string): Promise<void> => invoke('findHubDownloadProtocolInventory', id),
+  findHubCaptureCatalogRequest: (
+    id: string,
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<void> => invoke('findHubCaptureCatalogRequest', id, catalog),
+  findHubCaptureEidInfo: (id: string, requestOnly = false): Promise<void> =>
+    invoke('findHubCaptureEidInfo', id, requestOnly),
+  findHubCaptureSecurityUnlockRequest: (id: string): Promise<void> =>
+    invoke('findHubCaptureSecurityUnlockRequest', id),
+  findHubCaptureActionRequest: (
+    id: string,
+    deviceId: string,
+    action: 'locate' | 'sound-start' | 'sound-stop',
+  ): Promise<void> => invoke('findHubCaptureActionRequest', id, deviceId, action),
+  findHubCaptureProtocolArchive: (id: string, timeoutMs = 30000): Promise<void> =>
+    invoke('findHubCaptureProtocolArchive', id, timeoutMs),
   findHubCaptureDeviceUpdate: (id: string, deviceId: string, timeoutMs?: number): Promise<void> => invoke('findHubCaptureDeviceUpdate', id, deviceId, timeoutMs),
   findHubLocate: (id: string, deviceId: string, timeoutMs?: number): Promise<any> => invoke('findHubLocate', id, deviceId, timeoutMs),
   findHubSound: (id: string, deviceId: string, operation: 'start' | 'stop', component = 'UNSPECIFIED'): Promise<any> => invoke('findHubSound', id, deviceId, operation, component),
