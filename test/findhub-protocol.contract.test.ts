@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import {
+  createFindHubProtocolZip,
+  findHubProtocolInventory,
+} from '../src/api/integrations/channel/findhub/protocol/findhub-protocol-lab';
 import { FindHubNovaClient } from '../src/api/integrations/channel/findhub/protocol/nova.client';
 import {
   decodeDeviceMetadata,
@@ -30,6 +34,20 @@ test('Find Hub device list protobuf matches reference wire format', () => {
     encodeDeviceListRequest(REQUEST_UUID).toString('hex'),
     '0a2808021a2431313131313131312d323232322d333333332d343434342d353535353535353535353535',
   );
+});
+
+test('Find Hub Protocol Lab inventory and ZIP are downloadable artifacts', () => {
+  const inventory = findHubProtocolInventory();
+  assert.ok(inventory.some((item) => item.key === 'spot.get-eid-info' && item.status === 'live'));
+  assert.ok(inventory.some((item) => item.key === 'location-reports-upload' && item.status === 'reference-only'));
+  const zip = createFindHubProtocolZip([
+    { name: 'manifest.json', data: '{"ok":true}' },
+    { name: 'requests/test.pb', data: Buffer.from([1, 2, 3]) },
+  ]);
+  assert.equal(zip.readUInt32LE(0), 0x04034b50);
+  assert.equal(zip.readUInt32LE(zip.length - 22), 0x06054b50);
+  assert.ok(zip.includes(Buffer.from('manifest.json')));
+  assert.ok(zip.includes(Buffer.from('requests/test.pb')));
 });
 
 test('Find Hub exposes every catalogue DeviceType defined by the supplied reference proto', () => {

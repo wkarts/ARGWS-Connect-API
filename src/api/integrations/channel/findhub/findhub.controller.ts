@@ -94,6 +94,57 @@ export class FindHubController {
     }
   }
 
+  public protocolInventory(instanceName: string) {
+    return this.runtime(instanceName).protocolInventory();
+  }
+
+  public captureProtocolCatalogRequest(instanceName: string, catalog: string): Buffer {
+    if (!['spot', 'android', 'auto', 'fastpair', 'supervised'].includes(catalog)) {
+      throw new BadRequestException('catalog must be spot, android, auto, fastpair or supervised');
+    }
+    return this.runtime(instanceName).captureProtocolCatalogRequest(
+      catalog as 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+    );
+  }
+
+  public captureProtocolEidInfoRequest(instanceName: string): Buffer {
+    return this.runtime(instanceName).captureProtocolEidInfoRequest();
+  }
+
+  public async captureProtocolEidInfo(instanceName: string): Promise<Buffer> {
+    try {
+      return await this.runtime(instanceName).captureProtocolEidInfo();
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao capturar GetEidInfo.');
+    }
+  }
+
+  public captureProtocolSecurityUnlockRequest(instanceName: string): Buffer {
+    return this.runtime(instanceName).captureProtocolSecurityUnlockRequest();
+  }
+
+  public async captureProtocolActionRequest(instanceName: string, deviceId: string, action: string): Promise<Buffer> {
+    if (!['locate', 'sound-start', 'sound-stop'].includes(action)) {
+      throw new BadRequestException('action must be locate, sound-start or sound-stop');
+    }
+    try {
+      return await this.runtime(instanceName).captureProtocolActionRequest(
+        deviceId,
+        action as 'locate' | 'sound-start' | 'sound-stop',
+      );
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao gerar request protobuf.');
+    }
+  }
+
+  public async captureProtocolArchive(instanceName: string, data: any): Promise<{ payload: Buffer; failures: number }> {
+    try {
+      return await this.runtime(instanceName).captureProtocolArchive(data);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao montar pacote Protocol Lab.');
+    }
+  }
+
   public async status(instanceName: string) {
     const runtime = this.runtime(instanceName);
     const status = await runtime.auth().status(instanceName);

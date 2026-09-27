@@ -14,7 +14,13 @@ test('Find Hub raw protocol capture returns binary artifacts and never persists 
 
   assert.match(router, /protocol\/capture\/catalog\/:catalog\/:instanceName/);
   assert.match(router, /protocol\/capture\/device-update\/:deviceId\/:instanceName/);
+  assert.match(router, /protocol\/inventory\/:instanceName/);
+  assert.match(router, /protocol\/capture\/archive\/:instanceName/);
+  assert.match(router, /protocol\/capture\/eid-info\/:instanceName/);
+  assert.match(router, /protocol\/capture\/request\/catalog\/:catalog\/:instanceName/);
+  assert.match(router, /protocol\/capture\/request\/action\/:action\/:deviceId\/:instanceName/);
   assert.match(router, /application\/x-protobuf/);
+  assert.match(router, /application\/zip/);
   assert.match(router, /Content-Disposition/);
 
   assert.match(nova, /captureDevicesListRaw/);
@@ -23,6 +29,9 @@ test('Find Hub raw protocol capture returns binary artifacts and never persists 
   assert.match(protocol, /capture\.resolve\(\{[\s\S]*payload: Buffer\.from\(payload\)/);
   assert.match(runtime, /captureProtocolCatalog/);
   assert.match(runtime, /captureProtocolDeviceUpdate/);
+  assert.match(runtime, /captureProtocolArchive/);
+  assert.match(runtime, /captureProtocolEidInfo/);
+  assert.match(runtime, /createFindHubProtocolZip/);
 
   for (const source of [router, runtime, protocol]) {
     assert.doesNotMatch(source, /findHubProtocolCapture\.create|protocolCapture\.create|rawProtobuf.*prisma/i);

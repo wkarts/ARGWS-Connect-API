@@ -172,6 +172,12 @@ function harness(options = {}) {
       defaultLocalTemplateRecord: () => ({ name: 'hello' }),
     },
     '../findhub.constants': { FINDHUB_INTEGRATION: Integration.GOOGLE_FIND_HUB, FINDHUB_EVENTS: {} },
+    '../protocol/findhub-protocol-lab': {
+      createFindHubProtocolZip: () => Buffer.alloc(0),
+      findHubProtocolInventory: () => [],
+      findHubProtocolLabReadme: () => '',
+      safeProtocolPathSegment: (value) => String(value || 'artifact'),
+    },
     '../../../../../diagnostics/diagnostics.service': { diagnostics: { record() {} } },
     '../auth/findhub-auth.error': { FindHubAuthError },
     '../auth/findhub-auth-broker.service': {

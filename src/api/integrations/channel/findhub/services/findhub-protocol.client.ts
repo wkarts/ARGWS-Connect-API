@@ -9,6 +9,9 @@ import {
   decodeDeviceRegistration,
   decodeDeviceUpdate,
   decodeLocationReports,
+  encodeExecuteLocateRequest,
+  encodeExecuteSoundRequest,
+  encodeSecurityUnlockExtras,
 } from '../protocol/findhub-proto';
 import { FindHubNovaClient } from '../protocol/nova.client';
 import { FindHubSpotClient } from '../protocol/spot.client';
@@ -156,10 +159,43 @@ export class FindHubProtocolClient {
     return await this.nova.listDevices();
   }
 
+  public captureDevicesListRequestRaw(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
+    return this.nova.buildDevicesListRequest(catalog);
+  }
+
   public async captureDevicesListRaw(
     catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
   ): Promise<Buffer> {
     return await this.nova.captureDevicesListRaw(catalog);
+  }
+
+  public captureGetEidInfoRequestRaw(): Buffer {
+    return this.spot.getEidInfoRequestPayload();
+  }
+
+  public async captureGetEidInfoRaw(): Promise<Buffer> {
+    return await this.spot.captureGetEidInfoRaw();
+  }
+
+  public captureSecurityUnlockRequestRaw(): Buffer {
+    return encodeSecurityUnlockExtras();
+  }
+
+  public captureExecuteActionRequestRaw(
+    device: FindHubDevice,
+    action: 'locate' | 'sound-start' | 'sound-stop',
+  ): Buffer {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    if (device.locateSupported === false)
+      throw new Error('Google Find Hub device does not expose a canonical action ID');
+    const args = {
+      googleDeviceId: device.googleDeviceId,
+      fcmRegistrationId: this.fcm.registrationToken,
+      requestUuid: randomUUID(),
+      clientUuid: this.clientUuid,
+    };
+    if (action === 'locate') return encodeExecuteLocateRequest(args);
+    return encodeExecuteSoundRequest(args, action === 'sound-start' ? 'start' : 'stop', 'UNSPECIFIED');
   }
 
   public async captureDeviceUpdateRaw(device: FindHubDevice, timeoutMs?: number): Promise<RawDeviceUpdateCapture> {

@@ -61,6 +61,10 @@ test('Find Hub device view exposes proven protocol metadata, provider freshness 
  assert.match(source,/device\.locateSupported===false/);
  assert.match(source,/Capturar SPOT \.pb/);
  assert.match(source,/Capturar DeviceUpdate \.pb/);
+ assert.match(source,/Protocol Lab/);
+ assert.match(source,/Baixar tudo em ZIP/);
+ assert.match(source,/GetEidInfo response \.pb/);
+ assert.match(source,/Request Locate \.pb/);
 });
 
 test('Find Hub adopts existing configuration layout and keeps WhatsApp controls absent',()=>{

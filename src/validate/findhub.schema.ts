@@ -34,6 +34,22 @@ export const findHubLocateSchema: JSONSchema7 = {
   properties: { timeoutMs: { type: 'integer', minimum: 1, maximum: 2147483647 } },
 };
 
+export const findHubProtocolArchiveSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    includeDeviceUpdates: { type: 'boolean' },
+    timeoutMs: { type: 'integer', minimum: 1000, maximum: 120000 },
+    deviceIds: {
+      type: 'array',
+      maxItems: 50,
+      uniqueItems: true,
+      items: { type: 'string', minLength: 1, maxLength: 128 },
+    },
+  },
+};
+
 export const findHubTrackingSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
