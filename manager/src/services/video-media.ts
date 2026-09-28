@@ -9,7 +9,6 @@ export type CallCapabilities = {
   audio: boolean; video: boolean; engine: string; videoCodec?: 'h264'; videoMedia?: VideoMediaSettings
 }
 export type VideoMediaState = 'idle' | 'requesting_camera' | 'connecting' | 'ready' | 'closed' | 'error'
-export type VideoRotation = 0 | 90 | 180 | 270
 export type VideoMediaCallbacks = {
   onSession?: (session: VideoMediaSession) => void
   onState?: (state: VideoMediaState) => void
@@ -35,12 +34,6 @@ const MAX_H264_PARAMETER_SET_BYTES = 64 * 1024
 
 function bounded(value: number | undefined, fallback: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value!))) : fallback
-}
-
-function normalizeVideoRotation(value: number): VideoRotation {
-  const normalized = ((Math.round(value / 90) * 90) % 360 + 360) % 360
-  if (normalized === 90 || normalized === 180 || normalized === 270) return normalized
-  return 0
 }
 
 function h264StartCodeLength(data: Uint8Array, offset: number) {
@@ -101,7 +94,6 @@ export class VideoMediaSession {
   private lastRemoteTimestamp = -1
   private lastRemoteFrameAt = 0
   private remoteRecoveryTimer: number | undefined
-  private remoteRotation: VideoRotation = 0
   private processingFrame = false
   private pendingFrame: ArrayBuffer | null = null
   private pageHide = () => this.stop()
@@ -241,7 +233,11 @@ export class VideoMediaSession {
       output: frame => {
         try {
           if (this.closed || this.decoder !== decoder) return
-          if (!this.drawRemoteFrame(frame)) return
+          const context = this.remoteCanvas.getContext('2d')
+          if (!context) return
+          if (this.remoteCanvas.width !== frame.displayWidth) this.remoteCanvas.width = frame.displayWidth
+          if (this.remoteCanvas.height !== frame.displayHeight) this.remoteCanvas.height = frame.displayHeight
+          context.drawImage(frame, 0, 0)
           this.lastRemoteFrameAt = performance.now()
           this.decoderRecoveryAttempt = 0
           this.callbacks.onRemoteFrame?.()
@@ -253,36 +249,6 @@ export class VideoMediaSession {
     })
     decoder.configure(config)
     return decoder
-  }
-
-  private drawRemoteFrame(frame: VideoFrame) {
-    const sourceWidth = frame.displayWidth
-    const sourceHeight = frame.displayHeight
-    if (!sourceWidth || !sourceHeight) return false
-    const rotated = this.remoteRotation === 90 || this.remoteRotation === 270
-    const width = rotated ? sourceHeight : sourceWidth
-    const height = rotated ? sourceWidth : sourceHeight
-    const context = this.remoteCanvas.getContext('2d')
-    if (!context) return false
-    if (this.remoteCanvas.width !== width) this.remoteCanvas.width = width
-    if (this.remoteCanvas.height !== height) this.remoteCanvas.height = height
-    context.save()
-    try {
-      if (this.remoteRotation === 90) {
-        context.translate(width, 0)
-        context.rotate(Math.PI / 2)
-      } else if (this.remoteRotation === 180) {
-        context.translate(width, height)
-        context.rotate(Math.PI)
-      } else if (this.remoteRotation === 270) {
-        context.translate(0, height)
-        context.rotate(-Math.PI / 2)
-      }
-      context.drawImage(frame, 0, 0)
-      return true
-    } finally {
-      context.restore()
-    }
   }
 
   private replaceDecoder() {
@@ -648,11 +614,6 @@ export class VideoMediaSession {
     if (!this.ready || this.closed) return false
     this.decoderNeedsKeyFrame = true
     return this.requestKeyFrame()
-  }
-
-  setRemoteRotation(rotation: number) {
-    this.remoteRotation = normalizeVideoRotation(rotation)
-    return this.remoteRotation
   }
 
   setCameraEnabled(enabled: boolean) {
