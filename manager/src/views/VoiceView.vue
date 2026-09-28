@@ -45,11 +45,15 @@ const videoState = ref<VideoMediaState>('idle')
 const videoStream = shallowRef<MediaStream | null>(null)
 const remoteCanvas = ref<HTMLCanvasElement | null>(null)
 const remoteVideoReady = ref(false)
+const remoteVideoRecovering = ref(false)
 const cameraEnabled = ref(true)
 const videoModalOpen = ref(false)
 const videoModal = ref<HTMLElement | null>(null)
 let timer: number | undefined
 let contactsLoadedAt = 0
+let mediaCallMissingSince = 0
+
+const MEDIA_CALL_MISSING_GRACE_MS = 8_000
 
 const selectedInstance = computed(() => instances.value.find((item) => item.id === selected.value))
 const supportsCalls = computed(() => Boolean(selectedInstance.value?.capabilities.calls))
@@ -66,6 +70,7 @@ const videoMuted = computed(() => Boolean(activeVideoCall.value?.muted))
 const videoStatus = computed(() => {
   if (videoState.value === 'requesting_camera') return 'Preparando câmera'
   if (videoState.value === 'connecting') return 'Conectando vídeo'
+  if (videoState.value === 'ready' && remoteVideoRecovering.value) return 'Restaurando vídeo remoto'
   if (videoState.value === 'ready' && remoteVideoReady.value) return 'Vídeo conectado'
   if (videoState.value === 'ready') return 'Aguardando vídeo remoto'
   if (videoState.value === 'error') return 'Vídeo indisponível'
@@ -170,6 +175,7 @@ function callAvatar(call: WhatsAppCall): string | undefined {
 
 function closeMedia() {
   mediaGeneration += 1
+  mediaCallMissingSince = 0
   voiceSession?.stop()
   voiceSession = null
   mediaCallId.value = ''
@@ -188,6 +194,7 @@ function closeVideo() {
   videoStream.value = null
   videoState.value = 'idle'
   remoteVideoReady.value = false
+  remoteVideoRecovering.value = false
   cameraEnabled.value = true
   videoModalOpen.value = false
 }
@@ -257,13 +264,18 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
         videoState.value = state
         if (state === 'closed' || state === 'error') {
           remoteVideoReady.value = false
+          remoteVideoRecovering.value = false
           videoStream.value = null
           videoModalOpen.value = false
         }
       },
       onError: message => { if (current()) mediaError.value = message },
-      onRemoteRecovery: () => { if (current()) remoteVideoReady.value = false },
-      onRemoteFrame: () => { if (current()) remoteVideoReady.value = true },
+      onRemoteRecovery: () => { if (current()) remoteVideoRecovering.value = true },
+      onRemoteFrame: () => {
+        if (!current()) return
+        remoteVideoReady.value = true
+        remoteVideoRecovering.value = false
+      },
     })
     if (!current()) { session.stop(); return }
     videoSession = session
@@ -403,7 +415,12 @@ async function loadCalls(silent = false) {
     void loadContacts()
     if (mediaCallId.value && !busy.value) {
       const current = calls.value.find((call) => call.callId === mediaCallId.value)
-      if (!current || !isCallActive(current)) closeMedia()
+      if (current && isCallActive(current)) mediaCallMissingSince = 0
+      else if (current) closeMedia()
+      else {
+        mediaCallMissingSince ||= Date.now()
+        if (Date.now() - mediaCallMissingSince >= MEDIA_CALL_MISSING_GRACE_MS) closeMedia()
+      }
     }
   } catch (e) {
     if (!silent && current()) error.value = friendlyError(e)
@@ -601,7 +618,7 @@ onBeforeUnmount(() => {
               <div class="call-actions">
                 <button v-if="call.direction==='incoming' && (!call.isVideo || call.state.toLowerCase().includes('ring'))" class="btn primary compact" :disabled="busy || (call.isVideo && !supportsVideo)" @click="action(call,'accept')">{{ call.isVideo ? 'Atender com vídeo' : 'Atender com áudio' }}</button>
                 <button v-if="call.isVideo && mediaCallId===call.callId && videoStream && !videoModalOpen" class="btn ghost compact" @click="openVideoModal">Abrir vídeo</button>
-                <button v-if="call.isVideo && mediaCallId===call.callId && !videoStream && videoState==='error'" class="btn ghost compact" :disabled="busy || !supportsVideo" @click="reconnectVideo">Reconectar vídeo</button>
+                <button v-if="call.isVideo && mediaCallId===call.callId && !videoStream && (videoState==='error' || videoState==='closed')" class="btn ghost compact" :disabled="busy || !supportsVideo" @click="reconnectVideo">Reconectar vídeo</button>
                 <button v-if="call.direction==='incoming'" class="btn danger compact" :disabled="busy" @click="action(call,'reject')">Recusar</button>
                 <button class="btn ghost compact" :disabled="busy" @click="action(call,'mute')">{{ call.muted ? 'Ativar microfone' : 'Silenciar' }}</button>
                 <button class="btn danger compact" :disabled="busy" @click="action(call,'end')">Encerrar</button>
@@ -614,8 +631,8 @@ onBeforeUnmount(() => {
 
     <Teleport to="body">
       <div v-if="videoStream" class="video-call-portal">
-        <div v-show="videoModalOpen" class="video-call-backdrop" @mousedown.self="minimizeVideoModal">
-          <section ref="videoModal" class="video-call-modal" role="dialog" aria-modal="true" aria-labelledby="video-call-title" tabindex="-1" @keydown="handleVideoModalKeydown">
+        <div :class="['video-call-backdrop', { minimized: !videoModalOpen }]" :aria-hidden="!videoModalOpen" @mousedown.self="minimizeVideoModal">
+          <section ref="videoModal" class="video-call-modal" role="dialog" aria-modal="true" aria-labelledby="video-call-title" :tabindex="videoModalOpen ? 0 : -1" @keydown="handleVideoModalKeydown">
             <header class="video-call-header">
               <div class="video-call-person">
                 <span class="video-call-avatar">
@@ -639,8 +656,8 @@ onBeforeUnmount(() => {
                     <img v-if="videoAvatar" :src="videoAvatar" :alt="`Foto de ${videoTitle}`" />
                     <span v-else>{{ videoInitial }}</span>
                   </span>
-                  <strong>{{ videoState === 'error' || videoState === 'closed' ? 'Vídeo indisponível' : 'Aguardando vídeo remoto' }}</strong>
-                  <small>{{ videoState === 'ready' ? 'Aguardando a próxima imagem do outro participante.' : 'O áudio continua independente da imagem.' }}</small>
+                  <strong>{{ remoteVideoRecovering ? 'Restaurando vídeo remoto' : videoState === 'error' || videoState === 'closed' ? 'Vídeo indisponível' : 'Aguardando vídeo remoto' }}</strong>
+                  <small>{{ remoteVideoRecovering ? 'Solicitando uma imagem completa do outro participante.' : videoState === 'ready' ? 'Aguardando a próxima imagem do outro participante.' : 'O áudio continua independente da imagem.' }}</small>
                   <button v-if="videoState === 'ready'" class="video-call-retry" type="button" @click="requestRemoteVideo"><AppIcon name="refresh" :size="14"/>Solicitar imagem</button>
                 </div>
               </div>
@@ -651,7 +668,7 @@ onBeforeUnmount(() => {
             </div>
 
             <footer class="video-call-footer">
-              <span :class="['video-call-live', { connected: videoState === 'ready' && remoteVideoReady, warning: videoState === 'ready' && !remoteVideoReady, error: videoState === 'error' || videoState === 'closed' }]" aria-live="polite"><i></i>{{ videoStatus }}</span>
+              <span :class="['video-call-live', { connected: videoState === 'ready' && remoteVideoReady && !remoteVideoRecovering, warning: videoState === 'ready' && (!remoteVideoReady || remoteVideoRecovering), error: videoState === 'error' || videoState === 'closed' }]" aria-live="polite"><i></i>{{ videoStatus }}</span>
               <div class="video-call-actions">
                 <button class="btn ghost compact video-call-control" :class="{ active: videoMuted }" :disabled="busy || !activeVideoCall" @click="toggleCallMute"><AppIcon :name="videoMuted ? 'mic-off' : 'mic'" :size="15"/>{{ videoMuted ? 'Ativar microfone' : 'Silenciar microfone' }}</button>
                 <button class="btn ghost compact video-call-control" :disabled="videoState !== 'ready'" @click="toggleCamera"><AppIcon :name="cameraEnabled ? 'camera' : 'camera-off'" :size="15"/>{{ cameraEnabled ? 'Desligar câmera' : 'Ligar câmera' }}</button>
@@ -685,7 +702,8 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 .video-call-portal { position: fixed; inset: 0; z-index: 120; pointer-events: none; }
-.video-call-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: clamp(14px, 3vw, 32px); background: rgba(3, 10, 22, .62); backdrop-filter: blur(8px); pointer-events: auto; }
+.video-call-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: clamp(14px, 3vw, 32px); background: rgba(3, 10, 22, .62); backdrop-filter: blur(8px); opacity: 1; pointer-events: auto; transition: opacity .14s ease; }
+.video-call-backdrop.minimized { opacity: 0; pointer-events: none; }
 .video-call-modal { width: min(920px, calc(100vw - 28px)); max-height: min(720px, calc(100dvh - 28px)); min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid rgba(148, 163, 184, .25); border-radius: 20px; background: #0b1220; color: #e5edf8; box-shadow: 0 28px 90px rgba(0, 0, 0, .38); outline: none; }
 .video-call-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-width: 0; padding: 16px 20px; border-bottom: 1px solid rgba(148, 163, 184, .16); }
 .video-call-person { display: flex; align-items: center; gap: 11px; min-width: 0; }
