@@ -189,6 +189,9 @@ export class SrtpSession {
     }
     return ctx.unprotect(data);
   }
+  resetReceiveContext(ssrc) {
+    this.recvContexts.delete(ssrc >>> 0);
+  }
   setSendAuthKeying(keying) {
     this.sendAuthKeying = keying;
     for (const ctx of this.sendContexts.values()) ctx.setAuthKeying(keying);

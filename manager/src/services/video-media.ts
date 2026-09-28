@@ -392,9 +392,16 @@ export class VideoMediaSession {
   }
 
   private requestKeyFrame() {
-    if (!this.ready || this.closed || this.socket?.readyState !== WebSocket.OPEN || performance.now() - this.lastKeyFrameRequestAt < 500) return
+    if (!this.ready || this.closed || this.socket?.readyState !== WebSocket.OPEN || performance.now() - this.lastKeyFrameRequestAt < 500) return false
     this.lastKeyFrameRequestAt = performance.now()
     this.socket.send(JSON.stringify({ type: 'request_keyframe' }))
+    return true
+  }
+
+  requestRemoteKeyFrame() {
+    if (!this.ready || this.closed) return false
+    this.decoderNeedsKeyFrame = true
+    return this.requestKeyFrame()
   }
 
   setCameraEnabled(enabled: boolean) {

@@ -82,8 +82,11 @@ export class WaCallMediaSession {
     this.recvSrtcp = null;
     this.selfStreamSsrcs = [];
     this.peerStreamSsrcs = [];
+    this.peerVideoSsrcs = [];
+    this.peerVideoSsrcByRtx = new Map();
     this.videoDepacketizers = new Map();
     this.videoTimestampOwners = new Map();
+    this.videoLastRtpTimestamps = new Map();
     this.videoFrameNumber = 0;
     this.videoTransportSequence = 0;
     this.videoPacketCount = 0;
@@ -257,7 +260,7 @@ export class WaCallMediaSession {
     await this.deps.lowLevelCoordinator.sendNode(acceptStanza);
     assertStillAvailable();
     this.acceptedByJid = peerJid;
-    this.updateVideoPeer(peerJid);
+    this.updateVideoPeer([peerJid, ...(this.info.relayData?.participantJids || [])]);
     this.info.applyTransition({ type: 'local_accepted' });
     this.initSrtpKeys();
     this.delegate.emitState(this.info);
@@ -367,10 +370,42 @@ export class WaCallMediaSession {
   }
   updateVideoPeer(peerDeviceJid) {
     if (this.info.mediaType !== CallMediaType.Video) return;
-    this.peerStreamSsrcs = [0, 1, 4, 2, 3, 5, 7, 8, 6].map((slot) =>
-      generateSecureSsrc(this.info.callId, this.ensureDeviceJid(peerDeviceJid), slot),
+    const slots = [0, 1, 4, 2, 3, 5, 7, 8, 6];
+    const ownBases = new Set(
+      [this.deps.authClient.getCurrentCredentials()?.meLid, this.deps.authClient.getCurrentCredentials()?.meJid]
+        .filter(Boolean)
+        .map((jid) => toUserJid(canonicalizeSignalJid(jid))),
     );
-    this.peerVideoSsrc = generateSecureSsrc(this.info.callId, this.ensureDeviceJid(peerDeviceJid), 2);
+    const candidates = [
+      ...(Array.isArray(peerDeviceJid) ? peerDeviceJid : [peerDeviceJid]),
+      ...(this.info.relayData?.participantJids || []),
+    ];
+    const peerDevices = [];
+    const seen = new Set();
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const device = this.ensureDeviceJid(String(candidate));
+      if (ownBases.has(toUserJid(canonicalizeSignalJid(device))) || seen.has(device)) continue;
+      seen.add(device);
+      peerDevices.push(device);
+    }
+    this.peerVideoSsrcs = peerDevices.map((device) => generateSecureSsrc(this.info.callId, device, 2));
+    this.peerVideoSsrcByRtx = new Map(
+      peerDevices.map((device) => [
+        generateSecureSsrc(this.info.callId, device, 3),
+        generateSecureSsrc(this.info.callId, device, 2),
+      ]),
+    );
+    const streamSsrcs = peerDevices.flatMap((device) =>
+      slots.map((slot) => generateSecureSsrc(this.info.callId, device, slot)),
+    );
+    // Keep every candidate's video SSRC inside the relay subscription budget;
+    // auxiliary audio/data slots are lower priority for this video path.
+    this.peerStreamSsrcs = [
+      ...this.peerVideoSsrcs,
+      ...streamSsrcs.filter((ssrc) => !this.peerVideoSsrcs.includes(ssrc)),
+    ].slice(0, 16);
+    this.peerVideoSsrc = this.peerVideoSsrcs[0] || 0;
     this.sctpRelay.setStreamSsrcs(this.selfStreamSsrcs, this.peerStreamSsrcs);
     this.sctpRelay.resendSubscriptions();
   }
@@ -426,7 +461,7 @@ export class WaCallMediaSession {
       !this.info.isActive ||
       !this.sendSrtcp ||
       !this.videoRtpSession ||
-      !this.peerVideoSsrc ||
+      !(this.peerVideoSsrcs.length || this.peerVideoSsrc) ||
       !this.sctpRelay.hasConnection()
     )
       return false;
@@ -437,10 +472,13 @@ export class WaCallMediaSession {
     if (now - this.lastVideoPliAt < (sendFir ? 750 : 500)) return false;
     this.lastVideoPliAt = now;
     const senderSsrc = this.videoRtpSession.getSsrc();
-    const packet = sendFir
-      ? buildFullIntraRequest(senderSsrc, this.peerVideoSsrc, this.videoFirSequence++)
-      : buildPictureLossIndication(senderSsrc, this.peerVideoSsrc);
-    this.sctpRelay.broadcast(toArrayBuffer(this.sendSrtcp.protect(packet, senderSsrc)));
+    const targets = this.peerVideoSsrcs.length ? this.peerVideoSsrcs : [this.peerVideoSsrc];
+    for (const target of targets) {
+      const packet = sendFir
+        ? buildFullIntraRequest(senderSsrc, target, this.videoFirSequence++)
+        : buildPictureLossIndication(senderSsrc, target);
+      this.sctpRelay.broadcast(toArrayBuffer(this.sendSrtcp.protect(packet, senderSsrc)));
+    }
     this.videoPliAttempts = sendFir ? 0 : this.videoPliAttempts + 1;
     return true;
   }
@@ -467,7 +505,23 @@ export class WaCallMediaSession {
       if (this.selfStreamSsrcs.includes(ssrc)) return;
       // Unknown SSRCs cannot mutate selected device/relay state.
       if (!this.peerStreamSsrcs.includes(ssrc)) return;
-      const packet = this.srtpSession.unprotect(data);
+      const rtpTimestamp = readUInt32BE(data, 4);
+      const lastRtpTimestamp = payloadType === 97 ? this.videoLastRtpTimestamps.get(ssrc) : undefined;
+      const possibleRtpRestart =
+        lastRtpTimestamp !== undefined && this.isRtpTimestampRewind(lastRtpTimestamp, rtpTimestamp);
+      let replayRecovered = false;
+      let packet;
+      try {
+        packet = this.srtpSession.unprotect(data);
+      } catch (error) {
+        // SRTP correctly rejects a reused sequence number. A camera resume can
+        // legitimately restart that sequence while retaining its SSRC; only
+        // retry after an authenticated replay error and a backwards RTP clock.
+        if (!possibleRtpRestart || payloadType !== 97 || error?.type !== 'replay') throw error;
+        this.srtpSession.resetReceiveContext(ssrc);
+        packet = this.srtpSession.unprotect(data);
+        replayRecovered = true;
+      }
       let payload = packet.payload;
       let sequenceNumber = packet.header.sequenceNumber;
       let mediaSsrc = packet.header.ssrc;
@@ -476,7 +530,10 @@ export class WaCallMediaSession {
         sequenceNumber = (payload[0] << 8) | payload[1];
         payload = payload.subarray(2);
         // One negotiated video track. RTX reuses the primary sequence/timestamp space.
-        mediaSsrc = this.videoTimestampOwners.get(packet.header.timestamp) ?? this.peerVideoSsrc;
+        mediaSsrc =
+          this.videoTimestampOwners.get(packet.header.timestamp) ??
+          this.peerVideoSsrcByRtx.get(packet.header.ssrc) ??
+          this.peerVideoSsrc;
       } else {
         if (this.videoTimestampOwners.size >= 64 && !this.videoTimestampOwners.has(packet.header.timestamp))
           this.videoTimestampOwners.delete(this.videoTimestampOwners.keys().next().value);
@@ -488,6 +545,23 @@ export class WaCallMediaSession {
         depacketizer = new H264Depacketizer();
         this.videoDepacketizers.set(mediaSsrc, depacketizer);
       }
+      if (replayRecovered && !this.isH264KeyFramePayload(payload)) {
+        this.requestVideoKeyFrame();
+        return;
+      }
+      const lastMediaTimestamp = this.videoLastRtpTimestamps.get(mediaSsrc);
+      if (
+        payloadType !== 103 &&
+        lastMediaTimestamp !== undefined &&
+        this.isRtpTimestampRewind(lastMediaTimestamp, packet.header.timestamp) &&
+        this.isH264KeyFramePayload(payload)
+      ) {
+        // A resumed camera may keep its SSRC while restarting sequence and RTP
+        // clocks. Reset the packet assembler before the first IDR so its new
+        // sequence base is not mistaken for a loss from the old timeline.
+        depacketizer.reset();
+      }
+      if (payloadType !== 103) this.videoLastRtpTimestamps.set(mediaSsrc, packet.header.timestamp);
       const frames = depacketizer.push(payload, packet.header.timestamp, packet.header.marker, sequenceNumber);
       for (const frame of frames) {
         if (!this.videoClock) {
@@ -517,6 +591,27 @@ export class WaCallMediaSession {
       this.srtpErrorCount++;
       this.requestVideoKeyFrame();
     }
+  }
+  isRtpTimestampRewind(previous, current) {
+    return (current - previous) >>> 0 > 0x80000000;
+  }
+  isH264KeyFramePayload(payload) {
+    if (!payload?.length || (payload[0] & 0x80) !== 0) return false;
+    const type = payload[0] & 0x1f;
+    if (type === 5 || type === 7 || type === 8) return true;
+    if (type === 28) {
+      const header = payload[1];
+      return payload.length >= 3 && (header & 0x80) !== 0 && [5, 7, 8].includes(header & 0x1f);
+    }
+    if (type !== 24) return false;
+    for (let offset = 1; offset + 2 < payload.length; ) {
+      const size = (payload[offset] << 8) | payload[offset + 1];
+      offset += 2;
+      if (!size || offset + size > payload.length) return false;
+      if ([5, 7, 8].includes(payload[offset] & 0x1f)) return true;
+      offset += size;
+    }
+    return false;
   }
   startVideoFeedback() {
     if (this.info.mediaType !== CallMediaType.Video || this.videoRtcpTimer) return;
@@ -700,7 +795,7 @@ export class WaCallMediaSession {
       }
       if (this.info.isEnded || this.argwsEndPromise) return;
       this.acceptedByJid = acceptingDeviceJid;
-      this.updateVideoPeer(acceptingDeviceJid);
+      this.updateVideoPeer([acceptingDeviceJid, ...(this.info.relayData?.participantJids || [])]);
       try {
         this.info.applyTransition({ type: 'remote_accepted' });
         this.delegate.emitState(this.info);
@@ -1154,11 +1249,14 @@ export class WaCallMediaSession {
     for (const depacketizer of this.videoDepacketizers.values()) depacketizer.reset();
     this.videoDepacketizers.clear();
     this.videoTimestampOwners.clear();
+    this.videoLastRtpTimestamps.clear();
     this.videoRtpSession = null;
     this.sendSrtcp = null;
     this.recvSrtcp = null;
     this.selfStreamSsrcs = [];
     this.peerStreamSsrcs = [];
+    this.peerVideoSsrcs = [];
+    this.peerVideoSsrcByRtx.clear();
     this.lastVideoCaptureUs = null;
     this.lastVideoRtpTimestamp = null;
     this.videoClock = null;
