@@ -13,6 +13,8 @@ export type VideoMediaCallbacks = {
   onSession?: (session: VideoMediaSession) => void
   onState?: (state: VideoMediaState) => void
   onError?: (message: string) => void
+  /** The provider ended the call; this is authoritative, unlike a stale UI snapshot. */
+  onCallEnded?: () => void
   onRemoteRecovery?: () => void
   onRemoteFrame?: () => void
 }
@@ -412,6 +414,7 @@ export class VideoMediaSession {
         if (this.closed) return
         const terminal = event?.code === 1000 && /ended/i.test(event.reason || '')
         if (terminal) {
+          this.callbacks.onCallEnded?.()
           this.stop()
           return
         }
