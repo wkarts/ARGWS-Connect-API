@@ -58,7 +58,8 @@ export function createConnectCallAdapter(
   const maxConcurrentCalls = options.maxConcurrentCalls ?? 1;
   // Voice and video use independent pools. The configured instance limit is
   // preserved for both engines: with 4, the instance can hold 4 voice calls
-  // and 4 video calls instead of sharing a single pool of 4.
+  // and 4 video calls instead of sharing a single pool of 4. The channel
+  // service resolves the default to 4 when the environment is not configured.
   const maxConcurrentVideoCalls = maxConcurrentCalls;
   const videoCalls = new Map<string, number>();
   const voiceCalls = new Map<string, number>();
