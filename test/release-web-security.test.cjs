@@ -79,9 +79,12 @@ test('Manager responses remove legacy X-Frame-Options and CloudPanel preserves d
   assert.match(router, /embeddingService\.policy\(\)/);
   assert.match(router, /Content-Security-Policy/);
   assert.match(router, /X-Connect-Manager-Embedding/);
+  assert.match(router, /embedding\.permissionsPolicy/);
+  assert.doesNotMatch(router, /camera=\(\)/);
 
   const nginx = read('manager/nginx.conf');
   assert.match(nginx, /frame-ancestors \*/);
+  assert.match(nginx, /camera=\(self\)/);
   assert.doesNotMatch(nginx, /frame-ancestors 'none'/);
 
   const cloudpanel = read('deploy/cloudpanel/nginx/api-location.conf.example');

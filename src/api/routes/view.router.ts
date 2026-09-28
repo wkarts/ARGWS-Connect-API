@@ -59,7 +59,7 @@ export class ViewsRouter extends RouterBroker {
       res.set('Content-Security-Policy', embedding.contentSecurityPolicy);
       res.set('X-Content-Type-Options', 'nosniff');
       res.set('Referrer-Policy', 'no-referrer');
-      res.set('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
+      res.set('Permissions-Policy', embedding.permissionsPolicy);
       res.set('X-Connect-Manager-Embedding', embedding.enabled ? 'enabled' : 'disabled');
       res.set('X-Connect-Manager-Frame-Ancestors', embedding.frameAncestors);
       next();

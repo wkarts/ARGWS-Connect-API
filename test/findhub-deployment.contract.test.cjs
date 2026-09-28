@@ -141,6 +141,14 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   references(dedicated);
 });
 
+test('Find Hub locate maps provider failures to a client error instead of leaking a 500', () => {
+  const controller = read('src/api/integrations/channel/findhub/findhub.controller.ts');
+  const method = controller.match(/public async locate[\s\S]*?\n  }/);
+  assert.ok(method, 'locate must be an async guarded controller action');
+  assert.match(method[0], /try/);
+  assert.match(method[0], /BadRequestException/);
+});
+
 test('Find Hub events describe actual data and do not claim an unimplemented auth notification', () => {
   const events = json('docs/asyncapi/connect-api-events.asyncapi.json');
   for (const name of ['findhub.auth.update', 'findhub.devices.updated', 'findhub.location.updated', 'findhub.tracking.update', 'findhub.error']) {

@@ -2,6 +2,7 @@ export type ManagerFramePolicy = {
   enabled: boolean;
   frameAncestors: string;
   contentSecurityPolicy: string;
+  permissionsPolicy: string;
 };
 
 export type ManagerEmbeddingOverride = {
@@ -13,6 +14,31 @@ export type ManagerEmbeddingOverride = {
 function envBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value.trim() === '') return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function mediaPermissionsPolicy(origins: string[] = []): string {
+  const sources = ['self', ...origins.map((origin) => `"${origin}"`)].join(' ');
+  return `camera=(${sources}), microphone=(${sources}), geolocation=()`;
+}
+
+function explicitMediaOrigins(values: string[], env: NodeJS.ProcessEnv): string[] {
+  const production = env.NODE_ENV === 'PROD' || env.NODE_ENV === 'production';
+  const origins: string[] = [];
+  for (const value of values) {
+    if (!value || value.includes('*')) continue;
+    try {
+      const url = new URL(value);
+      const localHttp = !production && url.protocol === 'http:' && localDevelopmentHost(url.hostname);
+      if (url.protocol !== 'https:' && !localHttp) continue;
+      if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== ''))
+        continue;
+      const origin = url.origin;
+      if (!origins.includes(origin)) origins.push(origin);
+    } catch {
+      // Broad CSP tokens such as * or https: never grant camera/microphone.
+    }
+  }
+  return origins;
 }
 
 function localDevelopmentHost(hostname: string): boolean {
@@ -87,26 +113,51 @@ export function managerFramePolicy(
 ): ManagerFramePolicy {
   if (persisted?.configured) {
     if (!persisted.enabled) {
-      return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'" };
+      return {
+        enabled: false,
+        frameAncestors: "'none'",
+        contentSecurityPolicy: "frame-ancestors 'none'",
+        permissionsPolicy: mediaPermissionsPolicy(),
+      };
     }
 
     let allowed: string[];
     try {
       allowed = normalizeManagerFrameOrigins(persisted.allowedOrigins || []);
     } catch {
-      return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'" };
+      return {
+        enabled: false,
+        frameAncestors: "'none'",
+        contentSecurityPolicy: "frame-ancestors 'none'",
+        permissionsPolicy: mediaPermissionsPolicy(),
+      };
     }
     if (!allowed.length) {
-      return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'" };
+      return {
+        enabled: false,
+        frameAncestors: "'none'",
+        contentSecurityPolicy: "frame-ancestors 'none'",
+        permissionsPolicy: mediaPermissionsPolicy(),
+      };
     }
 
     const frameAncestors = ["'self'", ...allowed].join(' ');
-    return { enabled: true, frameAncestors, contentSecurityPolicy: `frame-ancestors ${frameAncestors}` };
+    return {
+      enabled: true,
+      frameAncestors,
+      contentSecurityPolicy: `frame-ancestors ${frameAncestors}`,
+      permissionsPolicy: mediaPermissionsPolicy(allowed),
+    };
   }
 
   const enabled = envBoolean(env.MANAGER_IFRAME_ENABLED, true);
   if (!enabled) {
-    return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'" };
+    return {
+      enabled: false,
+      frameAncestors: "'none'",
+      contentSecurityPolicy: "frame-ancestors 'none'",
+      permissionsPolicy: mediaPermissionsPolicy(),
+    };
   }
 
   const ancestors = envFrameAncestors(env);
@@ -115,5 +166,6 @@ export function managerFramePolicy(
     enabled: frameAncestors !== "'none'",
     frameAncestors,
     contentSecurityPolicy: `frame-ancestors ${frameAncestors}`,
+    permissionsPolicy: mediaPermissionsPolicy(explicitMediaOrigins(ancestors, env)),
   };
 }

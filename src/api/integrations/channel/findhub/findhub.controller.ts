@@ -238,8 +238,12 @@ export class FindHubController {
       throw new BadRequestException(error instanceof Error ? error.message : 'Avatar inválido.');
     }
   }
-  public locate(instanceName: string, deviceId: string, timeoutMs?: number) {
-    return this.runtime(instanceName).locate(deviceId, timeoutMs);
+  public async locate(instanceName: string, deviceId: string, timeoutMs?: number) {
+    try {
+      return await this.runtime(instanceName).locate(deviceId, timeoutMs);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Falha ao localizar o dispositivo.');
+    }
   }
   public async sound(
     instanceName: string,
