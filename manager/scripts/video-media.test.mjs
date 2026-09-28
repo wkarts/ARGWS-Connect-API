@@ -23,6 +23,11 @@ function load(source, globals = {}, dependencies = {}) {
 const codec = load(read('src/services/video-frame.ts'))
 const annexb = new Uint8Array([0, 0, 0, 1, 0x65, 0x88, 0x84])
 const spsFrame = (profile, compatibility, level) => new Uint8Array([0, 0, 0, 1, 0x67, profile, compatibility, level, 0x80, 0, 0, 1, 0x65, 0x88, 0x84])
+const spsPpsFrame = new Uint8Array([
+  0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f, 0x80,
+  0, 0, 0, 1, 0x68, 0xce, 0x06, 0xe2,
+  ...annexb,
+])
 const drain = async (cycles = 6) => { for (let n = 0; n < cycles; n++) await Promise.resolve() }
 
 test('CV binary framing preserves H.264 bytes, keyframe and microseconds above uint32', () => {
@@ -303,6 +308,22 @@ test('a closed remote decoder is rebuilt locally and resumes on the next IDR wit
   session.stop()
 })
 
+test('a recovered decoder receives cached SPS/PPS when the next IDR omits them', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0], original = h.decoders[0]
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: spsPpsFrame, timestampUs: 100, keyFrame: true }) })
+  await drain()
+  assert.equal(original.decoded.length, 1)
+
+  original.fail()
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 101, keyFrame: true }) })
+  await drain()
+
+  assert.equal(h.decoders.length, 2)
+  assert.deepEqual([...h.decoders[1].decoded[0].data], [...spsPpsFrame])
+  session.stop()
+})
+
 test('backpressure drops stale encoded deltas until a new IDR, requests IDR on control and camera resume', async () => {
   const h = harness(); const { session } = await h.begin(); await session.start()
   const socket = h.sockets[0], encoder = h.encoders[0]
@@ -427,7 +448,7 @@ test('pending codec checks retain one frame, drop deltas and cannot revive a sto
 
 function viewHarness({
   rejectCamera = false, videoSupported = true, offerDelay, actionDelay, videoStartError,
-  cameraDelay, exclusiveCamera = false, callsResponse, connectionResponse,
+  cameraDelay, exclusiveCamera = false, callsResponse, connectionResponse, now = () => Date.now(),
 } = {}) {
   const requests = [], videoCallbacks = [], tracks = [], videoSessions = [], watchers = [], unmountHooks = []
   const intervals = new Map()
@@ -477,8 +498,9 @@ function viewHarness({
     } } },
   }
   for (const item of ['@/layouts/AppShell.vue', '@/components/PageHeader.vue', '@/components/PanelCard.vue', '@/components/AppIcon.vue', '@/components/EmptyState.vue']) dependencies[item] = {}
-  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, videoStream, mediaError, error, busy, calls, instanceDetails };', {
+  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, openVideoModal, minimizeVideoModal, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, videoStream, videoModalOpen, remoteVideoReady, remoteVideoRecovering, mediaError, error, busy, calls, instanceDetails };', {
     window: { setInterval(callback) { const id = ++intervalId; intervals.set(id, callback); return id }, clearInterval(id) { intervals.delete(id) } },
+    Date: { now },
   }, dependencies)
   api.instances.value = ['i1', 'i2'].map(id => ({ id, capabilities: { calls: true, voice: true } }))
   api.number.value = '5511999999999'
@@ -521,6 +543,24 @@ test('video permission precedes API offer and bidirectional video session attach
   assert.equal(h.requests[1][4], true)
   assert.ok(h.requests.some(([type]) => type === 'audio'))
   assert.ok(h.requests.some(([type]) => type === 'video'))
+})
+
+test('minimizing keeps the video render surface and the last remote frame available for reopening', async () => {
+  const h = viewHarness()
+  await h.api.makeTestCall(true)
+  h.videoCallbacks[0].onRemoteFrame()
+  assert.equal(h.api.remoteVideoReady.value, true)
+  h.videoCallbacks[0].onRemoteRecovery()
+  assert.equal(h.api.remoteVideoReady.value, true, 'transient decoder recovery must not blank a valid frame')
+  assert.equal(h.api.remoteVideoRecovering.value, true)
+  h.api.minimizeVideoModal()
+  assert.equal(h.api.videoModalOpen.value, false)
+  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
+  h.api.openVideoModal()
+  assert.equal(h.api.videoModalOpen.value, true)
+  h.videoCallbacks[0].onRemoteFrame()
+  assert.equal(h.api.remoteVideoRecovering.value, false)
+  h.unmount()
 })
 
 test('rejected video authorization exposes an error and releases busy while preserving the voice call', async () => {
@@ -672,6 +712,27 @@ test('a poll started before new media cannot close it with an old empty call sna
   h.unmount()
 })
 
+test('a fresh empty snapshot has a bounded grace period before it can stop active media', async () => {
+  let now = 1_000, missing = false
+  const active = [{ callId: 'c1', state: 'active', isVideo: true }]
+  const h = viewHarness({ now: () => now, callsResponse: () => missing ? [] : active })
+  await h.api.makeTestCall(true)
+  h.api.minimizeVideoModal()
+  missing = true
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
+  assert.equal(h.api.videoModalOpen.value, false)
+  now += 7_999
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  now += 1
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, '')
+  assert.equal(h.track.readyState, 'ended')
+  h.unmount()
+})
+
 test('out-of-order polls cannot replace a newer call snapshot', async () => {
   const previous = deferred()
   let count = 0
@@ -705,8 +766,9 @@ test('a response from the previous instance cannot replace calls or close curren
 test('polling waits for a slow call snapshot before starting the next tick and still detects hangup', async () => {
   const slow = deferred()
   let requests = 0
+  let now = 1_000
   const active = [{ callId: 'c1', state: 'ringing' }]
-  const h = viewHarness({ callsResponse: () => {
+  const h = viewHarness({ now: () => now, callsResponse: () => {
     requests++
     if (requests === 1) return active
     if (requests === 2) return slow.promise
@@ -724,6 +786,10 @@ test('polling waits for a slow call snapshot before starting the next tick and s
   assert.equal(h.api.mediaCallId.value, 'c1')
   h.tickPolling(); await drain()
   assert.equal(requests, 3, 'Polling resumes after the slow request settles')
+  assert.equal(h.api.mediaCallId.value, 'c1', 'One empty snapshot cannot tear down a healthy call')
+  now += 8_000
+  h.tickPolling(); await drain()
+  assert.equal(requests, 4)
   assert.equal(h.api.mediaCallId.value, '', 'A fresh empty snapshot still closes the ended call')
   assert.equal(h.tracks[0].readyState, 'ended')
   assert.equal(h.media.stops, 1)
