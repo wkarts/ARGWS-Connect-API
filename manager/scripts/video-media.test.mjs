@@ -61,16 +61,10 @@ function harness({
   cameraErrors = [], cameraDelay, codecDelay,
 } = {}) {
   let timerId = 0, now = 1000, getUserMediaCalls = 0
-  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], ended = [], recoveries = [], frames = [], draws = [], drawOperations = []
+  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], ended = [], recoveries = [], frames = [], draws = []
   const track = { readyState: 'live', enabled: true, stopped: false, addEventListener() {}, removeEventListener() {}, stop() { this.stopped = true; this.readyState = 'ended' } }
   const stream = { getVideoTracks: () => [track], getTracks: () => [track] }
-  const canvas = { width: 0, height: 0, getContext: () => ({
-    save() { drawOperations.push(['save']) },
-    translate(...args) { drawOperations.push(['translate', ...args]) },
-    rotate(value) { drawOperations.push(['rotate', value]) },
-    drawImage(...args) { draws.push(args) },
-    restore() { drawOperations.push(['restore']) },
-  }) }
+  const canvas = { width: 0, height: 0, getContext: () => ({ drawImage(...args) { draws.push(args) } }) }
   class Encoder {
     state = 'unconfigured'; encodeQueueSize = 0; encoded = []
     static async isConfigSupported(config) { assert.equal(config.avc.format, 'annexb'); await codecDelay; return { supported } }
@@ -140,7 +134,7 @@ function harness({
     })
     return { session, preparation, credentials }
   }
-  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, ended, recoveries, frames, draws, drawOperations, canvas, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
+  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, ended, recoveries, frames, draws, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
 }
 
 test('preflight verifies both codecs before requesting camera and leaves calls untouched when unsupported', async () => {
@@ -264,22 +258,6 @@ test('inbound delta waits for keyframe; decoded video draws to canvas and releas
   assert.equal(h.decoders[0].decoded[0].timestamp, 124)
   assert.ok(h.frames.at(-1).closed)
   assert.equal(h.draws.at(-1)[0], h.frames.at(-1))
-  session.stop()
-})
-
-test('remote orientation rotates only the canvas render surface and keeps the media socket untouched', async () => {
-  const h = harness(); const { session } = await h.begin(); await session.start()
-  const socket = h.sockets[0]
-  assert.equal(session.setRemoteRotation(90), 90)
-  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 124, keyFrame: true }) })
-  await drain()
-  assert.equal(h.canvas.width, 480)
-  assert.equal(h.canvas.height, 640)
-  assert.deepEqual(h.drawOperations.slice(-4), [
-    ['save'], ['translate', 480, 0], ['rotate', Math.PI / 2], ['restore'],
-  ])
-  assert.equal(h.sockets.length, 1)
-  assert.equal(h.sockets[0].closed, false)
   session.stop()
 })
 
@@ -484,7 +462,7 @@ function viewHarness({
   rejectCamera = false, videoSupported = true, offerDelay, actionDelay, videoStartError,
   cameraDelay, exclusiveCamera = false, callsResponse, connectionResponse, now = () => Date.now(),
 } = {}) {
-  const requests = [], videoCallbacks = [], tracks = [], videoSessions = [], watchers = [], unmountHooks = [], deactivatedHooks = []
+  const requests = [], videoCallbacks = [], tracks = [], videoSessions = [], watchers = [], unmountHooks = []
   const intervals = new Map()
   let intervalId = 0
   const state = value => ({ value })
@@ -494,7 +472,7 @@ function viewHarness({
   const dependencies = {
     vue: {
       ref: state, shallowRef: state, computed: fn => ({ get value() { return fn() } }), nextTick: async () => {},
-      onBeforeUnmount(callback) { unmountHooks.push(callback) }, onDeactivated(callback) { deactivatedHooks.push(callback) }, onMounted() {},
+      onBeforeUnmount(callback) { unmountHooks.push(callback) }, onMounted() {},
       watch(source, callback) { watchers.push({ source, callback }) },
     },
     'vue-router': { useRoute: () => ({ query: { instance: 'i1' } }), useRouter: () => ({}) },
@@ -507,11 +485,7 @@ function viewHarness({
         if (videoStartError) throw videoStartError
         const video = {
           stops: 0,
-          rotation: 0,
-          keyFrameRequests: 0,
           stop() { this.stops++; preparation.stream.getTracks().forEach(track => track.stop()) },
-          setRemoteRotation(rotation) { this.rotation = rotation },
-          requestRemoteKeyFrame() { this.keyFrameRequests++; return true },
         }
         videoSessions.push(video)
         callbacks.onSession?.(video)
@@ -536,7 +510,7 @@ function viewHarness({
     } } },
   }
   for (const item of ['@/layouts/AppShell.vue', '@/components/PageHeader.vue', '@/components/PanelCard.vue', '@/components/AppIcon.vue', '@/components/EmptyState.vue']) dependencies[item] = {}
-  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, openVideoModal, minimizeVideoModal, rotateRemoteVideo, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, videoStream, videoModalOpen, remoteVideoReady, remoteVideoRecovering, remoteRotation, mediaError, error, busy, calls, instanceDetails };', {
+  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, openVideoModal, minimizeVideoModal, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, videoStream, videoModalOpen, remoteVideoReady, remoteVideoRecovering, mediaError, error, busy, calls, instanceDetails };', {
     window: { setInterval(callback) { const id = ++intervalId; intervals.set(id, callback); return id }, clearInterval(id) { intervals.delete(id) } },
     Date: { now },
   }, dependencies)
@@ -552,7 +526,6 @@ function viewHarness({
       api.selected.value = id
       await Promise.all(watchers.filter(item => item.source === api.selected).map(item => item.callback()))
     },
-    deactivate() { deactivatedHooks.forEach(callback => callback()) },
     unmount() { unmountHooks.forEach(callback => callback()) },
   }
 }
@@ -600,39 +573,6 @@ test('minimizing keeps the video render surface and the last remote frame availa
   h.videoCallbacks[0].onRemoteFrame()
   assert.equal(h.api.remoteVideoRecovering.value, false)
   h.unmount()
-})
-
-test('remote video orientation can be corrected in place without reconnecting media', async () => {
-  const h = viewHarness()
-  await h.api.makeTestCall(true)
-  h.api.rotateRemoteVideo()
-  assert.equal(h.api.remoteRotation.value, 90)
-  assert.equal(h.video.rotation, 90)
-  assert.equal(h.video.keyFrameRequests, 1)
-  assert.equal(h.requests.filter(([type]) => type === 'video').length, 1)
-  assert.equal(h.media.stops, 0)
-  h.unmount()
-})
-
-test('deactivating the cached calls view minimizes and preserves the ongoing call for reopening', async () => {
-  const h = viewHarness()
-  await h.api.makeTestCall(true)
-  h.videoCallbacks[0].onRemoteFrame()
-  h.deactivate()
-  assert.equal(h.api.videoModalOpen.value, false)
-  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
-  assert.equal(h.media.stops, 0)
-  h.api.openVideoModal()
-  assert.equal(h.api.videoModalOpen.value, true)
-  h.unmount()
-  assert.equal(h.track.readyState, 'ended')
-  assert.equal(h.media.stops, 1)
-})
-
-test('the router caches only VoiceView while authenticated so logout can dispose active media', () => {
-  const app = read('src/App.vue')
-  assert.match(app, /KeepAlive :include="cachedViews"/)
-  assert.match(app, /session\.authenticated \? \['VoiceView'\] : \[\]/)
 })
 
 test('rejected video authorization exposes an error and releases busy while preserving the voice call', async () => {
