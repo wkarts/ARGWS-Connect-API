@@ -63,6 +63,24 @@ test('two Connect video sessions exchange encrypted H264 in both directions with
   } finally { p.close(); }
 });
 
+test('muting a Connect video session keeps the shared RTP clock alive with silence', async () => {
+  const p = await pair();
+  try {
+    let silenceStarts = 0;
+    let captureStarts = 0;
+    let captureStops = 0;
+    p.a.session.audioEngine.startSilenceCapture = () => { silenceStarts++; };
+    p.a.session.audioEngine.startCapture = () => { captureStarts++; };
+    p.a.session.audioEngine.stopCapture = () => { captureStops++; };
+
+    p.a.session.setMute(true);
+    assert.equal(silenceStarts, 1);
+    assert.equal(captureStops, 0);
+    p.a.session.setMute(false);
+    assert.equal(captureStarts, 1);
+  } finally { p.close(); }
+});
+
 test('a resumed camera timeline recovers on the next IDR instead of dropping video forever', async () => {
   const p = await pair();
   try {
