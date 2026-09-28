@@ -262,6 +262,7 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
         }
       },
       onError: message => { if (current()) mediaError.value = message },
+      onRemoteRecovery: () => { if (current()) remoteVideoReady.value = false },
       onRemoteFrame: () => { if (current()) remoteVideoReady.value = true },
     })
     if (!current()) { session.stop(); return }
