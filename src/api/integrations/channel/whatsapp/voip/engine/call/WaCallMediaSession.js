@@ -490,11 +490,20 @@ export class WaCallMediaSession {
       }
       const frames = depacketizer.push(payload, packet.header.timestamp, packet.header.marker, sequenceNumber);
       for (const frame of frames) {
-        if (!this.videoClock) this.videoClock = { last: frame.timestamp, ticks: 0 };
-        const delta = (frame.timestamp - this.videoClock.last) | 0;
-        if (delta < 0) continue;
-        this.videoClock.ticks += delta;
-        this.videoClock.last = frame.timestamp;
+        if (!this.videoClock) {
+          this.videoClock = { last: frame.timestamp, ticks: 0 };
+        } else {
+          let delta = (frame.timestamp - this.videoClock.last) | 0;
+          if (delta <= 0) {
+            // WhatsApp can restart the remote RTP timestamp when the camera is
+            // resumed or when the active device changes. A dependent frame from
+            // the old timeline is unsafe, but a new IDR is the recovery point.
+            if (!frame.keyFrame) continue;
+            delta = 1;
+          }
+          this.videoClock.ticks += delta;
+          this.videoClock.last = frame.timestamp;
+        }
         if (frame.keyFrame) this.videoPliAttempts = 0;
         this.delegate.emitInboundVideo?.(this.info, {
           codec: 'h264',

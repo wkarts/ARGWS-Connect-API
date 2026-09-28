@@ -46,6 +46,8 @@ const videoStream = shallowRef<MediaStream | null>(null)
 const remoteCanvas = ref<HTMLCanvasElement | null>(null)
 const remoteVideoReady = ref(false)
 const cameraEnabled = ref(true)
+const videoModalOpen = ref(false)
+const videoModal = ref<HTMLElement | null>(null)
 let timer: number | undefined
 let contactsLoadedAt = 0
 
@@ -56,6 +58,17 @@ const supportsVideo = computed(() => callCapabilities.value?.video === true && c
 const activeCalls = computed(() => calls.value.filter(isCallActive))
 const rejectsIncoming = computed(() => Boolean(instanceSettings.value?.rejectCall))
 const mediaReady = computed(() => mediaState.value === 'ready')
+const activeVideoCall = computed(() => calls.value.find((call) => call.callId === mediaCallId.value))
+const videoTitle = computed(() => activeVideoCall.value ? callName(activeVideoCall.value) : 'Chamada de vídeo')
+const videoStatus = computed(() => {
+  if (videoState.value === 'requesting_camera') return 'Preparando câmera'
+  if (videoState.value === 'connecting') return 'Conectando vídeo'
+  if (videoState.value === 'ready' && remoteVideoReady.value) return 'Vídeo conectado'
+  if (videoState.value === 'ready') return 'Aguardando vídeo remoto'
+  if (videoState.value === 'error') return 'Vídeo indisponível'
+  if (videoState.value === 'closed') return 'Vídeo encerrado'
+  return 'Vídeo aguardando'
+})
 const mediaLabel = computed(() => {
   if (mediaState.value === 'requesting_microphone') return 'Aguardando microfone'
   if (mediaState.value === 'connecting') return 'Conectando áudio'
@@ -173,6 +186,23 @@ function closeVideo() {
   videoState.value = 'idle'
   remoteVideoReady.value = false
   cameraEnabled.value = true
+  videoModalOpen.value = false
+}
+
+function openVideoModal() {
+  if (!videoStream.value) return
+  videoModalOpen.value = true
+  void nextTick(() => videoModal.value?.focus())
+}
+
+function minimizeVideoModal() {
+  videoModalOpen.value = false
+}
+
+function handleVideoModalKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  minimizeVideoModal()
 }
 
 function releaseVideoPreparation(preparation?: VideoMediaPreparation) {
@@ -214,6 +244,7 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
   if (!current()) { preparation.stream.getTracks().forEach(track => track.stop()); return }
   try {
     videoStream.value = preparation.stream
+    openVideoModal()
     await nextTick()
     if (!remoteCanvas.value || !current()) throw new Error('A sessão de vídeo foi cancelada.')
     const session = await connect.videoMedia(instanceId, callId, preparation, remoteCanvas.value, {
@@ -221,7 +252,11 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
       onState: state => {
         if (!current()) return
         videoState.value = state
-        if (state === 'closed' || state === 'error') remoteVideoReady.value = false
+        if (state === 'closed' || state === 'error') {
+          remoteVideoReady.value = false
+          videoStream.value = null
+          videoModalOpen.value = false
+        }
       },
       onError: message => { if (current()) mediaError.value = message },
       onRemoteFrame: () => { if (current()) remoteVideoReady.value = true },
@@ -230,7 +265,12 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
     videoSession = session
   } catch (e) {
     preparation.stream.getTracks().forEach(track => track.stop())
-    if (current()) { mediaError.value = friendlyError(e); videoState.value = 'error' }
+    if (current()) {
+      videoStream.value = null
+      videoModalOpen.value = false
+      mediaError.value = friendlyError(e)
+      videoState.value = 'error'
+    }
   }
 }
 
@@ -275,6 +315,12 @@ async function prepareVideo() {
 function toggleCamera() {
   cameraEnabled.value = !cameraEnabled.value
   videoSession?.setCameraEnabled(cameraEnabled.value)
+}
+
+function endVideoCall() {
+  const call = activeVideoCall.value
+  if (call) void action(call, 'end')
+  else closeMedia()
 }
 
 async function reconnectVideo() {
@@ -541,6 +587,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="call-actions">
                 <button v-if="call.direction==='incoming' && (!call.isVideo || call.state.toLowerCase().includes('ring'))" class="btn primary compact" :disabled="busy || (call.isVideo && !supportsVideo)" @click="action(call,'accept')">{{ call.isVideo ? 'Atender com vídeo' : 'Atender com áudio' }}</button>
+                <button v-if="call.isVideo && mediaCallId===call.callId && videoStream && !videoModalOpen" class="btn ghost compact" @click="openVideoModal">Abrir vídeo</button>
                 <button v-if="call.isVideo && mediaCallId===call.callId && !videoStream && videoState==='error'" class="btn ghost compact" :disabled="busy || !supportsVideo" @click="reconnectVideo">Reconectar vídeo</button>
                 <button v-if="call.direction==='incoming'" class="btn danger compact" :disabled="busy" @click="action(call,'reject')">Recusar</button>
                 <button class="btn ghost compact" :disabled="busy" @click="action(call,'mute')">{{ call.muted ? 'Ativar microfone' : 'Silenciar' }}</button>
@@ -550,22 +597,52 @@ onBeforeUnmount(() => {
           </div>
         </PanelCard>
       </div>
-      <section v-if="videoStream" class="video-panel" aria-label="Vídeo da chamada">
-        <div class="video-remote">
-          <canvas ref="remoteCanvas" :class="{ 'video-hidden': !remoteVideoReady }" aria-label="Vídeo do outro participante"></canvas>
-          <span v-if="!remoteVideoReady">{{ videoState === 'error' || videoState === 'closed' ? 'Vídeo indisponível' : 'Aguardando vídeo do outro participante' }}</span>
-        </div>
-        <div class="video-local">
-          <video :srcObject="videoStream" autoplay muted playsinline aria-label="Sua câmera"></video>
-          <span>{{ cameraEnabled ? 'Sua câmera' : 'Câmera desligada' }}</span>
-        </div>
-        <div class="video-controls">
-          <button class="btn ghost" :disabled="videoState !== 'ready'" @click="toggleCamera">{{ cameraEnabled ? 'Desligar câmera' : 'Ligar câmera' }}</button>
-          <button v-if="videoState === 'error' || videoState === 'closed'" class="btn ghost" :disabled="busy" @click="reconnectVideo">Reconectar mídia</button>
-          <span>{{ videoState === 'ready' ? (remoteVideoReady ? 'Vídeo remoto recebido' : 'Transmissão de vídeo pronta') : (videoState === 'error' ? 'Falha no vídeo' : videoState === 'closed' ? 'Vídeo encerrado' : 'Conectando vídeo') }}</span>
-        </div>
-      </section>
     </template>
+
+    <Teleport to="body">
+      <div v-if="videoStream" class="video-call-portal">
+        <div v-show="videoModalOpen" class="video-call-backdrop" @mousedown.self="minimizeVideoModal">
+          <section ref="videoModal" class="video-call-modal" role="dialog" aria-modal="true" aria-labelledby="video-call-title" tabindex="-1" @keydown="handleVideoModalKeydown">
+            <header class="video-call-header">
+              <div>
+                <span class="video-call-eyebrow">Chamada de vídeo</span>
+                <h2 id="video-call-title">{{ videoTitle }}</h2>
+                <span>{{ videoStatus }}</span>
+              </div>
+              <button class="video-call-minimize" type="button" aria-label="Minimizar chamada de vídeo" @click="minimizeVideoModal"><AppIcon name="close" :size="16"/>Minimizar</button>
+            </header>
+
+            <div class="video-call-stage">
+              <div class="video-call-remote">
+                <canvas ref="remoteCanvas" :class="{ 'video-hidden': !remoteVideoReady }" aria-label="Vídeo do outro participante"></canvas>
+                <div v-if="!remoteVideoReady" class="video-call-placeholder">
+                  <span class="video-call-placeholder-orb"><AppIcon name="phone" :size="22"/></span>
+                  <strong>{{ videoState === 'error' || videoState === 'closed' ? 'Vídeo indisponível' : 'Aguardando vídeo remoto' }}</strong>
+                  <small>O áudio continua independente da imagem.</small>
+                </div>
+              </div>
+              <div class="video-call-local">
+                <video :srcObject="videoStream" autoplay muted playsinline aria-label="Sua câmera"></video>
+                <span>{{ cameraEnabled ? 'Sua câmera' : 'Câmera desligada' }}</span>
+              </div>
+            </div>
+
+            <footer class="video-call-footer">
+              <span class="video-call-live"><i></i>{{ videoStatus }}</span>
+              <div class="video-call-actions">
+                <button class="btn ghost compact" :disabled="videoState !== 'ready'" @click="toggleCamera">{{ cameraEnabled ? 'Desligar câmera' : 'Ligar câmera' }}</button>
+                <button v-if="videoState === 'error' || videoState === 'closed'" class="btn ghost compact" :disabled="busy" @click="reconnectVideo">Reconectar vídeo</button>
+                <button class="btn danger compact" :disabled="busy" @click="endVideoCall"><AppIcon name="phone" :size="15"/>Encerrar</button>
+              </div>
+            </footer>
+          </section>
+        </div>
+        <button v-if="!videoModalOpen" class="video-call-minimized" type="button" @click="openVideoModal">
+          <span class="video-call-live"><i></i>{{ videoTitle }}</span>
+          <small>{{ videoStatus }} · Abrir</small>
+        </button>
+      </div>
+    </Teleport>
   </AppShell>
 </template>
 
@@ -583,12 +660,40 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.video-panel { position: relative; margin-top: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
-.video-remote { display: grid; place-items: center; min-height: 260px; background: #101827; color: #fff; border-radius: 10px; overflow: hidden; }
-.video-remote canvas { display: block; max-width: 100%; max-height: 60vh; }
+.video-call-portal { position: fixed; inset: 0; z-index: 120; pointer-events: none; }
+.video-call-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: clamp(14px, 3vw, 32px); background: rgba(3, 10, 22, .62); backdrop-filter: blur(8px); pointer-events: auto; }
+.video-call-modal { width: min(900px, calc(100vw - 28px)); max-height: min(720px, calc(100vh - 28px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid rgba(148, 163, 184, .25); border-radius: 20px; background: #0b1220; color: #e5edf8; box-shadow: 0 28px 90px rgba(0, 0, 0, .38); outline: none; }
+.video-call-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid rgba(148, 163, 184, .16); }
+.video-call-header h2 { margin: 3px 0 2px; color: #fff; font-size: 18px; letter-spacing: -.02em; }
+.video-call-header>div>span:last-child { color: #a8b7cb; font-size: 12px; }
+.video-call-eyebrow { color: #7dd3fc; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.video-call-minimize { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 10px; border: 1px solid rgba(148, 163, 184, .25); border-radius: 9px; background: rgba(255, 255, 255, .05); color: #dbeafe; font-size: 11px; }
+.video-call-minimize:hover { border-color: rgba(125, 211, 252, .65); background: rgba(125, 211, 252, .1); }
+.video-call-stage { position: relative; min-height: min(54vh, 540px); overflow: hidden; background: radial-gradient(circle at 50% 36%, #1d3557, #0a1220 68%); }
+.video-call-remote { display: grid; width: 100%; height: 100%; min-height: inherit; place-items: center; color: #e5edf8; }
+.video-call-remote canvas { display: block; width: 100%; height: 100%; max-width: 100%; max-height: min(54vh, 540px); object-fit: contain; }
 .video-hidden { display: none !important; }
-.video-local { position: absolute; right: 28px; top: 28px; width: min(26%, 180px); display: flex; flex-direction: column; background: #101827; color: #fff; border-radius: 8px; overflow: hidden; }
-.video-local video { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; transform: scaleX(-1); }
-.video-local span { font-size: 11px; padding: 5px; }
-.video-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.video-call-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; }
+.video-call-placeholder strong { color: #fff; font-size: 14px; }
+.video-call-placeholder small { color: #9fb0c6; font-size: 11px; }
+.video-call-placeholder-orb { display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid rgba(125, 211, 252, .35); border-radius: 50%; background: rgba(125, 211, 252, .12); color: #7dd3fc; }
+.video-call-local { position: absolute; top: 18px; right: 18px; width: clamp(126px, 22%, 190px); overflow: hidden; border: 1px solid rgba(255, 255, 255, .32); border-radius: 12px; background: #111c2e; color: #fff; box-shadow: 0 10px 28px rgba(0, 0, 0, .28); }
+.video-call-local video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; transform: scaleX(-1); }
+.video-call-local span { display: block; padding: 6px 8px; color: #dbeafe; font-size: 10px; }
+.video-call-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 16px; border-top: 1px solid rgba(148, 163, 184, .16); background: #0d1728; }
+.video-call-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.video-call-footer .btn.ghost { border-color: rgba(148, 163, 184, .25); background: rgba(255, 255, 255, .05); color: #dbeafe; }
+.video-call-live { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: #b9c7d9; font-size: 11px; }
+.video-call-live i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #38d39f; box-shadow: 0 0 0 4px rgba(56, 211, 159, .13); }
+.video-call-minimized { position: fixed; right: 24px; bottom: 24px; z-index: 121; display: grid; gap: 5px; min-width: 208px; padding: 12px 14px; border: 1px solid rgba(148, 163, 184, .28); border-radius: 13px; background: #0d1728; color: #e5edf8; box-shadow: 0 15px 40px rgba(0, 0, 0, .26); pointer-events: auto; text-align: left; }
+.video-call-minimized:hover { border-color: rgba(125, 211, 252, .65); transform: translateY(-1px); }
+.video-call-minimized small { padding-left: 14px; color: #9fb0c6; font-size: 10px; }
+@media (max-width: 680px) {
+  .video-call-header { padding: 15px; }
+  .video-call-stage { min-height: 52vh; }
+  .video-call-footer { align-items: stretch; flex-direction: column; }
+  .video-call-actions { justify-content: stretch; }
+  .video-call-actions .btn { flex: 1; }
+  .video-call-minimized { right: 14px; bottom: 14px; left: 14px; min-width: 0; }
+}
 </style>
