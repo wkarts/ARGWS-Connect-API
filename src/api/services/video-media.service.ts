@@ -18,8 +18,12 @@ const MAX_PENDING_SOCKETS = 128;
 const MAX_SOCKETS = 2048;
 const AUTH_TIMEOUT_MS = 5000;
 const MAX_CONTROL_BYTES = 4096;
-const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
+// Video is a low-latency stream. A multi-second backlog is more expensive
+// than dropping deltas and requesting the next IDR.
+const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const KEYFRAME_INTERVAL_MS = 500;
+const CALL_CHECK_INTERVAL_MS = 2000;
+const CALL_MISSING_GRACE_MS = 10_000;
 const TERMINAL = new Set([
   'ended',
   'end',
@@ -172,6 +176,7 @@ export class VideoMediaService {
     let windowStartedAt = Date.now();
     let frameCount = 0;
     let byteCount = 0;
+    let missingCallSince = 0;
     this.sockets.add(ws);
     this.pendingSockets++;
 
@@ -198,9 +203,9 @@ export class VideoMediaService {
         this.pendingSockets--;
       }
     };
-    const cleanup = () => {
+    const cleanup = (reason?: string, closeCode?: number) => {
       if (state === 'closed') return;
-      record('closed');
+      record('closed', reason, closeCode);
       state = 'closed';
       releasePending();
       clearTimeout(authTimer);
@@ -241,7 +246,7 @@ export class VideoMediaService {
       else unsubscribe();
     };
     record('connected');
-    ws.on('close', cleanup);
+    ws.on('close', (code: number) => cleanup(undefined, code));
     ws.on('error', () => close(1011, 'Video transport failed', 'socket_error'));
 
     ws.on('message', async (payload: any, isBinary: boolean) => {
@@ -272,22 +277,25 @@ export class VideoMediaService {
           // Subscribe before awaiting the snapshot so termination cannot be missed in the gap.
           subscribe(() =>
             grant.provider.onCallEnded((callId: string) => {
-              if (callId === grant.callId) close(1000, 'Call ended');
+              if (callId === grant.callId) close(1000, 'Call ended', 'call_ended');
             }),
           );
           if (!alive()) return;
-          await this.requireCall(grant.provider, grant.callId);
-          if (!alive()) return;
-          if (this.waMonitor.waInstances[grant.instanceName] !== grant.provider) {
-            close(4404, 'Instance runtime changed', 'provider_unavailable');
-            return;
-          }
+          // Reserve before the asynchronous call snapshot completes. Without
+          // this reservation two reconnects can both pass requireCall() and
+          // subscribe to the same provider stream.
           activeKey = JSON.stringify([grant.instanceName, grant.callId]);
           if (this.activeCalls.has(activeKey)) {
             close(4409, 'Video media is already attached');
             return;
           }
           this.activeCalls.set(activeKey, ws);
+          await this.requireCall(grant.provider, grant.callId);
+          if (!alive()) return;
+          if (this.waMonitor.waInstances[grant.instanceName] !== grant.provider) {
+            close(4404, 'Instance runtime changed', 'provider_unavailable');
+            return;
+          }
           subscribe(() =>
             grant.provider.onInboundVideo(({ call, frame }: any) => {
               if (state !== 'ready' || ws.readyState !== 1 || String(call?.callId || call?.id) !== grant.callId) return;
@@ -341,12 +349,18 @@ export class VideoMediaService {
             try {
               if (this.waMonitor.waInstances[grant.instanceName] !== grant.provider) throw new Error('Runtime changed');
               await this.requireCall(grant.provider, grant.callId);
+              missingCallSince = 0;
             } catch {
-              close(1000, 'Call unavailable');
+              // listCalls() can briefly lag while the VoIP state transitions.
+              // Do not tear down a healthy WebSocket on one empty/error read.
+              missingCallSince ||= Date.now();
+              if (Date.now() - missingCallSince >= CALL_MISSING_GRACE_MS) {
+                close(4404, 'Call unavailable', 'call_unavailable');
+              }
             } finally {
               checkingCall = false;
             }
-          }, 2000);
+          }, CALL_CHECK_INTERVAL_MS);
           lifecycleTimer.unref?.();
           return;
         }
