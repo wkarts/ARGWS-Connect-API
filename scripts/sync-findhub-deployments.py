@@ -28,7 +28,14 @@ def repository_files(root):
     for directory, subdirs, filenames in os.walk(root):
         # Full-stack variants have their own deterministic generator and validation suite.
         parent = Path(directory).relative_to(root).as_posix()
-        subdirs[:] = sorted(name for name in subdirs if name not in SKIP and not (name == 'full-stack' and parent in ('deploy/develop', 'deploy/production')))
+        subdirs[:] = sorted(
+            name for name in subdirs
+            if name not in SKIP
+            and not (name == 'full-stack' and parent in ('deploy/develop', 'deploy/production'))
+            # Fersoft is generated from the official channel templates. Its generator
+            # owns service identity and must not be rewritten as a generic source.
+            and not (name == 'fersoft' and parent == 'deploy')
+        )
         for name in sorted(filenames):
             result.append((Path(directory) / name).relative_to(root).as_posix())
     return result

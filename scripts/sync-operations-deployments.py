@@ -28,6 +28,15 @@ CASES = [
     ('deploy/cloudpanel/docker-compose.yml', 'api', 'operations', 'argws-connect-net', 'latest', True),
     ('deploy/dockge/compose.yaml', 'api', 'operations', 'argws-connect-net', 'latest', True),
 ]
+VOLUME_CASES = [
+    ('.', 'docker-compose.yaml'),
+    ('deploy/develop', 'compose.yaml'),
+    ('deploy/production', 'compose.yaml'),
+    ('deploy/homologation', 'compose.yaml'),
+    ('deploy/canonical', 'compose.yaml'),
+    ('deploy/cloudpanel', 'docker-compose.yml'),
+    ('deploy/dockge', 'compose.yaml'),
+]
 
 
 def section(text, name):
@@ -150,6 +159,16 @@ python3 ./prepare-operations-env.py --env-file .env --template env.example "$@"
 '''
 
 
+def with_volume_preparation(text, compose_file):
+    """Run the finite bind preparation after images are local and before any container starts."""
+    hook = f'python3 ./prepare-volumes.py --compose-file {compose_file}\n'
+    text = re.sub(r'^python3 \./prepare-volumes\.py --compose-file [^\n]+\n', '', text, flags=re.M)
+    match = re.search(r'^docker compose\b[^\n]*\bpull\b[^\n]*\n', text, re.M)
+    if not match:
+        raise ValueError('Unknown installer pull step: ' + compose_file)
+    return text[:match.end()] + hook + text[match.end():]
+
+
 def generate(root):
     outputs = {}
     helper = (root / 'scripts/prepare-operations-env.py').read_text()
@@ -224,6 +243,15 @@ fi
     traccar = run_path(str(root / 'scripts/sync-traccar-deployments.py'))
     additions = traccar['generate'](root, overrides=outputs)
     outputs.update({path: content for path, content in additions.items() if path in outputs})
+
+    volume_helper = (root / 'scripts/prepare-full-stack-volumes.py').read_text()
+    for directory, compose_file in VOLUME_CASES:
+        prefix = '' if directory == '.' else directory + '/'
+        outputs[prefix + 'prepare-volumes.py'] = volume_helper
+        for script in ('deploy.sh', 'update.sh'):
+            path = prefix + script
+            source = outputs.get(path, (root / path).read_text())
+            outputs[path] = with_volume_preparation(source, compose_file)
     return outputs
 
 

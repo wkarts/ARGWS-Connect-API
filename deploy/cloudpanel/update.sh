@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
 docker compose config >/dev/null
 docker compose pull
+python3 ./prepare-volumes.py --compose-file docker-compose.yml
 # Backup de segurança antes da atualização. Em instalação nova não há estado para salvar.
 if docker compose --env-file .env -f docker-compose.yml ps -q 2>/dev/null | grep -q .; then
   echo "Criando backup Connect|API antes da atualização..."

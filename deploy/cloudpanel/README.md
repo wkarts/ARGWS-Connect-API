@@ -82,6 +82,17 @@ COMPOSE_PROFILES=extended docker compose up -d
 COMPOSE_PROFILES=mysql docker compose up -d
 ```
 
+Quando iniciar `mysql`, `kafka` ou `extended` por comando manual, faça o Pull e então execute antes
+do `up`:
+
+```bash
+python3 ./prepare-volumes.py --compose-file docker-compose.yml
+```
+
+`deploy.sh` e `update.sh` já executam o preparo automaticamente. Ele trabalha apenas em binds
+vazios de MySQL, Kafka e ZooKeeper e recusa dados existentes sem apagar, usar `chmod 777` ou
+`chown -R`.
+
 ## Persistência
 
 Os dados ficam fisicamente ao lado da stack em `./volumes/...`, incluindo PostgreSQL, Redis, RabbitMQ, MinIO, MySQL, NATS, Kafka e Zookeeper.

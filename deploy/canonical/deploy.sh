@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 mkdir -p ./volumes/{instances,postgres,redis,rabbitmq,minio,nats,kafka,zookeeper/data,zookeeper/log,logs,backups}
 ./preflight.sh
 docker compose --env-file .env -f compose.yaml pull
+python3 ./prepare-volumes.py --compose-file compose.yaml
 docker compose --env-file .env -f compose.yaml up -d --remove-orphans
 docker compose --env-file .env -f compose.yaml ps
 echo "API: https://c.api.connect.argws.com.br"

@@ -50,8 +50,29 @@ class VolumeTests(unittest.TestCase):
             with self.assertRaises(ValueError): volumes.safe_directory(path/'link'/'data')
 
     def test_whatsapp_and_primary_postgres_are_not_targets(self):
-        self.assertEqual(set(volumes.TARGETS), {'mysql-', 'kafka-', 'zookeeper-'})
+        self.assertEqual(set(volumes.TARGETS), {'mysql', 'kafka', 'zookeeper'})
         self.assertNotIn('/argws-connect/instances', set().union(*volumes.TARGETS.values()))
+
+    def test_generic_and_suffixed_service_names_are_both_prepared(self):
+        self.assertEqual(volumes.target_paths('mysql'), {'/var/lib/mysql'})
+        self.assertEqual(volumes.target_paths('mysql-fersoft-connect-production'), {'/var/lib/mysql'})
+        self.assertEqual(volumes.target_paths('kafka'), {'/var/lib/kafka/data'})
+        self.assertEqual(volumes.target_paths('kafka-argws-connect-canonical'), {'/var/lib/kafka/data'})
+        self.assertEqual(
+            volumes.target_paths('zookeeper-fersoft-connect-develop'),
+            {'/var/lib/zookeeper/data', '/var/lib/zookeeper/log'},
+        )
+        self.assertIsNone(volumes.target_paths('postgres-argws-connect-production'))
+
+    def test_compose_file_is_explicit_for_each_deployment_shape(self):
+        self.assertEqual(
+            volumes.compose_command('.env', 'docker-compose.yaml'),
+            ['docker', 'compose', '--env-file', '.env', '-f', 'docker-compose.yaml'],
+        )
+        self.assertEqual(
+            volumes.compose_command('customer.env', 'docker-compose.yml'),
+            ['docker', 'compose', '--env-file', 'customer.env', '-f', 'docker-compose.yml'],
+        )
 
 
 if __name__ == '__main__': unittest.main()

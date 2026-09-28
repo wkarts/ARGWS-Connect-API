@@ -20,6 +20,7 @@ mkdir -p \
 ./preflight.sh
 
 docker compose -f compose.yaml pull
+python3 ./prepare-volumes.py --compose-file compose.yaml
 docker compose -f compose.yaml up -d --remove-orphans
 docker compose -f compose.yaml ps
 
