@@ -61,7 +61,7 @@ function harness({
   cameraErrors = [], cameraDelay, codecDelay,
 } = {}) {
   let timerId = 0, now = 1000, getUserMediaCalls = 0
-  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], recoveries = [], frames = [], draws = []
+  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], ended = [], recoveries = [], frames = [], draws = []
   const track = { readyState: 'live', enabled: true, stopped: false, addEventListener() {}, removeEventListener() {}, stop() { this.stopped = true; this.readyState = 'ended' } }
   const stream = { getVideoTracks: () => [track], getTracks: () => [track] }
   const canvas = { width: 0, height: 0, getContext: () => ({ drawImage(...args) { draws.push(args) } }) }
@@ -130,11 +130,11 @@ function harness({
     // Production apiBaseUrl has no query; websocket must still discard all URL credentials.
     credentials.apiBaseUrl = 'https://api.example.test'
     const session = new api.VideoMediaSession(credentials, preparation, canvas, {
-      onState: state => states.push(state), onError: error => errors.push(error), onRemoteRecovery: () => recoveries.push(now),
+      onState: state => states.push(state), onError: error => errors.push(error), onCallEnded: () => ended.push(now), onRemoteRecovery: () => recoveries.push(now),
     })
     return { session, preparation, credentials }
   }
-  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, recoveries, frames, draws, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
+  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, ended, recoveries, frames, draws, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
 }
 
 test('preflight verifies both codecs before requesting camera and leaves calls untouched when unsupported', async () => {
@@ -368,6 +368,18 @@ test('an unexpected socket loss reconnects the video with the same camera and ti
   assert.equal(h.requests[1].init.headers.apikey, 'private-instance-key')
   assert.equal(h.track.stopped, false)
   assert.equal(credentials.token, '')
+  session.stop()
+})
+
+test('a provider terminal close ends the media session without retrying the video socket', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  h.sockets[0].disconnect(1000, 'Call ended')
+  await drain()
+  assert.deepEqual(h.ended, [1000])
+  assert.equal(h.states.at(-1), 'closed')
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.sockets.length, 1)
   session.stop()
 })
 
@@ -712,7 +724,25 @@ test('a poll started before new media cannot close it with an old empty call sna
   h.unmount()
 })
 
-test('a fresh empty snapshot has a bounded grace period before it can stop active media', async () => {
+test('voice media keeps its bounded calls-list fallback after a missing snapshot', async () => {
+  let now = 1_000, missing = false
+  const active = [{ callId: 'c1', state: 'active' }]
+  const h = viewHarness({ now: () => now, callsResponse: () => missing ? [] : active })
+  await h.api.makeTestCall(false)
+  missing = true
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  now += 7_999
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  now += 1
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, '')
+  assert.equal(h.media.stops, 1)
+  h.unmount()
+})
+
+test('video media survives stale call snapshots and closes only on the provider terminal event', async () => {
   let now = 1_000, missing = false
   const active = [{ callId: 'c1', state: 'active', isVideo: true }]
   const h = viewHarness({ now: () => now, callsResponse: () => missing ? [] : active })
@@ -720,16 +750,16 @@ test('a fresh empty snapshot has a bounded grace period before it can stop activ
   h.api.minimizeVideoModal()
   missing = true
   await h.api.loadCalls(true)
+  now += 30_000
+  await h.api.loadCalls(true)
   assert.equal(h.api.mediaCallId.value, 'c1')
   assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
   assert.equal(h.api.videoModalOpen.value, false)
-  now += 7_999
-  await h.api.loadCalls(true)
-  assert.equal(h.api.mediaCallId.value, 'c1')
-  now += 1
-  await h.api.loadCalls(true)
+  assert.equal(h.media.stops, 0)
+  h.videoCallbacks[0].onCallEnded()
   assert.equal(h.api.mediaCallId.value, '')
   assert.equal(h.track.readyState, 'ended')
+  assert.equal(h.media.stops, 1)
   h.unmount()
 })
 
@@ -774,7 +804,7 @@ test('polling waits for a slow call snapshot before starting the next tick and s
     if (requests === 2) return slow.promise
     return []
   } })
-  await h.api.makeTestCall(true)
+  await h.api.makeTestCall(false)
   h.api.startPolling()
   h.tickPolling(); await drain()
   assert.equal(requests, 2)
@@ -791,7 +821,6 @@ test('polling waits for a slow call snapshot before starting the next tick and s
   h.tickPolling(); await drain()
   assert.equal(requests, 4)
   assert.equal(h.api.mediaCallId.value, '', 'A fresh empty snapshot still closes the ended call')
-  assert.equal(h.tracks[0].readyState, 'ended')
   assert.equal(h.media.stops, 1)
   h.unmount()
 })
