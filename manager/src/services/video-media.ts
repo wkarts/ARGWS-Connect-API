@@ -13,6 +13,7 @@ export type VideoMediaCallbacks = {
   onSession?: (session: VideoMediaSession) => void
   onState?: (state: VideoMediaState) => void
   onError?: (message: string) => void
+  onRemoteRecovery?: () => void
   onRemoteFrame?: () => void
 }
 export type VideoMediaPreparation = {
@@ -24,6 +25,8 @@ const REMOTE_FRAME_TIMEOUT_MS = 2500
 const RECONNECT_INITIAL_DELAY_MS = 500
 const RECONNECT_MAX_DELAY_MS = 5000
 const MAX_RECONNECT_ATTEMPTS = 8
+const DECODER_RECOVERY_INITIAL_DELAY_MS = 100
+const DECODER_RECOVERY_MAX_DELAY_MS = 1000
 
 function bounded(value: number | undefined, fallback: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value!))) : fallback
@@ -50,6 +53,8 @@ export class VideoMediaSession {
   private decoderNeedsKeyFrame = true
   private decoderReconfiguring = false
   private decoderConfigurationGeneration = 0
+  private decoderRecoveryTimer: number | undefined
+  private decoderRecoveryAttempt = 0
   private droppedDuringReconfigure = false
   private remoteDecoderConfig: VideoDecoderConfig
   private lastKeyFrameAt = 0
@@ -188,22 +193,71 @@ export class VideoMediaSession {
       error: error => this.fail(error),
     })
     this.encoder.configure(this.preparation.encoderConfig)
-    this.decoder = new VideoDecoder({
+    this.decoder = this.createDecoder(this.remoteDecoderConfig)
+  }
+
+  private createDecoder(config: VideoDecoderConfig) {
+    let decoder!: VideoDecoder
+    decoder = new VideoDecoder({
       output: frame => {
         try {
-          if (this.closed) return
+          if (this.closed || this.decoder !== decoder) return
           const context = this.remoteCanvas.getContext('2d')
           if (!context) return
           if (this.remoteCanvas.width !== frame.displayWidth) this.remoteCanvas.width = frame.displayWidth
           if (this.remoteCanvas.height !== frame.displayHeight) this.remoteCanvas.height = frame.displayHeight
           context.drawImage(frame, 0, 0)
           this.lastRemoteFrameAt = performance.now()
+          this.decoderRecoveryAttempt = 0
           this.callbacks.onRemoteFrame?.()
         } finally { frame.close() }
       },
-      error: () => { if (!this.closed) this.recoverDecoder() },
+      // WebCodecs closes a decoder after a codec error. Recreate only that
+      // decoder instead of forcing the operator to reconnect an active call.
+      error: () => { if (!this.closed && this.decoder === decoder) this.recoverDecoder(true) },
     })
-    this.decoder.configure(this.remoteDecoderConfig)
+    decoder.configure(config)
+    return decoder
+  }
+
+  private replaceDecoder() {
+    const previous = this.decoder
+    this.decoder = null
+    if (previous && previous.state !== 'closed') {
+      try { previous.close() } catch { /* A failed decoder is already unusable. */ }
+    }
+    try {
+      this.decoder = this.createDecoder(this.remoteDecoderConfig)
+      return true
+    } catch {
+      this.scheduleDecoderRecovery()
+      return false
+    }
+  }
+
+  private resetDecoder() {
+    const decoder = this.decoder
+    if (!decoder || decoder.state === 'closed') return this.replaceDecoder()
+    try {
+      decoder.reset()
+      decoder.configure(this.remoteDecoderConfig)
+      return true
+    } catch {
+      return this.replaceDecoder()
+    }
+  }
+
+  private scheduleDecoderRecovery() {
+    if (this.closed || this.decoderRecoveryTimer !== undefined) return
+    const delay = Math.min(
+      DECODER_RECOVERY_MAX_DELAY_MS,
+      DECODER_RECOVERY_INITIAL_DELAY_MS * (2 ** this.decoderRecoveryAttempt),
+    )
+    this.decoderRecoveryAttempt += 1
+    this.decoderRecoveryTimer = window.setTimeout(() => {
+      this.decoderRecoveryTimer = undefined
+      this.recoverDecoder(true)
+    }, delay)
   }
 
   private capture() {
@@ -431,13 +485,7 @@ export class VideoMediaSession {
       // Keep decoding recoverable when the sender restarts its clock. The
       // server also gates this transition on an IDR, so dependent frames are
       // never fed into a fresh decoder timeline.
-      try {
-        this.decoder?.reset()
-        this.decoder?.configure(this.remoteDecoderConfig)
-      } catch {
-        this.recoverDecoder()
-        return
-      }
+      if (!this.resetDecoder()) return
       this.decoderNeedsKeyFrame = true
       this.lastRemoteTimestamp = -1
     }
@@ -455,10 +503,8 @@ export class VideoMediaSession {
           this.fail(new Error('O navegador não suporta o perfil H.264 do outro participante. O áudio continua disponível.'))
           return
         }
-        if (!this.decoder || this.decoder.state === 'closed') return
-        this.decoder.reset()
-        this.decoder.configure(config)
         this.remoteDecoderConfig = config
+        if (!this.resetDecoder()) return
         if (this.droppedDuringReconfigure) { this.requestKeyFrame(); return }
       } catch {
         if (!this.closed) this.fail(new Error('Não foi possível configurar o vídeo do outro participante. O áudio continua disponível.'))
@@ -468,7 +514,7 @@ export class VideoMediaSession {
       }
     }
     if (this.closed) return
-    if (!this.decoder || this.decoder.state !== 'configured') { this.recoverDecoder(); return }
+    if (!this.decoder || this.decoder.state !== 'configured') { this.recoverDecoder(true); return }
     if (this.decoder.decodeQueueSize > 4) {
       this.decoderNeedsKeyFrame = true
       this.requestKeyFrame()
@@ -482,14 +528,20 @@ export class VideoMediaSession {
     } catch { this.recoverDecoder() }
   }
 
-  private recoverDecoder() {
+  private recoverDecoder(recreate = false) {
+    if (this.closed || this.decoderRecoveryTimer !== undefined) return
     this.decoderNeedsKeyFrame = true
     this.lastRemoteTimestamp = -1
-    if (this.decoder?.state === 'closed') {
-      this.fail(new Error('Não foi possível decodificar o vídeo remoto. Reconecte a mídia da chamada.'))
-      return
-    }
-    try { this.decoder?.reset(); this.decoder?.configure(this.remoteDecoderConfig) } catch { /* Wait for a valid keyframe. */ }
+    this.lastRemoteFrameAt = performance.now()
+    this.callbacks.onRemoteRecovery?.()
+    const recovered = recreate || this.decoder?.state === 'closed'
+      ? this.replaceDecoder()
+      : this.resetDecoder()
+    if (!recovered) return
+    this.decoderRecoveryAttempt = 0
+    // Recovery needs the next complete IDR immediately; do not wait for the
+    // normal PLI throttle after a decoder failure.
+    this.lastKeyFrameRequestAt = -Infinity
     this.requestKeyFrame()
   }
 
@@ -533,6 +585,8 @@ export class VideoMediaSession {
     window.clearTimeout(this.connectTimer)
     window.clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
+    window.clearTimeout(this.decoderRecoveryTimer)
+    this.decoderRecoveryTimer = undefined
     this.reconnecting = false
     if (this.remoteRecoveryTimer !== undefined) window.clearTimeout(this.remoteRecoveryTimer)
     this.remoteRecoveryTimer = undefined
