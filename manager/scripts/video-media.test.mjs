@@ -56,7 +56,7 @@ function harness({
   cameraErrors = [], cameraDelay, codecDelay,
 } = {}) {
   let timerId = 0, now = 1000, getUserMediaCalls = 0
-  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], frames = [], draws = []
+  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], recoveries = [], frames = [], draws = []
   const track = { readyState: 'live', enabled: true, stopped: false, addEventListener() {}, removeEventListener() {}, stop() { this.stopped = true; this.readyState = 'ended' } }
   const stream = { getVideoTracks: () => [track], getTracks: () => [track] }
   const canvas = { width: 0, height: 0, getContext: () => ({ drawImage(...args) { draws.push(args) } }) }
@@ -77,6 +77,7 @@ function harness({
     constructor(options) { this.options = options; decoders.push(this) }
     configure(config) { this.config = config; this.state = 'configured' }
     decode(chunk) { this.decoded.push(chunk); const frame = { displayWidth: 640, displayHeight: 480, closed: false, close() { this.closed = true } }; frames.push(frame); this.options.output(frame) }
+    fail(error = new Error('Decoder failure')) { this.state = 'closed'; this.options.error(error) }
     close() { this.state = 'closed' }
     reset() { this.state = 'unconfigured' }
   }
@@ -123,10 +124,12 @@ function harness({
     const credentials = { apiBaseUrl: 'https://api.example.test/?secret=discard#fragment', instanceName: 'instance one', callId: 'call-a', token: 'private-instance-key' }
     // Production apiBaseUrl has no query; websocket must still discard all URL credentials.
     credentials.apiBaseUrl = 'https://api.example.test'
-    const session = new api.VideoMediaSession(credentials, preparation, canvas, { onState: state => states.push(state), onError: error => errors.push(error) })
+    const session = new api.VideoMediaSession(credentials, preparation, canvas, {
+      onState: state => states.push(state), onError: error => errors.push(error), onRemoteRecovery: () => recoveries.push(now),
+    })
     return { session, preparation, credentials }
   }
-  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, frames, draws, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
+  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, recoveries, frames, draws, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
 }
 
 test('preflight verifies both codecs before requesting camera and leaves calls untouched when unsupported', async () => {
@@ -274,6 +277,29 @@ test('manual remote keyframe request keeps the decoder waiting for a fresh IDR',
   assert.equal(session.requestRemoteKeyFrame(), true)
   assert.equal(h.sockets[0].sent.length, before + 1)
   assert.deepEqual(JSON.parse(h.sockets[0].sent.at(-1)), { type: 'request_keyframe' })
+  session.stop()
+})
+
+test('a closed remote decoder is rebuilt locally and resumes on the next IDR without reconnecting the call', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0], original = h.decoders[0]
+  h.advance(600)
+  const controlsBefore = socket.sent.length
+  original.fail()
+  assert.equal(h.decoders.length, 2)
+  assert.equal(h.decoders[1].state, 'configured')
+  assert.equal(h.track.stopped, false)
+  assert.equal(socket.closed, false)
+  assert.equal(h.errors.length, 0)
+  assert.equal(h.states.includes('error'), false)
+  assert.equal(h.recoveries.length, 1)
+  assert.deepEqual(JSON.parse(socket.sent.at(-1)), { type: 'request_keyframe' })
+  assert.equal(socket.sent.length, controlsBefore + 1)
+  original.options.error(new Error('late stale error'))
+  assert.equal(h.decoders.length, 2, 'a stale decoder cannot restart recovery again')
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 124, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[1].decoded.length, 1)
   session.stop()
 })
 
