@@ -32,15 +32,17 @@ test('Scalar ships a dedicated Find Hub document with every implemented route an
   const general = json('docs/openapi/connect-api.openapi.json');
   const dedicated = json('docs/openapi/findhub.openapi.json');
   const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
-  // Browser authentication plus tracking/SSE/settings, reconciliation, native Traccar, sound and Protocol Lab captures; shared-method paths count once.
-  assert.equal(implemented.length, 37);
-  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 42);
+  // Browser authentication plus tracking/SSE/settings, continuous protocol flow, reconciliation, native Traccar, sound and Protocol Lab captures; shared-method paths count once.
+  assert.equal(implemented.length, 39);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 44);
   assert.ok(implemented.includes('/findhub/sound/start/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/sound/stop/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/catalog/{catalog}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/device-update/{deviceId}/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/inventory/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/state/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/flow/snapshot/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/flow/stream/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/archive/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/eid-info/{instanceName}'));
   assert.ok(implemented.includes('/findhub/protocol/capture/request/eid-info/{instanceName}'));
