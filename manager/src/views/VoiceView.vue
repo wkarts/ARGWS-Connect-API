@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '@/layouts/AppShell.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -13,7 +13,7 @@ import { friendlyError } from '@/services/errors'
 import { isCallActive } from '@/services/normalizers'
 import type { ConnectionItem, ContactItem, WhatsAppCall } from '@/types/domain'
 import type { VoiceMediaSession, VoiceMediaState } from '@/services/voice-media'
-import { VideoMediaSession, type CallCapabilities, type VideoMediaPreparation, type VideoMediaState } from '@/services/video-media'
+import { VideoMediaSession, type CallCapabilities, type VideoMediaPreparation, type VideoMediaState, type VideoRotation } from '@/services/video-media'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,6 +46,7 @@ const videoStream = shallowRef<MediaStream | null>(null)
 const remoteCanvas = ref<HTMLCanvasElement | null>(null)
 const remoteVideoReady = ref(false)
 const remoteVideoRecovering = ref(false)
+const remoteRotation = ref<VideoRotation>(0)
 const cameraEnabled = ref(true)
 const videoModalOpen = ref(false)
 const videoModal = ref<HTMLElement | null>(null)
@@ -195,6 +196,7 @@ function closeVideo() {
   videoState.value = 'idle'
   remoteVideoReady.value = false
   remoteVideoRecovering.value = false
+  remoteRotation.value = 0
   cameraEnabled.value = true
   videoModalOpen.value = false
 }
@@ -258,7 +260,12 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
     await nextTick()
     if (!remoteCanvas.value || !current()) throw new Error('A sessão de vídeo foi cancelada.')
     const session = await connect.videoMedia(instanceId, callId, preparation, remoteCanvas.value, {
-      onSession: session => { if (current()) videoSession = session; else session.stop() },
+      onSession: session => {
+        if (current()) {
+          videoSession = session
+          session.setRemoteRotation(remoteRotation.value)
+        } else session.stop()
+      },
       onState: state => {
         if (!current()) return
         videoState.value = state
@@ -344,6 +351,13 @@ function toggleCallMute() {
 
 function requestRemoteVideo() {
   if (videoState.value === 'ready') videoSession?.requestRemoteKeyFrame()
+}
+
+function rotateRemoteVideo() {
+  const next = ((remoteRotation.value + 90) % 360) as VideoRotation
+  remoteRotation.value = next
+  videoSession?.setRemoteRotation(next)
+  requestRemoteVideo()
 }
 
 function endVideoCall() {
@@ -555,6 +569,7 @@ onMounted(async () => {
   await Promise.all([loadCalls(), loadBehavior(), loadContacts(true), loadCapabilities()])
   startPolling()
 })
+onDeactivated(minimizeVideoModal)
 watch(selected, async () => {
   number.value = ''
   mediaError.value = ''
@@ -682,6 +697,7 @@ onBeforeUnmount(() => {
               <div class="video-call-actions">
                 <button class="btn ghost compact video-call-control" :class="{ active: videoMuted }" :disabled="busy || !activeVideoCall" @click="toggleCallMute"><AppIcon :name="videoMuted ? 'mic-off' : 'mic'" :size="15"/>{{ videoMuted ? 'Ativar microfone' : 'Silenciar microfone' }}</button>
                 <button class="btn ghost compact video-call-control" :disabled="videoState !== 'ready'" @click="toggleCamera"><AppIcon :name="cameraEnabled ? 'camera' : 'camera-off'" :size="15"/>{{ cameraEnabled ? 'Desligar câmera' : 'Ligar câmera' }}</button>
+                <button class="btn ghost compact video-call-control" :disabled="videoState !== 'ready'" title="Girar vídeo remoto 90 graus" @click="rotateRemoteVideo"><AppIcon name="refresh" :size="15"/>Girar vídeo</button>
                 <button v-if="videoState === 'error' || videoState === 'closed'" class="btn ghost compact" :disabled="busy" @click="reconnectVideo">Reconectar vídeo</button>
                 <button class="btn danger compact" :disabled="busy" @click="endVideoCall"><AppIcon name="phone" :size="15"/>Encerrar</button>
               </div>
