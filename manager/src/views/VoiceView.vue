@@ -270,6 +270,10 @@ async function attachVideo(callId: string, preparation: VideoMediaPreparation) {
         }
       },
       onError: message => { if (current()) mediaError.value = message },
+      // The video provider already emits an explicit terminal close when the
+      // call ends. Do not let a delayed calls-list snapshot close healthy
+      // media before that authoritative signal arrives.
+      onCallEnded: () => { if (current()) closeMedia() },
       onRemoteRecovery: () => { if (current()) remoteVideoRecovering.value = true },
       onRemoteFrame: () => {
         if (!current()) return
@@ -416,6 +420,12 @@ async function loadCalls(silent = false) {
     if (mediaCallId.value && !busy.value) {
       const current = calls.value.find((call) => call.callId === mediaCallId.value)
       if (current && isCallActive(current)) mediaCallMissingSince = 0
+      // An established video socket is tied directly to the provider's
+      // onCallEnded event. The calls list is only a UI snapshot and may
+      // briefly report a terminal/missing state while the media plane is
+      // still carrying the same call. Keep the existing bounded fallback for
+      // voice and for video that has already failed to attach.
+      else if (videoSession && (videoState.value === 'ready' || videoState.value === 'connecting')) mediaCallMissingSince = 0
       else if (current) closeMedia()
       else {
         mediaCallMissingSince ||= Date.now()
