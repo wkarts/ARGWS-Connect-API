@@ -57,6 +57,7 @@ test('iframe origin registry uses ENV only before the first persisted save',asyn
   assert.equal(bootstrap.source,'environment');
   assert.equal(bootstrap.allowAnyOrigin,true);
   assert.equal(bootstrap.effectiveFrameAncestors,'*');
+  assert.equal(bootstrap.permissionsPolicy, 'camera=(self), microphone=(self), geolocation=()');
 
   const saved=await h.service.save({
     version:1,
@@ -67,9 +68,11 @@ test('iframe origin registry uses ENV only before the first persisted save',asyn
   assert.equal(saved.version,2);
   assert.equal(saved.allowAnyOrigin,false);
   assert.equal(saved.effectiveFrameAncestors,"'self' https://hub-dev.argws.com.br https://hub.argws.com.br");
+  assert.equal(saved.permissionsPolicy, 'camera=(self "https://hub-dev.argws.com.br" "https://hub.argws.com.br"), microphone=(self "https://hub-dev.argws.com.br" "https://hub.argws.com.br"), geolocation=()');
 
   const policyAfterSave=await h.service.policy();
   assert.equal(policyAfterSave.frameAncestors,"'self' https://hub-dev.argws.com.br https://hub.argws.com.br");
+  assert.equal(policyAfterSave.permissionsPolicy, 'camera=(self "https://hub-dev.argws.com.br" "https://hub.argws.com.br"), microphone=(self "https://hub-dev.argws.com.br" "https://hub.argws.com.br"), geolocation=()');
 });
 
 test('iframe origin registry rejects paths, wildcards and stale versions',async()=>{

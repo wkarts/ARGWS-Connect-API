@@ -53,6 +53,19 @@ X-Connect-Manager-Frame-Ancestors: 'self' https://hub-dev.argws.com.br
 A aplicação não emite `X-Frame-Options` no Manager quando a política é calculada.
 `SAMEORIGIN` ou `DENY` impediria um Hub cross-origin.
 
+## Câmera e microfone no iframe
+
+O cabeçalho `Permissions-Policy` acompanha a mesma allowlist persistida:
+
+- acesso direto ao Manager usa `camera=(self)` e `microphone=(self)`;
+- uma origem cadastrada recebe permissão para solicitar câmera e microfone;
+- o iframe do Hub também precisa declarar `allow="camera; microphone; autoplay"`;
+- o bootstrap `MANAGER_FRAME_ANCESTORS=*` permite exibir a página, mas não libera mídia para qualquer origem;
+- a permissão do navegador continua obrigatória e nenhum frame de câmera é persistido pela API.
+
+Se o Manager for servido diretamente no navegador, não é necessário configurar uma origem externa.
+Para vídeo dentro de um Hub, salve a origem exata do Hub antes de testar a chamada.
+
 O Manager consulta a configuração persistida com cache curto para não criar uma query
 de banco para cada JS/CSS/imagem. Uma alteração salva invalida a decisão imediatamente.
 Em uma falha transitória do banco, a última política conhecida é preservada; antes da
@@ -66,6 +79,7 @@ A própria tela possui **Verificar resposta pública**. O teste executa HEAD an�
 - status HTTP;
 - diretiva `frame-ancestors` realmente recebida;
 - eventual `X-Frame-Options`;
+- `Permissions-Policy` com `camera=(self)` ou com as origens cadastradas;
 - estado de embedding informado pela aplicação.
 
 Isso diferencia configuração da aplicação de um header acrescentado depois por proxy.
