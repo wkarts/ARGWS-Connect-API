@@ -32,19 +32,24 @@ PostgreSQL é o banco oficial, Redis é cache/estado rápido, RabbitMQ é o even
 
 ## Mensageria opcional
 
-NATS e Kafka permanecem disponíveis por profiles e ficam desligados por padrão. Enquanto desligados, seus containers não são criados e não consomem CPU/RAM do runtime.
+NATS, Kafka e MySQL auxiliar permanecem disponíveis no mesmo `compose.yaml` por profiles e ficam desligados por padrão na stack normal. Enquanto desligados, seus containers não são criados e não consomem CPU/RAM do runtime. A full stack usa exatamente esse Compose com todas as flags locais ligadas.
 
 - `nats` → sobe NATS com JetStream;
 - `kafka` → sobe Kafka + Zookeeper;
+- `mysql` → sobe MySQL auxiliar; PostgreSQL continua sendo o banco da API;
 - `extended` → sobe NATS + Kafka + Zookeeper.
 
-Exemplos:
+Na stack normal, altere as flags no `.env` e execute o preparador antes do deploy; ele sincroniza `COMPOSE_PROFILES` sem trocar segredos:
 
 ```bash
-COMPOSE_PROFILES=nats ./deploy.sh
-COMPOSE_PROFILES=kafka ./deploy.sh
-COMPOSE_PROFILES=extended ./deploy.sh
+NATS_ENABLED=true
+KAFKA_ENABLED=true
+MYSQL_SERVICE_ENABLED=true
+./prepare-env.sh
+./deploy.sh
 ```
+
+`COMPOSE_PROFILES` explícito continua compatível para instalações antigas, mas as flags são a fonte de seleção no fluxo atual. A full stack mantém `OPERATIONS_ENABLED`, `NATS_ENABLED`, `KAFKA_ENABLED`, `MYSQL_SERVICE_ENABLED` e `TRACCAR_ENABLED` ligados.
 
 Eles não substituem Redis. NATS/Kafka sobrepõem parte do papel de mensageria do RabbitMQ, mas atendem cenários diferentes: RabbitMQ continua como padrão; NATS é útil para pub/sub de baixa latência e comunicação entre serviços; Kafka é útil para alto volume, retenção e replay de eventos. Zookeeper é infraestrutura do Kafka usado nessa versão e não é consumido diretamente pela API.
 

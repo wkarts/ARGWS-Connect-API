@@ -90,6 +90,40 @@ services:
       retries: 10
       start_period: 60s
     logging: *id001
+  mysql-argws-connect-develop:
+    profiles:
+    - mysql
+    image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
+    pull_policy: always
+    container_name: mysql-argws-connect-develop
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
+      MYSQL_USER: ${MYSQL_USERNAME:-argws_connect}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-CHANGE_ME_MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    expose:
+    - '3306'
+    volumes:
+    - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-../volumes/mysql}:/var/lib/mysql
+    networks:
+      argws-connect-develop-net:
+        aliases:
+        - mysql-argws-connect-develop
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin ping -h 127.0.0.1 -u root --silent
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
   operations-argws-connect-develop:
     container_name: operations-argws-connect-develop
     profiles:
@@ -414,49 +448,39 @@ services:
     image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     entrypoint:
     - node
-    - /bootstrap/traccar-bootstrap.cjs
+    - -e
+    - |-
+      'use strict';
+      // Internal-only one-time bootstrap. Never resets users or changes existing passwords.
+      const root = process.env.TRACCAR_INTERNAL_URL || 'http://traccar:8082';
+      const email = process.env.TRACCAR_ADMIN_EMAIL;
+      const password = process.env.TRACCAR_ADMIN_PASSWORD;
+      async function main() {
+        if (!email || !password || password.length < 32) throw new Error('Segredos Traccar nao preparados.');
+        let cookie = '';
+        async function request(path, method='GET', data, form=false) {
+          const response = await fetch(root+path, { method, redirect:'error', signal:AbortSignal.timeout(15000),
+            headers:{ ...(cookie?{Cookie:cookie}:{}), ...(data?{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'}:{}) },
+            body:data ? form ? new URLSearchParams(data).toString() : JSON.stringify(data) : undefined });
+          if(!response.ok) throw new Error('Traccar bootstrap recusado (HTTP '+response.status+').');
+          const set = response.headers.getSetCookie().map(x=>x.split(';')[0]).find(x=>x.startsWith('JSESSIONID=')); if(set) cookie=set;
+          return response.status===204?null:response.json();
+        }
+        let server;
+        for(let n=0;n<40;n++) {try {server=await request('/api/server');break;}catch {if(n===39)throw new Error('Traccar indisponivel no bootstrap.');await new Promise(r=>setTimeout(r,3000));}}
+        if(server.newServer===true) await request('/api/users','POST',{name:'Connect internal service',email,password});
+        await request('/api/session','POST',{email,password},true);
+        server=await request('/api/server');
+        if(server.registration) await request('/api/server','PUT',{...server,registration:false});
+        console.log('Traccar interno validado. Registro publico desabilitado; credenciais existentes preservadas.');
+      }
+      main().catch(()=>{console.error('Falha ao preparar Traccar. Verifique os segredos sem apagar usuarios/volumes. A API principal nao depende deste bootstrap.');process.exitCode=1;});
     environment:
       TRACCAR_INTERNAL_URL: http://traccar:8082
       TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
       TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
-    volumes:
-    - ./traccar-bootstrap.cjs:/bootstrap/traccar-bootstrap.cjs:ro
     networks:
     - argws-connect-develop-net
-  mysql-argws-connect-develop:
-    profiles:
-    - mysql
-    image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
-    pull_policy: always
-    container_name: mysql-argws-connect-develop
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
-      MYSQL_USER: ${MYSQL_USERNAME:-argws_connect}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-CHANGE_ME_MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}
-      TZ: ${TZ:-America/Bahia}
-    expose:
-    - '3306'
-    volumes:
-    - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-../volumes/mysql}:/var/lib/mysql
-    networks:
-      argws-connect-develop-net:
-        aliases:
-        - mysql-argws-connect-develop
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin ping -h 127.0.0.1 -u root --silent
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 40s
-    logging:
-      driver: json-file
-      options:
-        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
-        max-file: ${DOCKER_LOG_MAX_FILE:-5}
 networks:
   argws-connect-develop-net:
     name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-develop-net}

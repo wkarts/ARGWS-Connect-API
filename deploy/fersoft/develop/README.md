@@ -14,6 +14,10 @@ Instalar:
 Atualizar:
   ./update.sh
 
+Recuperar uma full stack configurada com todos os 14 servicos, sem remover dados ou trocar segredos:
+  ./recover-full-stack.sh
+
 Antes de iniciar Kafka, ZooKeeper e MySQL, os scripts preparam apenas binds vazios para o UID/GID real
 das imagens. Diretorios ja gravados e sem permissao sao recusados sem alteracao; a stack nao e marcada como
-saudavel ate que os probes reais passem.
+saudavel ate que os probes reais passem. O bootstrap Traccar esta incorporado ao proprio `compose.yaml`;
+o runtime nao requer arquivo de codigo externo.

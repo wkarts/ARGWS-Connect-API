@@ -85,7 +85,7 @@ http://traccar:8082  REST/admin backend-only
 http://traccar:5055  receptor OsmAnd
 ```
 
-O Traccar tem banco PostgreSQL separado e volumes próprios. Não há dependência `depends_on` da API sobre ele. **Nenhuma porta Traccar é publicada no host por padrão**. O bootstrap cria o administrador somente em um banco novo, valida as credenciais existentes e desabilita registro público; nunca redefine senhas. Para acesso direto de um rastreador físico externo, publicar um receptor seguro é uma decisão adicional de infraestrutura; não exponha a administração indiscriminadamente.
+O Traccar tem banco PostgreSQL separado e volumes próprios. Não há dependência `depends_on` da API sobre ele. **Nenhuma porta Traccar é publicada no host por padrão**. O bootstrap cria o administrador somente em um banco novo, valida as credenciais existentes e desabilita registro público; nunca redefine senhas. Seu código é incorporado ao próprio Compose: depois de preparar o `.env`, o runtime não requer nem monta um arquivo `traccar-bootstrap.cjs` externo. Para acesso direto de um rastreador físico externo, publicar um receptor seguro é uma decisão adicional de infraestrutura; não exponha a administração indiscriminadamente.
 
 O inventário completo dos nove Compose e defaults está em `docs/deployment/traccar-inventory.json`. Os geradores existentes de operações e Find Hub foram integrados ao gerador Traccar; `--check` detecta divergências sem editar arquivos.
 

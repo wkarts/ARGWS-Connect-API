@@ -1,5 +1,6 @@
 import importlib.util,json,unittest,subprocess,re
 from pathlib import Path
+import yaml
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('prepare',ROOT/'scripts/prepare-traccar-env.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class TraccarDeployment(unittest.TestCase):
@@ -25,6 +26,27 @@ class TraccarDeployment(unittest.TestCase):
    if 'swarm' in name:self.assertIn('replicas: ${TRACCAR_REPLICAS:-0}',block)
    else:self.assertEqual(block.count('profiles: [traccar]'),3)
    before=text[:start];self.assertNotRegex(before,r'depends_on:[^\n]*traccar')
+ def test_all_deployments_embed_bootstrap_without_host_source_file(self):
+  inventory=json.loads((ROOT/'docs/deployment/traccar-inventory.json').read_text())['apiComposeFiles']
+  generated=['deploy/develop/full-stack/compose.yaml','deploy/production/full-stack/compose.yaml',
+             'deploy/fersoft/develop/compose.yaml','deploy/fersoft/production/compose.yaml',
+             'deploy/fersoft/develop/full-stack/compose.yaml','deploy/fersoft/production/full-stack/compose.yaml']
+  files=inventory+generated;self.assertEqual(len(files),15)
+  program=(ROOT/'scripts/traccar-bootstrap.cjs').read_text().removeprefix('#!/usr/bin/env node\n').rstrip()
+  code_extensions=('.cjs','.mjs','.js','.ts','.py','.sh')
+  for name in files:
+   raw=(ROOT/name).read_text();self.assertNotIn('traccar-bootstrap.cjs',raw,name)
+   services=yaml.safe_load(raw)['services']
+   bootstrap=[service for service_name,service in services.items() if service_name.startswith('traccar-bootstrap')]
+   self.assertEqual(len(bootstrap),1,name);entrypoint=bootstrap[0].get('entrypoint')
+   self.assertEqual(entrypoint[:2],['node','-e'],name);self.assertEqual(entrypoint[2].rstrip(),program,name)
+   self.assertNotIn('volumes',bootstrap[0],name)
+   for service in services.values():
+    for volume in service.get('volumes',[]):
+     source=str(volume.get('source','')) if isinstance(volume,dict) else str(volume)
+     self.assertFalse(source.endswith(code_extensions),f'{name}: source code cannot be mounted at runtime')
+  copies=sorted(path.relative_to(ROOT).as_posix() for path in ROOT.rglob('traccar-bootstrap.cjs') if '.git' not in path.parts)
+  self.assertEqual(copies,['scripts/traccar-bootstrap.cjs'])
  def test_named_official_stacks_preserve_container_identity(self):
   for stack in ['production','develop','canonical']:
    text=(ROOT/f'deploy/{stack}/compose.yaml').read_text()

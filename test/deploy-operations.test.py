@@ -51,6 +51,14 @@ class EnvironmentTests(unittest.TestCase):
             env = prepare.values(text)
             self.assertEqual(env['COMPOSE_PROFILES'], 'nats,operations')
             self.assertEqual(prepare.profiles(env), 'nats,operations,extended')
+    def test_optional_service_flags_reconcile_profiles_without_changing_other_settings(self):
+        original = ('OPERATIONS_ENABLED=false\nNATS_ENABLED=true\nKAFKA_ENABLED=false\n'
+                    'MYSQL_SERVICE_ENABLED=true\nCOMPOSE_PROFILES=operations,kafka\n')
+        env = prepare.values(prepare.prepare(original))
+        self.assertEqual(env['COMPOSE_PROFILES'], 'nats,mysql')
+        self.assertEqual(env['NATS_ENABLED'], 'true')
+        self.assertEqual(env['KAFKA_ENABLED'], 'false')
+        self.assertEqual(env['MYSQL_SERVICE_ENABLED'], 'true')
     def test_bad_settings_fail_without_replacing_supplied_secrets(self):
         for suffix in [
             'OPERATIONS_INTERNAL_TOKEN=too-short\n',
@@ -105,6 +113,12 @@ class EnvironmentTests(unittest.TestCase):
             self.assertNotIn('8092:8092', text)
             self.assertNotIn('docker.sock', text)
             self.assertEqual(text.count('  ' + agent + ':\n'), 1)
+        for path, api, network in sync.MYSQL_CASES:
+            text = outputs[path]
+            suffix = api[4:] if api.startswith('api-') else ''
+            mysql = 'mysql' + ('-' + suffix if suffix else '')
+            self.assertIn('  ' + mysql + ':\n', text)
+            self.assertIn('profiles: ["mysql"]', text)
         helper = (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text()
         for directory, compose_file in sync.VOLUME_CASES:
             prefix = '' if directory == '.' else directory + '/'

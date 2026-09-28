@@ -47,7 +47,7 @@ class FersoftDeploymentTests(unittest.TestCase):
                 target = ROOT / 'deploy/fersoft' / channel / ('full-stack/compose.yaml' if full else 'compose.yaml')
                 source_services = yaml.safe_load(parent.read_text(encoding='utf-8'))['services']
                 target_services = yaml.safe_load(target.read_text(encoding='utf-8'))['services']
-                self.assertEqual(len(target_services), 14 if full else 13)
+                self.assertEqual(len(target_services), 14)
                 self.assertEqual(
                     list(target_services),
                     [name.replace(source_suffix, target_suffix) for name in source_services],
@@ -103,6 +103,17 @@ class FersoftDeploymentTests(unittest.TestCase):
                 (full / 'prepare-volumes.py').read_text(encoding='utf-8'),
                 (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text(encoding='utf-8'),
             )
+
+    def test_normal_profile_can_recover_all_services_without_deleting_data(self):
+        for channel in sync.CHANNELS:
+            recovery = (ROOT / 'deploy/fersoft' / channel / 'recover-full-stack.sh').read_text(encoding='utf-8')
+            self.assertIn('config --services', recovery)
+            self.assertIn('stop mysql-fersoft-connect-' + channel, recovery)
+            self.assertIn('prepare-volumes.py --compose-file compose.yaml', recovery)
+            self.assertIn('check-runtime.py --expected 14', recovery)
+            self.assertNotIn(' down ', recovery)
+            self.assertNotIn('rm ', recovery)
+            self.assertNotIn('chown', recovery)
 
     def test_full_stack_prepares_a_private_environment_without_operator_secrets(self):
         for channel in sync.CHANNELS:

@@ -5,7 +5,7 @@
 `deploy/develop/full-stack` e `deploy/production/full-stack` são alternativas ao respectivo deploy pai.
 API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO, Operations, NATS/JetStream,
 Kafka/ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL Traccar e bootstrap Traccar: 14 serviços.
-Apenas a porta da API é publicada. O bootstrap termina com código 0; não é um serviço permanente.
+Apenas a porta da API é publicada. O bootstrap termina com código 0; não é um serviço permanente. Ele é incorporado ao `compose.yaml`, portanto o deploy usa somente `.env`, Compose e os volumes de dados — não há arquivo de código auxiliar para montar no host.
 
 Na nova pasta, use `bash prepare-env.sh --from-env ../.env` para importar uma instalação existente.
 Não copie simplesmente os caminhos `./volumes`: o preparador resolve cada caminho em relação
