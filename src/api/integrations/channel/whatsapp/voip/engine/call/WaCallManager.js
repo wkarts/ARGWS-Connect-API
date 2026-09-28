@@ -156,7 +156,11 @@ export class WaCallManager extends EventEmitter {
     if (callKey) {
       info.encryptionKey = callKey;
     }
-    if (relays.length > 0) {
+    // An incoming video offer may arrive before the relay block is complete.
+    // Preserve announced devices in that intermediate state so the media
+    // session can subscribe to the caller's real video SSRC instead of
+    // falling back to the bare account's synthetic :0 device.
+    if (relays.length > 0 || participantJids.length > 0) {
       info.relayData = {
         endpoints: relays,
         participantJids,
