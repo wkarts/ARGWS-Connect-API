@@ -27,9 +27,36 @@ const RECONNECT_MAX_DELAY_MS = 5000
 const MAX_RECONNECT_ATTEMPTS = 8
 const DECODER_RECOVERY_INITIAL_DELAY_MS = 100
 const DECODER_RECOVERY_MAX_DELAY_MS = 1000
+const H264_START_CODE = new Uint8Array([0, 0, 0, 1])
+const MAX_H264_PARAMETER_SET_BYTES = 64 * 1024
 
 function bounded(value: number | undefined, fallback: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value!))) : fallback
+}
+
+function h264StartCodeLength(data: Uint8Array, offset: number) {
+  if (data[offset] !== 0 || data[offset + 1] !== 0) return 0
+  if (data[offset + 2] === 1) return 3
+  return data[offset + 2] === 0 && data[offset + 3] === 1 ? 4 : 0
+}
+
+function h264ParameterSets(data: Uint8Array) {
+  let sps: Uint8Array | undefined
+  let pps: Uint8Array | undefined
+  for (let offset = 0; offset + 3 < data.length;) {
+    const startCode = h264StartCodeLength(data, offset)
+    if (!startCode) { offset += 1; continue }
+    const start = offset + startCode
+    let end = start
+    while (end < data.length && !h264StartCodeLength(data, end)) end += 1
+    if (end > start && end - start <= MAX_H264_PARAMETER_SET_BYTES) {
+      const type = data[start] & 0x1f
+      if (type === 7) sps = data.slice(start, end)
+      else if (type === 8) pps = data.slice(start, end)
+    }
+    offset = end
+  }
+  return { sps, pps }
 }
 
 export class VideoMediaSession {
@@ -55,6 +82,8 @@ export class VideoMediaSession {
   private decoderConfigurationGeneration = 0
   private decoderRecoveryTimer: number | undefined
   private decoderRecoveryAttempt = 0
+  private remoteSps: Uint8Array | null = null
+  private remotePps: Uint8Array | null = null
   private droppedDuringReconfigure = false
   private remoteDecoderConfig: VideoDecoderConfig
   private lastKeyFrameAt = 0
@@ -469,6 +498,31 @@ export class VideoMediaSession {
     this.remoteRecoveryTimer = window.setTimeout(check, 1000)
   }
 
+  private withCachedRemoteParameterSets(data: Uint8Array, keyFrame: boolean) {
+    // Parameter sets are needed only to recover an IDR. Avoid walking every
+    // delta frame so the normal low-latency path stays allocation-free.
+    if (!keyFrame) return data
+    const { sps, pps } = h264ParameterSets(data)
+    if (sps) this.remoteSps = sps
+    if (pps) this.remotePps = pps
+    // A decoder recreated after a transient WebCodecs failure needs the same
+    // SPS/PPS it had before. Some WhatsApp IDRs omit them, so reuse only a
+    // complete cached pair and never duplicate a partially announced update.
+    if (!keyFrame || sps || pps || !this.remoteSps || !this.remotePps) return data
+    const total = H264_START_CODE.length * 2 + this.remoteSps.length + this.remotePps.length + data.length
+    if (total > this.preparation.settings.maxFrameBytes) return data
+    const complete = new Uint8Array(total)
+    let offset = 0
+    for (const parameterSet of [this.remoteSps, this.remotePps]) {
+      complete.set(H264_START_CODE, offset)
+      offset += H264_START_CODE.length
+      complete.set(parameterSet, offset)
+      offset += parameterSet.length
+    }
+    complete.set(data, offset)
+    return complete
+  }
+
   private async receiveFrame(packet: ArrayBuffer) {
     if (this.decoderReconfiguring) {
       // Retain at most one bounded access unit while querying codec support.
@@ -489,7 +543,8 @@ export class VideoMediaSession {
       this.decoderNeedsKeyFrame = true
       this.lastRemoteTimestamp = -1
     }
-    const remoteCodec = h264DecoderCodec(frame.data)
+    const data = this.withCachedRemoteParameterSets(frame.data, frame.keyFrame)
+    const remoteCodec = h264DecoderCodec(data)
     if (remoteCodec && remoteCodec !== this.remoteDecoderConfig.codec) {
       this.decoderNeedsKeyFrame = true
       this.decoderReconfiguring = true
@@ -522,7 +577,7 @@ export class VideoMediaSession {
     }
     if (this.decoderNeedsKeyFrame && !frame.keyFrame) { this.requestKeyFrame(); return }
     try {
-      this.decoder.decode(new EncodedVideoChunk({ type: frame.keyFrame ? 'key' : 'delta', timestamp: frame.timestampUs, data: frame.data }))
+      this.decoder.decode(new EncodedVideoChunk({ type: frame.keyFrame ? 'key' : 'delta', timestamp: frame.timestampUs, data }))
       this.lastRemoteTimestamp = frame.timestampUs
       if (frame.keyFrame) this.decoderNeedsKeyFrame = false
     } catch { this.recoverDecoder() }
@@ -593,6 +648,8 @@ export class VideoMediaSession {
     this.pendingFrame = null
     this.lastRemoteTimestamp = -1
     this.lastRemoteFrameAt = 0
+    this.remoteSps = null
+    this.remotePps = null
     window.removeEventListener('pagehide', this.pageHide)
     for (const track of this.preparation.stream.getTracks()) { track.removeEventListener('ended', this.pageHide); track.stop() }
     if (this.encoder && this.encoder.state !== 'closed') this.encoder.close()
