@@ -46,6 +46,7 @@ import {
   SRTP_RECV_AUTH_TAG_LEN,
   SRTP_SEND_AUTH_TAG_LEN,
 } from '../types.js';
+const VIDEO_DEVICE_SYNC_TIMEOUT_MS = 1500;
 export class WaCallMediaSession {
   constructor(options) {
     this.rtpSession = null;
@@ -140,6 +141,28 @@ export class WaCallMediaSession {
     });
     this.opusCodec = await MLowCodec.create();
   }
+  async resolveVideoPeerDevices(candidates = []) {
+    const normalized = [...new Set(candidates.filter((jid) => typeof jid === 'string' && jid.length > 0))];
+    if (this.info.mediaType !== CallMediaType.Video) return normalized;
+    const syncDeviceList = this.deps.signalDeviceSync?.syncDeviceList;
+    if (typeof syncDeviceList !== 'function' || !this.info.peerJid) return normalized;
+    try {
+      const synced = await syncDeviceList([this.info.peerJid], VIDEO_DEVICE_SYNC_TIMEOUT_MS);
+      for (const entry of Array.isArray(synced) ? synced : []) {
+        for (const jid of Array.isArray(entry?.deviceJids) ? entry.deviceJids : []) {
+          if (typeof jid === 'string' && jid.length > 0 && !normalized.includes(jid)) normalized.push(jid);
+        }
+      }
+    } catch (err) {
+      // Device discovery improves video subscriptions but must never make
+      // acceptance or the established voice path fail.
+      this.logger.debug('video peer device discovery unavailable', {
+        callId: this.info.callId,
+        message: toError(err).message,
+      });
+    }
+    return normalized;
+  }
   resetOutgoingFlags() {
     this.initialTransportSent = false;
     this.outgoingPreacceptSent = false;
@@ -232,6 +255,11 @@ export class WaCallMediaSession {
       }
     };
     assertStillAvailable();
+    const peerVideoDevices = await this.resolveVideoPeerDevices([
+      peerJid,
+      ...(this.info.relayData?.participantJids || []),
+    ]);
+    assertStillAvailable();
     // Prepare encryption before publishing state or sending any acceptance signaling.
     const acceptStanza = await buildAcceptStanza(
       this.deps,
@@ -260,7 +288,7 @@ export class WaCallMediaSession {
     await this.deps.lowLevelCoordinator.sendNode(acceptStanza);
     assertStillAvailable();
     this.acceptedByJid = peerJid;
-    this.updateVideoPeer([peerJid, ...(this.info.relayData?.participantJids || [])]);
+    this.updateVideoPeer(peerVideoDevices);
     this.info.applyTransition({ type: 'local_accepted' });
     this.initSrtpKeys();
     this.delegate.emitState(this.info);
@@ -412,6 +440,20 @@ export class WaCallMediaSession {
     this.sctpRelay.setStreamSsrcs(this.selfStreamSsrcs, this.peerStreamSsrcs);
     this.sctpRelay.resendSubscriptions();
   }
+  rememberAuthenticatedPeerVideoSsrc(ssrc, payloadType) {
+    if (!Number.isSafeInteger(ssrc) || ssrc <= 0 || this.selfStreamSsrcs.includes(ssrc)) return false;
+    if (this.peerStreamSsrcs.includes(ssrc)) return true;
+    // The relay may deliver a valid companion stream before the latest device
+    // list reaches the call session. Accept only after SRTP authentication and
+    // learn the SSRC for subsequent subscriptions/keyframe requests.
+    if (payloadType !== 97 || this.peerStreamSsrcs.length >= 16) return false;
+    this.peerStreamSsrcs = [...this.peerStreamSsrcs, ssrc];
+    if (!this.peerVideoSsrcs.includes(ssrc)) this.peerVideoSsrcs = [...this.peerVideoSsrcs, ssrc].slice(0, 8);
+    this.peerVideoSsrc ||= ssrc;
+    this.sctpRelay.setStreamSsrcs(this.selfStreamSsrcs, this.peerStreamSsrcs);
+    this.sctpRelay.resendSubscriptions();
+    return true;
+  }
   feedLiveVideo(data, timestampUs) {
     if (!(data instanceof Uint8Array) || !data.length || data.length > 8 * 1024 * 1024) return 0;
     if (!Number.isSafeInteger(timestampUs) || timestampUs < 0) return 0;
@@ -506,8 +548,6 @@ export class WaCallMediaSession {
     try {
       const ssrc = readUInt32BE(data, 8);
       if (this.selfStreamSsrcs.includes(ssrc)) return;
-      // Unknown SSRCs cannot mutate selected device/relay state.
-      if (!this.peerStreamSsrcs.includes(ssrc)) return;
       const rtpTimestamp = readUInt32BE(data, 4);
       const lastRtpTimestamp = payloadType === 97 ? this.videoLastRtpTimestamps.get(ssrc) : undefined;
       const possibleRtpRestart =
@@ -525,6 +565,7 @@ export class WaCallMediaSession {
         packet = this.srtpSession.unprotect(data);
         replayRecovered = true;
       }
+      if (!this.rememberAuthenticatedPeerVideoSsrc(ssrc, payloadType)) return;
       let payload = packet.payload;
       let sequenceNumber = packet.header.sequenceNumber;
       let mediaSsrc = packet.header.ssrc;
@@ -798,7 +839,11 @@ export class WaCallMediaSession {
       }
       if (this.info.isEnded || this.argwsEndPromise) return;
       this.acceptedByJid = acceptingDeviceJid;
-      this.updateVideoPeer([acceptingDeviceJid, ...(this.info.relayData?.participantJids || [])]);
+      const peerVideoDevices = await this.resolveVideoPeerDevices([
+        acceptingDeviceJid,
+        ...(this.info.relayData?.participantJids || []),
+      ]);
+      this.updateVideoPeer(peerVideoDevices);
       try {
         this.info.applyTransition({ type: 'remote_accepted' });
         this.delegate.emitState(this.info);
