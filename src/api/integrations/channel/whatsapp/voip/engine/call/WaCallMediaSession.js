@@ -391,7 +391,10 @@ export class WaCallMediaSession {
     }
     this.peerVideoSsrcs = peerDevices.map((device) => generateSecureSsrc(this.info.callId, device, 2));
     this.peerVideoSsrcByRtx = new Map(
-      peerDevices.map((device) => [generateSecureSsrc(this.info.callId, device, 3), generateSecureSsrc(this.info.callId, device, 2)]),
+      peerDevices.map((device) => [
+        generateSecureSsrc(this.info.callId, device, 3),
+        generateSecureSsrc(this.info.callId, device, 2),
+      ]),
     );
     const streamSsrcs = peerDevices.flatMap((device) =>
       slots.map((slot) => generateSecureSsrc(this.info.callId, device, slot)),
@@ -527,9 +530,10 @@ export class WaCallMediaSession {
         sequenceNumber = (payload[0] << 8) | payload[1];
         payload = payload.subarray(2);
         // One negotiated video track. RTX reuses the primary sequence/timestamp space.
-        mediaSsrc = this.videoTimestampOwners.get(packet.header.timestamp)
-          ?? this.peerVideoSsrcByRtx.get(packet.header.ssrc)
-          ?? this.peerVideoSsrc;
+        mediaSsrc =
+          this.videoTimestampOwners.get(packet.header.timestamp) ??
+          this.peerVideoSsrcByRtx.get(packet.header.ssrc) ??
+          this.peerVideoSsrc;
       } else {
         if (this.videoTimestampOwners.size >= 64 && !this.videoTimestampOwners.has(packet.header.timestamp))
           this.videoTimestampOwners.delete(this.videoTimestampOwners.keys().next().value);
@@ -589,7 +593,7 @@ export class WaCallMediaSession {
     }
   }
   isRtpTimestampRewind(previous, current) {
-    return ((current - previous) >>> 0) > 0x80000000;
+    return (current - previous) >>> 0 > 0x80000000;
   }
   isH264KeyFramePayload(payload) {
     if (!payload?.length || (payload[0] & 0x80) !== 0) return false;
