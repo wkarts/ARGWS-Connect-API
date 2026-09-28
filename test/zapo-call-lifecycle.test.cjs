@@ -35,7 +35,12 @@ function loadCallActions() {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
   const loaded = { exports: {} };
-  vm.runInNewContext(output, { module: loaded, exports: loaded.exports });
+  vm.runInNewContext(output, {
+    module: loaded,
+    exports: loaded.exports,
+    Events: { CALL: 'CALL' },
+    Integration: { WHATSAPP_ZAPO: 'WHATSAPP-ZAPO' },
+  });
   return loaded.exports.CallActions;
 }
 

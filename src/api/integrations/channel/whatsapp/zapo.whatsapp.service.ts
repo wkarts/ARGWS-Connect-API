@@ -902,11 +902,13 @@ export class ZapoStartupService extends ChannelStartupService {
 
     this.client.on('voip_call_error', (error: Error) => {
       diagnostics.record({ code: 'runtime.error', component: 'voip', instanceId: this.instance.name, error });
-      void this.sendDataWebhook(Events.CALL, {
-        action: 'error',
-        provider: Integration.WHATSAPP_ZAPO,
-        error: error?.message || String(error),
-      }).catch((webhookError: Error) => this.logger.error(webhookError));
+      void Promise.resolve()
+        .then(() => this.sendDataWebhook(Events.CALL, {
+          action: 'error',
+          provider: Integration.WHATSAPP_ZAPO,
+          error: error?.message || String(error),
+        }))
+        .catch((webhookError: Error) => this.logger.error(webhookError));
     });
 
     this.client.on('voip_call_inbound_audio', ({ call, pcm }: any) => {
@@ -1702,11 +1704,13 @@ export class ZapoStartupService extends ChannelStartupService {
   }
 
   private emitCall(action: 'incoming' | 'state' | 'ended', call: any) {
-    void this.sendDataWebhook(Events.CALL, {
-      action,
-      provider: Integration.WHATSAPP_ZAPO,
-      call: this.normalizeCall(call),
-    }).catch((webhookError: Error) => this.logger.error(webhookError));
+    void Promise.resolve()
+      .then(() => this.sendDataWebhook(Events.CALL, {
+        action,
+        provider: Integration.WHATSAPP_ZAPO,
+        call: this.normalizeCall(call),
+      }))
+      .catch((webhookError: Error) => this.logger.error(webhookError));
   }
 
   private isVideoCall(call: any): boolean {

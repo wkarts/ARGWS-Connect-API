@@ -11,6 +11,7 @@ export type ManagerEmbeddingSettings = {
   enabled: boolean;
   allowedOrigins: string[];
   effectiveFrameAncestors: string;
+  permissionsPolicy: string;
   source: 'database' | 'environment';
   allowAnyOrigin: boolean;
   updatedAt: string | null;
@@ -89,6 +90,7 @@ export class ManagerEmbeddingService {
         enabled: policy.enabled,
         allowedOrigins: row.value?.allowedOrigins || [],
         effectiveFrameAncestors: policy.frameAncestors,
+        permissionsPolicy: policy.permissionsPolicy,
         source: 'database',
         allowAnyOrigin: false,
         updatedAt: row.updatedAt,
@@ -105,6 +107,7 @@ export class ManagerEmbeddingService {
       enabled: policy.enabled,
       allowedOrigins,
       effectiveFrameAncestors: policy.frameAncestors,
+      permissionsPolicy: policy.permissionsPolicy,
       source: 'environment',
       allowAnyOrigin: policy.frameAncestors === '*',
       updatedAt: row.updatedAt,
