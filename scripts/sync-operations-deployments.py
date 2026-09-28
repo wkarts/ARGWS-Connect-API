@@ -45,6 +45,7 @@ MYSQL_CASES = [
     ('docker-compose.dev.yaml', 'api', 'argws-connect-dev-net'),
     ('deploy/develop/compose.yaml', 'api-argws-connect-develop', 'argws-connect-develop-net'),
     ('deploy/production/compose.yaml', 'api-argws-connect-production', 'argws-connect-production-net'),
+    ('deploy/canonical/compose.yaml', 'api-argws-connect-canonical', 'argws-connect-canonical-net'),
     ('deploy/homologation/compose.yaml', 'api', 'argws-connect-net'),
     ('deploy/cloudpanel/docker-compose.yml', 'api', 'argws-connect-net'),
     ('deploy/dockge/compose.yaml', 'api', 'argws-connect-net'),

@@ -60,6 +60,37 @@ services:
       start_period: 60s
     logging: *default-logging
 
+
+  mysql-argws-connect-canonical:
+    profiles: ["mysql"]
+    image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
+    pull_policy: always
+    container_name: mysql-argws-connect-canonical
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-argws_connect_api}
+      MYSQL_USER: ${MYSQL_USERNAME:-argws_connect}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-CHANGE_ME_MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-America/Bahia}
+    expose: ["3306"]
+    volumes:
+      - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/var/lib/mysql
+    networks:
+      argws-connect-canonical-net:
+        aliases: [mysql-argws-connect-canonical]
+    healthcheck:
+      test: ['CMD-SHELL', 'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin ping -h 127.0.0.1 -u root --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+
   docs-argws-connect-canonical:
     image: ${ARGWS_CONNECT_DOCS_IMAGE:-ghcr.io/wkarts/argws-connect-docs:1.0.21}
     pull_policy: always
