@@ -250,6 +250,20 @@ test('inbound delta waits for keyframe; decoded video draws to canvas and releas
   session.stop()
 })
 
+test('inbound IDR recovers decoder timeline after a remote timestamp reset', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0]
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 1000, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[0].decoded.length, 1)
+
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 800, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[0].decoded.length, 2)
+  assert.equal(h.decoders[0].decoded.at(-1).timestamp, 800)
+  session.stop()
+})
+
 test('backpressure drops stale encoded deltas until a new IDR, requests IDR on control and camera resume', async () => {
   const h = harness(); const { session } = await h.begin(); await session.start()
   const socket = h.sockets[0], encoder = h.encoders[0]
