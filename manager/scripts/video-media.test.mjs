@@ -23,7 +23,7 @@ function load(source, globals = {}, dependencies = {}) {
 const codec = load(read('src/services/video-frame.ts'))
 const annexb = new Uint8Array([0, 0, 0, 1, 0x65, 0x88, 0x84])
 const spsFrame = (profile, compatibility, level) => new Uint8Array([0, 0, 0, 1, 0x67, profile, compatibility, level, 0x80, 0, 0, 1, 0x65, 0x88, 0x84])
-const drain = async () => { for (let n = 0; n < 6; n++) await Promise.resolve() }
+const drain = async (cycles = 6) => { for (let n = 0; n < cycles; n++) await Promise.resolve() }
 
 test('CV binary framing preserves H.264 bytes, keyframe and microseconds above uint32', () => {
   const bytes = codec.encodeVideoFrame({ data: annexb, timestampUs: 12_345_678_910, keyFrame: true })
@@ -89,6 +89,9 @@ function harness({
       if (ready && typeof value === 'string' && JSON.parse(value).ticket) queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ type: 'ready', codec: 'h264', format: 'annexb' }) }))
     }
     close() { this.closed = true; this.readyState = 3 }
+    disconnect(code = 1006, reason = 'network') {
+      this.closed = true; this.readyState = 3; this.onclose?.({ code, reason })
+    }
   }
   const api = load(read('src/services/video-media.ts'), {
     isSecureContext: true, VideoEncoder: Encoder, VideoDecoder: Decoder, WebSocket: Socket,
@@ -292,17 +295,33 @@ test('backpressure drops stale encoded deltas until a new IDR, requests IDR on c
   session.stop()
 })
 
-test('disconnect/page exit stops camera, encoders, WS and timers without leaving media active', async () => {
-  for (const disconnect of [h => h.sockets[0].onclose(), h => h.listeners.get('pagehide')()]) {
-    const h = harness(); const { session } = await h.begin(); await session.start(); disconnect(h)
-    assert.equal(h.track.stopped, true)
-    assert.equal(h.encoders[0].state, 'closed')
-    assert.equal(h.decoders[0].state, 'closed')
-    assert.equal(h.sockets[0].closed, true)
-    assert.equal(h.timers.size, 0)
-    assert.equal(h.listeners.size, 0)
-    session.stop()
-  }
+test('page exit stops camera, encoders, WS and timers without leaving media active', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start(); h.listeners.get('pagehide')()
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.encoders[0].state, 'closed')
+  assert.equal(h.decoders[0].state, 'closed')
+  assert.equal(h.sockets[0].closed, true)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.listeners.size, 0)
+  session.stop()
+})
+
+test('an unexpected socket loss reconnects the video with the same camera and ticket credential', async () => {
+  const h = harness(); const { session, credentials } = await h.begin(); await session.start()
+  h.sockets[0].disconnect()
+  assert.equal(h.track.stopped, false)
+  assert.equal(h.states.at(-1), 'connecting')
+  const reconnect = [...h.timers.entries()].find(([, timer]) => timer.delay === 500)
+  assert.ok(reconnect)
+  h.timers.delete(reconnect[0]); reconnect[1].fn()
+  await drain(30)
+  assert.equal(h.sockets.length, 2)
+  assert.equal(h.states.at(-1), 'ready')
+  assert.equal(h.requests.length, 2)
+  assert.equal(h.requests[1].init.headers.apikey, 'private-instance-key')
+  assert.equal(h.track.stopped, false)
+  assert.equal(credentials.token, '')
+  session.stop()
 })
 
 test('failed ticket and stalled WS release camera and reject start instead of false success', async () => {

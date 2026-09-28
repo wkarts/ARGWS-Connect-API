@@ -56,6 +56,11 @@ export function createConnectCallAdapter(
 ) {
   const videoEnabled = options.videoEnabled !== false;
   const maxConcurrentCalls = options.maxConcurrentCalls ?? 1;
+  // Voice and video use independent pools. The configured instance limit is
+  // preserved for both engines: with 4, the instance can hold 4 voice calls
+  // and 4 video calls instead of sharing a single pool of 4. The channel
+  // service resolves the default to 4 when the environment is not configured.
+  const maxConcurrentVideoCalls = maxConcurrentCalls;
   const videoCalls = new Map<string, number>();
   const voiceCalls = new Map<string, number>();
   const videoStanzas = new Map<string, { callId: string; expires: number }>();
@@ -107,11 +112,13 @@ export function createConnectCallAdapter(
     return [...calls.values()];
   }
 
-  function occupied() {
-    const calls = allCalls().filter((call) => !call.isEnded);
+  function occupied(owner: Owner) {
+    const calls = (owner === 'voice' ? voice?.getCalls() : video?.getCalls())?.filter((call) => !call.isEnded) || [];
     return (
       calls.length +
-      [...reservations].filter((item) => !item.callId || !calls.some((call) => call.callId === item.callId)).length
+      [...reservations]
+        .filter((item) => item.owner === owner)
+        .filter((item) => !item.callId || !calls.some((call) => call.callId === item.callId)).length
     );
   }
 
@@ -141,12 +148,12 @@ export function createConnectCallAdapter(
           handler: async (node) => {
             if (disposed || nodeOwner(node) !== owner) return false;
             const newVideoOffer = owner === 'video' && isVideoOffer(node) && !video?.getCall(callIdOf(node));
-            const atCapacity = newVideoOffer && occupied() >= maxConcurrentCalls;
+            const atCapacity = newVideoOffer && occupied('video') >= maxConcurrentVideoCalls;
             const callId = callIdOf(node);
             if (callId) remember(owner, callId);
             const reservation: Reservation =
               newVideoOffer && !atCapacity
-                ? { owner: 'video', existing: new Set(allCalls().map((call) => call.callId)), callId }
+                ? { owner: 'video', existing: new Set((video?.getCalls() || []).map((call) => call.callId)), callId }
                 : undefined;
             if (reservation) reservations.add(reservation);
             try {
@@ -195,7 +202,11 @@ export function createConnectCallAdapter(
     voice = factories
       .voice({ maxConcurrentCalls, logLevel: options.logLevel })
       .setup(wrappedContext('voice')) as Coordinator;
-    if (videoEnabled) video = factories.video(options).setup(wrappedContext('video')) as Coordinator;
+    if (videoEnabled) {
+      video = factories
+        .video({ ...options, maxConcurrentCalls: maxConcurrentVideoCalls })
+        .setup(wrappedContext('video')) as Coordinator;
+    }
   } catch (error) {
     voice?.dispose();
     for (const remove of unregister) remove();
@@ -225,9 +236,20 @@ export function createConnectCallAdapter(
     async startCall(callOptions: Parameters<Coordinator['startCall']>[0]) {
       if (disposed) throw new Error('Call adapter is disposed');
       if (callOptions.isVideo && !video) throw new Error('Video calls are disabled');
-      if (occupied() >= maxConcurrentCalls) throw new Error(`max concurrent calls reached (${maxConcurrentCalls})`);
       const owner: Owner = callOptions.isVideo ? 'video' : 'voice';
-      const reservation: Reservation = { owner, existing: new Set(allCalls().map((call) => call.callId)) };
+      const limit = owner === 'video' ? maxConcurrentVideoCalls : maxConcurrentCalls;
+      if (occupied(owner) >= limit) {
+        throw new Error(
+          owner === 'video'
+            ? `max concurrent video calls reached (${limit})`
+            : `max concurrent calls reached (${limit})`,
+        );
+      }
+      const coordinator = owner === 'video' ? video : voice;
+      const reservation: Reservation = {
+        owner,
+        existing: new Set((coordinator?.getCalls() || []).map((call) => call.callId)),
+      };
       reservations.add(reservation);
       try {
         const callId = await (owner === 'video' ? video : voice).startCall(callOptions);

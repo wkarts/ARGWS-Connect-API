@@ -270,14 +270,37 @@ test('off removes a shared subscription from both engines', t => {
   assert.equal(calls, 0);
 });
 
-test('concurrent starts reserve a shared slot before either engine allocates its session', async t => {
+test('voice and video reserve independent capacity pools', async t => {
   let release;
   const gate = new Promise(resolve => { release = resolve; });
-  const f = fixture(t, { maxConcurrentCalls: 1 }, { beforeStart: () => gate });
-  const first = f.adapter.startCall({ peerJid: '111@lid' });
-  await assert.rejects(f.adapter.startCall({ peerJid: '222@lid', isVideo: true }), /max concurrent calls/);
-  release(); await first;
-  assert.equal(f.engines.video.operations.length, 0);
+  const f = fixture(t, { maxConcurrentCalls: 1 }, { beforeStart: owner => owner === 'video' ? gate : undefined });
+  const firstVideo = f.adapter.startCall({ peerJid: '111@lid', isVideo: true });
+  const voice = await f.adapter.startCall({ peerJid: '222@lid' });
+  assert.match(voice, /^voice-/);
+  release(); await firstVideo;
+  assert.equal(f.engines.voice.getCalls().length, 1);
+  assert.equal(f.engines.video.getCalls().length, 1);
+});
+
+test('permits four voice and four video calls independently, rejecting each fifth slot', async t => {
+  const f = fixture(t, { maxConcurrentCalls: 4 });
+  const videoCalls = [];
+  for (let index = 0; index < 4; index += 1) {
+    videoCalls.push(await f.adapter.startCall({ peerJid: `video-${index + 1}@lid`, isVideo: true }));
+  }
+  const voiceCalls = [];
+  for (let index = 0; index < 4; index += 1) {
+    voiceCalls.push(await f.adapter.startCall({ peerJid: `voice-${index + 1}@lid` }));
+  }
+  assert.equal(videoCalls.length, 4);
+  assert.equal(voiceCalls.length, 4);
+  assert.equal(f.engines.video.getCalls().length, 4);
+  assert.equal(f.engines.voice.getCalls().length, 4);
+  await assert.rejects(
+    f.adapter.startCall({ peerJid: 'video-5@lid', isVideo: true }),
+    /max concurrent video calls reached \(4\)/,
+  );
+  await assert.rejects(f.adapter.startCall({ peerJid: 'voice-5@lid' }), /max concurrent calls reached \(4\)/);
 });
 
 test('a published session is not double-counted while its start promise is still pending', async t => {
@@ -293,6 +316,7 @@ test('a published session is not double-counted while its start promise is still
 test('an excess incoming video call is rejected through its own engine without ending voice', async t => {
   const f = fixture(t, { maxConcurrentCalls: 1 });
   f.engines.voice.put('active-voice');
+  f.engines.video.put('active-video');
   await f.dispatch(stanza('offer', 'excess-video', true));
   assert.deepEqual(f.engines.video.operations, [['rejectCall', 'excess-video', 'busy']]);
   assert.ok(f.engines.voice.getCall('active-voice'));

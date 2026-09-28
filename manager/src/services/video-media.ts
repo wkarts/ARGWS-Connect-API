@@ -21,6 +21,9 @@ export type VideoMediaPreparation = {
 }
 
 const REMOTE_FRAME_TIMEOUT_MS = 2500
+const RECONNECT_INITIAL_DELAY_MS = 500
+const RECONNECT_MAX_DELAY_MS = 5000
+const MAX_RECONNECT_ATTEMPTS = 8
 
 function bounded(value: number | undefined, fallback: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value!))) : fallback
@@ -34,8 +37,12 @@ export class VideoMediaSession {
   private captureCanvas: HTMLCanvasElement | null = null
   private captureTimer: number | undefined
   private connectTimer: number | undefined
-  private requestController = new AbortController()
+  private requestController: AbortController | null = null
   private rejectConnection: ((error: Error) => void) | null = null
+  private reconnectTimer: number | undefined
+  private reconnectAttempt = 0
+  private reconnecting = false
+  private readonly apiToken: string
   private ready = false
   private closed = false
   private cameraEnabled = true
@@ -60,7 +67,10 @@ export class VideoMediaSession {
     private readonly preparation: VideoMediaPreparation,
     private readonly remoteCanvas: HTMLCanvasElement,
     private readonly callbacks: VideoMediaCallbacks = {},
-  ) { this.remoteDecoderConfig = { ...preparation.decoderConfig } }
+  ) {
+    this.remoteDecoderConfig = { ...preparation.decoderConfig }
+    this.apiToken = credentials.token
+  }
 
   static async prepare(settings: VideoMediaSettings = {}, signal?: AbortSignal): Promise<VideoMediaPreparation> {
     signal?.throwIfAborted()
@@ -217,13 +227,15 @@ export class VideoMediaSession {
   }
 
   private async requestTicket() {
-    if (!this.credentials.token) throw new Error('A credencial para autorizar o vídeo está indisponível.')
-    const timeout = window.setTimeout(() => this.requestController.abort(), 15_000)
+    if (!this.apiToken) throw new Error('A credencial para autorizar o vídeo está indisponível.')
+    const controller = new AbortController()
+    this.requestController = controller
+    const timeout = window.setTimeout(() => controller.abort(), 15_000)
     try {
       const url = `${this.credentials.apiBaseUrl.replace(/\/+$/, '')}/call/videoMediaTicket/${encodeURIComponent(this.credentials.instanceName)}`
       const response = await fetch(url, {
-        method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: this.requestController.signal,
-        headers: { 'content-type': 'application/json', apikey: this.credentials.token },
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+        headers: { 'content-type': 'application/json', apikey: this.apiToken },
         body: JSON.stringify({ callId: this.credentials.callId }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -234,7 +246,10 @@ export class VideoMediaSession {
       }
       this.preparation.settings.maxFrameBytes = Math.min(this.preparation.settings.maxFrameBytes, bounded(payload.maxFrameBytes, VIDEO_MAX_FRAME_BYTES, 1024, VIDEO_MAX_FRAME_BYTES))
       return String(payload.ticket)
-    } finally { window.clearTimeout(timeout) }
+    } finally {
+      window.clearTimeout(timeout)
+      if (this.requestController === controller) this.requestController = null
+    }
   }
 
   private connectSocket(ticket: string) {
@@ -248,17 +263,40 @@ export class VideoMediaSession {
       this.socket = socket
       socket.binaryType = 'arraybuffer'
       this.rejectConnection = reject
-      this.connectTimer = window.setTimeout(() => this.fail(new Error('O vídeo não respondeu a tempo.')), 15_000)
+      let settled = false
+      const settleError = (error: Error) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(this.connectTimer)
+        if (this.rejectConnection === reject) this.rejectConnection = null
+        reject(error)
+      }
+      this.connectTimer = window.setTimeout(() => {
+        if (this.closed || this.socket !== socket) return
+        if (!this.reconnecting) {
+          this.fail(new Error('O vídeo não respondeu a tempo.'))
+          return
+        }
+        settleError(new Error('O vídeo não respondeu a tempo.'))
+        socket.close()
+        this.scheduleReconnect()
+      }, 15_000)
       socket.onopen = () => socket.send(JSON.stringify({ ticket }))
       socket.onmessage = event => {
-        if (this.closed) return
+        if (this.closed || this.socket !== socket) return
         if (typeof event.data === 'string') {
           try {
             const message = JSON.parse(event.data)
             if (message.type === 'ready' && message.codec === 'h264' && message.format === 'annexb') {
+              settled = true
               this.ready = true
               window.clearTimeout(this.connectTimer)
-              this.rejectConnection = null
+              if (this.rejectConnection === reject) this.rejectConnection = null
+              this.reconnectAttempt = 0
+              this.reconnecting = false
+              this.needsKeyFrame = true
+              this.decoderNeedsKeyFrame = true
+              this.lastRemoteTimestamp = -1
               this.callbacks.onState?.('ready')
               this.startRemoteRecovery()
               this.requestKeyFrame()
@@ -271,11 +309,75 @@ export class VideoMediaSession {
         if (!this.ready || !(event.data instanceof ArrayBuffer)) return
         this.enqueueFrame(event.data)
       }
-      socket.onerror = () => this.fail(new Error('Não foi possível conectar o vídeo da chamada.'))
-      socket.onclose = () => {
-        if (!this.closed) this.fail(new Error('A transmissão de vídeo foi desconectada.'))
+      socket.onerror = () => {
+        if (this.closed || this.socket !== socket) return
+        const wasReady = this.ready
+        this.ready = false
+        if (!wasReady && !this.reconnecting) {
+          this.fail(new Error('Não foi possível conectar o vídeo da chamada.'))
+          return
+        }
+        settleError(new Error('Não foi possível conectar o vídeo da chamada.'))
+        this.handleSocketLoss(socket)
+      }
+      socket.onclose = (event?: CloseEvent) => {
+        if (this.socket !== socket) return
+        const wasReady = this.ready
+        this.ready = false
+        this.socket = null
+        window.clearTimeout(this.connectTimer)
+        if (this.closed) return
+        const terminal = event?.code === 1000 && /ended/i.test(event.reason || '')
+        if (terminal) {
+          this.stop()
+          return
+        }
+        if (!wasReady && !this.reconnecting) {
+          this.fail(new Error('A transmissão de vídeo foi desconectada.'))
+          return
+        }
+        settleError(new Error('A transmissão de vídeo foi desconectada.'))
+        this.handleSocketLoss(socket)
       }
     })
+  }
+
+  private handleSocketLoss(_socket: WebSocket) {
+    if (this.closed) return
+    this.ready = false
+    this.needsKeyFrame = true
+    this.decoderNeedsKeyFrame = true
+    this.lastRemoteTimestamp = -1
+    this.callbacks.onState?.('connecting')
+    this.scheduleReconnect()
+  }
+
+  private scheduleReconnect() {
+    if (this.closed || this.reconnectTimer !== undefined || this.reconnecting) return
+    if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+      this.fail(new Error('O vídeo não conseguiu se reconectar. O áudio da chamada continua disponível.'))
+      return
+    }
+    const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_INITIAL_DELAY_MS * (2 ** this.reconnectAttempt))
+    this.reconnectAttempt += 1
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = undefined
+      void this.reconnectVideoSocket()
+    }, delay)
+  }
+
+  private async reconnectVideoSocket() {
+    if (this.closed || this.reconnecting) return
+    this.reconnecting = true
+    this.callbacks.onState?.('connecting')
+    try {
+      const ticket = await this.requestTicket()
+      if (this.closed) return
+      await this.connectSocket(ticket)
+    } catch {
+      this.reconnecting = false
+      if (!this.closed) this.scheduleReconnect()
+    }
   }
 
   private enqueueFrame(packet: ArrayBuffer) {
@@ -423,11 +525,15 @@ export class VideoMediaSession {
     this.decoderConfigurationGeneration += 1
     this.ready = false
     this.credentials.token = ''
-    this.requestController.abort()
+    this.requestController?.abort()
+    this.requestController = null
     this.rejectConnection?.(new Error('A sessão de vídeo foi encerrada.'))
     this.rejectConnection = null
     window.clearTimeout(this.captureTimer)
     window.clearTimeout(this.connectTimer)
+    window.clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    this.reconnecting = false
     if (this.remoteRecoveryTimer !== undefined) window.clearTimeout(this.remoteRecoveryTimer)
     this.remoteRecoveryTimer = undefined
     this.pendingFrame = null

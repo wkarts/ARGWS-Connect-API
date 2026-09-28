@@ -336,7 +336,10 @@ export class WaCallMediaSession {
     this.info.applyTransition({ type: 'audio_mute_changed', muted });
     this.delegate.emitState(this.info);
     if (muted) {
-      this.audioEngine.stopCapture();
+      // Keep the RTP clock and relay alive while muting. Stopping capture
+      // entirely makes the remote device interpret silence as a lost media
+      // path and can tear down a video call that is otherwise healthy.
+      this.audioEngine.startSilenceCapture();
     } else {
       this.audioEngine.startCapture();
     }
