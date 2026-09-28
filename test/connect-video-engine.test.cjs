@@ -82,6 +82,39 @@ test('a resumed camera timeline recovers on the next IDR instead of dropping vid
   } finally { p.close(); }
 });
 
+test('a resumed camera with a restarted RTP sequence resets the H264 assembler on its IDR', async () => {
+  const p = await pair();
+  try {
+    p.a.session.feedLiveVideo(au, 1_000_000);
+    for (const packet of p.a.packets) p.b.session.onRelayData(packet);
+    assert.equal(p.b.frames.length, 1);
+
+    // A camera driver may restart both clocks while retaining the negotiated
+    // SSRC. The first IDR must establish a fresh packet sequence as well.
+    p.a.session.lastVideoCaptureUs = null;
+    p.a.session.videoRtpSession.sequenceNumber = 1;
+    const before = p.a.packets.length;
+    assert.ok(p.a.session.feedLiveVideo(au, 500_000) > 1);
+    for (const packet of p.a.packets.slice(before)) p.b.session.onRelayData(packet);
+    assert.equal(p.b.frames.length, 2);
+    assert.ok(p.b.frames[1].keyFrame);
+  } finally { p.close(); }
+});
+
+test('video subscriptions include announced remote devices and request recovery for each video SSRC', async () => {
+  const p = await pair();
+  try {
+    const alternatePeer = '111111:14@lid';
+    p.b.session.updateVideoPeer([aJid, alternatePeer]);
+    const primary = p.m.generateSecureSsrc(callId, aJid, 2);
+    const alternate = p.m.generateSecureSsrc(callId, alternatePeer, 2);
+    assert.ok(p.b.session.peerStreamSsrcs.includes(primary));
+    assert.ok(p.b.session.peerStreamSsrcs.includes(alternate));
+    assert.equal(p.b.session.requestVideoKeyFrame(), true);
+    assert.equal(p.b.control.length, 2);
+  } finally { p.close(); }
+});
+
 test('authenticated PLI/FIR targets the local encoder, while tamper/replay/wrong target do not', async (t) => {
   let now = 1000;
   t.mock.method(Date, 'now', () => now);

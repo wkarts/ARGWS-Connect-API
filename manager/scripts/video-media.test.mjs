@@ -264,6 +264,16 @@ test('inbound IDR recovers decoder timeline after a remote timestamp reset', asy
   session.stop()
 })
 
+test('manual remote keyframe request keeps the decoder waiting for a fresh IDR', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  h.advance(600)
+  const before = h.sockets[0].sent.length
+  assert.equal(session.requestRemoteKeyFrame(), true)
+  assert.equal(h.sockets[0].sent.length, before + 1)
+  assert.deepEqual(JSON.parse(h.sockets[0].sent.at(-1)), { type: 'request_keyframe' })
+  session.stop()
+})
+
 test('backpressure drops stale encoded deltas until a new IDR, requests IDR on control and camera resume', async () => {
   const h = harness(); const { session } = await h.begin(); await session.start()
   const socket = h.sockets[0], encoder = h.encoders[0]

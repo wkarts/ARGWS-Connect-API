@@ -37,6 +37,7 @@ export declare class SrtpSession {
   constructor(sendKey: SrtpKeyingMaterial, recvKey: SrtpKeyingMaterial, sendAuthLen?: number, recvAuthLen?: number);
   protect(packet: RtpPacket): Uint8Array;
   unprotect(data: Uint8Array): RtpPacket;
+  resetReceiveContext(ssrc: number): void;
   setSendAuthKeying(keying: SrtpKeyingMaterial): void;
 }
 export declare class SrtcpContext {
