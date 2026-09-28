@@ -280,6 +280,20 @@ test('concurrent starts reserve a shared slot before either engine allocates its
   assert.equal(f.engines.video.operations.length, 0);
 });
 
+test('permits four simultaneous video calls and rejects the fifth slot', async t => {
+  const f = fixture(t, { maxConcurrentCalls: 4 });
+  const calls = [];
+  for (let index = 0; index < 4; index += 1) {
+    calls.push(await f.adapter.startCall({ peerJid: `${index + 1}@lid`, isVideo: true }));
+  }
+  assert.equal(calls.length, 4);
+  assert.equal(f.engines.video.getCalls().length, 4);
+  await assert.rejects(
+    f.adapter.startCall({ peerJid: '5@lid', isVideo: true }),
+    /max concurrent calls reached \(4\)/,
+  );
+});
+
 test('a published session is not double-counted while its start promise is still pending', async t => {
   let release;
   const gate = new Promise(resolve => { release = resolve; });
