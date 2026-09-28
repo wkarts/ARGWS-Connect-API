@@ -51,6 +51,16 @@ export class FindHubRouter extends RouterBroker {
       .get('/tracking/stream/:instanceName', ...guards, (req, res, next) => {
         void findHubStream(req, res, findHubController).catch(next);
       })
+      .get('/protocol/flow/snapshot/:instanceName', ...guards, async (req, res) => {
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.json(await findHubController.flowSnapshot(req.params.instanceName));
+      })
+      .get('/protocol/flow/stream/:instanceName', ...guards, (req, res, next) => {
+        void findHubStream(req, res, {
+          snapshot: (instanceName) => findHubController.flowSnapshot(instanceName),
+          subscribe: (instanceName, listener) => findHubController.subscribeFlow(instanceName, listener),
+        }).catch(next);
+      })
       .get('/tracking/settings/:instanceName', ...guards, async (req, res) =>
         res.json(await findHubController.settings(req.params.instanceName)),
       )

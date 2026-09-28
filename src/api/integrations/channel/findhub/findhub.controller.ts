@@ -36,6 +36,12 @@ export class FindHubController {
   public subscribe(instanceName: string, listener: (event: any) => void) {
     return this.runtime(instanceName).subscribe(listener);
   }
+  public flowSnapshot(instanceName: string) {
+    return this.runtime(instanceName).flowSnapshot();
+  }
+  public subscribeFlow(instanceName: string, listener: (event: any) => void) {
+    return this.runtime(instanceName).subscribeFlow(listener);
+  }
   public settings(instanceName: string) {
     return this.runtime(instanceName).settings();
   }

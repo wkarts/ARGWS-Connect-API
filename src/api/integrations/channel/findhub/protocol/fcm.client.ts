@@ -4,6 +4,7 @@ import tls, { TLSSocket } from 'tls';
 import { decryptLegacyWebPush, webPushParams } from '../crypto/webpush';
 import { GOOGLE_ADM_CONFIG, GOOGLE_ENDPOINTS } from '../findhub.constants';
 import { FindHubFcmCredentials } from '../findhub.types';
+import { FindHubFcmPayloadMetadata, FindHubMcsFrame } from '../services/findhub-flow.service';
 import {
   bytes,
   concat,
@@ -226,6 +227,10 @@ function decodeAppData(payload: Buffer): Record<string, string> {
   return result;
 }
 
+function fingerprint(value?: string): string | undefined {
+  return value ? createHash('sha256').update(value).digest('hex') : undefined;
+}
+
 export class FindHubFcmClient {
   private socket?: TLSSocket;
   private receiveBuffer = Buffer.alloc(0);
@@ -247,7 +252,8 @@ export class FindHubFcmClient {
   constructor(
     private credentials: FindHubFcmCredentials | null,
     private readonly onCredentials: (credentials: FindHubFcmCredentials) => Promise<void>,
-    private readonly onPayload: (payload: Buffer) => void,
+    private readonly onPayload: (payload: Buffer, metadata?: FindHubFcmPayloadMetadata) => void,
+    private readonly onFrame?: (frame: FindHubMcsFrame) => void,
   ) {}
 
   public get registrationToken(): string {
@@ -468,6 +474,23 @@ export class FindHubFcmClient {
     this.lastFrameAt = Date.now();
     this.heartbeatSentAt = undefined;
     this.inputStreamId += 1;
+    const receivedAt = new Date(this.lastFrameAt).toISOString();
+    const appData = tag === 8 ? decodeAppData(payload) : {};
+    const persistentId = tag === 8 ? string(payload, 9) : undefined;
+    const rawData = tag === 8 ? bytes(payload, 21) : undefined;
+    try {
+      this.onFrame?.({
+        tag,
+        payloadBytes: payload.length,
+        streamId: this.inputStreamId,
+        receivedAt,
+        appDataKeys: Object.keys(appData).sort(),
+        persistentIdFingerprint: fingerprint(persistentId),
+        rawDataBytes: rawData?.length,
+      });
+    } catch {
+      // Observability is strictly best effort and cannot affect the MCS receiver.
+    }
     if (tag === 3) {
       const error = bytes(payload, 3);
       this.loginResult?.(error || !string(payload, 1) ? new Error('Google MCS login rejected') : undefined);
@@ -483,9 +506,6 @@ export class FindHubFcmClient {
       return;
     }
     if (tag !== 8 || !this.credentials) return;
-    const appData = decodeAppData(payload);
-    const persistentId = string(payload, 9);
-    const rawData = bytes(payload, 21);
     if (persistentId) {
       if (!this.credentials.persistentIds.includes(persistentId)) {
         this.credentials.persistentIds.push(persistentId);
@@ -510,7 +530,16 @@ export class FindHubFcmClient {
       });
       const notification = JSON.parse(plain.toString('utf8'));
       const encoded = notification?.data?.['com.google.android.apps.adm.FCM_PAYLOAD'];
-      if (encoded) this.onPayload(Buffer.from(encoded, 'base64'));
+      if (typeof encoded === 'string' && encoded) {
+        const decodedPayload = Buffer.from(encoded, 'base64');
+        this.onPayload(decodedPayload, {
+          receivedAt,
+          payloadBytes: decodedPayload.length,
+          appDataKeys: Object.keys(appData).sort(),
+          persistentIdFingerprint: fingerprint(persistentId),
+          rawDataBytes: rawData.length,
+        });
+      }
     } catch {
       // Privacy boundary: never log raw notification payloads or credentials.
     }

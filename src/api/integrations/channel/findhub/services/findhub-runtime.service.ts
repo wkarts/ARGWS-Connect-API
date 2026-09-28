@@ -27,6 +27,8 @@ import {
   safeProtocolPathSegment,
 } from '../protocol/findhub-protocol-lab';
 import { normalizeFindHubAvatar } from './findhub-avatar';
+import type { FindHubFlowEvent, FindHubFlowKind } from './findhub-flow.service';
+import { FindHubFlowBuffer, findHubFlowBufferSize } from './findhub-flow.service';
 import { createFindHubLocateDiagnostics, FindHubProtocolClient } from './findhub-protocol.client';
 import { FindHubTraccarService } from './findhub-traccar.service';
 import {
@@ -97,6 +99,8 @@ export class FindHubStartupService {
   private reconciliationTickRunning = false;
   private pruning = false;
   private subscribers = 0;
+  private flowSubscribers = 0;
+  private readonly flow = new FindHubFlowBuffer(findHubFlowBufferSize());
   private readonly locating = new Map<string, Promise<FindHubPosition | null>>();
   private readonly dispatching = new Set<string>();
   private readonly locationQueries = new Map<
@@ -195,6 +199,16 @@ export class FindHubStartupService {
               code: 'LOCATION_DELIVERY_FAILED',
             });
         });
+      },
+      (kind, data) => {
+        if (observationGeneration !== this.generation || this.protocol !== protocol) return;
+        this.publishFlow(kind, data);
+      },
+      async (googleDeviceId) => {
+        const row = await (this.prisma as any).findHubDevice.findFirst({
+          where: { instanceId: this.instance.id, googleDeviceId },
+        });
+        return row ? this.toDevice(row) : undefined;
       },
     );
     this.protocol = protocol;
@@ -1654,6 +1668,29 @@ export class FindHubStartupService {
     };
   }
 
+  public flowSnapshot(): any {
+    return {
+      ...this.flow.snapshot(100),
+      instanceId: this.instance.id,
+      instanceName: this.instance.name,
+      connected: this.transportReady,
+      state: this.stateConnection.state,
+    };
+  }
+
+  public subscribeFlow(listener: (event: FindHubFlowEvent) => void): () => void {
+    if (this.flowSubscribers >= 20) throw new Error('Limite de monitores de fluxo desta conta atingido.');
+    this.flowSubscribers++;
+    const stop = this.flow.subscribe(listener);
+    let closed = false;
+    return () => {
+      if (closed) return;
+      closed = true;
+      this.flowSubscribers--;
+      stop();
+    };
+  }
+
   public async pruneHistory(): Promise<number> {
     const settings = await this.settings();
     if (!settings.retentionDays || this.pruning) return 0;
@@ -1870,12 +1907,14 @@ export class FindHubStartupService {
   }
 
   private async emit(event: string, data: object): Promise<void> {
+    const at = new Date().toISOString();
     this._eventEmitter.emit('findhub:stream:' + this.instance.id, {
       event,
       instanceId: this.instance.id,
-      at: new Date().toISOString(),
+      at,
       data,
     });
+    this.publishFlow(this.flowKind(event), data as Record<string, unknown>, at);
     const serverUrl = this.configService.get<HttpServer>('SERVER').URL;
     await eventManager.emit({
       instanceName: this.instance.name,
@@ -1883,10 +1922,37 @@ export class FindHubStartupService {
       event,
       data,
       serverUrl,
-      dateTime: new Date().toISOString(),
+      dateTime: at,
       sender: 'google-find-hub',
       apiKey: undefined,
       local: true,
+    });
+  }
+
+  private flowKind(event: string): FindHubFlowKind {
+    switch (event) {
+      case FINDHUB_EVENTS.LOCATION_UPDATED:
+        return 'location.observed';
+      case FINDHUB_EVENTS.TRACKING_UPDATE:
+        return 'tracking.update';
+      case FINDHUB_EVENTS.DEVICES_UPDATED:
+        return 'devices.updated';
+      case FINDHUB_EVENTS.ERROR:
+        return 'error';
+      case 'connection.update':
+        return 'connection.update';
+      default:
+        return event;
+    }
+  }
+
+  private publishFlow(kind: FindHubFlowKind, data: Record<string, unknown>, at?: string): void {
+    this.flow.publish({
+      kind,
+      data,
+      at,
+      instanceId: this.instance.id,
+      instanceName: this.instance.name,
     });
   }
 

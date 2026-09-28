@@ -4,7 +4,7 @@ Esta evolução acrescenta rastreamento ao canal Google Find Hub existente. Não
 
 ## Fluxos de posição
 
-O Find Hub continua consultando o protocolo Google e recebendo relatórios por FCM. A API guarda a posição mais recente, publica no barramento de eventos existente e entrega SSE autenticado ao Manager. Vários leitores da mesma conta **não criam consultas Google extras**. Cada dispositivo tem no máximo uma consulta em andamento. O intervalo é a espera **após** terminar a consulta; o timeout é o limite de espera de uma resposta útil. Falhas aumentam a espera, sem sobreposição.
+O Find Hub mantém o canal MCS/FCM persistente e recebe relatórios por push. A API guarda a posição mais recente, publica no barramento de eventos existente e entrega SSE autenticado ao Manager. Vários leitores da mesma conta **não criam conexões ou consultas Google extras**. Cada dispositivo tem no máximo uma consulta em andamento. O intervalo é a espera **após** terminar a consulta; o timeout é o limite de espera de uma resposta útil. Falhas aumentam a espera, sem sobreposição.
 
 `Localizar agora` aceita um timeout opcional somente para aquela chamada; não ativa rastreamento silenciosamente. Um retorno intermediário apenas com metadados não consome a espera antes de chegar o relatório criptografado. Isso é coberto por regressão controlada; não constitui evidência de que tal retorno tenha causado um problema específico em uma conta real.
 
@@ -131,9 +131,19 @@ POST /findhub/locate/:deviceId/:instanceName     {timeoutMs?: number}
 GET  /findhub/positions/:deviceId/:instanceName ?from=ISO&to=ISO&limit=1000
 POST /findhub/positions/reconcile/:deviceId/:instanceName
 POST /findhub/positions/reconcile/:instanceName
+GET  /findhub/protocol/flow/snapshot/:instanceName
+GET  /findhub/protocol/flow/stream/:instanceName
 ```
 
 SSE usa `fetch` com `apikey` no header, nunca segredo na URL. Snapshot inicial, eventos existentes por conta, heartbeat15s, reconexão com autorização renovada a cada120s, máximo20 assinaturas por conta e backpressure. Essa reconexão não dispara uma localização por leitor. O cache do Manager não é a fonte de autoridade para acesso a dispositivos.
+
+### Monitor contínuo do fluxo MCS/FCM
+
+O stream de protocolo é um monitor leve e opcional do canal já aberto. Ele não faz polling, não abre um segundo socket Google e não grava frames em banco. O buffer circular padrão guarda até 256 eventos por instância em memória; `FINDHUB_FLOW_BUFFER_SIZE` permite ajustar o limite entre 32 e 4096. Quando um leitor é lento, o SSE é encerrado pelo mesmo limite de backpressure do stream de tracking; o contador `dropped` informa quando o buffer circular substituiu eventos antigos.
+
+O snapshot e o SSE usam eventos normalizados com `eventId`, `sequence`, `kind`, `at`, `instanceId`, `instanceName` e `data`. Os tipos principais são `mcs.frame`, `fcm.payload`, `device.update`, `location.decoded`, `location.observed`, `tracking.update`, `connection.update`, `devices.updated` e `error`. MCS/FCM expõem somente tag, tamanho, stream id, nomes de campos e fingerprints; nunca protobuf bruto, WebPush, tokens, cookies ou chaves.
+
+Um `DeviceUpdate` espontâneo que corresponda a um dispositivo da instância é decodificado sem exigir que exista uma requisição HTTP aberta. Para dispositivos com acompanhamento habilitado, a posição passa pelo mesmo pipeline existente: deduplicação, histórico, SSE de tracking, `findhub.location.updated` e encaminhamento Traccar. O mesmo evento de localização continua disponível nos transportes externos já configurados (Webhook, WebSocket, RabbitMQ, NATS, SQS, Pusher e Kafka). O fluxo bruto normalizado fica somente no endpoint SSE dedicado, evitando multiplicar payloads de alta frequência no barramento global.
 
 Tiles OpenStreetMap visíveis usam o cache normal do navegador e atribuição visível. Não há prefetch massivo, download offline ou proxy para burlar limites. O provedor de tiles recebe a área do mapa; `FINDHUB_MAP_TILE_URL` permite infraestrutura própria. O mapa não recebe credenciais Traccar.
 

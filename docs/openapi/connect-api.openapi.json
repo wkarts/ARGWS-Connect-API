@@ -8508,6 +8508,124 @@
         "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
       }
     },
+    "/findhub/protocol/flow/snapshot/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar o buffer do fluxo Find Hub",
+        "operationId": "get_findhub_protocol_flow_snapshot_instancename",
+        "description": "Retorna os últimos eventos sanitizados do canal MCS/FCM e do decoder, com sequência, descarte por limite e estado da conexão. O buffer é somente memória, limitado e não contém frames protobuf, tokens, chaves, cookies ou corpos WebPush brutos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar o buffer do fluxo Find Hub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubProtocolFlowSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/flow/stream/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Acompanhar o fluxo Find Hub por SSE",
+        "operationId": "get_findhub_protocol_flow_stream_instancename",
+        "description": "Monitoramento contínuo opcional do MCS/FCM, DeviceUpdate, decodificação de posição e eventos de tracking/conexão. Usa os mesmos guards por instância e o mesmo contrato de heartbeat/reconexão do stream de tracking; não abre polling nem uma segunda conexão Google por assinante. O buffer inicial é limitado e eventos MCS/FCM carregam somente metadados, tamanhos e fingerprints sanitizados. Posições novas continuam usando o barramento existente para histórico, Traccar e transportes externos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stream text/event-stream: event: update; data contém {event:\"snapshot\",data:FindHubProtocolFlowSnapshot} ou um evento de fluxo com eventId, sequence, kind, at, instanceId, instanceName e data.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/findhub/protocol/inventory/{instanceName}": {
       "get": {
         "tags": [
@@ -20275,6 +20393,104 @@
           },
           "traccar": {
             "$ref": "#/components/schemas/FindHubTraccarConnection"
+          }
+        }
+      },
+      "FindHubProtocolFlowEvent": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "sequence",
+          "kind",
+          "at",
+          "instanceId",
+          "instanceName",
+          "data"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "instanceName": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "FindHubProtocolFlowSnapshot": {
+        "type": "object",
+        "required": [
+          "version",
+          "instanceId",
+          "instanceName",
+          "connected",
+          "state",
+          "sequence",
+          "dropped",
+          "bufferSize",
+          "bufferLimit",
+          "events"
+        ],
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "instanceName": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "close",
+              "connecting",
+              "open"
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bufferSize": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bufferLimit": {
+            "type": "integer",
+            "minimum": 32,
+            "maximum": 4096
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindHubProtocolFlowEvent"
+            }
           }
         }
       },

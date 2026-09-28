@@ -302,6 +302,14 @@ Object.assign(findHubSchemas, {
     devices:{type:'array',items:ref('FindHubDevice')}, counts:{type:'object',properties:{devices:{type:'integer'},tracking:{type:'integer'},positions:{type:'integer'}}},
     map:{type:'object',properties:{tileUrl:text}},catalogue:{type:'object',properties:{limitation:text,providerCapabilities:{type:'object',additionalProperties:true}}},traccar:ref('FindHubTraccarConnection'),
   }},
+  FindHubProtocolFlowEvent:{type:'object',required:['eventId','sequence','kind','at','instanceId','instanceName','data'],properties:{
+    eventId:text,sequence:{type:'integer',minimum:1},kind:text,at:timestamp,instanceId:text,instanceName:text,data:{type:'object',additionalProperties:true},
+  }},
+  FindHubProtocolFlowSnapshot:{type:'object',required:['version','instanceId','instanceName','connected','state','sequence','dropped','bufferSize','bufferLimit','events'],properties:{
+    version:{const:1},instanceId:text,instanceName:text,connected:{type:'boolean'},state:{type:'string',enum:['close','connecting','open']},
+    sequence:{type:'integer',minimum:0},dropped:{type:'integer',minimum:0},bufferSize:{type:'integer',minimum:0},bufferLimit:{type:'integer',minimum:32,maximum:4096},
+    events:{type:'array',items:ref('FindHubProtocolFlowEvent')},
+  }},
 });
 Object.assign(findHubSchemas.FindHubDevice.properties, {
   latestPosition:{oneOf:[ref('FindHubPosition'),{type:'null'}]}, lastReceivedAt:{type:['string','null'],format:'date-time'}, lastAttemptAt:{type:['string','null'],format:'date-time'},
@@ -314,6 +322,8 @@ findHubSchemas.FindHubTraccarBinding.properties.traccarNumericId={type:['integer
 Object.assign(findHubOperations, {
  'GET /findhub/tracking/snapshot/{instanceName}':operation('Consultar estado do mapa e da conta','Snapshot autorizado, posições mais recentes, estado do acompanhamento, configurações e contadores reais. Nunca contém credenciais Google/Traccar. Posição recente não é prova de aparelho online.',ref('FindHubTrackingSnapshot')),
  'GET /findhub/tracking/stream/{instanceName}':operation('Acompanhar posições por SSE','Usa o mesmo apikey e guards de instância. Cliente fetch com header, nunca token em query. Evento inicial snapshot seguido de updates do barramento Find Hub. Reautoriza a cada reconexão (até 120 segundos); heartbeat a cada 15 segundos. Máximo de 20 assinaturas por conta, fila inicial 100 eventos e buffer de saída limitado. Não efetua polling Google adicional por assinante.',{}, {responses:{'200':{description:'Stream text/event-stream: event: update; data contém {event,instanceId,at,data}. Snapshot inicial contém {event:"snapshot",data:FindHubTrackingSnapshot}.',content:{'text/event-stream':{schema:{type:'string'}}}},...errors}}),
+ 'GET /findhub/protocol/flow/snapshot/{instanceName}':operation('Consultar o buffer do fluxo Find Hub','Retorna os últimos eventos sanitizados do canal MCS/FCM e do decoder, com sequência, descarte por limite e estado da conexão. O buffer é somente memória, limitado e não contém frames protobuf, tokens, chaves, cookies ou corpos WebPush brutos.',ref('FindHubProtocolFlowSnapshot')),
+ 'GET /findhub/protocol/flow/stream/{instanceName}':operation('Acompanhar o fluxo Find Hub por SSE','Monitoramento contínuo opcional do MCS/FCM, DeviceUpdate, decodificação de posição e eventos de tracking/conexão. Usa os mesmos guards por instância e o mesmo contrato de heartbeat/reconexão do stream de tracking; não abre polling nem uma segunda conexão Google por assinante. O buffer inicial é limitado e eventos MCS/FCM carregam somente metadados, tamanhos e fingerprints sanitizados. Posições novas continuam usando o barramento existente para histórico, Traccar e transportes externos.',{}, {responses:{'200':{description:'Stream text/event-stream: event: update; data contém {event:"snapshot",data:FindHubProtocolFlowSnapshot} ou um evento de fluxo com eventId, sequence, kind, at, instanceId, instanceName e data.',content:{'text/event-stream':{schema:{type:'string'}}}},...errors}}),
  'GET /findhub/tracking/settings/{instanceName}':operation('Consultar parâmetros do rastreamento','Configuração efetiva desta conta. O ambiente fornece somente os valores iniciais.',ref('FindHubTrackingSettings')),
  'PUT /findhub/tracking/settings/{instanceName}':operation('Salvar parâmetros e retenção da conta','Mescla somente campos permitidos. Histórico habilitado é independente do Traccar. Reduzir retenção autoriza descarte das posições locais anteriores ao prazo; 0 preserva. Os intervalos já salvos por dispositivo são alterados na ação de acompanhamento daquele dispositivo.',ref('FindHubTrackingSettings'),{requestBody:body('FindHubTrackingSettings',{intervalSeconds:60,timeoutMs:30000,staleAfterSeconds:300,historyEnabled:true,retentionDays:30})}),
  'GET /findhub/traccar/configuration/{instanceName}':operation('Consultar integração oficial Traccar','Retorna modo, disponibilidade e hasToken. Segredo e endereço interno não são enviados ao frontend.',ref('FindHubTraccarConnection')),
@@ -554,4 +564,3 @@ findHubOperations['POST /findhub/positions/reconcile/{instanceName}'] = operatio
     },
   },
 );
-
