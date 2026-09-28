@@ -401,6 +401,8 @@ test('lifecycle check closes orphan streams after runtime replacement or missing
   for (const reason of ['replace', 'missing']) {
     const ctx = setup();
     const originalInterval = global.setInterval;
+    const originalNow = Date.now;
+    let now = originalNow();
     let tick;
     try {
       global.setInterval = callback => { tick = callback; return { unref() {} }; };
@@ -409,7 +411,15 @@ test('lifecycle check closes orphan streams after runtime replacement or missing
     if (reason === 'replace') ctx.monitor.waInstances[INSTANCE] = { ...ctx.provider };
     else ctx.provider.listCalls = async () => [];
     await tick();
-    assert.equal(ctx.ws.closed.code, 1000);
+    assert.equal(ctx.ws.closed, null, 'one transient call snapshot must not tear down the stream');
+    now += 10_001;
+    Date.now = () => now;
+    try {
+      await tick();
+    } finally {
+      Date.now = originalNow;
+    }
+    assert.equal(ctx.ws.closed.code, 4404);
     for (const name of ['video', 'ended', 'keyframe']) assert.equal(ctx.emitter.listenerCount(name), 0);
     ctx.close();
   }
