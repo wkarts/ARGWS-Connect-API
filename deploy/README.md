@@ -78,6 +78,26 @@ Core:
 
 Profiles opcionais podem usar também `./volumes/nats`, `./volumes/kafka` e `./volumes/zookeeper`. Não são usados named volumes.
 
+## Preparo seguro de volumes opcionais
+
+Os scripts oficiais `deploy.sh` e `update.sh` agora executam, depois do pull e antes do start, o
+preparador local `prepare-volumes.py`. Quando os profiles `mysql` ou `kafka` estão selecionados,
+ele identifica o UID/GID real da imagem e prepara somente diretórios de bind **vazios** de MySQL,
+Kafka e ZooKeeper. Diretórios com dados, em uso ou sem permissão compatível são recusados sem
+alteração: não há `chmod 777`, `chown -R`, remoção de dados ou volumes nomeados.
+
+CloudPanel e Dockge continuam suportados. Se o deploy for feito pelo botão direto da interface,
+execute antes do primeiro Up com esses profiles o `prepare-volumes.py` da própria stack. Os scripts
+oficiais já fazem isso automaticamente.
+
+## Parceiro Fersoft
+
+Os quatro perfis autocontidos ficam em `deploy/fersoft/`: `develop/`, `develop/full-stack/`,
+`production/` e `production/full-stack/`. Eles isolam projeto Compose, rede, serviços internos,
+bancos, domínio, porta e dados com a identidade Fersoft. As referências GHCR são herdadas, sem
+alteração, dos respectivos templates ARGWS de origem. Nenhum deployment oficial existente foi
+removido ou substituído.
+
 ## GHCR
 
 Produção e homologação consomem exclusivamente imagens `ghcr.io/wkarts/argws-connect-*`. O bootstrap inicial já foi executado com sucesso e o workflow de sincronização mantém core e mensageria opcional espelhados no GHCR.

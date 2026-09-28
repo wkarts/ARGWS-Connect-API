@@ -27,6 +27,17 @@ Perfis opcionais:
 
 No Dockge, configure `COMPOSE_PROFILES` no `.env` somente quando quiser iniciar um desses grupos.
 
+Antes do primeiro **Up** que habilite `mysql`, `kafka` ou `extended`, abra um terminal no diretório
+da stack e execute, após o Pull:
+
+```bash
+python3 ./prepare-volumes.py --compose-file compose.yaml
+```
+
+O comando só ajusta binds vazios para o usuário real das imagens. Se encontrar dados existentes
+com permissão incompatível, ele interrompe sem apagar nem alterar recursivamente os arquivos.
+Usar `./deploy.sh` ou `./update.sh` executa essa etapa automaticamente.
+
 ## Persistência
 
 Todos os dados ficam em `./volumes/...` dentro do diretório da própria stack. Não são usados named volumes.

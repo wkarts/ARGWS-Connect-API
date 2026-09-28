@@ -63,6 +63,7 @@ while IFS= read -r image; do
 done < <(docker compose config --images)
 
 docker compose pull
+python3 ./prepare-volumes.py --compose-file docker-compose.yml
 docker compose up -d --remove-orphans
 
 echo "Stack iniciada. API e Connect|API DOCs possuem portas locais dedicadas no host."

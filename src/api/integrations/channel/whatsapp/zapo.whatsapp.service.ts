@@ -14,6 +14,7 @@ import { PrismaRepository } from '@api/repository/repository.service';
 import { chatbotController } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import { STATUS_BROADCAST_JID, StatusBroadcastRetentionService } from '@api/services/status-broadcast-retention.service';
 import { Events, Integration, wa } from '@api/types/wa.types';
 import { Chatwoot, ConfigService, ConfigSessionPhone, Database, QrCode } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
@@ -81,6 +82,8 @@ function getSharedZapoPostgresBackend(connectionString: string) {
  * plugin; the public call adapter delegates only video calls to Connect's engine.
  */
 export class ZapoStartupService extends ChannelStartupService {
+  private readonly statusBroadcastRetention: StatusBroadcastRetentionService;
+
   constructor(
     public readonly configService: ConfigService,
     public readonly eventEmitter: EventEmitter2,
@@ -90,6 +93,7 @@ export class ZapoStartupService extends ChannelStartupService {
   ) {
     super(configService, eventEmitter, prismaRepository, chatwootCache);
     this.instance.qrcode = { count: 0 };
+    this.statusBroadcastRetention = new StatusBroadcastRetentionService(this.prismaRepository);
   }
 
   public client: any = null;
@@ -1380,7 +1384,7 @@ export class ZapoStartupService extends ChannelStartupService {
     const message = this.toJson(event.message);
     const messageType = this.detectMessageType(message);
     const isProtocolMessage = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
-    const isStatusMessage = canonicalRemoteJid === 'status@broadcast' || event.key.isBroadcast === true;
+    const isStatusMessage = canonicalRemoteJid === STATUS_BROADCAST_JID || event.key.isBroadcast === true;
     const messageRaw: any = {
       key: {
         id: event.key.id,
@@ -1408,6 +1412,8 @@ export class ZapoStartupService extends ChannelStartupService {
       Boolean(protocol?.key?.id) &&
       (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
+    if (isStatusMessage && !this.localSettings.readStatus && !isRevokeProtocol) return;
+
     if (isRevokeProtocol) {
       const targetKey = protocol.key;
       const targetMessage = await this.prismaRepository.message.findFirst({
@@ -1418,30 +1424,45 @@ export class ZapoStartupService extends ChannelStartupService {
       });
 
       let persistedMessage: any = targetMessage;
+      let isStatusDeletion = targetKey.remoteJid === STATUS_BROADCAST_JID;
       if (targetMessage?.id) {
-        const existingKey =
+        const existingKey: any =
           typeof targetMessage.key === 'object' && targetMessage.key !== null ? targetMessage.key : {};
+        isStatusDeletion ||= existingKey.remoteJid === STATUS_BROADCAST_JID;
 
-        persistedMessage = await this.prismaRepository.message.update({
-          where: { id: targetMessage.id },
-          data: {
-            key: { ...existingKey, deleted: true },
-            status: 'DELETED',
-          },
-        });
-
-        if (db.SAVE_DATA.MESSAGE_UPDATE) {
-          await this.prismaRepository.messageUpdate.create({
+        if (isStatusDeletion) {
+          const removed = await this.statusBroadcastRetention.removeMessage(targetMessage.id);
+          if (!removed) {
+            persistedMessage = await this.prismaRepository.message.update({
+              where: { id: targetMessage.id },
+              data: {
+                key: { ...existingKey, deleted: true },
+                status: 'DELETED',
+              },
+            });
+          }
+        } else {
+          persistedMessage = await this.prismaRepository.message.update({
+            where: { id: targetMessage.id },
             data: {
-              messageId: targetMessage.id,
-              keyId: String(targetKey.id),
-              remoteJid: targetKey.remoteJid || persistedMessage.key?.remoteJid || canonicalRemoteJid,
-              fromMe: Boolean(targetKey.fromMe),
-              participant: targetKey.participant,
+              key: { ...existingKey, deleted: true },
               status: 'DELETED',
-              instanceId: this.instanceId,
             },
           });
+
+          if (db.SAVE_DATA.MESSAGE_UPDATE) {
+            await this.prismaRepository.messageUpdate.create({
+              data: {
+                messageId: targetMessage.id,
+                keyId: String(targetKey.id),
+                remoteJid: targetKey.remoteJid || persistedMessage.key?.remoteJid || canonicalRemoteJid,
+                fromMe: Boolean(targetKey.fromMe),
+                participant: targetKey.participant,
+                status: 'DELETED',
+                instanceId: this.instanceId,
+              },
+            });
+          }
         }
       }
 
@@ -1450,21 +1471,23 @@ export class ZapoStartupService extends ChannelStartupService {
         remoteJid: targetKey.remoteJid || persistedMessage?.key?.remoteJid || canonicalRemoteJid,
       };
 
-      this.sendDataWebhook(Events.MESSAGES_DELETE, {
-        id: persistedMessage?.id,
-        instanceId: this.instanceId,
-        key: deletionKey,
-        status: 'DELETED',
-        messageTimestamp: messageRaw.messageTimestamp,
-        source: persistedMessage?.source || messageRaw.source,
-      });
+      if (!isStatusDeletion || this.localSettings.readStatus) {
+        this.sendDataWebhook(Events.MESSAGES_DELETE, {
+          id: persistedMessage?.id,
+          instanceId: this.instanceId,
+          key: deletionKey,
+          status: 'DELETED',
+          messageTimestamp: messageRaw.messageTimestamp,
+          source: persistedMessage?.source || messageRaw.source,
+        });
 
-      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
-        await this.chatwootService.eventWhatsapp(
-          Events.MESSAGES_DELETE,
-          { instanceName: this.instance.name, instanceId: this.instanceId },
-          { key: deletionKey, status: 'DELETED' },
-        );
+        if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+          await this.chatwootService.eventWhatsapp(
+            Events.MESSAGES_DELETE,
+            { instanceName: this.instance.name, instanceId: this.instanceId },
+            { key: deletionKey, status: 'DELETED' },
+          );
+        }
       }
 
       return;

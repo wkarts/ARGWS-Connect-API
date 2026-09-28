@@ -153,4 +153,16 @@ const deleteFile = async (folder: string, fileName: string) => {
   }
 };
 
-export { BUCKET, deleteFile, getObjectStream, getObjectUrl, uploadFile, uploadTempFile };
+const deleteStoredFile = async (fileName: string): Promise<boolean> => {
+  if (!minioClient) return false;
+
+  try {
+    await minioClient.removeObject(bucketName, join('argws-connect-api', fileName));
+    return true;
+  } catch (error) {
+    logger.error(error);
+    return false;
+  }
+};
+
+export { BUCKET, deleteFile, deleteStoredFile, getObjectStream, getObjectUrl, uploadFile, uploadTempFile };

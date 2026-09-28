@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
 docker compose --env-file .env -f compose.yaml config --quiet
 docker compose --env-file .env -f compose.yaml pull
+python3 ./prepare-volumes.py --compose-file compose.yaml
 if docker compose --env-file .env -f compose.yaml ps -q | grep -q .; then
   echo "Criando e verificando backup antes da atualizacao (aguarde janela sem chamadas)."
   BACKUP_FILE="$(bash ./backup.sh)"

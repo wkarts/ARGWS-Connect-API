@@ -56,6 +56,7 @@ import { ManagerEmbeddingService } from './services/manager-embedding.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
+import { StatusBroadcastRetentionService } from './services/status-broadcast-retention.service';
 import { TemplateService } from './services/template.service';
 import { VideoMediaService } from './services/video-media.service';
 import { VoiceMediaService } from './services/voice-media.service';
@@ -76,6 +77,7 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 }
 
 export const prismaRepository = new PrismaRepository(configService);
+export const statusBroadcastRetentionService = new StatusBroadcastRetentionService(prismaRepository);
 export const managerEmbeddingService = new ManagerEmbeddingService(prismaRepository);
 export const localTemplateService = new LocalTemplateService(prismaRepository);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);

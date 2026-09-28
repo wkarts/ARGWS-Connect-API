@@ -60,6 +60,10 @@ import { PrismaRepository, Query } from '@api/repository/repository.service';
 import { chatbotController, waMonitor } from '@api/server.module';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
+import {
+  STATUS_BROADCAST_JID,
+  StatusBroadcastRetentionService,
+} from '@api/services/status-broadcast-retention.service';
 import { Events, MessageSubtype, TypeMediaMessage, wa } from '@api/types/wa.types';
 import { CacheEngine } from '@cache/cacheengine';
 import {
@@ -231,6 +235,7 @@ export class BaileysStartupService extends ChannelStartupService {
   public readonly capabilities = BAILEYS_WHATSAPP_CAPABILITIES;
 
   private messageProcessor = new BaileysMessageProcessor();
+  private readonly statusBroadcastRetention: StatusBroadcastRetentionService;
 
   constructor(
     public readonly configService: ConfigService,
@@ -248,6 +253,7 @@ export class BaileysStartupService extends ChannelStartupService {
     });
 
     this.authStateProvider = new AuthStateProvider(this.providerFiles);
+    this.statusBroadcastRetention = new StatusBroadcastRetentionService(this.prismaRepository);
   }
 
   private authStateProvider: AuthStateProvider;
@@ -734,12 +740,11 @@ export class BaileysStartupService extends ChannelStartupService {
         }
 
         const isGroupJid = this.localSettings.groupsIgnore && isJidGroup(jid);
-        // Status capture is independent from read receipts. Keep status@broadcast
-        // available for the dedicated Status view even when readStatus=false.
-        const isBroadcast = isJidBroadcast(jid) && jid !== 'status@broadcast';
+        const isStatusBroadcast = jid === STATUS_BROADCAST_JID;
+        const isBroadcast = isJidBroadcast(jid) && !isStatusBroadcast;
         const isNewsletter = isJidNewsletter(jid);
 
-        return isGroupJid || isBroadcast || isNewsletter;
+        return isGroupJid || isBroadcast || isNewsletter || (isStatusBroadcast && !this.localSettings.readStatus);
       },
       syncFullHistory: this.localSettings.syncFullHistory,
       shouldSyncHistoryMessage: (msg: proto.Message.IHistorySyncNotification) => {
@@ -1225,6 +1230,7 @@ export class BaileysStartupService extends ChannelStartupService {
             this.logger.warn(`Message ignored with messageStubParameters: ${JSON.stringify(received, null, 2)}`);
             continue;
           }
+
           if (received.message?.conversation || received.message?.extendedTextMessage?.text) {
             const text = received.message?.conversation || received.message?.extendedTextMessage?.text;
 
@@ -1249,11 +1255,16 @@ export class BaileysStartupService extends ChannelStartupService {
             Boolean(protocolMessage?.key?.id) &&
             (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
+          if (received.key?.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus && !isRevokeMessage) {
+            continue;
+          }
+
           if (protocolMessage && isRevokeMessage) {
             const deletedKey = protocolMessage.key;
             const deletedAt = Long.isLong(received?.messageTimestamp)
               ? Math.floor(received.messageTimestamp.toNumber())
               : Math.floor(Number(received?.messageTimestamp) || Date.now() / 1000);
+            let isStatusDeletion = deletedKey?.remoteJid === STATUS_BROADCAST_JID;
 
             if (received.key?.id && deletedKey?.id) {
               await this.baileysCache.set(`protocol_${received.key.id}`, deletedKey.id, 60 * 60 * 24);
@@ -1266,45 +1277,61 @@ export class BaileysStartupService extends ChannelStartupService {
                 typeof (oldMessage as any).key === 'object' && (oldMessage as any).key !== null
                   ? (oldMessage as any).key
                   : {};
+              isStatusDeletion ||= existingKey.remoteJid === STATUS_BROADCAST_JID;
 
-              persistedMessage = await this.prismaRepository.message.update({
-                where: { id: (oldMessage as any).id },
-                data: {
-                  key: { ...existingKey, deleted: true },
-                  status: 'DELETED',
-                },
-              });
-
-              if (this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE) {
-                await this.prismaRepository.messageUpdate.create({
+              if (isStatusDeletion) {
+                const removed = await this.statusBroadcastRetention.removeMessage((oldMessage as any).id);
+                if (!removed) {
+                  persistedMessage = await this.prismaRepository.message.update({
+                    where: { id: (oldMessage as any).id },
+                    data: {
+                      key: { ...existingKey, deleted: true },
+                      status: 'DELETED',
+                    },
+                  });
+                }
+              } else {
+                persistedMessage = await this.prismaRepository.message.update({
+                  where: { id: (oldMessage as any).id },
                   data: {
-                    fromMe: Boolean(deletedKey.fromMe),
-                    keyId: deletedKey.id,
-                    remoteJid: deletedKey.remoteJid,
-                    participant: deletedKey.participant,
+                    key: { ...existingKey, deleted: true },
                     status: 'DELETED',
-                    instanceId: this.instanceId,
-                    messageId: (oldMessage as any).id,
                   },
                 });
+
+                if (this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE) {
+                  await this.prismaRepository.messageUpdate.create({
+                    data: {
+                      fromMe: Boolean(deletedKey.fromMe),
+                      keyId: deletedKey.id,
+                      remoteJid: deletedKey.remoteJid,
+                      participant: deletedKey.participant,
+                      status: 'DELETED',
+                      instanceId: this.instanceId,
+                      messageId: (oldMessage as any).id,
+                    },
+                  });
+                }
               }
             }
 
-            await this.sendDataWebhook(Events.MESSAGES_DELETE, {
-              id: persistedMessage?.id,
-              instanceId: this.instanceId,
-              key: deletedKey,
-              status: 'DELETED',
-              messageTimestamp: deletedAt,
-              source: persistedMessage?.source,
-            });
+            if (!isStatusDeletion || this.localSettings.readStatus) {
+              await this.sendDataWebhook(Events.MESSAGES_DELETE, {
+                id: persistedMessage?.id,
+                instanceId: this.instanceId,
+                key: deletedKey,
+                status: 'DELETED',
+                messageTimestamp: deletedAt,
+                source: persistedMessage?.source,
+              });
 
-            if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
-              this.chatwootService.eventWhatsapp(
-                Events.MESSAGES_DELETE,
-                { instanceName: this.instance.name, instanceId: this.instance.id },
-                { key: deletedKey, status: 'DELETED' },
-              );
+              if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+                this.chatwootService.eventWhatsapp(
+                  Events.MESSAGES_DELETE,
+                  { instanceName: this.instance.name, instanceId: this.instance.id },
+                  { key: deletedKey, status: 'DELETED' },
+                );
+              }
             }
           } else if (protocolMessage) {
             const editedMessage = protocolMessage;
@@ -1748,6 +1775,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
       for await (const { key, update } of args) {
         if (settings?.groupsIgnore && key.remoteJid?.includes('@g.us')) {
+          continue;
+        }
+
+        if (key.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus) {
           continue;
         }
 
@@ -2632,6 +2663,10 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       const messageRaw = this.prepareMessage(messageSent);
+
+      if (messageRaw.key?.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus) {
+        return messageRaw;
+      }
 
       const isMedia =
         messageSent?.message?.imageMessage ||
