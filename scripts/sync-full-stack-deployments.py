@@ -10,6 +10,24 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('ops', ROOT/'scripts/prepare-operations-env.py')
 ops = importlib.util.module_from_spec(spec); spec.loader.exec_module(ops)
 
+
+class LiteralBlock(str):
+    """Keep embedded programs readable after the YAML round-trip."""
+
+
+def literal_block(dumper, value):
+    return dumper.represent_scalar('tag:yaml.org,2002:str', value, style='|')
+
+
+yaml.SafeDumper.add_representer(LiteralBlock, literal_block)
+
+
+def preserve_bootstrap_literal(services):
+    for name, service in services.items():
+        entrypoint = service.get('entrypoint', [])
+        if name.startswith('traccar-bootstrap-') and entrypoint[:2] == ['node', '-e']:
+            entrypoint[2] = LiteralBlock(entrypoint[2].rstrip())
+
 def generate():
     result = {}
     for channel in ('develop', 'production'):
@@ -29,6 +47,7 @@ def generate():
         mysql['networks'] = {suffix+'-net': {'aliases': ['mysql-'+suffix]}}
         mysql['healthcheck']['test'] = ['CMD-SHELL', 'MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin ping -h 127.0.0.1 -u root --silent']
         services['mysql-'+suffix] = mysql
+        preserve_bootstrap_literal(services)
         text = yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
         text = text.replace(':-./volumes/', ':-../volumes/')
         result[folder/'compose.yaml'] = '# Alternative full-stack profile. Parent deployment is preserved.\n'+text
@@ -43,7 +62,7 @@ def generate():
         env = '# FULL STACK: API unica porta; services locais opcionais selecionados por padrao.\n'+env
         env = env.replace('# Duas portas locais publicadas: API e Connect|API DOCs. Manager permanece em /manager.', '# Uma porta local publicada: API. Manager e DOCs permanecem na API.')
         result[folder/'env.example'] = env
-        for script in ('prepare-operations-env.py','prepare-findhub-env.py','prepare-traccar-env.py','traccar-bootstrap.cjs'):
+        for script in ('prepare-operations-env.py','prepare-findhub-env.py','prepare-traccar-env.py'):
             result[folder/script] = (ROOT/'scripts'/script).read_text()
         result[folder/'prepare-env.py'] = (ROOT/'scripts/prepare-full-stack-env.py').read_text()
         result[folder/'prepare-volumes.py'] = (ROOT/'scripts/prepare-full-stack-volumes.py').read_text()
@@ -94,6 +113,7 @@ Instalacoes com dados anteriores devem importar o ambiente correspondente, nao c
 14 servicos: API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO, Operations,
 NATS/JetStream, Kafka, ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL Traccar e bootstrap Traccar.
 O bootstrap e uma tarefa finita; terminar com codigo 0 e o resultado correto, nao um container quebrado.
+Seu codigo e incorporado ao proprio `compose.yaml`; nao ha arquivo `traccar-bootstrap.cjs` externo para montar.
 O deploy prepara os binds vazios de MySQL/Kafka/ZooKeeper para o UID/GID real das imagens antes do start.
 Nao usa chmod 777, chown recursivo, volumes nomeados novos ou banco em root. Diretorios com dados
 ja gravados nunca tem dono alterado automaticamente; permissoes incompativeis interrompem o deploy.

@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_KEYS = {
     'COMPOSE_PROFILES': 'operations',
     'OPERATIONS_ENABLED': 'true',
+    'NATS_ENABLED': 'false',
+    'KAFKA_ENABLED': 'false',
+    'MYSQL_SERVICE_ENABLED': 'false',
     'OPERATIONS_AGENT_URL': 'http://operations:8092',
     'OPERATIONS_INTERNAL_TOKEN': 'CHANGE_ME_OPERATIONS_INTERNAL_TOKEN',
     'ARGWS_CONNECT_OPERATIONS_DATA_PATH': './volumes/operations',
@@ -36,6 +39,16 @@ VOLUME_CASES = [
     ('deploy/canonical', 'compose.yaml'),
     ('deploy/cloudpanel', 'docker-compose.yml'),
     ('deploy/dockge', 'compose.yaml'),
+]
+MYSQL_CASES = [
+    ('docker-compose.yaml', 'api', 'argws-connect-net'),
+    ('docker-compose.dev.yaml', 'api', 'argws-connect-dev-net'),
+    ('deploy/develop/compose.yaml', 'api-argws-connect-develop', 'argws-connect-develop-net'),
+    ('deploy/production/compose.yaml', 'api-argws-connect-production', 'argws-connect-production-net'),
+    ('deploy/canonical/compose.yaml', 'api-argws-connect-canonical', 'argws-connect-canonical-net'),
+    ('deploy/homologation/compose.yaml', 'api', 'argws-connect-net'),
+    ('deploy/cloudpanel/docker-compose.yml', 'api', 'argws-connect-net'),
+    ('deploy/dockge/compose.yaml', 'api', 'argws-connect-net'),
 ]
 
 
@@ -140,6 +153,57 @@ def compose_text(text, api, agent, network, image, full):
     return text
 
 
+def ensure_optional_mysql(text, api, network):
+    """Keep the normal Compose topology complete; MySQL remains profile-gated."""
+    suffix = api[4:] if api.startswith('api-') else ''
+    name = 'mysql' + ('-' + suffix if suffix else '')
+    if re.search(r'^  ' + re.escape(name) + r':\s*\n', text, re.M):
+        _, _, existing = section(text, name)
+        malformed = 'test: ["CMD-SHELL", "MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysqladmin ping -h 127.0.0.1 -u root --silent"]'
+        corrected = "test: ['CMD-SHELL', 'MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h 127.0.0.1 -u root --silent']"
+        if malformed in existing:
+            return replace_service(text, name, existing.replace(malformed, corrected))
+        return text
+    if suffix:
+        container_name = name
+        alias = name
+    else:
+        container_name = network.removesuffix('-net').replace('-', '_') + '_mysql'
+        alias = network.removesuffix('-net') + '-mysql'
+    block = f'''  {name}:
+    profiles: ["mysql"]
+    image: ${{ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}}
+    pull_policy: always
+    container_name: {container_name}
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${{MYSQL_DATABASE:-argws_connect_api}}
+      MYSQL_USER: ${{MYSQL_USERNAME:-argws_connect}}
+      MYSQL_PASSWORD: ${{MYSQL_PASSWORD:-CHANGE_ME_MYSQL_PASSWORD}}
+      MYSQL_ROOT_PASSWORD: ${{MYSQL_ROOT_PASSWORD:-CHANGE_ME_MYSQL_ROOT_PASSWORD}}
+      TZ: ${{TZ:-America/Bahia}}
+    expose: ["3306"]
+    volumes:
+      - ${{ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}}:/var/lib/mysql
+    networks:
+      {network}:
+        aliases: [{alias}]
+    healthcheck:
+      test: ['CMD-SHELL', 'MYSQL_PWD="$${{MYSQL_ROOT_PASSWORD}}" mysqladmin ping -h 127.0.0.1 -u root --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${{DOCKER_LOG_MAX_SIZE:-20m}}
+        max-file: "${{DOCKER_LOG_MAX_FILE:-5}}"
+'''
+    _, end, _ = section(text, api)
+    return text[:end] + '\n' + block + '\n' + text[end:]
+
+
 def env_text(text):
     for key, value in ENV_KEYS.items():
         line = f'{key}={value}'
@@ -174,6 +238,9 @@ def generate(root):
     helper = (root / 'scripts/prepare-operations-env.py').read_text()
     for path, api, agent, network, image, full in CASES:
         outputs[path] = compose_text((root / path).read_text(), api, agent, network, image, full)
+    for path, api, network in MYSQL_CASES:
+        source = outputs.get(path, (root / path).read_text())
+        outputs[path] = ensure_optional_mysql(source, api, network)
     envs = ['.env.example', 'env.example']
     directories = ['deploy/develop', 'deploy/production', 'deploy/homologation', 'deploy/cloudpanel', 'deploy/dockge']
     for directory in directories:

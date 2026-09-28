@@ -30,6 +30,17 @@ ops = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ops)
 
 
+class LiteralBlock(str):
+    """Keep an embedded Node bootstrap readable in generated Compose files."""
+
+
+def literal_block(dumper, value):
+    return dumper.represent_scalar('tag:yaml.org,2002:str', value, style='|')
+
+
+yaml.SafeDumper.add_representer(LiteralBlock, literal_block)
+
+
 def suffix(channel):
     return f'fersoft-connect-{channel}'
 
@@ -91,6 +102,10 @@ def compose_for(channel, full):
     compose = replace_identity(yaml.safe_load(base.read_text(encoding='utf-8')), channel)
     services = compose['services']
     services[f'docs-{suffix(channel)}'].pop('ports', None)
+    for name, service in services.items():
+        entrypoint = service.get('entrypoint', [])
+        if name.startswith('traccar-bootstrap-') and entrypoint[:2] == ['node', '-e']:
+            entrypoint[2] = LiteralBlock(entrypoint[2].rstrip())
     text = yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
     return text.replace(':-./volumes/', ':-../volumes/') if full else text
 
@@ -128,6 +143,26 @@ def normal_deploy(channel, update=False):
     text = text.replace(source_host, target_host)
     text = re.sub(r'^echo "DOCs local:.*\n', '', text, flags=re.M)
     return with_volume_hook(text)
+
+
+def recover_full_stack(channel):
+    stack = suffix(channel)
+    auxiliary = ' '.join(f'{service}-{stack}' for service in ('mysql', 'kafka', 'zookeeper'))
+    return f'''#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+python3 ./prepare-operations-env.py --check
+export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
+docker compose --env-file .env -f compose.yaml config --quiet
+expected="$(docker compose --env-file .env -f compose.yaml config --services | wc -l | tr -d '[:space:]')"
+[[ "$expected" == "14" ]] || {{ echo "ERRO: esta recuperacao requer os 14 servicos locais selecionados no .env." >&2; exit 2; }}
+docker compose --env-file .env -f compose.yaml pull
+# Stop only the three auxiliary services whose bind permissions are checked below.
+docker compose --env-file .env -f compose.yaml stop {auxiliary} || true
+python3 ./prepare-volumes.py --compose-file compose.yaml
+docker compose --env-file .env -f compose.yaml up -d --pull never
+python3 ./check-runtime.py --expected 14
+'''
 
 
 def backup_script(levels):
@@ -197,9 +232,13 @@ Instalar:
 Atualizar:
   ./update.sh
 
+Recuperar uma full stack configurada com todos os 14 servicos, sem remover dados ou trocar segredos:
+  ./recover-full-stack.sh
+
 Antes de iniciar Kafka, ZooKeeper e MySQL, os scripts preparam apenas binds vazios para o UID/GID real
 das imagens. Diretorios ja gravados e sem permissao sao recusados sem alteracao; a stack nao e marcada como
-saudavel ate que os probes reais passem.{migration}
+saudavel ate que os probes reais passem. O bootstrap Traccar esta incorporado ao proprio `compose.yaml`;
+o runtime nao requer arquivo de codigo externo.{migration}
 '''
 
 
@@ -242,7 +281,8 @@ def normal_files(channel):
         folder / 'prepare-findhub-env.py': (ROOT / 'scripts/prepare-findhub-env.py').read_text(encoding='utf-8'),
         folder / 'prepare-traccar-env.py': (ROOT / 'scripts/prepare-traccar-env.py').read_text(encoding='utf-8'),
         folder / 'prepare-volumes.py': (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text(encoding='utf-8'),
-        folder / 'traccar-bootstrap.cjs': (ROOT / 'scripts/traccar-bootstrap.cjs').read_text(encoding='utf-8'),
+        folder / 'check-runtime.py': (ROOT / 'scripts/check-full-stack-runtime.py').read_text(encoding='utf-8'),
+        folder / 'recover-full-stack.sh': recover_full_stack(channel),
     }
 
 
@@ -267,7 +307,6 @@ def full_files(channel):
         folder / 'prepare-traccar-env.py': (ROOT / 'scripts/prepare-traccar-env.py').read_text(encoding='utf-8'),
         folder / 'prepare-volumes.py': (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text(encoding='utf-8'),
         folder / 'check-runtime.py': (ROOT / 'scripts/check-full-stack-runtime.py').read_text(encoding='utf-8'),
-        folder / 'traccar-bootstrap.cjs': (ROOT / 'scripts/traccar-bootstrap.cjs').read_text(encoding='utf-8'),
     }
 
 

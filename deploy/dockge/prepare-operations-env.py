@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 
 DEFAULTS = {
     'OPERATIONS_ENABLED': 'true',
+    'NATS_ENABLED': 'false',
+    'KAFKA_ENABLED': 'false',
+    'MYSQL_SERVICE_ENABLED': 'false',
     'OPERATIONS_AGENT_URL': 'http://operations:8092',
     'OPERATIONS_INTERNAL_TOKEN': '',
     'ARGWS_CONNECT_OPERATIONS_DATA_PATH': './volumes/operations',
@@ -20,6 +23,12 @@ DEFAULTS = {
 }
 OWN_KEYS = set(DEFAULTS) | {'COMPOSE_PROFILES'}
 ASSIGNMENT = re.compile(r'^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$')
+PROFILE_FLAGS = (
+    ('OPERATIONS_ENABLED', 'operations'),
+    ('NATS_ENABLED', 'nats'),
+    ('KAFKA_ENABLED', 'kafka'),
+    ('MYSQL_SERVICE_ENABLED', 'mysql'),
+)
 
 
 def values(text):
@@ -69,11 +78,12 @@ def profiles(env):
             raise ValueError('COMPOSE_PROFILES invalido; selecione perfis explicitamente.')
         if item not in selected:
             selected.append(item)
-    if env.get('OPERATIONS_ENABLED') == 'true':
-        if 'operations' not in selected:
-            selected.append('operations')
-    else:
-        selected = [item for item in selected if item != 'operations']
+    for flag, profile in PROFILE_FLAGS:
+        if env.get(flag) == 'true':
+            if profile not in selected:
+                selected.append(profile)
+        else:
+            selected = [item for item in selected if item != profile]
     traccar_enabled = os.environ.get('TRACCAR_ENABLED', env.get('TRACCAR_ENABLED', 'false'))
     traccar_mode = os.environ.get('TRACCAR_MODE', env.get('TRACCAR_MODE', 'disabled'))
     if traccar_enabled == 'true' and traccar_mode == 'internal':
@@ -90,8 +100,9 @@ def validate(env, effective=False):
     missing = OWN_KEYS - set(env)
     if missing:
         raise ValueError('Faltam parametros operacionais; execute prepare-env.sh: ' + ', '.join(sorted(missing)))
-    if env['OPERATIONS_ENABLED'] not in ('true', 'false'):
-        raise ValueError('OPERATIONS_ENABLED deve ser true ou false.')
+    for flag, _ in PROFILE_FLAGS:
+        if env[flag] not in ('true', 'false'):
+            raise ValueError(flag + ' deve ser true ou false.')
     for name, low, high in [('OPERATIONS_HOT_DAYS', 1, 30), ('OPERATIONS_RETENTION_DAYS', 1, 3650)]:
         value = env[name]
         if not value.isdigit() or not low <= int(value) <= high:
@@ -118,8 +129,16 @@ def validate(env, effective=False):
 def prepare(text, enable=False):
     original = values(text)
     changed = text
+    existing_profiles = {item.strip() for item in original.get('COMPOSE_PROFILES', '').split(',') if item.strip()}
+    inferred_enabled = {
+        'NATS_ENABLED': 'nats' in existing_profiles or 'extended' in existing_profiles,
+        'KAFKA_ENABLED': 'kafka' in existing_profiles or 'extended' in existing_profiles,
+        'MYSQL_SERVICE_ENABLED': 'mysql' in existing_profiles,
+    }
     for key, default in DEFAULTS.items():
-        if key not in original or not original[key]:
+        if key not in original:
+            changed = set_value(changed, key, 'true' if inferred_enabled.get(key, False) else default)
+        elif not original[key]:
             changed = set_value(changed, key, default)
     if enable:
         changed = set_value(changed, 'OPERATIONS_ENABLED', 'true')

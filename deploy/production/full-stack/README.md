@@ -33,6 +33,7 @@ Instalacoes com dados anteriores devem importar o ambiente correspondente, nao c
 14 servicos: API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO, Operations,
 NATS/JetStream, Kafka, ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL Traccar e bootstrap Traccar.
 O bootstrap e uma tarefa finita; terminar com codigo 0 e o resultado correto, nao um container quebrado.
+Seu codigo e incorporado ao proprio `compose.yaml`; nao ha arquivo `traccar-bootstrap.cjs` externo para montar.
 O deploy prepara os binds vazios de MySQL/Kafka/ZooKeeper para o UID/GID real das imagens antes do start.
 Nao usa chmod 777, chown recursivo, volumes nomeados novos ou banco em root. Diretorios com dados
 ja gravados nunca tem dono alterado automaticamente; permissoes incompativeis interrompem o deploy.

@@ -6,6 +6,11 @@ ROOT=Path(__file__).resolve().parents[1]
 def module(file):
  spec=importlib.util.spec_from_file_location(file.stem.replace('-','_'),file);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 
+def bootstrap_program(root):
+ """Return the tested bootstrap source for `node -e`, without a host bind mount."""
+ source=(root/'scripts/traccar-bootstrap.cjs').read_text(encoding='utf-8')
+ return source.removeprefix('#!/usr/bin/env node\n').rstrip()
+
 def generate(root, overrides=None):
  overrides = overrides or {}
  read = lambda path: overrides.get(str(path), (root/path).read_text() if (root/path).exists() else "")
@@ -32,6 +37,7 @@ def generate(root, overrides=None):
   text=re.sub(r'\n  # BEGIN OPTIONAL TRACCAR\n.*?^  # END OPTIONAL TRACCAR\n', '', text, flags=re.M|re.S)
   suffix=api[3:] if api.startswith('api-') else ''
   tracker='traccar'+suffix;db='traccar-postgres'+suffix;bootstrap='traccar-bootstrap'+suffix
+  bootstrap_source='\n'.join('        '+line for line in bootstrap_program(root).splitlines())
   swarm='Docker/swarm/' in name
   optional='    deploy:\n      replicas: ${TRACCAR_REPLICAS:-0}\n' if swarm else '    profiles: [traccar]\n'
   restart='' if swarm else '    restart: unless-stopped\n'
@@ -80,13 +86,15 @@ def generate(root, overrides=None):
       retries: 10
   {bootstrap}:
 {bootstrap_optional}    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
-    entrypoint: ["node", "/bootstrap/traccar-bootstrap.cjs"]
+    entrypoint:
+      - node
+      - -e
+      - |
+{bootstrap_source}
     environment:
       TRACCAR_INTERNAL_URL: http://traccar:8082
       TRACCAR_ADMIN_EMAIL: ${{TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}}
       TRACCAR_ADMIN_PASSWORD: ${{TRACCAR_ADMIN_PASSWORD:-}}
-    volumes:
-      - ./traccar-bootstrap.cjs:/bootstrap/traccar-bootstrap.cjs:ro
     networks: [{network}]
   # END OPTIONAL TRACCAR
 '''
@@ -98,11 +106,9 @@ def generate(root, overrides=None):
   end_services=re.search(r'^[^\s#][^\n]*:',text[header.end():],re.M)
   offset=header.end()+end_services.start() if end_services else len(text)
   text=text[:offset]+service+'\n'+text[offset:]
-  # Relative helper accompanies each standalone stack, including root/Swarm examples.
+  # Each Compose embeds the bootstrap program so the runtime requires only the
+  # Compose file, its .env, and data volumes.
   directory=Path(name).parent
-  if directory==Path('.'):
-   service_path='scripts/traccar-bootstrap.cjs';text=text.replace('./traccar-bootstrap.cjs:/bootstrap/', './scripts/traccar-bootstrap.cjs:/bootstrap/')
-  else:outputs[(directory/'traccar-bootstrap.cjs').as_posix()]=(root/'scripts/traccar-bootstrap.cjs').read_text()
   outputs[name]=text;profiles.append(name)
   if directory != Path('.'):outputs[(directory/'prepare-traccar-env.py').as_posix()]=(root/'scripts/prepare-traccar-env.py').read_text()
   for file in (directory/'env.example', directory/'.env.example'):
