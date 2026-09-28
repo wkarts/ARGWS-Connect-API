@@ -1,0 +1,8 @@
+{
+  "name": "@argws/connect-voip-engine",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "./index.js",
+  "types": "./index.d.ts"
+}

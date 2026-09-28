@@ -14,6 +14,17 @@ export type SecurityState = {
   lastVerifiedAt?: string | null
 }
 
+export type ManagerEmbeddingSettings = {
+  version: number
+  configured: boolean
+  enabled: boolean
+  allowedOrigins: string[]
+  effectiveFrameAncestors: string
+  source: 'database' | 'environment'
+  allowAnyOrigin: boolean
+  updatedAt?: string | null
+}
+
 export type Session = {
   account: Account
   permissions: string[]
@@ -57,6 +68,9 @@ export type ProviderCapabilitySet = {
   voice: boolean
   qrCode: boolean
   pairingCode: boolean
+  devices?: boolean
+  location?: boolean
+  tracking?: boolean
 }
 
 export type ConnectionItem = {

@@ -4,7 +4,7 @@
     "title": "Connect|API — REST API",
     "version": "1.1.3",
     "summary": "Referência interativa da API nativa do Connect|API.",
-    "description": "![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)\n\nAPI nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.\n\n### Autenticação\nA API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.\n\n### Providers\n- `WHATSAPP-BUSINESS`\n- `WHATSAPP-BAILEYS`\n- `WHATSAPP-ZAPO`\n\n### Atualização automática\nEste documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado."
+    "description": "![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)\n\nAPI nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.\n\n### Autenticação\nA API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.\n\n### Providers\n- `WHATSAPP-BUSINESS`\n- `WHATSAPP-BAILEYS`\n- `WHATSAPP-ZAPO`\n- `GOOGLE-FIND-HUB`\n\n### Atualização automática\nEste documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado."
   },
   "servers": [
     {
@@ -17,6 +17,10 @@
     }
   ],
   "tags": [
+    {
+      "name": "Google Find Hub",
+      "description": "Contas Google, autenticação por CredentialProvider, dispositivos, localização, tracking e Traccar. Consulte também o documento dedicado Google Find Hub no seletor do Scalar."
+    },
     {
       "name": "Core",
       "description": "Healthcheck, descoberta e utilidades globais."
@@ -112,6 +116,10 @@
     {
       "name": "Diagnostics",
       "description": "Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração."
+    },
+    {
+      "name": "Manager",
+      "description": "Configuração administrativa global do Manager, incluindo a allowlist persistida de origens de iframe."
     }
   ],
   "paths": {
@@ -998,6 +1006,46 @@
         }
       }
     },
+    "/call/capabilities/{instanceName}": {
+      "get": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "Consultar capacidade efetiva de chamadas",
+        "operationId": "get_call_capabilities_instancename",
+        "description": "Retorna o suporte da instância em execução. Vídeo exige Connect Video Adapter habilitado; voz continua no plugin validado. O nome do provider sozinho não comprova suporte a vídeo.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Capacidades em execução, sem cache.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallCapabilities"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts"
+      }
+    },
     "/call/end/{instanceName}": {
       "post": {
         "tags": [
@@ -1272,9 +1320,9 @@
         "tags": [
           "Calls"
         ],
-        "summary": "Offer",
+        "summary": "Iniciar chamada de voz ou vídeo",
         "operationId": "post_call_offer_instancename",
-        "description": "Endpoint descoberto do código em `src/api/routes/call.router.ts`.",
+        "description": "Preserva o contrato existente. isVideo ausente/false utiliza o plugin de voz homologado; true utiliza o adapter de vídeo quando a capability efetiva está disponível. A resposta confirma envio da oferta, não atendimento remoto. Acompanhe CALL/list para o estado.",
         "parameters": [
           {
             "name": "instanceName",
@@ -1325,12 +1373,27 @@
         },
         "x-source-file": "src/api/routes/call.router.ts",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "additionalProperties": true
+                "required": [
+                  "number"
+                ],
+                "properties": {
+                  "number": {
+                    "type": "string"
+                  },
+                  "isVideo": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "callDuration": {
+                    "type": "number",
+                    "description": "Tempo opcional para encerramento automático em segundos."
+                  }
+                }
               }
             }
           }
@@ -1401,6 +1464,71 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/call/videoMediaTicket/{instanceName}": {
+      "post": {
+        "tags": [
+          "Calls"
+        ],
+        "summary": "Emitir ticket descartável para mídia de vídeo",
+        "operationId": "post_call_videomediaticket_instancename",
+        "description": "Exige autenticação e acesso à instância, chamada isVideo existente e não terminada. Ticket vinculado à instância, chamada e runtime, válido por 30s e consumido uma única vez. Conecte a /video/media e envie {ticket} no primeiro frame JSON; depois, aguarde ready e use o protocolo binário CV. Não transmite vídeo por webhook.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Ticket criado; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoMediaTicket"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Vídeo indisponível, limite de tickets ou entrada inválida."
+          },
+          "404": {
+            "description": "Instância ou chamada de vídeo ativa não encontrada."
+          }
+        },
+        "x-source-file": "src/api/routes/call.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "callId"
+                ],
+                "properties": {
+                  "callId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             }
           }
@@ -2289,6 +2417,74 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chat/markMessageAsPlayed/{instanceName}": {
+      "post": {
+        "tags": [
+          "Chats & Contacts"
+        ],
+        "summary": "Marcar áudio recebido como reproduzido (PLAYED)",
+        "operationId": "post_chat_markmessageasplayed_instancename",
+        "description": "Envia o receipt nativo PLAYED ao WhatsApp somente quando o cliente confirma reprodução real do áudio. Não substitui markMessageAsRead, não é disparado por download, histórico ou sincronização e aceita participant opcional para grupos. fromMe deve ser false.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Receipt PLAYED enviado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayedMessageResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/chat.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayedMessageRequest"
+              },
+              "example": {
+                "playedMessages": [
+                  {
+                    "id": "3EB0123456789ABCDEF",
+                    "fromMe": false,
+                    "remoteJid": "5575988881111@s.whatsapp.net"
+                  }
+                ]
               }
             }
           }
@@ -6453,6 +6649,3085 @@
         }
       }
     },
+    "/findhub/auth/browser/cancel/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Cancelar tentativa de vinculação",
+        "operationId": "post_findhub_auth_browser_cancel_instancename",
+        "description": "Invalida a tentativa e descarta credenciais temporárias. Uma verificação final já iniciada não pode ser cancelada neste endpoint; aguarde o resultado e use desvincular. Não encerra sessões de outros canais ou contas.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelar tentativa de vinculação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserCancelled"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserProof"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/complete/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Validar chave e concluir conexão Find Hub",
+        "operationId": "post_findhub_auth_browser_complete_instancename",
+        "description": "Recebe o callback finder_hw, verifica a chave contra o envelope da mesma conta, cifra as credenciais e tenta autenticar MCS e listar dispositivos. Só confirma READY após essa verificação. Pode levar até alguns minutos; Google pode recusar o protocolo privado. Não é homologação universal.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validar chave e concluir conexão Find Hub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserCompleteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/exchange/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Validar artefato do login Google",
+        "operationId": "post_findhub_auth_browser_exchange_instancename",
+        "description": "Troca uma única vez o artefato temporário autorizado pelo usuário; preserva literalmente os bytes do cookie, incluindo %, + e =; o formulário faz encoding uma única vez. O campo Email da resposta é opcional: divergência explícita é rejeitada, e uma segunda solicitação confirma o token de serviço ADM para a conta informada antes de prosseguir. Cada solicitação Google tem timeout de 30 segundos; clientes devem permitir pelo menos 65 segundos para esta etapa. Usa HTTPS/1.1 dedicado sem ALPN, com verificação de certificado e hostname habilitada. Falhas retornam mensagem segura com código FH-AUTH-9101 a FH-AUTH-9116, sem resposta bruta, cookies ou tokens. Exige apikey e prova da sessão. Não persiste senha, não aceita callback genérico e não marca a conta como conectada. A resposta fornece somente o endereço de desbloqueio.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Validar artefato do login Google",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserExchangeResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserExchangeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/browser/start/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Iniciar vinculação assistida no navegador",
+        "operationId": "post_findhub_auth_browser_start_instancename",
+        "description": "Cria tentativa de dez minutos, sem autenticar. O Manager usa a extensão própria no Chrome/Edge desktop; exige aprovação explícita da origem e do servidor em cada tentativa. Não é OAuth público, não é login puramente web/mobile. Desvincule credenciais anteriores antes de iniciar outra conta.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Tentativa criada; usuário ainda precisa autorizar e autenticar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubBrowserSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubBrowserStartRequest"
+              },
+              "example": {
+                "email": "operator@example.com"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/extension/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Obter extensão própria de autenticação",
+        "operationId": "get_findhub_auth_extension_instancename",
+        "description": "Entrega o pacote ZIP versionado e self-hosted da extensão opcional 0.1.6, com ícone oficial e o mesmo ID público. Ao atualizar, substitua os arquivos da pasta já carregada, recarregue a extensão e o Manager. A atualização do backend também é necessária. Requer autenticação da instância. Instale como extensão sem compactação no Chrome/Edge desktop; não exige Chromium/Selenium/VNC no servidor e não instala aplicativo no smartphone rastreado.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ZIP da extensão própria, sem segredos ou chaves privadas.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/auth/import/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Importar bundle autorizado e conectar",
+        "operationId": "post_findhub_auth_import_instancename",
+        "description": "Exige apikey da instância, sessionId e bridgeToken. Cifra o bundle com FINDHUB_CREDENTIALS_KEY e tenta conectar o canal. Não recebe senha, cookies do navegador nem a chave de criptografia do servidor. Um login comum no Google não produz automaticamente esse bundle.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Importar bundle autorizado e conectar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubAuthResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubCredentialBundleRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/start/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Iniciar vinculação da conta Google",
+        "operationId": "post_findhub_auth_start_instancename",
+        "description": "Cria sessão de dez minutos e devolve bridgeToken sensível. Não devolve URL OAuth, QR Code ou callback Google: o CredentialProvider externo precisa obter o bundle autorizado.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Sessão temporária criada; aguarda o CredentialProvider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubAuthSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubAuthStartRequest"
+              },
+              "example": {
+                "email": "operador@example.com"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/auth/status/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar estado da autenticação",
+        "operationId": "get_findhub_auth_status_instancename",
+        "description": "Consulta estado persistido sem devolver tokens nem chaves. Use para acompanhar a vinculação tanto pelo Manager quanto por integração externa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar estado da autenticação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubAuthStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/device/{deviceId}/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar um dispositivo",
+        "operationId": "get_findhub_device_deviceid_instancename",
+        "description": "Use o id local retornado na listagem, não googleDeviceId. A consulta permanece restrita à instância autorizada.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar um dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDevice"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/device/avatar/{deviceId}/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Obter avatar privado do dispositivo",
+        "operationId": "get_findhub_device_avatar_deviceid_instancename",
+        "description": "Mesma autenticação por instância; não inclua tokens em URLs. Resposta sem cache compartilhado.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Obter avatar privado do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "avatarData": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Definir ou remover avatar do dispositivo",
+        "operationId": "put_findhub_device_avatar_deviceid_instancename",
+        "description": "Valida propriedade da instância e PNG; remove metadados. Não modifica o dispositivo Google nem é sobrescrito na sincronização.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definir ou remover avatar do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDevice"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubDeviceAvatarRequest"
+              },
+              "example": {
+                "avatar": null
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/devices/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Listar dispositivos cadastrados",
+        "operationId": "get_findhub_devices_instancename",
+        "description": "Retorna o catálogo local da instância; não força uma consulta nova ao Google. O decoder aceita o layout legado e o layout vivo observado em 2026, incluindo metadados Android e dispositivos supervisionados do Family Link quando o provider os entrega.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listar dispositivos cadastrados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindHubDevice"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/devices/refresh/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Atualizar catálogo pelo Google Find Hub",
+        "operationId": "post_findhub_devices_refresh_instancename",
+        "description": "Consulta SPOT primeiro e os seletores Android, Auto, Fast Pair e Supervised como caminhos complementares best-effort. Capturas reais de 2026 mostraram que esses seletores podem devolver o mesmo catálogo completo; portanto não são tratados como tipo semântico do aparelho. Qualquer catálogo legível pode sustentar a sincronização, os resultados são deduplicados por Google Device ID e SPOT é apenas desempate de compatibilidade. Compartilhamento Family Link não equivale a permissão neste protocolo privado; dispositivos não retornados pelo Google não são fabricados.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Atualizar catálogo pelo Google Find Hub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindHubDevice"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/disconnect/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Desvincular conta Google preservando dados",
+        "operationId": "post_findhub_disconnect_instancename",
+        "description": "Interrompe o canal e remove somente o material de autenticação Google. Mantém FindHubAccount, dispositivos, avatares, histórico, tracking, configurações e vínculos Traccar para reconectar a mesma conta. Purge destrutivo existe somente no ciclo de exclusão definitiva da instância.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desvincular conta Google preservando dados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubDisconnected"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/locate/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Solicitar localização do dispositivo",
+        "operationId": "post_findhub_locate_deviceid_instancename",
+        "description": "Solicita posição pelo protocolo Google. Timeout efetivo por dispositivo (1 a 2147483647 ms), independente do intervalo. A última posição é preservada mesmo com histórico desabilitado; não é substituída por relatório mais antigo. Integração Traccar opcional não impede a gravação nem a entrega do evento local quando indisponível. Corpo opcional timeoutMs sobrepõe o prazo somente nesta consulta, sem ativar acompanhamento ou alterar parâmetros persistidos. Cada solicitação envia um comando real e correlaciona a resposta FCM pelo UUID. Relatório repetido não encerra a espera antes de uma observação mais nova ou do deadline absoluto. No deadline, somente relatórios realmente recebidos nessa consulta podem ser retornados como última posição conhecida. Sem resposta, ocorre timeout; nunca existe fallback silencioso ao banco. O resultado detalhado está em lastQuery no snapshot e query nos eventos; new_report significa mais recente que o relatório local, não GPS necessariamente atual.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Solicitar localização do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindHubPosition"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubLocateRequest"
+              },
+              "example": {
+                "timeoutMs": 45000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/positions/{deviceId}/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar histórico de posições",
+        "operationId": "get_findhub_positions_deviceid_instancename",
+        "description": "Histórico local desta conta/dispositivo, mais recente primeiro. Gravação controlada nas configurações da conta; posições anteriores continuam legíveis ao desabilitar novas gravações. Sem recuperar histórico que nunca foi coletado. Retenção 0 é indefinida; valores positivos permitem limpeza em lotes.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar histórico de posições",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindHubStoredPosition"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/positions/reconcile/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Reconciliar lacuna de um dispositivo",
+        "operationId": "post_findhub_positions_reconcile_deviceid_instancename",
+        "description": "Executa recuperação best effort no Google Find Hub para um dispositivo. Importa e deduplica todos os relatórios válidos RECENT/NETWORK realmente devolvidos pelo provider, inclusive relatórios fora do intervalo usado como métrica. O resultado separa ausência de reports, falha de decode/validação, duplicados, importações fora da faixa e recuperação efetiva. Não interpola posições e não promete reconstrução completa da lacuna.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reconciliar lacuna de um dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubReconciliationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubReconciliationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/positions/reconcile/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Reconciliar dispositivos rastreados da instância",
+        "operationId": "post_findhub_positions_reconcile_instancename",
+        "description": "Executa manualmente a reconciliação dos dispositivos com tracking habilitado nesta instância. Cada dispositivo reutiliza a persistência idempotente do histórico e devolve o resultado individual sem fabricar posições ausentes no Google.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reconciliar dispositivos rastreados da instância",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubReconciliationBatchResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubReconciliationRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/protocol/capture/archive/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar pacote completo do Protocol Lab",
+        "operationId": "post_findhub_protocol_capture_archive_instancename",
+        "description": "Monta ZIP em memória com requests, responses, DeviceUpdate, manifest/checksums e referências das famílias ainda não capturáveis. Falha individual não elimina os demais artefatos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ZIP forense gerado sob demanda e não persistido pela captura.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubProtocolArchiveRequest"
+              },
+              "example": {
+                "includeDeviceUpdates": true,
+                "timeoutMs": 30000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/protocol/capture/catalog/{catalog}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Capturar DevicesList protobuf bruto",
+        "operationId": "post_findhub_protocol_capture_catalog_catalog_instancename",
+        "description": "Executa diretamente a consulta Nova com o seletor solicitado e devolve o corpo binário sem decodificação. Seletores aceitos: spot, android, auto, fastpair e supervised. Capturas reais de 2026 mostram que o provider pode devolver o mesmo catálogo completo para seletores diferentes; o seletor não deve ser interpretado como garantia do tipo semântico dos dispositivos retornados. O arquivo pode conter identificadores, e-mails de acesso e material criptográfico cifrado; não é persistido pela captura.",
+        "parameters": [
+          {
+            "name": "catalog",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "spot",
+                "android",
+                "auto",
+                "fastpair",
+                "supervised"
+              ]
+            },
+            "description": "Parâmetro de rota catalog."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Protobuf bruto retornado pelo provider Google; contém dados sensíveis e deve ser tratado como artefato forense.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/device-update/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Capturar DeviceUpdate FCM protobuf bruto",
+        "operationId": "post_findhub_protocol_capture_device_update_deviceid_instancename",
+        "description": "Envia um Locate com requestUuid exclusivo, aguarda o primeiro DeviceUpdate FCM correlacionado e devolve o envelope protobuf bruto antes do decoder de posições. Nenhuma captura é gravada automaticamente em banco ou log normal.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Protobuf bruto retornado pelo provider Google; contém dados sensíveis e deve ser tratado como artefato forense.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubLocateRequest"
+              },
+              "example": {
+                "timeoutMs": 120000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/protocol/capture/eid-info/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Capturar GetEidInfo protobuf",
+        "operationId": "post_findhub_protocol_capture_eid_info_instancename",
+        "description": "Executa GetEidInfoForE2eeDevices na Spot API e devolve a response protobuf bruta. Pode conter envelope criptografado sensível.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/action/{action}/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request ExecuteAction protobuf",
+        "operationId": "post_findhub_protocol_capture_request_action_action_deviceid_instancename",
+        "description": "Gera request Locate/StartSound/StopSound com o dispositivo selecionado. O download não envia o comando.",
+        "parameters": [
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "locate",
+                "sound-start",
+                "sound-stop"
+              ]
+            },
+            "description": "Parâmetro de rota action."
+          },
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/catalog/{catalog}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request DevicesList protobuf",
+        "operationId": "post_findhub_protocol_capture_request_catalog_catalog_instancename",
+        "description": "Gera o request Nova DevicesList para o seletor informado sem executar uma segunda leitura de catálogo.",
+        "parameters": [
+          {
+            "name": "catalog",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "spot",
+                "android",
+                "auto",
+                "fastpair",
+                "supervised"
+              ]
+            },
+            "description": "Parâmetro de rota catalog."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/eid-info/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request GetEidInfo protobuf",
+        "operationId": "post_findhub_protocol_capture_request_eid_info_instancename",
+        "description": "Gera o request Spot GetEidInfoForE2eeDevices sem executar a chamada.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/capture/request/security-unlock/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Baixar request finder_hw protobuf",
+        "operationId": "post_findhub_protocol_capture_request_security_unlock_instancename",
+        "description": "Gera EncryptionUnlockRequestExtras do security domain finder_hw sem executar o desbloqueio.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artefato protobuf para análise controlada.",
+            "content": {
+              "application/x-protobuf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/flow/snapshot/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar o buffer do fluxo Find Hub",
+        "operationId": "get_findhub_protocol_flow_snapshot_instancename",
+        "description": "Retorna os últimos eventos sanitizados do canal MCS/FCM e do decoder, com sequência, descarte por limite e estado da conexão. O buffer é somente memória, limitado e não contém frames protobuf, tokens, chaves, cookies ou corpos WebPush brutos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar o buffer do fluxo Find Hub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubProtocolFlowSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/flow/stream/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Acompanhar o fluxo Find Hub por SSE",
+        "operationId": "get_findhub_protocol_flow_stream_instancename",
+        "description": "Monitoramento contínuo opcional do MCS/FCM, DeviceUpdate, decodificação de posição e eventos de tracking/conexão. Usa os mesmos guards por instância e o mesmo contrato de heartbeat/reconexão do stream de tracking; não abre polling nem uma segunda conexão Google por assinante. O buffer inicial é limitado e eventos MCS/FCM carregam somente metadados, tamanhos e fingerprints sanitizados. Posições novas continuam usando o barramento existente para histórico, Traccar e transportes externos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stream text/event-stream: event: update; data contém {event:\"snapshot\",data:FindHubProtocolFlowSnapshot} ou um evento de fluxo com eventId, sequence, kind, at, instanceId, instanceName e data.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/inventory/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Inventário completo do Protocol Lab",
+        "operationId": "get_findhub_protocol_inventory_instancename",
+        "description": "Lista todas as superfícies conhecidas catalogadas pela Connect|API, incluindo live, internal-live, request-template e reference-only, além do catálogo completo de mensagens/enums protobuf e seu impacto de enriquecimento na aplicação. Não retorna credenciais ou segredos.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventário completo do Protocol Lab",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/protocol/state/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar estado vivo sanitizado dos protocolos",
+        "operationId": "get_findhub_protocol_state_instancename",
+        "description": "Consulta E2EE/owner-key metadata e saúde FCM/MCS sem retornar tokens, securityToken, private key, shared key ou owner key brutos. Os campos wire ainda sem semântica permanecem identificados pelo caminho numérico.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar estado vivo sanitizado dos protocolos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubProtocolState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/sound/start/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Tocar som no dispositivo",
+        "operationId": "post_findhub_sound_start_deviceid_instancename",
+        "description": "Usa ExecuteAction.startSound (action field 31). O comando é permitido quando o provider anuncia a capability 31; catálogos legados sem capabilities mantêm fallback para SPOT. O mesmo telefone pode aparecer como ANDROID no catálogo e responder pelo wire SPOT. Componentes RIGHT, LEFT e CASE são opcionais somente para dispositivos compatíveis.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tocar som no dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubSoundResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubSoundRequest"
+              },
+              "example": {
+                "component": "UNSPECIFIED"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/sound/stop/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Parar som no dispositivo",
+        "operationId": "post_findhub_sound_stop_deviceid_instancename",
+        "description": "Usa ExecuteAction.stopSound (action field 32). O comando é permitido quando o provider anuncia a capability 32; catálogos legados sem capabilities mantêm fallback para SPOT.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Parar som no dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubSoundResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubSoundRequest"
+              },
+              "example": {
+                "component": "UNSPECIFIED"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/traccar/{deviceId}/{instanceName}": {
+      "delete": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Remover vínculo com o Traccar",
+        "operationId": "delete_findhub_traccar_deviceid_instancename",
+        "description": "Remove apenas a integração desse dispositivo na instância. Não remove o smartphone do Google nem o cadastro remoto no Traccar.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Vínculo removido; resposta sem corpo."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar vínculo Traccar do dispositivo",
+        "operationId": "get_findhub_traccar_deviceid_instancename",
+        "description": "Retorna somente o vínculo local do dispositivo pertencente à instância autorizada, ou null quando não configurado. Não consulta o catálogo de dispositivos de outros canais nem fornece uma API de administração remota do Traccar.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar vínculo Traccar do dispositivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FindHubTraccarBinding"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Configurar vínculo com o Traccar",
+        "operationId": "put_findhub_traccar_deviceid_instancename",
+        "description": "Modo legado: vínculo manual com receptor OsmAnd explicitamente autorizado em TRACCAR_ALLOWED_ORIGINS. Não provisiona cadastro remoto nem altera a configuração global; use provision para a integração oficial automática. Destino interno só é aceito quando habilitado.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configurar vínculo com o Traccar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarBinding"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubTraccarRequest"
+              },
+              "example": {
+                "enabled": true,
+                "url": "http://traccar:5055",
+                "deviceId": "android-01"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/traccar/configuration/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar integração oficial Traccar",
+        "operationId": "get_findhub_traccar_configuration_instancename",
+        "description": "Retorna modo, disponibilidade e hasToken. Segredo e endereço interno não são enviados ao frontend.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar integração oficial Traccar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Configurar Traccar interno ou externo",
+        "operationId": "put_findhub_traccar_configuration_instancename",
+        "description": "No modo interno a API resolve URL e credenciais da instalação. Externo exige origens HTTPS previamente autorizadas pelo administrador e token protegido. Valida sessão oficial antes de salvar; alteração de destino invalida somente vínculos locais de forma transacional, preservando dispositivos e históricos remotos. Desabilitar não afeta o canal Google.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Configurar Traccar interno ou externo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubTraccarConnectionRequest"
+              },
+              "example": {
+                "mode": "internal",
+                "timeoutMs": 10000
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/traccar/provision/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Provisionar dispositivo no Traccar e vincular",
+        "operationId": "post_findhub_traccar_provision_deviceid_instancename",
+        "description": "Consulta/cria dispositivo pela API oficial usando identificador estável derivado de conta + dispositivo e valida a associação. Retorna vínculo local. Posições usam OsmAnd; eventos retornam por /api/socket com sessão exclusiva do backend e são filtrados por vínculo/conta.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provisionar dispositivo no Traccar e vincular",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTraccarBinding"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/tracking/settings/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar parâmetros do rastreamento",
+        "operationId": "get_findhub_tracking_settings_instancename",
+        "description": "Configuração efetiva desta conta. O ambiente fornece somente os valores iniciais.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar parâmetros do rastreamento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Salvar parâmetros e retenção da conta",
+        "operationId": "put_findhub_tracking_settings_instancename",
+        "description": "Mescla somente campos permitidos. Histórico habilitado é independente do Traccar. Reduzir retenção autoriza descarte das posições locais anteriores ao prazo; 0 preserva. Os intervalos já salvos por dispositivo são alterados na ação de acompanhamento daquele dispositivo.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Salvar parâmetros e retenção da conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubTrackingSettings"
+              },
+              "example": {
+                "intervalSeconds": 60,
+                "timeoutMs": 30000,
+                "staleAfterSeconds": 300,
+                "historyEnabled": true,
+                "retentionDays": 30
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/tracking/snapshot/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Consultar estado do mapa e da conta",
+        "operationId": "get_findhub_tracking_snapshot_instancename",
+        "description": "Snapshot autorizado, posições mais recentes, estado do acompanhamento, configurações e contadores reais. Nunca contém credenciais Google/Traccar. Posição recente não é prova de aparelho online.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consultar estado do mapa e da conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingSnapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/tracking/start/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Iniciar acompanhamento periódico",
+        "operationId": "post_findhub_tracking_start_deviceid_instancename",
+        "description": "Persiste a configuração por dispositivo e agenda consultas periódicas. O intervalo aceita zero (consultas serializadas sem espera adicional) e valores inteiros positivos. Frequência e disponibilidade de novas posições dependem do Google e do smartphone.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Iniciar acompanhamento periódico",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindHubTrackingRequest"
+              },
+              "example": {
+                "intervalSeconds": 60
+              }
+            }
+          }
+        }
+      }
+    },
+    "/findhub/tracking/stop/{deviceId}/{instanceName}": {
+      "post": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Parar acompanhamento periódico",
+        "operationId": "post_findhub_tracking_stop_deviceid_instancename",
+        "description": "Interrompe o agendamento e persiste trackingEnabled=false; não remove o aparelho da conta Google.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota deviceId."
+          },
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Parar acompanhamento periódico",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindHubTrackingResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
+    "/findhub/tracking/stream/{instanceName}": {
+      "get": {
+        "tags": [
+          "Google Find Hub"
+        ],
+        "summary": "Acompanhar posições por SSE",
+        "operationId": "get_findhub_tracking_stream_instancename",
+        "description": "Usa o mesmo apikey e guards de instância. Cliente fetch com header, nunca token em query. Evento inicial snapshot seguido de updates do barramento Find Hub. Reautoriza a cada reconexão (até 120 segundos); heartbeat a cada 15 segundos. Máximo de 20 assinaturas por conta, fila inicial 100 eventos e buffer de saída limitado. Não efetua polling Google adicional por assinante.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stream text/event-stream: event: update; data contém {event,instanceId,at,data}. Snapshot inicial contém {event:\"snapshot\",data:FindHubTrackingSnapshot}.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "default": {
+            "description": "Erro de configuração, autenticação, transporte Google ou integração. A aprovação de CI não garante disponibilidade do protocolo privado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/integrations/channel/findhub/findhub.router.ts"
+      }
+    },
     "/flowise/changeStatus/{instanceName}": {
       "post": {
         "tags": [
@@ -9379,6 +12654,123 @@
           }
         },
         "x-source-file": "src/api/routes/local-template.router.ts"
+      }
+    },
+    "/manager-api/v1/embedding": {
+      "get": {
+        "tags": [
+          "Manager"
+        ],
+        "summary": "Consultar origens autorizadas do Manager",
+        "operationId": "get_manager_api_v1_embedding",
+        "description": "Configuração administrativa global do iframe. A configuração persistida no banco prevalece sobre o bootstrap do ambiente. Exige exclusivamente a API key global.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Política efetiva de incorporação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerEmbeddingSettings"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acesso administrativo necessário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuração temporariamente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/manager-embedding.router.ts"
+      },
+      "put": {
+        "tags": [
+          "Manager"
+        ],
+        "summary": "Atualizar origens autorizadas do Manager",
+        "operationId": "put_manager_api_v1_embedding",
+        "description": "Persiste até 12 origens HTTPS exatas. Não aceita caminhos, credenciais ou curingas. Usa versão otimista para impedir sobrescrita concorrente. Exige exclusivamente a API key global.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Política de incorporação atualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerEmbeddingSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "description": "Acesso administrativo necessário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Versão concorrente da configuração.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuração temporariamente indisponível.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/manager-embedding.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagerEmbeddingUpdateRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/message/sendButtons/{instanceName}": {
@@ -15697,6 +19089,2152 @@
           }
         }
       },
+      "VideoMediaConfiguration": {
+        "type": "object",
+        "required": [
+          "codec",
+          "format",
+          "mediaPath",
+          "maxFrameBytes",
+          "maxFps",
+          "width",
+          "height",
+          "bitrate"
+        ],
+        "properties": {
+          "codec": {
+            "type": "string",
+            "const": "h264"
+          },
+          "format": {
+            "type": "string",
+            "const": "annexb"
+          },
+          "mediaPath": {
+            "type": "string",
+            "const": "/video/media"
+          },
+          "maxFrameBytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 8388608
+          },
+          "maxFps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 160,
+            "maximum": 1280
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 120,
+            "maximum": 720
+          },
+          "bitrate": {
+            "type": "integer",
+            "minimum": 100000,
+            "maximum": 4000000
+          }
+        }
+      },
+      "CallCapabilities": {
+        "type": "object",
+        "required": [
+          "audio",
+          "video",
+          "engine"
+        ],
+        "properties": {
+          "audio": {
+            "type": "boolean"
+          },
+          "video": {
+            "type": "boolean"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "videoCodec": {
+            "type": "string",
+            "const": "h264"
+          },
+          "videoMedia": {
+            "$ref": "#/components/schemas/VideoMediaConfiguration"
+          }
+        }
+      },
+      "VideoMediaTicket": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "expiresAt",
+          "expiresInSeconds",
+          "codec",
+          "format",
+          "mediaPath",
+          "maxFrameBytes",
+          "maxFps",
+          "width",
+          "height",
+          "bitrate"
+        ],
+        "properties": {
+          "ticket": {
+            "type": "string",
+            "description": "Segredo efêmero de uso único. Nunca colocar na URL ou em logs."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresInSeconds": {
+            "type": "integer",
+            "const": 30
+          },
+          "codec": {
+            "type": "string",
+            "const": "h264"
+          },
+          "format": {
+            "type": "string",
+            "const": "annexb"
+          },
+          "mediaPath": {
+            "type": "string",
+            "const": "/video/media"
+          },
+          "maxFrameBytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 8388608
+          },
+          "maxFps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 160,
+            "maximum": 1280
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 120,
+            "maximum": 720
+          },
+          "bitrate": {
+            "type": "integer",
+            "minimum": 100000,
+            "maximum": 4000000
+          }
+        }
+      },
+      "FindHubAuthStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "description": "Conta Google de propriedade do operador autorizado."
+          }
+        }
+      },
+      "FindHubAuthSession": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "state",
+          "authMode",
+          "expiresAt"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "description": "Segredo temporário da vinculação; não registrar em logs, URL ou webhook."
+          },
+          "state": {
+            "const": "WAITING_AUTH"
+          },
+          "authMode": {
+            "const": "credential-provider"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FindHubCredentialBundleRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "email",
+          "androidId",
+          "accountToken",
+          "sharedKey"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true
+          },
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "androidId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accountToken": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true,
+            "description": "Token AAS previamente obtido por um CredentialProvider compatível. Não é senha Google, API key do Cloud Console ou access_token OAuth público."
+          },
+          "sharedKey": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true,
+            "description": "Chave autorizada do domínio de segurança Find Hub, hexadecimal ou base64. Não confundir com FINDHUB_CREDENTIALS_KEY, que pertence exclusivamente ao servidor."
+          },
+          "fcm": {
+            "type": "object",
+            "writeOnly": true,
+            "additionalProperties": true,
+            "description": "Estado FCM opcional, fornecido pelo CredentialProvider; material sensível."
+          }
+        }
+      },
+      "FindHubAuthResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "email"
+        ],
+        "properties": {
+          "state": {
+            "const": "READY"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "FindHubAuthStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "email",
+          "ready"
+        ],
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "True somente com credenciais validadas e transporte MCS autenticado no runtime atual; não garante que o smartphone forneça uma posição nova."
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "connectionState": {
+            "type": "string"
+          },
+          "pending": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "historyEnabled": {
+            "type": "boolean"
+          },
+          "minimumIntervalSeconds": {
+            "type": "integer"
+          },
+          "helper": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "ID público e versão da extensão opcional; indica mobileSupported=false e caminho de download autenticado."
+          }
+        }
+      },
+      "FindHubDevice": {
+        "type": "object",
+        "required": [
+          "id",
+          "googleDeviceId",
+          "name",
+          "identifierType",
+          "deviceType"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID local usado no parâmetro deviceId das rotas; sempre isolado pela instância."
+          },
+          "googleDeviceId": {
+            "type": "string"
+          },
+          "canonicalIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Todos os IDs canônicos devolvidos pelo catálogo Google para o mesmo metadata."
+          },
+          "name": {
+            "type": "string"
+          },
+          "identifierType": {
+            "type": "string",
+            "enum": [
+              "ANDROID",
+              "SPOT",
+              "SUPERVISED_ANDROID",
+              "UNKNOWN"
+            ]
+          },
+          "deviceType": {
+            "type": "string",
+            "enum": [
+              "BEACON",
+              "HEADPHONES",
+              "KEYS",
+              "WATCH",
+              "WALLET",
+              "BAG",
+              "LAPTOP",
+              "CAR",
+              "REMOTE_CONTROL",
+              "BADGE",
+              "BIKE",
+              "CAMERA",
+              "CAT",
+              "CHARGER",
+              "CLOTHING",
+              "DOG",
+              "NOTEBOOK",
+              "PASSPORT",
+              "PHONE",
+              "SPEAKER",
+              "TABLET",
+              "TOY",
+              "UMBRELLA",
+              "STYLUS",
+              "EARBUDS",
+              "TRACKER",
+              "UNKNOWN"
+            ]
+          },
+          "manufacturer": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "deviceCodename": {
+            "type": "string",
+            "description": "Codinome Android devolvido pelo status vivo do provider, por exemplo tanzanite."
+          },
+          "productName": {
+            "type": "string",
+            "description": "Nome de produto/variant devolvido no registration field 21 para PHONE, por exemplo tanzanite_global."
+          },
+          "carrier": {
+            "type": "string"
+          },
+          "imei": {
+            "type": "string",
+            "pattern": "^\\d{15}$",
+            "description": "IMEI quando o provider Google o entrega; o Connect|API valida formato/check digit e não o infere."
+          },
+          "androidDeviceNumericId": {
+            "type": "string"
+          },
+          "providerOpaqueId": {
+            "type": "string"
+          },
+          "providerRegisteredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "providerStatusAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "providerResponseAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "gmsCoreVersionCode": {
+            "type": "integer"
+          },
+          "androidSdkVersion": {
+            "type": "integer"
+          },
+          "familyLinkManaged": {
+            "type": "boolean"
+          },
+          "familyLinkMemberName": {
+            "type": "string"
+          },
+          "familyLinkUrl": {
+            "type": "string"
+          },
+          "providerCapabilities": {
+            "type": "array",
+            "description": "Capabilities numéricas anunciadas pelo provider. Action fields 31 e 32 têm semântica comprovada como Start/Stop Sound; demais números permanecem sem nome até comprovação.",
+            "items": {
+              "type": "object",
+              "required": [
+                "actionField",
+                "state"
+              ],
+              "properties": {
+                "actionField": {
+                  "type": "integer"
+                },
+                "state": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "providerFlags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Flags e escalares wire preservados sem inferência semântica; chaves podem representar caminhos aninhados como 32.1."
+          },
+          "batteryTier": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH"
+            ],
+            "description": "Faixa de bateria do telefone, derivada de DeviceTypeInformation field 11. Não representa percentual exato."
+          },
+          "batteryTierSource": {
+            "type": "string",
+            "enum": [
+              "registration.2.11"
+            ],
+            "description": "Caminho wire usado para a faixa de bateria."
+          },
+          "locateSupported": {
+            "type": "boolean"
+          },
+          "fastPairModelId": {
+            "type": "string",
+            "description": "Fast Pair Model ID somente quando a semântica é compatível; PHONE não reutiliza registration field 21 como Fast Pair."
+          },
+          "pairedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "accessInformation": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "hasAccess": {
+                  "type": "boolean"
+                },
+                "isOwner": {
+                  "type": "boolean"
+                },
+                "thisAccount": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "ownerKeyVersion": {
+            "type": "integer"
+          },
+          "identityKeyFingerprint": {
+            "type": "string",
+            "description": "SHA-256 do material criptografado; a chave bruta nunca é exposta."
+          },
+          "accountKeyFingerprint": {
+            "type": "string",
+            "description": "SHA-256 do material criptografado; a chave bruta nunca é exposta."
+          },
+          "publicAddressFingerprint": {
+            "type": "string",
+            "description": "SHA-256 do endereço criptografado; o material bruto nunca é exposto."
+          },
+          "secretsCreatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "networkAggregationMinReports": {
+            "type": "integer"
+          },
+          "providerRequestCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerReportCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerRepeatedReportCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastProviderRequestAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastProviderReportAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "trackingEnabled": {
+            "type": "boolean"
+          },
+          "trackingIntervalSeconds": {
+            "type": "integer"
+          },
+          "lastLocationAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "latestPosition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FindHubPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastErrorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locationTimeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "online",
+              "recent",
+              "stale",
+              "no_location"
+            ]
+          },
+          "avatarData": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PNG normalizado. O snapshot/SSE contém apenas avatarVersion; use GET device/avatar para buscar a imagem."
+          },
+          "avatarVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Revisão opaca do avatar, sem expor a imagem em atualizações de posição."
+          },
+          "lastQuery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FindHubLocationQuery"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resultado da última consulta nesta execução do servidor. Não transforma uma posição antiga em atual."
+          }
+        }
+      },
+      "FindHubPosition": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "googleDeviceId",
+          "latitude",
+          "longitude",
+          "timestamp",
+          "source",
+          "ownReport"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "googleDeviceId": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "altitude": {
+            "type": "number"
+          },
+          "accuracy": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "RECENT",
+              "NETWORK",
+              "LAST_KNOWN",
+              "CROWDSOURCED",
+              "AGGREGATED",
+              "UNKNOWN",
+              "TRACCAR"
+            ]
+          },
+          "semanticLocation": {
+            "type": "string"
+          },
+          "ownReport": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubStoredPosition": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "altitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "accuracy": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "ownReport": {
+            "type": "boolean"
+          },
+          "semanticLocation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FindHubTrackingRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 86400,
+            "description": "Espera após cada consulta. 0 não acrescenta espera; nunca há duas consultas simultâneas para o mesmo dispositivo. 60 segundos são recomendados, não impostos. Falhas e limites do provedor usam recuo progressivo."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubTrackingResult": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "enabled"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "intervalSeconds": {
+            "type": "integer"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubSoundRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "RIGHT",
+              "LEFT",
+              "CASE"
+            ],
+            "default": "UNSPECIFIED"
+          }
+        }
+      },
+      "FindHubSoundResult": {
+        "type": "object",
+        "required": [
+          "requestUuid",
+          "operation",
+          "component"
+        ],
+        "properties": {
+          "requestUuid": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ]
+          },
+          "component": {
+            "type": "string",
+            "enum": [
+              "UNSPECIFIED",
+              "RIGHT",
+              "LEFT",
+              "CASE"
+            ]
+          }
+        }
+      },
+      "FindHubTraccarRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "url",
+          "deviceId"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Endpoint HTTP/OsmAnd acessível a partir da API; não é o endpoint REST /api do Traccar."
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Identificador do dispositivo cadastrado no Traccar."
+          }
+        }
+      },
+      "FindHubTraccarBinding": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "traccarDeviceId": {
+            "type": "string"
+          },
+          "traccarNumericId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "FindHubBrowserStartRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "minLength": 3,
+            "maxLength": 320
+          }
+        }
+      },
+      "FindHubBrowserProof": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "FindHubBrowserExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "oauthToken"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "oauthToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "writeOnly": true,
+            "description": "Artefato temporário do login explicitamente autorizado na extensão; nunca enviar cookies arbitrários ou senha."
+          }
+        }
+      },
+      "FindHubBrowserCompleteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "vaultKeys"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-fA-F-]{36}$"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "writeOnly": true
+          },
+          "vaultKeys": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536,
+            "writeOnly": true,
+            "description": "JSON do callback finder_hw. Outros domínios de segurança não são enviados pela extensão."
+          }
+        }
+      },
+      "FindHubBrowserSession": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "bridgeToken",
+          "state",
+          "authMode",
+          "expiresAt",
+          "loginUrl"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "bridgeToken": {
+            "type": "string",
+            "description": "Segredo temporário da vinculação; não registrar em logs, URL ou webhook."
+          },
+          "state": {
+            "const": "WAITING_USER"
+          },
+          "authMode": {
+            "const": "browser-extension"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "loginUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "browserRequired": {
+            "const": true
+          },
+          "helperRequired": {
+            "const": true
+          }
+        }
+      },
+      "FindHubBrowserExchangeResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "unlockUrl"
+        ],
+        "properties": {
+          "state": {
+            "const": "WAITING_VAULT_KEY"
+          },
+          "unlockUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "FindHubBrowserResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "email",
+          "connected"
+        ],
+        "properties": {
+          "state": {
+            "const": "READY"
+          },
+          "email": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubBrowserCancelled": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "const": "CANCELLED"
+          }
+        }
+      },
+      "FindHubDisconnected": {
+        "type": "object",
+        "required": [
+          "state",
+          "connected"
+        ],
+        "properties": {
+          "state": {
+            "const": "WAITING_AUTH"
+          },
+          "connected": {
+            "const": false
+          }
+        }
+      },
+      "FindHubTrackingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "intervalSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 86400,
+            "description": "Espera após cada consulta. 0 não acrescenta espera; nunca há duas consultas simultâneas para o mesmo dispositivo. 60 segundos são recomendados, não impostos. Falhas e limites do provedor usam recuo progressivo."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          },
+          "staleAfterSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 604800,
+            "default": 300
+          },
+          "historyEnabled": {
+            "type": "boolean",
+            "description": "Habilita novas gravações. Não apaga histórico previamente capturado."
+          },
+          "retentionDays": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 36500,
+            "default": 30,
+            "description": "0 preserva indefinidamente. Valor positivo permite limpeza por conta em lotes; sem alteração nos históricos de outros canais."
+          },
+          "reconciliationEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Habilita a camada de reconciliação best effort sem alterar o tracking normal."
+          },
+          "reconciliationOnBoot": {
+            "type": "boolean",
+            "default": true,
+            "description": "Procura uma lacuna ao reconectar a conta."
+          },
+          "reconciliationPeriodicEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Agenda reconciliações periódicas; permanece opt-in."
+          },
+          "reconciliationPeriodSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 2592000,
+            "default": 3600
+          },
+          "reconciliationLookbackHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720,
+            "default": 48,
+            "description": "Janela para detectar também lacunas internas no histórico recente."
+          },
+          "reconciliationMinGapSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 2592000,
+            "default": 300
+          },
+          "reconciliationAttempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 3
+          }
+        }
+      },
+      "FindHubTraccarConnectionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "internal",
+              "external"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "receiverUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "token": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 8192,
+            "description": "Somente modo externo. Omissão preserva o segredo anterior apenas para o mesmo servidor."
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 60000
+          }
+        }
+      },
+      "FindHubTraccarConnection": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "internal",
+              "external"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "receiverUrl": {
+            "type": "string"
+          },
+          "hasToken": {
+            "type": "boolean"
+          },
+          "timeoutMs": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "internalAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FindHubTrackingSnapshot": {
+        "type": "object",
+        "required": [
+          "instanceId",
+          "connected",
+          "settings",
+          "devices",
+          "counts"
+        ],
+        "properties": {
+          "instanceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/FindHubTrackingSettings"
+          },
+          "minimumIntervalSeconds": {
+            "type": "integer"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindHubDevice"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "devices": {
+                "type": "integer"
+              },
+              "tracking": {
+                "type": "integer"
+              },
+              "positions": {
+                "type": "integer"
+              }
+            }
+          },
+          "map": {
+            "type": "object",
+            "properties": {
+              "tileUrl": {
+                "type": "string"
+              }
+            }
+          },
+          "catalogue": {
+            "type": "object",
+            "properties": {
+              "limitation": {
+                "type": "string"
+              },
+              "providerCapabilities": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "traccar": {
+            "$ref": "#/components/schemas/FindHubTraccarConnection"
+          }
+        }
+      },
+      "FindHubProtocolFlowEvent": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "sequence",
+          "kind",
+          "at",
+          "instanceId",
+          "instanceName",
+          "data"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "instanceName": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "FindHubProtocolFlowSnapshot": {
+        "type": "object",
+        "required": [
+          "version",
+          "instanceId",
+          "instanceName",
+          "connected",
+          "state",
+          "sequence",
+          "dropped",
+          "bufferSize",
+          "bufferLimit",
+          "events"
+        ],
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "instanceId": {
+            "type": "string"
+          },
+          "instanceName": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "close",
+              "connecting",
+              "open"
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bufferSize": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bufferLimit": {
+            "type": "integer",
+            "minimum": 32,
+            "maximum": 4096
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindHubProtocolFlowEvent"
+            }
+          }
+        }
+      },
+      "FindHubProtocolState": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "connected",
+          "auth",
+          "e2ee",
+          "push"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "auth": {
+            "type": "object",
+            "required": [
+              "aasAvailable",
+              "sharedKeyAvailable",
+              "ownerKeyCached"
+            ],
+            "properties": {
+              "aasAvailable": {
+                "type": "boolean"
+              },
+              "sharedKeyAvailable": {
+                "type": "boolean"
+              },
+              "ownerKeyCached": {
+                "type": "boolean"
+              }
+            }
+          },
+          "e2ee": {
+            "type": "object",
+            "required": [
+              "available"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "ownerKeyVersion": {
+                "type": "integer"
+              },
+              "securityDomain": {
+                "type": "string"
+              },
+              "encryptedOwnerKeyBytes": {
+                "type": "integer"
+              },
+              "encryptedOwnerKeyFingerprint": {
+                "type": "string"
+              },
+              "providerWire": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          },
+          "push": {
+            "type": "object",
+            "properties": {
+              "ready": {
+                "type": "boolean"
+              },
+              "registered": {
+                "type": "boolean"
+              },
+              "checkinReady": {
+                "type": "boolean"
+              },
+              "gcmRegistered": {
+                "type": "boolean"
+              },
+              "firebaseInstallationReady": {
+                "type": "boolean"
+              },
+              "webPushRegistered": {
+                "type": "boolean"
+              },
+              "publicKeyFingerprint": {
+                "type": "string"
+              },
+              "hasRefreshToken": {
+                "type": "boolean"
+              },
+              "persistentIdCount": {
+                "type": "integer"
+              },
+              "inputStreamId": {
+                "type": "integer"
+              },
+              "lastFrameAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "heartbeatPending": {
+                "type": "boolean"
+              },
+              "reconnectScheduled": {
+                "type": "boolean"
+              },
+              "receiveBufferBytes": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "FindHubProtocolArchiveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "includeDeviceUpdates": {
+            "type": "boolean",
+            "default": true
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 120000,
+            "default": 30000
+          },
+          "deviceIds": {
+            "type": "array",
+            "maxItems": 50,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "FindHubLocateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubDeviceAvatarRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "avatar"
+        ],
+        "properties": {
+          "avatar": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 174786,
+            "description": "Data URL PNG RGB/RGBA de até 256x256 e 128 KiB. null remove o avatar. Sem URLs externas ou SVG."
+          }
+        }
+      },
+      "FindHubLocationQuery": {
+        "type": "object",
+        "required": [
+          "status",
+          "startedAt",
+          "completedAt",
+          "timeoutMs"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "new_report",
+              "known_position",
+              "no_position",
+              "timeout",
+              "failed"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubReconciliationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 3
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Prazo total da solicitação e espera da localização, em milissegundos, de 1 a 2147483647. Independente do intervalo; reduzir não acelera o Google."
+          }
+        }
+      },
+      "FindHubReconciliationAttempt": {
+        "type": "object",
+        "required": [
+          "attempt",
+          "durationMs",
+          "providerReportsDecoded",
+          "validReports",
+          "importedReports",
+          "alreadyStoredReports"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fcmPayloadsReceived": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deviceMismatchPayloads": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "metadataDecodeFailures": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerReportsDecoded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsWithEncryptedLocation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsWithoutEncryptedLocation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "decryptedReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "decryptRejectedReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "decryptErrors": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "invalidReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "validReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicateValidReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueValidReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueReportsReturned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicateAcrossAttempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "alreadyStoredReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "importedReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsInTargetRange": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsOutsideTargetRange": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsSkippedByRetention": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recentReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "networkReports": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "FindHubReconciliationResult": {
+        "type": "object",
+        "required": [
+          "reconciliationId",
+          "deviceId",
+          "status",
+          "trigger",
+          "from",
+          "to",
+          "startedAt",
+          "completedAt",
+          "attemptsRequested",
+          "attemptsCompleted",
+          "positionsBefore",
+          "positionsAfter",
+          "recoveredPositions",
+          "providerReportsObserved",
+          "providerReportsDecoded",
+          "validProviderReports",
+          "alreadyStoredReports",
+          "importedReports",
+          "reportsInTargetRange",
+          "reportsOutsideTargetRange",
+          "completenessGuaranteed"
+        ],
+        "properties": {
+          "reconciliationId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "deviceName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "recovered",
+              "imported_outside_target",
+              "duplicates_only",
+              "provider_reports_unusable",
+              "no_provider_reports",
+              "retention_filtered",
+              "no_recoverable_positions"
+            ]
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "boot",
+              "periodic"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attemptsRequested": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "attemptsCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "positionsBefore": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "positionsAfter": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recoveredPositions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "providerReportsObserved": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Compatibilidade: total bruto de relatórios decodificados do provider."
+          },
+          "providerReportsDecoded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "validProviderReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueValidProviderReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "alreadyStoredReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "importedReports": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsInTargetRange": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsOutsideTargetRange": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportsSkippedByRetention": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sourceCounts": {
+            "type": "object",
+            "properties": {
+              "RECENT": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "NETWORK": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "decode": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fcmPayloadsReceived": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deviceMismatchPayloads": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metadataDecodeFailures": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reportsWithEncryptedLocation": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reportsWithoutEncryptedLocation": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "decryptedReports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "decryptRejectedReports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "decryptErrors": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "invalidReports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duplicateValidReports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duplicateAcrossAttempts": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FindHubReconciliationAttempt"
+            }
+          },
+          "firstPositionInTargetAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastPositionInTargetAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "firstRecoveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastRecoveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "completenessGuaranteed": {
+            "const": false
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "FindHubReconciliationBatchResult": {
+        "type": "object",
+        "required": [
+          "startedAt",
+          "completedAt",
+          "automatic",
+          "settings",
+          "results"
+        ],
+        "properties": {
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "automatic": {
+            "const": false
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "minGapSeconds": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 2592000
+              },
+              "lookbackHours": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 720
+              },
+              "attempts": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              }
+            }
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FindHubReconciliationResult"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "deviceId",
+                    "status",
+                    "error"
+                  ],
+                  "properties": {
+                    "deviceId": {
+                      "type": "string"
+                    },
+                    "deviceName": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "failed"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "ManagerEmbeddingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "configured",
+          "enabled",
+          "allowedOrigins",
+          "effectiveFrameAncestors",
+          "source",
+          "allowAnyOrigin"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "effectiveFrameAncestors": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "database",
+              "environment"
+            ]
+          },
+          "allowAnyOrigin": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ManagerEmbeddingUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "enabled",
+          "allowedOrigins"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      },
       "GenericResponse": {
         "type": "object",
         "additionalProperties": true
@@ -15740,7 +21278,8 @@
             "enum": [
               "WHATSAPP-BUSINESS",
               "WHATSAPP-BAILEYS",
-              "WHATSAPP-ZAPO"
+              "WHATSAPP-ZAPO",
+              "GOOGLE-FIND-HUB"
             ]
           },
           "token": {
@@ -15843,6 +21382,68 @@
           }
         },
         "additionalProperties": true
+      },
+      "PlayedMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "playedMessages"
+        ],
+        "properties": {
+          "playedMessages": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "fromMe",
+                "remoteJid"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "fromMe": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "remoteJid": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "participant": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "PlayedMessageResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "receipt",
+          "processed"
+        ],
+        "properties": {
+          "success": {
+            "const": true
+          },
+          "receipt": {
+            "const": "played"
+          },
+          "processed": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
       }
     },
     "responses": {

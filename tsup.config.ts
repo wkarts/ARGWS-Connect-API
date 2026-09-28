@@ -12,6 +12,7 @@ export default defineConfig({
   format: ['cjs', 'esm'],
   onSuccess: async () => {
     cpSync('src/utils/translations', 'dist/translations', { recursive: true });
+    cpSync('third-party/connect-voip', 'dist/third-party/connect-voip', { recursive: true });
   },
   loader: {
     '.json': 'file',

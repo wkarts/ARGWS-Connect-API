@@ -6,6 +6,7 @@ import {
   getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
   NumberDto,
+  PlayedMessageDto,
   PrivacySettingDto,
   ProfileNameDto,
   ProfilePictureDto,
@@ -27,6 +28,7 @@ import {
   markChatUnreadSchema,
   messageUpSchema,
   messageValidateSchema,
+  playedMessageSchema,
   presenceSchema,
   privacySettingsSchema,
   profileNameSchema,
@@ -66,6 +68,16 @@ export class ChatRouter extends RouterBroker {
           schema: readMessageSchema,
           ClassRef: ReadMessageDto,
           execute: (instance, data) => chatController.readMessage(instance, data),
+        });
+
+        return res.status(HttpStatus.CREATED).json(response);
+      })
+      .post(this.routerPath('markMessageAsPlayed'), ...guards, async (req, res) => {
+        const response = await this.dataValidate<PlayedMessageDto>({
+          request: req,
+          schema: playedMessageSchema,
+          ClassRef: PlayedMessageDto,
+          execute: (instance, data) => chatController.playedMessage(instance, data),
         });
 
         return res.status(HttpStatus.CREATED).json(response);

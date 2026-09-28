@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "cache_hours": 2,
+  "image_hours": 48,
+  "max_deletions_per_run": 100,
+  "canonical_versions": [
+    "1.1.3"
+  ],
+  "canonical_digests": {
+    "argws-connect-api": {
+      "1.1.3": "sha256:434b3d0f467b1fea301ad3d40fec059339afd517739c8fdc6acb43ccbbc29e3c"
+    },
+    "argws-connect-manager": {
+      "1.1.3": "sha256:ebc21714f956afe1aa869c0c490f6fcf81d9f019e1c84a13fc1e820e358d82ee"
+    },
+    "argws-connect-docs": {
+      "1.1.3": "sha256:a3f5d082f6ddd5885cf4d299001beb6bde6af20ce39b2763ed94328984d21bb6"
+    }
+  },
+  "channels": {
+    "stable": "1.1.3",
+    "latest": "1.1.3",
+    "develop": "develop"
+  },
+  "protected_tags": [
+    "latest",
+    "develop",
+    "stable",
+    "canonical",
+    "main"
+  ],
+  "image_packages": [
+    "argws-connect-api",
+    "argws-connect-manager",
+    "argws-connect-docs"
+  ],
+  "protected_packages": [
+    "argws-connect-node",
+    "argws-connect-nginx",
+    "argws-connect-buildkit",
+    "argws-connect-postgres",
+    "argws-connect-redis",
+    "argws-connect-rabbitmq",
+    "argws-connect-minio",
+    "argws-connect-nats",
+    "argws-connect-kafka",
+    "argws-connect-zookeeper",
+    "argws-connect-traccar"
+  ],
+  "candidate_tag_patterns": [
+    "^(?:sha|pr|build|test|branch|cache|buildcache)[-_.].+$",
+    "^\\d+\\.\\d+\\.\\d+(?:[-+].*)?$"
+  ],
+  "temporary_artifact_prefixes": [
+    "digest-develop-",
+    "digest-docs-",
+    "digest-release-"
+  ],
+  "delete_releases": false,
+  "delete_git_tags": false,
+  "delete_release_assets": false,
+  "policy": "Canonical versions are append-only. Missing inventory, missing canonical pins or uncertain relationships preserve the entire package."
+}

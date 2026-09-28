@@ -1,0 +1,94 @@
+name: Find Hub - Tracking and canonical retention integrity
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'src/api/integrations/channel/findhub/**'
+      - 'manager/src/**'
+      - 'scripts/*traccar*'
+      - 'scripts/ghcr-retention.py'
+      - '.github/retention-policy.json'
+      - '.github/workflows/*retention*'
+      - '.github/workflows/findhub-tracking-integrity.yml'
+      - 'test/*tracking*'
+      - 'test/*traccar*'
+      - 'test/ghcr-retention.test.py'
+      - 'deploy/**'
+      - 'Docker/swarm/**'
+      - 'docker-compose*.yaml'
+  push:
+    branches: [develop, main]
+    paths:
+      - 'src/api/integrations/channel/findhub/**'
+      - '.github/retention-policy.json'
+      - '.github/workflows/findhub-tracking-integrity.yml'
+      - 'scripts/*traccar*'
+      - 'scripts/ghcr-retention.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tracking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_PROVIDER: postgresql
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Canonical history is append-only
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ghcr-retention.py --validate-policy
+          if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$BASE_SHA:.github/retention-policy.json" 2>/dev/null; then
+            git show "$BASE_SHA:.github/retention-policy.json" > /tmp/previous-retention-policy.json
+            python3 scripts/ghcr-retention.py --validate-policy --previous-policy /tmp/previous-retention-policy.json
+          fi
+      - name: Tracking, destination and retention regressions
+        run: npm run test:tracking
+      - name: Validate every existing optional deployment
+        run: |
+          python3 scripts/sync-traccar-deployments.py --check
+          python3 scripts/sync-findhub-deployments.py --check
+          python3 scripts/sync-operations-deployments.py --check
+          python3 scripts/check-traccar-compose.py
+      - name: Start disposable official Traccar and PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          echo "TRACCAR_ADMIN_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "TRACCAR_ADMIN_EMAIL=connect-test@example.invalid" >> "$GITHUB_ENV"
+          echo "TRACCAR_ENABLED=true" >> "$GITHUB_ENV"
+          echo "TRACCAR_MODE=internal" >> "$GITHUB_ENV"
+          echo "TRACCAR_INTERNAL_URL=http://127.0.0.1:18082" >> "$GITHUB_ENV"
+          echo "TRACCAR_INTERNAL_RECEIVER_URL=http://127.0.0.1:15055" >> "$GITHUB_ENV"
+          echo "TRACCAR_INTEGRATION_TEST=true" >> "$GITHUB_ENV"
+          docker network create findhub-integration
+          docker run -d --name findhub-test-db --network findhub-integration -e POSTGRES_DB=traccar -e POSTGRES_USER=traccar -e POSTGRES_PASSWORD="$password" postgres:15
+          for i in $(seq 1 40); do docker exec findhub-test-db pg_isready -U traccar -d traccar && break; sleep 2; done
+          docker run -d --name findhub-test-server --network findhub-integration -p 127.0.0.1:18082:8082 -p 127.0.0.1:15055:5055 \
+            -e CONFIG_USE_ENVIRONMENT_VARIABLES=true -e DATABASE_DRIVER=org.postgresql.Driver \
+            -e DATABASE_URL=jdbc:postgresql://findhub-test-db:5432/traccar -e DATABASE_USER=traccar -e DATABASE_PASSWORD="$password" \
+            -e WEB_PORT=8082 -e OSMAND_PORT=5055 -e PROTOCOLS_ENABLE=osmand -e SERVER_STATISTICS= -e GEOCODER_ENABLE=false traccar/traccar:6.15.3-alpine
+      - name: Verify bootstrap twice and real official API and socket
+        run: |
+          node scripts/traccar-bootstrap.cjs
+          node scripts/traccar-bootstrap.cjs
+          node test/traccar-live.integration.cjs
+      - name: Remove only disposable test resources
+        if: always()
+        run: |
+          docker rm -f findhub-test-server findhub-test-db || true
+          docker network rm findhub-integration || true

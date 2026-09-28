@@ -14,7 +14,12 @@ export class MetaCloudWebhookSerializer {
     if (eventData.event === 'messages.upsert' || eventData.event === 'MESSAGES_UPSERT') {
       return this.serializeIncoming(identity, eventData.data, eventData.dateTime);
     }
-    if (eventData.event === 'messages.update' || eventData.event === 'MESSAGES_UPDATE') {
+    if (
+      eventData.event === 'messages.update' ||
+      eventData.event === 'MESSAGES_UPDATE' ||
+      eventData.event === 'messages.delete' ||
+      eventData.event === 'MESSAGES_DELETE'
+    ) {
       return this.serializeStatus(identity, eventData.data, eventData.dateTime);
     }
     return null;

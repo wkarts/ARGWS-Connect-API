@@ -3,6 +3,7 @@ import { whatsappDestination } from './whatsapp-destination'
 import * as normalize from './normalizers'
 import { integrationDefinitions } from './integration-definitions'
 import { VoiceMediaSession, type VoiceMediaCallbacks } from './voice-media'
+import type { CallCapabilities, VideoMediaCallbacks, VideoMediaPreparation } from './video-media'
 import type {
   AuditItem,
   ConnectionItem,
@@ -11,6 +12,7 @@ import type {
   IntegrationKey,
   IntegrationSummary,
   InstanceConfigKey,
+  ManagerEmbeddingSettings,
   Message,
   Overview,
   ProviderMigrationResult,
@@ -178,6 +180,21 @@ function publicInstance(item: any) {
   }
 }
 
+async function downloadCurrentFile(response: Response, fallbackName: string, errorMessage: string) {
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new CurrentApiError(text || errorMessage, response.status)
+  }
+  const disposition = response.headers.get('content-disposition') || ''
+  const fileName = disposition.match(/filename="([^"]+)"/i)?.[1] || fallbackName
+  const url = URL.createObjectURL(await response.blob())
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
 async function withInstance<T>(ref: string, fn: (item: any, name: string, token: string) => Promise<T>, refresh = false) {
   const item = await rawInstance(ref, refresh)
   if (!item) throw new CurrentApiError('Instância não encontrada.', 404)
@@ -290,7 +307,8 @@ export const current = {
     if (data?.number) payload.number = String(data.number).replace(/\D/g, '')
     if (data?.businessId) payload.businessId = String(data.businessId).trim()
     const result = await api('/instance/create', { method: 'POST', data: payload })
-    await rawInstances()
+    // The dedicated channel immediately resolves the newly created ID for routing.
+    await rawInstances(payload.integration === 'GOOGLE-FIND-HUB')
     return result
   },
 
@@ -379,13 +397,17 @@ export const current = {
     })
   },
 
-  async offerCall(id: string, number: string, callDuration?: number) {
+  async callCapabilities(id: string): Promise<CallCapabilities> {
+    return withInstance(id, async (_item, name, token) => api<CallCapabilities>(`/call/capabilities/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async offerCall(id: string, number: string, callDuration?: number, isVideo = false) {
     return withInstance(id, async (item, name, token) => {
       const provider = normalize.normalizeProvider(item.integration)
       if (!normalize.providerCapabilities(provider).calls) throw new CurrentApiError('Este provider não oferece chamadas nesta versão.', 409)
       const duration = Number(callDuration || 0)
       return api(`/call/offer/${encodeURIComponent(name)}`, {
-        method: 'POST', token, data: { number: String(number).replace(/\D/g, ''), ...(duration > 0 ? { callDuration: duration } : {}) },
+        method: 'POST', token, data: { number: String(number).replace(/\D/g, ''), ...(duration > 0 ? { callDuration: duration } : {}), ...(isVideo ? { isVideo: true } : {}) },
       })
     })
   },
@@ -405,6 +427,18 @@ export const current = {
       const mediaToken = token || accessCode
       if (!mediaToken) throw new CurrentApiError('A sessão atual não possui autorização para o áudio da chamada.', 409)
       const session = new VoiceMediaSession({ apiBaseUrl: runtime.apiBaseUrl, instanceName: name, callId, token: mediaToken }, callbacks)
+      await session.start()
+      return session
+    }, true)
+  },
+
+  async videoMedia(id: string, callId: string, preparation: VideoMediaPreparation, canvas: HTMLCanvasElement, callbacks: VideoMediaCallbacks = {}) {
+    return withInstance(id, async (_item, name, token) => {
+      const mediaToken = token || accessCode
+      if (!mediaToken) throw new CurrentApiError('A sessão atual não possui autorização para o vídeo da chamada.', 409)
+      const { VideoMediaSession } = await import('./video-media')
+      const session = new VideoMediaSession({ apiBaseUrl: runtime.apiBaseUrl, instanceName: name, callId, token: mediaToken }, preparation, canvas, callbacks)
+      callbacks.onSession?.(session)
       await session.start()
       return session
     }, true)
@@ -508,6 +542,260 @@ export const current = {
     })
   },
 
+
+  async findHubAvatar(id: string, deviceId: string, avatar?: string | null) {
+    return withInstance(id, async (_item, name, token) => api<{avatarData: string | null}>(`/findhub/device/avatar/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { token, method: avatar === undefined ? 'GET' : 'PUT', data: avatar === undefined ? undefined : { avatar } }))
+  },
+  async findHubSnapshot(id: string) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/tracking/snapshot/${encodeURIComponent(name)}`, { token }))
+  },
+  async findHubSettings(id: string, data?: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/tracking/settings/${encodeURIComponent(name)}`, { token, method: data ? 'PUT' : 'GET', data }))
+  },
+  async findHubTraccarConnection(id: string, data?: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/traccar/configuration/${encodeURIComponent(name)}`, { token, method: data ? 'PUT' : 'GET', data, timeout: 65000 }))
+  },
+  async findHubTraccarProvision(id: string, deviceId: string) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/traccar/provision/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { token, method: 'POST', timeout: 125000 }))
+  },
+  async findHubStream(id: string, signal: AbortSignal, onEvent: (event: any) => void) {
+    const { readFindHubStream } = await import('./findhub-stream')
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(`${runtime.apiBaseUrl}/findhub/tracking/stream/${encodeURIComponent(name)}`, {
+        credentials: 'same-origin', headers: { apikey: token || accessCode, Accept: 'text/event-stream' }, signal,
+      })
+      if (!response.ok) throw new CurrentApiError('Não foi possível abrir o acompanhamento realtime.', response.status)
+      await readFindHubStream(response, signal, onEvent)
+    })
+  },
+
+  async findHubBrowserAuth(id: string, operation: 'start' | 'exchange' | 'complete' | 'cancel', data: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/auth/browser/${operation}/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data, timeout: operation === 'start' ? 135000 : operation === 'complete' ? 240000 : operation === 'exchange' ? 65000 : 45000,
+    }))
+  },
+  async findHubDownloadHelper(id: string) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(`${runtime.apiBaseUrl}/findhub/auth/extension/${encodeURIComponent(name)}`, {
+        credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(30000),
+      })
+      if (!response.ok) throw new Error('Não foi possível obter a extensão desta instalação.')
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'Connect-FindHub-Auth.zip'; anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+  async findHubDisconnect(id: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/disconnect/${encodeURIComponent(name)}`, { method: 'POST', token }))
+  },
+  async findHubTraccar(id: string, deviceId: string, method: 'GET' | 'PUT' | 'DELETE' = 'GET', data?: any) {
+    return withInstance(id, async (_item, name, token) => api<any>(`/findhub/traccar/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, { method, token, data }))
+  },
+
+  async findHubAuthStart(id: string, email: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/auth/start/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { email },
+    }))
+  },
+
+  async findHubAuthStatus(id: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/auth/status/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async findHubImportCredentials(id: string, data: any) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/auth/import/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data,
+    }))
+  },
+
+  async findHubDevices(id: string) {
+    return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/devices/${encodeURIComponent(name)}`, { token }))
+  },
+
+  async findHubRefreshDevices(id: string) {
+    return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/devices/refresh/${encodeURIComponent(name)}`, {
+      method: 'POST', token,
+    }))
+  },
+
+  async findHubCaptureCatalog(id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised') {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/catalog/${catalog}/${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { apikey: token || accessCode },
+          signal: AbortSignal.timeout(45000),
+        },
+      )
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        throw new CurrentApiError(text || 'Não foi possível capturar o catálogo protobuf.', response.status)
+      }
+      const disposition = response.headers.get('content-disposition') || ''
+      const fileName = disposition.match(/filename="([^"]+)"/i)?.[1] || `findhub-devices-${catalog}.pb`
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName
+      anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+
+  async findHubCaptureDeviceUpdate(id: string, deviceId: string, timeoutMs = 120000) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/device-update/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            apikey: token || accessCode,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ timeoutMs }),
+          signal: AbortSignal.timeout(Math.min(2147483647, timeoutMs + 15000)),
+        },
+      )
+      if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        throw new CurrentApiError(text || 'Não foi possível capturar o DeviceUpdate protobuf.', response.status)
+      }
+      const disposition = response.headers.get('content-disposition') || ''
+      const fileName =
+        disposition.match(/filename="([^"]+)"/i)?.[1] || `findhub-device-update-${deviceId}.pb`
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName
+      anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    })
+  },
+
+  async findHubProtocolInventory(id: string) {
+    return withInstance(id, async (_item, name, token) =>
+      api<any>(`/findhub/protocol/inventory/${encodeURIComponent(name)}`, { token }),
+    )
+  },
+
+  async findHubProtocolState(id: string) {
+    return withInstance(id, async (_item, name, token) =>
+      api<any>(`/findhub/protocol/state/${encodeURIComponent(name)}`, { token, timeout: 45000 }),
+    )
+  },
+
+  async findHubDownloadProtocolInventory(id: string) {
+    const inventory = await this.findHubProtocolInventory(id)
+    const url = URL.createObjectURL(new Blob([JSON.stringify(inventory, null, 2)], { type: 'application/json' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `findhub-protocol-inventory-${id}.json`
+    anchor.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  },
+
+  async findHubCaptureCatalogRequest(id: string, catalog: 'spot'|'android'|'auto'|'fastpair'|'supervised') {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/request/catalog/${catalog}/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(45000) },
+      )
+      await downloadCurrentFile(response, `findhub-request-devices-${catalog}.pb`, 'Não foi possível gerar o request DevicesList.')
+    })
+  },
+
+  async findHubCaptureEidInfo(id: string, requestOnly = false) {
+    return withInstance(id, async (_item, name, token) => {
+      const suffix = requestOnly ? 'request/eid-info' : 'eid-info'
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/${suffix}/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(45000) },
+      )
+      await downloadCurrentFile(response, requestOnly ? 'findhub-request-get-eid-info.pb' : 'findhub-get-eid-info.pb', 'Não foi possível obter o protobuf GetEidInfo.')
+    })
+  },
+
+  async findHubCaptureSecurityUnlockRequest(id: string) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/request/security-unlock/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(30000) },
+      )
+      await downloadCurrentFile(response, 'findhub-request-security-unlock.pb', 'Não foi possível gerar o request finder_hw.')
+    })
+  },
+
+  async findHubCaptureActionRequest(id: string, deviceId: string, action: 'locate'|'sound-start'|'sound-stop') {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/request/action/${action}/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+        { method: 'POST', credentials: 'same-origin', headers: { apikey: token || accessCode }, signal: AbortSignal.timeout(30000) },
+      )
+      await downloadCurrentFile(response, `findhub-request-${action}-${deviceId}.pb`, 'Não foi possível gerar o ExecuteAction protobuf.')
+    })
+  },
+
+  async findHubCaptureProtocolArchive(id: string, timeoutMs = 30000, deviceIds?: string[]) {
+    return withInstance(id, async (_item, name, token) => {
+      const response = await fetch(
+        `${runtime.apiBaseUrl}/findhub/protocol/capture/archive/${encodeURIComponent(name)}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { apikey: token || accessCode, 'content-type': 'application/json' },
+          body: JSON.stringify({ includeDeviceUpdates: true, timeoutMs, deviceIds }),
+          signal: AbortSignal.timeout(600000),
+        },
+      )
+      await downloadCurrentFile(response, `findhub-protocol-lab-${id}.zip`, 'Não foi possível montar o pacote Protocol Lab.')
+    })
+  },
+
+  async findHubLocate(id: string, deviceId: string, timeoutMs?: number) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/locate/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      method: 'POST', token, timeout: Math.min(2147483647, (timeoutMs ?? 120000) + 10000), data: { timeoutMs },
+    }))
+  },
+
+  async findHubSound(id: string, deviceId: string, operation: 'start' | 'stop', component = 'UNSPECIFIED') {
+    return withInstance(id, async (_item, name, token) => api(
+      `/findhub/sound/${operation}/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+      { method: 'POST', token, data: { component } },
+    ))
+  },
+
+  async findHubStartTracking(id: string, deviceId: string, intervalSeconds = 60, timeoutMs?: number) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/tracking/start/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { intervalSeconds, timeoutMs },
+    }))
+  },
+
+  async findHubStopTracking(id: string, deviceId: string) {
+    return withInstance(id, async (_item, name, token) => api(`/findhub/tracking/stop/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      method: 'POST', token,
+    }))
+  },
+
+  async findHubPositions(id: string, deviceId: string, limit = 100, from?: string, to?: string) {
+    return withInstance(id, async (_item, name, token) => api<any[]>(`/findhub/positions/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`, {
+      token, params: { limit, from, to },
+    }))
+  },
+
+  async findHubReconcile(id: string, deviceId: string, data: any = {}) {
+    const timeout = Math.min(
+      2147483647,
+      Number(data.timeoutMs ?? 30000) * Number(data.attempts ?? 3) + 15000,
+    )
+    return withInstance(id, async (_item, name, token) => api<any>(
+      `/findhub/positions/reconcile/${encodeURIComponent(deviceId)}/${encodeURIComponent(name)}`,
+      { method: 'POST', token, data, timeout },
+    ))
+  },
+
   async health() {
     return api<any>('/health', { token: '' })
   },
@@ -520,6 +808,12 @@ export const current = {
   async users(): Promise<UserItem[]> { return [] },
   async roles() { return [] },
   async audit(): Promise<AuditItem[]> { return [] },
+  async embeddingSettings(): Promise<ManagerEmbeddingSettings> {
+    return api<ManagerEmbeddingSettings>('/manager-api/v1/embedding')
+  },
+  async saveEmbeddingSettings(data: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> {
+    return api<ManagerEmbeddingSettings>('/manager-api/v1/embedding', { method: 'PUT', data })
+  },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },
   async verify() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },

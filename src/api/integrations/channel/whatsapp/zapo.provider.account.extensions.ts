@@ -5,6 +5,7 @@ import {
   getBase64FromMediaMessageDto,
   MarkChatUnreadDto,
   NumberBusiness,
+  PlayedMessageDto,
   PrivacySettingDto,
   ReadMessageDto,
   UpdateMessageDto,
@@ -21,6 +22,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import mimeTypes from 'mime-types';
 import { PassThrough } from 'stream';
 
+import { persistPlayedReceipt, PlayedReceiptKey } from './played-receipt.helper';
 import { ZapoExtendedStartupService } from './zapo.provider.extensions';
 
 type ZapoMediaEnvelope = {
@@ -154,6 +156,55 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       return { message: 'Read messages', read: 'success' };
     } catch (error) {
       throw new InternalServerErrorException('Read messages fail', (error as Error)?.toString());
+    }
+  }
+
+  /** Send the native WhatsApp PLAYED receipt only after the caller confirms actual playback. */
+  public async markMessageAsPlayed(data: PlayedMessageDto) {
+    try {
+      const client = this.connectedClient();
+      const keys: PlayedReceiptKey[] = data.playedMessages.map((message) => {
+        const id = String(message?.id || '').trim();
+        if (!id) throw new BadRequestException('Message id is required');
+        if (message?.fromMe !== false) {
+          throw new BadRequestException('PLAYED receipt is valid only for received messages');
+        }
+
+        const remoteJid = this.normalizeAccountJid(message.remoteJid);
+        const participant = message.participant ? this.normalizeAccountJid(message.participant) : undefined;
+        if (participant && !remoteJid.endsWith('@g.us')) {
+          throw new BadRequestException('participant is valid only for group PLAYED receipts');
+        }
+
+        return { id, remoteJid, fromMe: false, ...(participant ? { participant } : {}) };
+      });
+
+      const grouped = new Map<string, { jid: string; participant?: string; ids: string[] }>();
+      for (const key of keys) {
+        const groupKey = `${key.remoteJid}\u0000${key.participant || ''}`;
+        const current = grouped.get(groupKey) || { jid: key.remoteJid, participant: key.participant, ids: [] };
+        current.ids.push(key.id);
+        grouped.set(groupKey, current);
+      }
+
+      for (const group of grouped.values()) {
+        await client.message.sendReceipt(group.jid, group.ids, {
+          type: 'played',
+          ...(group.participant ? { participant: group.participant } : {}),
+        });
+      }
+
+      const saveMessageUpdate = this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE;
+      for (const key of keys) {
+        await persistPlayedReceipt(this.prismaRepository, this.instanceId, key, saveMessageUpdate, (event, payload) =>
+          this.sendDataWebhook(event, payload),
+        );
+      }
+
+      return { success: true, receipt: 'played', processed: keys.length };
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) throw error;
+      throw new InternalServerErrorException('Played receipt failed', (error as Error)?.toString());
     }
   }
 

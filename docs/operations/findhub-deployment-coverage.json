@@ -1,0 +1,82 @@
+{
+  "apiServices": [
+    {
+      "path": "Docker/swarm/argws_connect_api_v2.yaml",
+      "service": "argws_connect_v2"
+    },
+    {
+      "path": "deploy/canonical/compose.yaml",
+      "service": "api-argws-connect-canonical"
+    },
+    {
+      "path": "deploy/cloudpanel/docker-compose.yml",
+      "service": "api"
+    },
+    {
+      "path": "deploy/develop/compose.yaml",
+      "service": "api-argws-connect-develop"
+    },
+    {
+      "path": "deploy/dockge/compose.yaml",
+      "service": "api"
+    },
+    {
+      "path": "deploy/homologation/compose.yaml",
+      "service": "api"
+    },
+    {
+      "path": "deploy/production/compose.yaml",
+      "service": "api-argws-connect-production"
+    },
+    {
+      "path": "docker-compose.dev.yaml",
+      "service": "api"
+    },
+    {
+      "path": "docker-compose.yaml",
+      "service": "api"
+    }
+  ],
+  "apiEnvironmentTemplates": [
+    ".env.example",
+    "deploy/canonical/env.example",
+    "deploy/cloudpanel/.env.example",
+    "deploy/cloudpanel/env.example",
+    "deploy/develop/env.example",
+    "deploy/dockge/.env.example",
+    "deploy/dockge/env.example",
+    "deploy/homologation/env.example",
+    "deploy/production/env.example",
+    "env.example"
+  ],
+  "scalarComposeFiles": [
+    "deploy/canonical/compose.yaml",
+    "deploy/cloudpanel/docker-compose.yml",
+    "deploy/develop/compose.yaml",
+    "deploy/dockge/compose.yaml",
+    "deploy/docs-develop/compose.yaml",
+    "deploy/docs/compose.yaml",
+    "deploy/homologation/compose.yaml",
+    "deploy/production/compose.yaml",
+    "docker-compose.yaml"
+  ],
+  "resourceOnlyComposeFiles": [
+    "Docker/kafka/docker-compose.yaml",
+    "Docker/minio/docker-compose.yaml",
+    "Docker/mysql/docker-compose.yaml",
+    "Docker/postgres/docker-compose.yaml",
+    "Docker/rabbitmq/docker-compose.yaml",
+    "Docker/redis/docker-compose.yaml",
+    "deploy/docs-develop/compose.yaml",
+    "deploy/docs/compose.yaml"
+  ],
+  "environmentVariables": {
+    "FINDHUB_CREDENTIALS_KEY": "",
+    "FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS": "60",
+    "FINDHUB_MIN_TRACKING_INTERVAL_SECONDS": "30",
+    "FINDHUB_LOCATION_TIMEOUT_MS": "30000",
+    "FINDHUB_STORE_POSITION_HISTORY": "false",
+    "FINDHUB_TRACCAR_TIMEOUT_MS": "10000"
+  },
+  "policy": "Only API services receive explicit Find Hub settings. No key in Scalar/Manager configuration. No image, port, volume or service topology changes."
+}

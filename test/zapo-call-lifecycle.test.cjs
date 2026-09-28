@@ -28,14 +28,19 @@ function loadCallActions() {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const service = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'ZapoStartupService');
   assert.ok(service, 'ZapoStartupService must exist');
-  const names = new Set(['endCall', 'rejectCall', 'normalizeCall']);
+  const names = new Set(['endCall', 'rejectCall', 'normalizeCall', 'isVideoCall', 'emitCall']);
   const methods = service.members.filter(node => ts.isMethodDeclaration(node) && names.has(node.name.getText(ast)));
   assert.equal(methods.length, names.size, 'Load the actual service actions and normalizer');
   const output = ts.transpileModule(`export class CallActions { ${methods.map(node => node.getText(ast)).join('\n')} }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
   const loaded = { exports: {} };
-  vm.runInNewContext(output, { module: loaded, exports: loaded.exports });
+  vm.runInNewContext(output, {
+    module: loaded,
+    exports: loaded.exports,
+    Events: { CALL: 'CALL' },
+    Integration: { WHATSAPP_ZAPO: 'WHATSAPP-ZAPO' },
+  });
   return loaded.exports.CallActions;
 }
 
@@ -63,6 +68,18 @@ function callActionFixture(action, fail = false) {
   } };
   return { service, callId, call, liveCalls };
 }
+
+test('call webhook delivery failures do not escape provider event handlers', async () => {
+  const service = new CallActions();
+  const errors = [];
+  service.normalizeCall = call => call;
+  service.logger = { error: error => errors.push(error) };
+  service.sendDataWebhook = async () => { throw new Error('webhook unavailable'); };
+  service.emitCall('state', { callId: 'call-1' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /webhook unavailable/);
+});
 
 for (const action of ['endCall', 'rejectCall']) {
   test(`${action} returns the completed provider state even when the provider removes its live call`, async () => {

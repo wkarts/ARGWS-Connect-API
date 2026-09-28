@@ -10,9 +10,10 @@
     "start:prod": "node dist/main",
     "dev:server": "tsx watch ./src/main.ts",
     "test": "tsx watch ./test/all.test.ts",
-    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && npm run test:manager-contract",
-    "test:manager-contract": "node --test test/manager-feature-contract.test.cjs",
+    "test:compat": "tsx ./test/message-payload.compat.test.ts && tsx ./test/meta-cloud/foundation.test.ts && tsx ./test/meta-cloud/contract.test.ts && npm run test:manager-contract && npm run test:findhub",
+    "test:manager-contract": "node --test test/manager-feature-contract.test.cjs test/manager-embedding.test.cjs test/release-web-security.test.cjs",
     "test:voip": "node --test test/zapo-voip-*.test.cjs test/zapo-call-lifecycle.test.cjs",
+    "test:video": "npm run build:connect-voip && node --test test/connect-video-*.test.cjs test/video-media.test.cjs test/connect-voip-*.test.cjs test/connect-call-adapter.test.cjs",
     "patch:zapo-voip": "node scripts/apply-zapo-voip-patch.cjs",
     "postinstall": "npm run patch:zapo-voip",
     "lint": "eslint --fix --ext .ts src",
@@ -30,8 +31,11 @@
     "docs:check": "node docs/scripts/generate-openapi.mjs --check",
     "test:zapo": "node ./test/zapo-provider.integration.test.mjs",
     "runtime:deps:check": "node ./scripts/check-zapo-runtime.cjs",
-    "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs",
-    "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs"
+    "test:operations": "node --test test/operations-groups-catalog.test.cjs test/zapo-message-contract.test.cjs test/whatsapp-played-receipt.test.cjs",
+    "test:diagnostics": "node --test test/diagnostic-*.test.cjs test/diagnostics-router.test.cjs",
+    "build:connect-voip": "node scripts/build-connect-voip.cjs",
+    "test:findhub": "tsx ./test/findhub-protocol.contract.test.ts && tsx ./test/findhub-vault.test.ts && node --test test/findhub-deployment.contract.test.cjs test/findhub-protocol-capture.test.cjs && python3 test/findhub-env.test.py && node --test test/findhub-instance-lifecycle.test.cjs && node --test test/findhub-browser-auth.test.cjs test/findhub-extension.test.cjs && node scripts/build-findhub-extension.cjs --check && node --test test/findhub-distribution.test.cjs && npm run test:tracking",
+    "test:tracking": "node --test test/findhub-flow.test.cjs test/findhub-tracking.test.cjs && python3 test/traccar-deployment.test.py && python3 test/ghcr-retention.test.py && python3 test/actions-cache-retention.test.py"
   },
   "repository": {
     "type": "git",

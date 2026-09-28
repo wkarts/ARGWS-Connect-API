@@ -213,3 +213,7 @@ Leia `DOCUMENTATION-CONTRACT.md` antes de finalizar mudanças públicas. Documen
 ## Endpoint público
 
 Em deployments com reverse proxy, a URL canônica é `/docs/`. Existe também `deploy/docs/` para operação standalone/always-on.
+
+## Google Find Hub
+
+[Guia completo de implantação e autenticação](guides/google-find-hub.md). A chave local é preparada por `prepare-findhub-env.py`, sem rotacionar segredos existentes. O Scalar inclui o documento `openapi/findhub.openapi.json`.

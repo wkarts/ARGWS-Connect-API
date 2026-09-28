@@ -1,0 +1,701 @@
+import { randomUUID } from 'crypto';
+
+import { GooglePlayAuthClient } from '../auth/google-play-auth.client';
+import { decryptIdentityKey, decryptLocationReport, decryptOwnerKey } from '../crypto/findhub-crypto';
+import { FindHubDevice, FindHubPosition, FindHubSoundComponent, FindHubStoredCredentials } from '../findhub.types';
+import { FindHubFcmClient } from '../protocol/fcm.client';
+import {
+  decodeDeviceMetadata,
+  decodeDeviceRegistration,
+  decodeDeviceUpdate,
+  decodeLocationReports,
+  encodeExecuteLocateRequest,
+  encodeExecuteSoundRequest,
+  encodeSecurityUnlockExtras,
+} from '../protocol/findhub-proto';
+import { FindHubNovaClient } from '../protocol/nova.client';
+import { FindHubSpotClient } from '../protocol/spot.client';
+import type { FindHubFcmPayloadMetadata, FindHubFlowKind } from './findhub-flow.service';
+import {
+  comparePositionPreference,
+  isNewPositionObservation,
+  locationTimeoutMs,
+  positionFingerprint,
+  validPosition,
+} from './findhub-tracking.policy';
+
+export interface FindHubLocateDiagnostics {
+  fcmPayloadsReceived: number;
+  deviceMismatchPayloads: number;
+  metadataDecodeFailures: number;
+  providerReportsDecoded: number;
+  reportsWithEncryptedLocation: number;
+  reportsWithoutEncryptedLocation: number;
+  decryptedReports: number;
+  decryptRejectedReports: number;
+  decryptErrors: number;
+  invalidReports: number;
+  validReports: number;
+  duplicateValidReports: number;
+  uniqueValidReports: number;
+}
+
+export function createFindHubLocateDiagnostics(): FindHubLocateDiagnostics {
+  return {
+    fcmPayloadsReceived: 0,
+    deviceMismatchPayloads: 0,
+    metadataDecodeFailures: 0,
+    providerReportsDecoded: 0,
+    reportsWithEncryptedLocation: 0,
+    reportsWithoutEncryptedLocation: 0,
+    decryptedReports: 0,
+    decryptRejectedReports: 0,
+    decryptErrors: 0,
+    invalidReports: 0,
+    validReports: 0,
+    duplicateValidReports: 0,
+    uniqueValidReports: 0,
+  };
+}
+
+type PendingLocation = {
+  device: FindHubDevice;
+  afterTimestamp: number;
+  reports: Map<string, FindHubPosition>;
+  diagnostics?: FindHubLocateDiagnostics;
+  collectUntilTimeout: boolean;
+  submitted: boolean;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer?: NodeJS.Timeout;
+  retain: boolean;
+};
+
+type RecentLocation = { device: FindHubDevice; expiresAt: number; seen: Set<string>; source: 'manual' | 'tracking' };
+type RawDeviceUpdateCapture = { payload: Buffer; deviceMetadata: Buffer };
+type PendingRawCapture = {
+  resolve: (value: RawDeviceUpdateCapture) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+};
+const OBSERVATION_TTL_MS = 120_000;
+const MAX_RECENT_REQUESTS = 256;
+const MAX_PASSIVE_DEVICES = 256;
+const PASSIVE_OBSERVATION_TTL_MS = 120_000;
+
+type FindHubFlowEmitter = (kind: FindHubFlowKind, data: Record<string, unknown>) => void;
+type FindHubDeviceResolver = (googleDeviceId: string) => Promise<FindHubDevice | undefined>;
+type PassiveObservation = { expiresAt: number; seen: Set<string> };
+
+export function findHubSupportsSoundAction(device: FindHubDevice, operation: 'start' | 'stop'): boolean {
+  if (device.locateSupported === false) return false;
+  const actionField = operation === 'start' ? 31 : 32;
+  const capabilities = Array.isArray(device.providerCapabilities) ? device.providerCapabilities : [];
+  if (capabilities.length) {
+    return capabilities.some((capability) => capability.actionField === actionField && capability.state === 1);
+  }
+  // Compatibility fallback for legacy catalogues that predate advertised action capabilities.
+  return device.identifierType === 'SPOT';
+}
+
+function commandTimeoutMs(): number {
+  const value = Number(process.env.FINDHUB_COMMAND_TIMEOUT_MS || 30000);
+  if (!Number.isInteger(value) || value < 1 || value > 2147483647)
+    throw new Error('FINDHUB_COMMAND_TIMEOUT_MS must be an integer between 1 and 2147483647.');
+  return value;
+}
+
+export class FindHubProtocolClient {
+  private readonly auth = new GooglePlayAuthClient();
+  private readonly nova: FindHubNovaClient;
+  private readonly spot: FindHubSpotClient;
+  private readonly fcm: FindHubFcmClient;
+  private readonly pending = new Map<string, PendingLocation>();
+  private readonly recent = new Map<string, RecentLocation>();
+  private readonly rawCaptures = new Map<string, PendingRawCapture>();
+  private readonly passive = new Map<string, PassiveObservation>();
+  private closing = false;
+  private ownerKey?: Buffer;
+
+  constructor(
+    private credentials: FindHubStoredCredentials,
+    private readonly sharedKey: Buffer,
+    private readonly clientUuid: string,
+    private readonly persistCredentials: (credentials: FindHubStoredCredentials) => Promise<void>,
+    private readonly onObservation?: (device: FindHubDevice, positions: FindHubPosition[]) => Promise<void>,
+    private readonly onFlowEvent?: FindHubFlowEmitter,
+    private readonly resolveDevice?: FindHubDeviceResolver,
+  ) {
+    this.nova = new FindHubNovaClient(this.auth, credentials.aas);
+    this.spot = new FindHubSpotClient(this.auth, credentials.aas);
+    this.fcm = new FindHubFcmClient(
+      credentials.fcm ?? null,
+      async (fcmCredentials) => {
+        this.credentials = {
+          ...this.credentials,
+          fcm: fcmCredentials,
+        };
+        await this.persistCredentials(this.credentials);
+      },
+      (payload, metadata) => this.handlePushPayload(payload, metadata),
+      (frame) => this.publishFlow('mcs.frame', { ...frame }),
+    );
+  }
+
+  public get ready(): boolean {
+    return this.fcm.ready;
+  }
+
+  public async connect(): Promise<void> {
+    this.closing = false;
+    await this.ensureOwnerKey();
+    await this.fcm.start();
+  }
+
+  public async close(): Promise<void> {
+    this.closing = true;
+    this.recent.clear();
+    this.passive.clear();
+    await this.fcm.stop();
+
+    for (const pending of this.pending.values()) pending.reject(new Error('Find Hub connection closed'));
+    this.pending.clear();
+    for (const capture of this.rawCaptures.values()) {
+      clearTimeout(capture.timer);
+      capture.reject(new Error('Find Hub connection closed'));
+    }
+    this.rawCaptures.clear();
+  }
+
+  public async listDevices(): Promise<Array<Omit<FindHubDevice, 'id'>>> {
+    return await this.nova.listDevices();
+  }
+
+  public async protocolState() {
+    let e2ee: any = { available: false };
+    try {
+      const envelope = await this.spot.ownerKeyEnvelope();
+      e2ee = {
+        available: true,
+        ownerKeyVersion: envelope.ownerKeyVersion,
+        securityDomain: envelope.securityDomain,
+        encryptedOwnerKeyBytes: envelope.encryptedOwnerKeyBytes,
+        encryptedOwnerKeyFingerprint: envelope.encryptedOwnerKeyFingerprint,
+        providerWire: envelope.providerWire,
+      };
+    } catch {
+      // Sanitized diagnostic: never reflect provider bodies, tokens or encrypted key material.
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      connected: this.ready,
+      auth: {
+        aasAvailable: Boolean(this.credentials.aas?.androidId && this.credentials.aas?.aasToken),
+        sharedKeyAvailable: this.sharedKey.length > 0,
+        ownerKeyCached: Boolean(this.ownerKey || this.credentials.ownerKey),
+      },
+      e2ee,
+      push: this.fcm.diagnostics(),
+    };
+  }
+
+  public captureDevicesListRequestRaw(catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Buffer {
+    return this.nova.buildDevicesListRequest(catalog);
+  }
+
+  public async captureDevicesListRaw(
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<Buffer> {
+    return await this.nova.captureDevicesListRaw(catalog);
+  }
+
+  public captureGetEidInfoRequestRaw(): Buffer {
+    return this.spot.getEidInfoRequestPayload();
+  }
+
+  public async captureGetEidInfoRaw(): Promise<Buffer> {
+    return await this.spot.captureGetEidInfoRaw();
+  }
+
+  public captureSecurityUnlockRequestRaw(): Buffer {
+    return encodeSecurityUnlockExtras();
+  }
+
+  public captureExecuteActionRequestRaw(
+    device: FindHubDevice,
+    action: 'locate' | 'sound-start' | 'sound-stop',
+  ): Buffer {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    if (device.locateSupported === false)
+      throw new Error('Google Find Hub device does not expose a canonical action ID');
+    const args = {
+      googleDeviceId: device.googleDeviceId,
+      fcmRegistrationId: this.fcm.registrationToken,
+      requestUuid: randomUUID(),
+      clientUuid: this.clientUuid,
+    };
+    if (action === 'locate') return encodeExecuteLocateRequest(args);
+    return encodeExecuteSoundRequest(args, action === 'sound-start' ? 'start' : 'stop', 'UNSPECIFIED');
+  }
+
+  public async captureDeviceUpdateRaw(device: FindHubDevice, timeoutMs?: number): Promise<RawDeviceUpdateCapture> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    const requestUuid = randomUUID();
+    const timeout = locationTimeoutMs(timeoutMs);
+    return await new Promise<RawDeviceUpdateCapture>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.rawCaptures.delete(requestUuid);
+        reject(new Error('Timed out waiting for raw Google Find Hub DeviceUpdate'));
+      }, timeout);
+      timer.unref?.();
+      this.rawCaptures.set(requestUuid, { resolve, reject, timer });
+      void this.nova
+        .locate(
+          {
+            googleDeviceId: device.googleDeviceId,
+            fcmRegistrationId: this.fcm.registrationToken,
+            requestUuid,
+            clientUuid: this.clientUuid,
+          },
+          AbortSignal.timeout(commandTimeoutMs()),
+        )
+        .catch((error) => {
+          const capture = this.rawCaptures.get(requestUuid);
+          if (!capture) return;
+          clearTimeout(capture.timer);
+          this.rawCaptures.delete(requestUuid);
+          capture.reject(error instanceof Error ? error : new Error(String(error)));
+        });
+    });
+  }
+
+  public async requestLocation(device: FindHubDevice): Promise<string> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    this.pruneRecent();
+    const requestUuid = randomUUID();
+    this.rememberRecent(requestUuid, device, [], 'tracking');
+    try {
+      await this.nova.locate(
+        {
+          googleDeviceId: device.googleDeviceId,
+          fcmRegistrationId: this.fcm.registrationToken,
+          requestUuid,
+          clientUuid: this.clientUuid,
+        },
+        AbortSignal.timeout(commandTimeoutMs()),
+      );
+      return requestUuid;
+    } catch (error) {
+      this.recent.delete(requestUuid);
+      throw error;
+    }
+  }
+
+  public async sound(
+    device: FindHubDevice,
+    operation: 'start' | 'stop',
+    component: FindHubSoundComponent = 'UNSPECIFIED',
+  ): Promise<{ requestUuid: string; operation: 'start' | 'stop'; component: FindHubSoundComponent }> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    if (!findHubSupportsSoundAction(device, operation)) {
+      throw new Error(
+        'O Google Find Hub não anunciou a capability necessária para esta operação de som neste dispositivo.',
+      );
+    }
+    const requestUuid = randomUUID();
+    await this.nova.sound(
+      {
+        googleDeviceId: device.googleDeviceId,
+        fcmRegistrationId: this.fcm.registrationToken,
+        requestUuid,
+        clientUuid: this.clientUuid,
+      },
+      operation,
+      component,
+      AbortSignal.timeout(commandTimeoutMs()),
+    );
+    return { requestUuid, operation, component };
+  }
+
+  public async locate(
+    device: FindHubDevice,
+    timeoutMs?: number,
+    diagnostics?: FindHubLocateDiagnostics,
+    options: { collectUntilTimeout?: boolean } = {},
+  ): Promise<FindHubPosition[]> {
+    if (!this.ready) throw new Error('Google Find Hub push connection is not authenticated');
+    if (this.pending.size >= 128) throw new Error('Too many pending Find Hub location requests');
+    this.pruneRecent();
+    const requestUuid = randomUUID();
+    const timeout = locationTimeoutMs(timeoutMs);
+    const afterPosition = device.latestPosition || null;
+
+    // The operator timeout controls how long the HTTP caller waits for a new observation.
+    // It never cancels the command submission itself. Once Google accepts the command,
+    // the correlation remains active so a later FCM observation can still update SSE/map/history.
+    return new Promise<FindHubPosition[]>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        const pending = this.pending.get(requestUuid);
+        if (!pending) return;
+        if (pending.timer) clearTimeout(pending.timer);
+        this.pending.delete(requestUuid);
+        if (!this.closing && this.onObservation && pending.retain && pending.submitted) {
+          this.rememberRecent(requestUuid, pending.device, pending.reports.keys(), 'manual');
+        }
+        if (error) reject(error);
+        else resolve([...pending.reports.values()].sort(comparePositionPreference));
+      };
+      const pending: PendingLocation = {
+        device,
+        afterTimestamp: Date.parse(afterPosition?.timestamp || '') || 0,
+        reports: new Map(),
+        diagnostics,
+        collectUntilTimeout: options.collectUntilTimeout === true,
+        submitted: false,
+        retain: true,
+        resolve: () => finish(),
+        reject: (error) => finish(error),
+      };
+      this.pending.set(requestUuid, pending);
+      void this.nova
+        .locate(
+          {
+            googleDeviceId: device.googleDeviceId,
+            fcmRegistrationId: this.fcm.registrationToken,
+            requestUuid,
+            clientUuid: this.clientUuid,
+          },
+          AbortSignal.timeout(commandTimeoutMs()),
+        )
+        .then(() => {
+          if (this.pending.get(requestUuid) !== pending) return;
+          pending.submitted = true;
+          if (
+            !pending.collectUntilTimeout &&
+            [...pending.reports.values()].some((position) => isNewPositionObservation(position, afterPosition))
+          ) {
+            pending.resolve();
+            return;
+          }
+          const timer = setTimeout(() => pending.resolve(), timeout);
+          timer.unref?.();
+          pending.timer = timer;
+        })
+        .catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
+    });
+  }
+
+  private decodePositions(
+    device: FindHubDevice,
+    metadata: Buffer,
+    diagnostics?: FindHubLocateDiagnostics,
+  ): FindHubPosition[] {
+    let identifiers: string[];
+    try {
+      identifiers = decodeDeviceMetadata(metadata).map((value) => value.googleDeviceId);
+    } catch {
+      if (diagnostics) diagnostics.metadataDecodeFailures++;
+      return [];
+    }
+    if (identifiers.length && !identifiers.includes(device.googleDeviceId)) {
+      if (diagnostics) diagnostics.deviceMismatchPayloads++;
+      return [];
+    }
+
+    let reports;
+    let identityKey: Buffer;
+    try {
+      const registration = decodeDeviceRegistration(metadata);
+      const ownerKey = this.ownerKey || (this.credentials.ownerKey && Buffer.from(this.credentials.ownerKey, 'base64'));
+      if (!ownerKey) {
+        if (diagnostics) diagnostics.metadataDecodeFailures++;
+        return [];
+      }
+      identityKey = decryptIdentityKey(ownerKey, registration.encryptedIdentityKey);
+      reports = decodeLocationReports(metadata);
+    } catch {
+      if (diagnostics) diagnostics.metadataDecodeFailures++;
+      return [];
+    }
+
+    if (diagnostics) diagnostics.providerReportsDecoded += reports.length;
+    const positions: FindHubPosition[] = [];
+    for (const report of reports) {
+      if (!report.encryptedLocation.length) {
+        if (diagnostics) diagnostics.reportsWithoutEncryptedLocation++;
+        continue;
+      }
+      if (diagnostics) diagnostics.reportsWithEncryptedLocation++;
+      try {
+        const location = decryptLocationReport(identityKey, report);
+        if (!location) {
+          if (diagnostics) diagnostics.decryptRejectedReports++;
+          continue;
+        }
+        if (diagnostics) diagnostics.decryptedReports++;
+        const position: FindHubPosition = {
+          deviceId: device.id,
+          googleDeviceId: device.googleDeviceId,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          altitude: location.altitude,
+          accuracy: report.accuracy,
+          timestamp: new Date(report.timestampSeconds * 1000).toISOString(),
+          source:
+            report.status === 1
+              ? 'LAST_KNOWN'
+              : report.status === 2
+                ? 'CROWDSOURCED'
+                : report.status === 3
+                  ? 'AGGREGATED'
+                  : report.ownReport
+                    ? 'RECENT'
+                    : 'NETWORK',
+          semanticLocation: report.semanticLocation,
+          ownReport: report.ownReport,
+        };
+        if (validPosition(position)) {
+          if (diagnostics) diagnostics.validReports++;
+          positions.push(position);
+        } else if (diagnostics) {
+          diagnostics.invalidReports++;
+        }
+      } catch {
+        if (diagnostics) diagnostics.decryptErrors++;
+        // An unusable individual report must not discard other reports or consume the waiter.
+      }
+    }
+    return positions;
+  }
+
+  private handlePushPayload(payload: Buffer, metadata?: FindHubFcmPayloadMetadata): void {
+    this.publishFlow('fcm.payload', {
+      payloadBytes: payload.length,
+      receivedAt: metadata?.receivedAt || new Date().toISOString(),
+      ...(metadata || {}),
+    });
+
+    let update;
+    try {
+      update = decodeDeviceUpdate(payload);
+    } catch {
+      this.publishFlow('device.update', {
+        status: 'malformed',
+        correlation: 'unknown',
+        payloadBytes: payload.length,
+      });
+      return;
+    }
+
+    if (!update.deviceMetadata) {
+      this.publishFlow('device.update', {
+        status: 'missing_metadata',
+        correlation: 'unknown',
+        requestUuid: update.requestUuid || null,
+        payloadBytes: payload.length,
+      });
+      return;
+    }
+
+    const summary = this.deviceMetadataSummary(update.deviceMetadata);
+    const requestUuid = update.requestUuid;
+    const capture = requestUuid ? this.rawCaptures.get(requestUuid) : undefined;
+    if (capture) {
+      clearTimeout(capture.timer);
+      this.rawCaptures.delete(requestUuid!);
+      capture.resolve({
+        payload: Buffer.from(payload),
+        deviceMetadata: Buffer.from(update.deviceMetadata),
+      });
+    }
+
+    const pending = requestUuid ? this.pending.get(requestUuid) : undefined;
+    if (!pending) {
+      this.pruneRecent();
+      const recent = requestUuid ? this.recent.get(requestUuid) : undefined;
+      this.publishFlow('device.update', {
+        status: summary.status,
+        correlation: recent ? 'recent' : capture ? 'capture' : 'passive',
+        requestUuid: requestUuid || null,
+        metadataBytes: update.deviceMetadata.length,
+        deviceCount: summary.deviceCount,
+        googleDeviceIds: summary.googleDeviceIds,
+      });
+
+      if (capture || this.closing) return;
+      if (recent && this.onObservation) {
+        const positions = this.decodePositions(recent.device, update.deviceMetadata).filter((position) => {
+          const fingerprint = positionFingerprint(position);
+          if (recent.seen.has(fingerprint)) return false;
+          recent.seen.add(fingerprint);
+          if (recent.seen.size > 128) recent.seen.delete(recent.seen.values().next().value!);
+          return true;
+        });
+        if (positions.length) void this.onObservation(recent.device, positions).catch(() => undefined);
+        return;
+      }
+      void this.processPassiveUpdate(update.deviceMetadata, summary.googleDeviceIds, requestUuid);
+      return;
+    }
+
+    this.publishFlow('device.update', {
+      status: summary.status,
+      correlation: 'pending',
+      requestUuid: requestUuid || null,
+      metadataBytes: update.deviceMetadata.length,
+      deviceCount: summary.deviceCount,
+      googleDeviceIds: summary.googleDeviceIds,
+    });
+    if (pending.diagnostics) pending.diagnostics.fcmPayloadsReceived++;
+    for (const position of this.decodePositions(pending.device, update.deviceMetadata, pending.diagnostics)) {
+      const fingerprint = positionFingerprint(position);
+      if (pending.diagnostics) {
+        if (pending.reports.has(fingerprint)) pending.diagnostics.duplicateValidReports++;
+        else pending.diagnostics.uniqueValidReports++;
+      }
+      pending.reports.set(fingerprint, position);
+    }
+    // Bound per-request memory while retaining the newest reports.
+    if (pending.reports.size > 128) {
+      pending.reports = new Map(
+        [...pending.reports.entries()].sort((a, b) => comparePositionPreference(a[1], b[1])).slice(0, 128),
+      );
+    }
+    if (
+      !pending.collectUntilTimeout &&
+      pending.submitted &&
+      [...pending.reports.values()].some((position) =>
+        isNewPositionObservation(position, pending.device.latestPosition || null),
+      )
+    )
+      pending.resolve();
+  }
+
+  private deviceMetadataSummary(metadata: Buffer): {
+    status: 'decoded' | 'unreadable';
+    deviceCount: number;
+    googleDeviceIds: string[];
+  } {
+    try {
+      const devices = decodeDeviceMetadata(metadata);
+      return {
+        status: 'decoded',
+        deviceCount: devices.length,
+        googleDeviceIds: [...new Set(devices.map((device) => device.googleDeviceId).filter(Boolean))].slice(0, 32),
+      };
+    } catch {
+      return { status: 'unreadable', deviceCount: 0, googleDeviceIds: [] };
+    }
+  }
+
+  private async processPassiveUpdate(metadata: Buffer, googleDeviceIds: string[], requestUuid?: string): Promise<void> {
+    if (this.closing || !this.resolveDevice || !this.onObservation) return;
+    for (const googleDeviceId of googleDeviceIds) {
+      if (this.closing) return;
+      let device: FindHubDevice | undefined;
+      try {
+        device = await this.resolveDevice(googleDeviceId);
+      } catch {
+        continue;
+      }
+      if (!device) continue;
+      const positions = this.decodePositions(device, metadata);
+      if (!positions.length) continue;
+      const fresh = this.filterPassivePositions(device, positions);
+      this.publishFlow('location.decoded', {
+        source: 'passive',
+        requestUuid: requestUuid || null,
+        deviceId: device.id,
+        googleDeviceId: device.googleDeviceId,
+        persisted: device.trackingEnabled !== false,
+        positions: fresh,
+      });
+      if (device.trackingEnabled === false || !fresh.length) continue;
+      void this.onObservation(device, fresh).catch(() => undefined);
+    }
+  }
+
+  private filterPassivePositions(device: FindHubDevice, positions: FindHubPosition[]): FindHubPosition[] {
+    this.prunePassive();
+    let context = this.passive.get(device.googleDeviceId);
+    if (!context) {
+      if (this.passive.size >= MAX_PASSIVE_DEVICES) this.passive.delete(this.passive.keys().next().value!);
+      context = { expiresAt: Date.now() + PASSIVE_OBSERVATION_TTL_MS, seen: new Set<string>() };
+      this.passive.set(device.googleDeviceId, context);
+    } else {
+      context.expiresAt = Date.now() + PASSIVE_OBSERVATION_TTL_MS;
+    }
+    return positions.filter((position) => {
+      const fingerprint = positionFingerprint(position);
+      if (context!.seen.has(fingerprint)) return false;
+      context!.seen.add(fingerprint);
+      if (context!.seen.size > 128) context!.seen.delete(context!.seen.values().next().value!);
+      return true;
+    });
+  }
+
+  private prunePassive(): void {
+    const now = Date.now();
+    for (const [googleDeviceId, context] of this.passive) {
+      if (context.expiresAt <= now) this.passive.delete(googleDeviceId);
+    }
+  }
+
+  private publishFlow(kind: FindHubFlowKind, data: Record<string, unknown>): void {
+    try {
+      this.onFlowEvent?.(kind, data);
+    } catch {
+      // A monitor callback is isolated from protocol and crypto processing.
+    }
+  }
+
+  private rememberRecent(
+    requestUuid: string,
+    device: FindHubDevice,
+    seen: Iterable<string> = [],
+    source: 'manual' | 'tracking' = 'manual',
+  ): void {
+    this.pruneRecent();
+    const existing = this.recent.get(requestUuid);
+    if (existing) {
+      for (const fingerprint of seen) existing.seen.add(fingerprint);
+      existing.expiresAt = Date.now() + OBSERVATION_TTL_MS;
+      return;
+    }
+    if (this.recent.size >= MAX_RECENT_REQUESTS) this.recent.delete(this.recent.keys().next().value!);
+    this.recent.set(requestUuid, {
+      device,
+      expiresAt: Date.now() + OBSERVATION_TTL_MS,
+      seen: new Set(seen),
+      source,
+    });
+  }
+
+  public stopObserving(deviceId: string): void {
+    for (const [id, context] of this.recent)
+      if (context.device.id === deviceId && context.source === 'tracking') this.recent.delete(id);
+  }
+
+  private pruneRecent(): void {
+    for (const [id, context] of this.recent) if (context.expiresAt <= Date.now()) this.recent.delete(id);
+  }
+
+  private async ensureOwnerKey(): Promise<Buffer> {
+    if (this.ownerKey) return this.ownerKey;
+
+    if (this.credentials.ownerKey) {
+      this.ownerKey = Buffer.from(this.credentials.ownerKey, 'base64');
+      return this.ownerKey;
+    }
+
+    const envelope = await this.spot.ownerKeyEnvelope();
+    this.ownerKey = decryptOwnerKey(this.sharedKey, envelope.encryptedOwnerKey);
+    this.credentials = {
+      ...this.credentials,
+      ownerKey: this.ownerKey.toString('base64'),
+    };
+    await this.persistCredentials(this.credentials);
+    return this.ownerKey;
+  }
+}

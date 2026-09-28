@@ -1,0 +1,72 @@
+name: Find Hub - Full stack and device controls
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'deploy/*/full-stack/**'
+      - 'scripts/*full-stack*'
+      - 'test/full-stack-runtime.test.py'
+      - 'test/full-stack-volumes.test.py'
+      - 'test/full-stack-deployment.test.py'
+      - 'src/api/integrations/channel/findhub/**'
+      - 'manager/src/components/FindHub*'
+      - '.github/workflows/findhub-full-stack-integrity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: findhub-full-stack-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    name: Full stack / ${{ matrix.channel }}
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [develop, production]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate generated profiles and safe import
+        run: |
+          set -euo pipefail
+          python3 scripts/sync-full-stack-deployments.py --check
+          python3 test/full-stack-deployment.test.py
+          python3 test/full-stack-runtime.test.py
+          python3 test/full-stack-volumes.test.py
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prepare disposable full stack (no operator credentials)
+        working-directory: deploy/${{ matrix.channel }}/full-stack
+        run: |
+          set -euo pipefail
+          python3 prepare-env.py
+          python3 prepare-env.py --check
+          docker compose --env-file .env -f compose.yaml config --quiet
+          docker compose --env-file .env -f compose.yaml pull
+      - name: Start and verify all local services
+        working-directory: deploy/${{ matrix.channel }}/full-stack
+        run: |
+          set -euo pipefail
+          python3 prepare-volumes.py
+          python3 prepare-volumes.py
+          docker compose --env-file .env -f compose.yaml up -d --pull never
+          python3 ../../../scripts/check-full-stack-runtime.py --expected 14 --timeout 270
+      - name: Preserve sanitized readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-stack-readiness-${{ matrix.channel }}-${{ github.run_id }}
+          path: deploy/${{ matrix.channel }}/full-stack/full-stack-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove only disposable full stack
+        if: always()
+        working-directory: deploy/${{ matrix.channel }}/full-stack
+        run: |
+          if [ -f .env ]; then docker compose --env-file .env -f compose.yaml down --remove-orphans; fi

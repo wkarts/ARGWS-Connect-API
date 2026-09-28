@@ -25,6 +25,7 @@ import { SendMessageController } from './controllers/sendMessage.controller';
 import { SettingsController } from './controllers/settings.controller';
 import { TemplateController } from './controllers/template.controller';
 import { ChannelController } from './integrations/channel/channel.controller';
+import { FindHubController } from './integrations/channel/findhub/findhub.controller';
 import { MetaController } from './integrations/channel/meta/meta.controller';
 import { BaileysController } from './integrations/channel/whatsapp/baileys.controller';
 import { ChatbotController } from './integrations/chatbot/chatbot.controller';
@@ -51,10 +52,12 @@ import { ProviderFiles } from './provider/sessions';
 import { PrismaRepository } from './repository/repository.service';
 import { CacheService } from './services/cache.service';
 import { LocalTemplateService } from './services/local-template.service';
+import { ManagerEmbeddingService } from './services/manager-embedding.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
 import { TemplateService } from './services/template.service';
+import { VideoMediaService } from './services/video-media.service';
 import { VoiceMediaService } from './services/voice-media.service';
 
 const logger = new Logger('WA MODULE');
@@ -73,6 +76,7 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 }
 
 export const prismaRepository = new PrismaRepository(configService);
+export const managerEmbeddingService = new ManagerEmbeddingService(prismaRepository);
 export const localTemplateService = new LocalTemplateService(prismaRepository);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
 export const metaCloudAuthService = new MetaCloudAuthService();
@@ -88,6 +92,7 @@ export const waMonitor = new WAMonitoringService(
   baileysCache,
 );
 export const voiceMediaService = new VoiceMediaService(waMonitor);
+export const videoMediaService = new VideoMediaService(waMonitor);
 
 const s3Service = new S3Service(prismaRepository);
 export const s3Controller = new S3Controller(s3Service);
@@ -118,7 +123,7 @@ export const instanceController = new InstanceController(
   providerFiles,
 );
 export const sendMessageController = new SendMessageController(waMonitor, localTemplateService);
-export const callController = new CallController(waMonitor, voiceMediaService);
+export const callController = new CallController(waMonitor, voiceMediaService, videoMediaService);
 export const chatController = new ChatController(waMonitor);
 export const businessController = new BusinessController(waMonitor);
 export const groupController = new GroupController(waMonitor);
@@ -158,6 +163,7 @@ export const metaCloudWebhookDispatcher = new MetaCloudWebhookDispatcher(
 eventManager.setMetaCloudDispatcher(metaCloudWebhookDispatcher);
 export const chatbotController = new ChatbotController(prismaRepository, waMonitor);
 export const channelController = new ChannelController(prismaRepository, waMonitor);
+export const findHubController = new FindHubController(waMonitor);
 
 // channels
 export const metaController = new MetaController(prismaRepository, waMonitor);

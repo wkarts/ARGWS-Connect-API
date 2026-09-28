@@ -60,6 +60,16 @@ enum DifyBotType {
   workflow
 }
 
+model ManagerEmbeddingSetting {
+  id             Int      @id
+  configured     Boolean  @default(false)
+  enabled        Boolean  @default(false)
+  allowedOrigins Json?
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @db.Timestamp
+  updatedAt      DateTime @updatedAt @db.Timestamp
+}
+
 model Instance {
   id                      String                   @id @default(cuid())
   name                    String                   @unique @db.VarChar(255)
@@ -113,6 +123,10 @@ model Instance {
   N8nSetting              N8nSetting[]
   ConnectAI               ConnectAI[]
   ConnectAISetting        ConnectAISetting?
+  FindHubAccount          FindHubAccount?
+  FindHubDevice           FindHubDevice[]
+  FindHubPosition         FindHubPosition[]
+  FindHubTraccarBinding   FindHubTraccarBinding[]
 }
 
 model Session {
@@ -792,4 +806,126 @@ model LocalTemplate {
 
   @@unique([instanceId, name, language])
   @@index([instanceId, deletedAt, id])
+}
+
+
+model FindHubAccount {
+  id                   String   @id @default(cuid())
+  instanceId           String   @unique
+  googleEmail          String?  @db.VarChar(320)
+  authState            String   @default("WAITING_AUTH") @db.VarChar(40)
+  encryptedCredentials String?  @db.Text
+  encryptedSharedKey   String?  @db.Text
+  trackingSettings     Json?
+  encryptedTraccar     String?  @db.Text
+  clientUuid           String?  @db.VarChar(64)
+  createdAt            DateTime @default(now()) @db.Timestamp
+  updatedAt            DateTime @updatedAt @db.Timestamp
+  Instance             Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Device               FindHubDevice[]
+
+  @@index([instanceId])
+}
+
+model FindHubDevice {
+  id                      String   @id @default(cuid())
+  instanceId              String
+  accountId               String
+  googleDeviceId          String   @db.VarChar(512)
+  name                    String   @db.VarChar(255)
+  identifierType          String   @db.VarChar(32)
+  deviceType              String   @db.VarChar(32)
+  manufacturer            String?  @db.VarChar(255)
+  model                   String?  @db.VarChar(255)
+  deviceCodename          String?  @db.VarChar(255)
+  productName             String?  @db.VarChar(255)
+  carrier                 String?  @db.VarChar(255)
+  imei                    String?  @db.VarChar(32)
+  androidDeviceNumericId  String?  @db.VarChar(64)
+  providerOpaqueId        String?  @db.VarChar(128)
+  providerRegisteredAt    DateTime? @db.Timestamp
+  providerStatusAt        DateTime? @db.Timestamp
+  providerResponseAt      DateTime? @db.Timestamp
+  gmsCoreVersionCode      Int?
+  androidSdkVersion       Int?
+  familyLinkManaged       Boolean  @default(false) @db.Boolean
+  familyLinkMemberName    String?  @db.VarChar(255)
+  familyLinkUrl           String?  @db.VarChar(1000)
+  providerCapabilities    Json?
+  providerFlags           Json?
+  fastPairModelId         String?  @db.VarChar(255)
+  pairedAt                DateTime? @db.Timestamp
+  canonicalIds            Json?
+  accessInformation       Json?
+  ownerKeyVersion         Int?
+  identityKeyFingerprint  String?  @db.VarChar(64)
+  accountKeyFingerprint   String?  @db.VarChar(64)
+  publicAddressFingerprint String? @db.VarChar(64)
+  secretsCreatedAt        DateTime? @db.Timestamp
+  networkAggregationMinReports Int?
+  providerRequestCount    Int      @default(0) @db.Integer
+  providerReportCount     Int      @default(0) @db.Integer
+  providerRepeatedReportCount Int  @default(0) @db.Integer
+  lastProviderRequestAt   DateTime? @db.Timestamp
+  lastProviderReportAt    DateTime? @db.Timestamp
+  imageUrl                String?  @db.VarChar(1000)
+  avatarData              String?  @db.Text
+  trackingEnabled         Boolean  @default(false) @db.Boolean
+  trackingIntervalSeconds Int      @default(60) @db.Integer
+  latestPosition          Json?
+  lastReceivedAt          DateTime?
+  lastAttemptAt           DateTime?
+  lastErrorCode           String?  @db.VarChar(64)
+  providerStatus          String?  @db.VarChar(32)
+  locationTimeoutMs       Int?
+  lastLocationAt          DateTime? @db.Timestamp
+  createdAt               DateTime @default(now()) @db.Timestamp
+  updatedAt               DateTime @updatedAt @db.Timestamp
+  Instance                Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  account                 FindHubAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  Position                FindHubPosition[]
+  TraccarBinding          FindHubTraccarBinding?
+
+  @@unique([instanceId, googleDeviceId])
+  @@index([instanceId])
+  @@index([accountId])
+}
+
+model FindHubPosition {
+  id               String   @id @default(cuid())
+  instanceId       String
+  deviceId         String
+  latitude         Float
+  longitude        Float
+  altitude         Int?     @db.Integer
+  accuracy         Float?
+  source           String   @db.VarChar(32)
+  ownReport        Boolean  @default(false) @db.Boolean
+  fingerprint      String?  @db.VarChar(64)
+  semanticLocation String?  @db.VarChar(500)
+  recordedAt       DateTime @db.Timestamp
+  createdAt        DateTime @default(now()) @db.Timestamp
+  Instance         Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Device           FindHubDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+  @@index([deviceId, recordedAt])
+  @@index([instanceId, recordedAt])
+  @@unique([instanceId, deviceId, fingerprint])
+}
+
+model FindHubTraccarBinding {
+  id              String   @id @default(cuid())
+  instanceId      String
+  deviceId        String   @unique
+  enabled         Boolean  @default(true) @db.Boolean
+  url             String   @db.VarChar(1000)
+  traccarNumericId Int?
+  traccarDeviceId String   @db.VarChar(255)
+  createdAt       DateTime @default(now()) @db.Timestamp
+  updatedAt       DateTime @updatedAt @db.Timestamp
+  Instance        Instance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  Device          FindHubDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
 }

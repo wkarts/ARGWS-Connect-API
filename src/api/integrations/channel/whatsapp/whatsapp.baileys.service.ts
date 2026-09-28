@@ -9,6 +9,7 @@ import {
   MarkChatUnreadDto,
   NumberBusiness,
   OnWhatsAppDto,
+  PlayedMessageDto,
   PrivacySettingDto,
   ReadMessageDto,
   SendPresenceDto,
@@ -114,6 +115,7 @@ import makeWASocket, {
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
+  isLidUser,
   isPnUser,
   jidNormalizedUser,
   makeCacheableSignalKeyStore,
@@ -153,6 +155,7 @@ import { PassThrough, Readable } from 'stream';
 import { v4 } from 'uuid';
 
 import { BaileysMessageProcessor } from './baileysMessage.processor';
+import { persistPlayedReceipt, PlayedReceiptKey } from './played-receipt.helper';
 import { BAILEYS_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
 
 export interface ExtendedIMessageKey extends proto.IMessageKey {
@@ -1239,10 +1242,72 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          const editedMessage =
+          const protocolMessage =
             received?.message?.protocolMessage || received?.message?.editedMessage?.message?.protocolMessage;
+          const protocolType = protocolMessage?.type;
+          const isRevokeMessage =
+            Boolean(protocolMessage?.key?.id) &&
+            (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
-          if (editedMessage) {
+          if (protocolMessage && isRevokeMessage) {
+            const deletedKey = protocolMessage.key;
+            const deletedAt = Long.isLong(received?.messageTimestamp)
+              ? Math.floor(received.messageTimestamp.toNumber())
+              : Math.floor(Number(received?.messageTimestamp) || Date.now() / 1000);
+
+            if (received.key?.id && deletedKey?.id) {
+              await this.baileysCache.set(`protocol_${received.key.id}`, deletedKey.id, 60 * 60 * 24);
+            }
+
+            const oldMessage = await this.getMessage(deletedKey, true);
+            let persistedMessage: any = oldMessage;
+            if ((oldMessage as any)?.id) {
+              const existingKey =
+                typeof (oldMessage as any).key === 'object' && (oldMessage as any).key !== null
+                  ? (oldMessage as any).key
+                  : {};
+
+              persistedMessage = await this.prismaRepository.message.update({
+                where: { id: (oldMessage as any).id },
+                data: {
+                  key: { ...existingKey, deleted: true },
+                  status: 'DELETED',
+                },
+              });
+
+              if (this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE) {
+                await this.prismaRepository.messageUpdate.create({
+                  data: {
+                    fromMe: Boolean(deletedKey.fromMe),
+                    keyId: deletedKey.id,
+                    remoteJid: deletedKey.remoteJid,
+                    participant: deletedKey.participant,
+                    status: 'DELETED',
+                    instanceId: this.instanceId,
+                    messageId: (oldMessage as any).id,
+                  },
+                });
+              }
+            }
+
+            await this.sendDataWebhook(Events.MESSAGES_DELETE, {
+              id: persistedMessage?.id,
+              instanceId: this.instanceId,
+              key: deletedKey,
+              status: 'DELETED',
+              messageTimestamp: deletedAt,
+              source: persistedMessage?.source,
+            });
+
+            if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+              this.chatwootService.eventWhatsapp(
+                Events.MESSAGES_DELETE,
+                { instanceName: this.instance.name, instanceId: this.instance.id },
+                { key: deletedKey, status: 'DELETED' },
+              );
+            }
+          } else if (protocolMessage) {
+            const editedMessage = protocolMessage;
             if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled)
               this.chatwootService.eventWhatsapp(
                 'messages.edit',
@@ -1283,7 +1348,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if ((type !== 'notify' && type !== 'append') || editedMessage || !received?.message) {
+          if ((type !== 'notify' && type !== 'append') || protocolMessage || !received?.message) {
             continue;
           }
 
@@ -1774,7 +1839,22 @@ export class BaileysStartupService extends ChannelStartupService {
           }
 
           if (update.message === null && update.status === undefined) {
-            this.sendDataWebhook(Events.MESSAGES_DELETE, { ...key, status: 'DELETED' });
+            message.status = 'DELETED';
+
+            if (findMessage?.id) {
+              const existingKey =
+                typeof findMessage.key === 'object' && findMessage.key !== null ? findMessage.key : {};
+
+              await this.prismaRepository.message.update({
+                where: { id: findMessage.id },
+                data: {
+                  key: { ...existingKey, deleted: true },
+                  status: 'DELETED',
+                },
+              });
+            }
+
+            await this.sendDataWebhook(Events.MESSAGES_DELETE, { ...key, status: 'DELETED' });
 
             if (this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE)
               await this.prismaRepository.messageUpdate.create({ data: message });
@@ -1783,7 +1863,7 @@ export class BaileysStartupService extends ChannelStartupService {
               this.chatwootService.eventWhatsapp(
                 Events.MESSAGES_DELETE,
                 { instanceName: this.instance.name, instanceId: this.instanceId },
-                { key: key },
+                { key: key, status: 'DELETED' },
               );
             }
 
@@ -3814,6 +3894,47 @@ export class BaileysStartupService extends ChannelStartupService {
       return { message: 'Read messages', read: 'success' };
     } catch (error) {
       throw new InternalServerErrorException('Read messages fail', error.toString());
+    }
+  }
+
+  public async markMessageAsPlayed(data: PlayedMessageDto) {
+    try {
+      if (!this.client || this.connectionStatus?.state !== 'open') {
+        throw new BadRequestException('WhatsApp instance is not connected');
+      }
+
+      const keys: PlayedReceiptKey[] = data.playedMessages.map((message) => {
+        const id = String(message?.id || '').trim();
+        const remoteJid = String(message?.remoteJid || '').trim();
+        const participant = String(message?.participant || '').trim() || undefined;
+
+        if (!id || !remoteJid) throw new BadRequestException('Message id and remoteJid are required');
+        if (message?.fromMe !== false) {
+          throw new BadRequestException('PLAYED receipt is valid only for received messages');
+        }
+        if (!(isJidGroup(remoteJid) || isPnUser(remoteJid) || isLidUser(remoteJid))) {
+          throw new BadRequestException('Unsupported WhatsApp JID for PLAYED receipt');
+        }
+        if (participant && !(isPnUser(participant) || isLidUser(participant))) {
+          throw new BadRequestException('Invalid group participant JID for PLAYED receipt');
+        }
+
+        return { id, remoteJid, fromMe: false, ...(participant ? { participant } : {}) };
+      });
+
+      await this.client.sendReceipts(keys, 'played');
+
+      const saveMessageUpdate = this.configService.get<Database>('DATABASE').SAVE_DATA.MESSAGE_UPDATE;
+      for (const key of keys) {
+        await persistPlayedReceipt(this.prismaRepository, this.instanceId, key, saveMessageUpdate, (event, payload) =>
+          this.sendDataWebhook(event, payload),
+        );
+      }
+
+      return { success: true, receipt: 'played', processed: keys.length };
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) throw error;
+      throw new InternalServerErrorException('Played receipt failed', (error as Error)?.toString());
     }
   }
 

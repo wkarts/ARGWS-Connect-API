@@ -1,4 +1,5 @@
 import { InstanceDto } from '@api/dto/instance.dto';
+import { FindHubStartupService } from '@api/integrations/channel/findhub/services/findhub-runtime.service';
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { channelController } from '@api/server.module';
@@ -255,7 +256,9 @@ export class WAMonitoringService {
           profilePicUrl: data.profilePicUrl,
           connectionStatus:
             data.integration &&
-            (data.integration === Integration.WHATSAPP_BAILEYS || data.integration === Integration.WHATSAPP_ZAPO)
+            (data.integration === Integration.WHATSAPP_BAILEYS ||
+              data.integration === Integration.WHATSAPP_ZAPO ||
+              data.integration === Integration.GOOGLE_FIND_HUB)
               ? 'close'
               : (data.status ?? 'open'),
           number: data.number,
@@ -270,6 +273,8 @@ export class WAMonitoringService {
       });
     } catch (error) {
       this.logger.error(error);
+      // Find Hub creation must not publish a runtime after a failed database insert.
+      if (data.integration === Integration.GOOGLE_FIND_HUB) throw error;
     }
   }
 
@@ -314,6 +319,29 @@ export class WAMonitoringService {
   }
 
   private async setInstance(instanceData: InstanceDto) {
+    // A Google account failure must never reject an unawaited legacy WhatsApp restore task.
+    if (instanceData.integration === Integration.GOOGLE_FIND_HUB) {
+      try {
+        const runtime = channelController.init(instanceData, {
+          configService: this.configService,
+          eventEmitter: this.eventEmitter,
+          prismaRepository: this.prismaRepository,
+          cache: this.cache,
+          chatwootCache: this.chatwootCache,
+          baileysCache: this.baileysCache,
+          providerFiles: this.providerFiles,
+        }) as FindHubStartupService;
+        if (!runtime) return;
+        runtime.setInstance(instanceData);
+        this.waInstances[instanceData.instanceName] = runtime;
+        if (['open', 'connecting'].includes(instanceData.connectionStatus)) await runtime.connect();
+      } catch {
+        this.logger.error(
+          'Não foi possível restaurar uma conta Find Hub. As conexões dos outros canais foram preservadas.',
+        );
+      }
+      return;
+    }
     const instance = channelController.init(instanceData, {
       configService: this.configService,
       eventEmitter: this.eventEmitter,
@@ -444,7 +472,10 @@ export class WAMonitoringService {
 
         this.clearDelInstanceTime(instanceName);
 
-        if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED) {
+        if (
+          this.waInstances[instanceName]?.integration !== Integration.GOOGLE_FIND_HUB &&
+          this.configService.get<Chatwoot>('CHATWOOT').ENABLED
+        ) {
           this.waInstances[instanceName]?.clearCacheChatwoot();
         }
 
@@ -459,11 +490,22 @@ export class WAMonitoringService {
     this.eventEmitter.on('no.connection', async (instanceName) => {
       try {
         const instance = this.waInstances[instanceName];
-        if (typeof instance?.logoutInstance === 'function') {
+        if (!instance) return;
+
+        // "no.connection" is a transport lifecycle event. For Find Hub it must
+        // never invoke logoutInstance(), because logout is the explicit,
+        // destructive unlink operation that clears persisted Google credentials.
+        if (instance.integration === Integration.GOOGLE_FIND_HUB) {
+          if (typeof instance.closeClient === 'function') await instance.closeClient();
+          else if (instance.stateConnection) instance.stateConnection.state = 'close';
+          return;
+        }
+
+        if (typeof instance.logoutInstance === 'function') {
           await instance.logoutInstance();
         } else {
-          await instance?.client?.logout('Log out instance: ' + instanceName);
-          instance?.client?.ws?.close();
+          await instance.client?.logout('Log out instance: ' + instanceName);
+          instance.client?.ws?.close();
         }
 
         instance.instance.qrcode = { count: 0 };

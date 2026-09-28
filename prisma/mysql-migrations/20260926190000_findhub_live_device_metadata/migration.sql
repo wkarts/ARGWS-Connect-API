@@ -1,0 +1,17 @@
+ALTER TABLE `FindHubDevice`
+  ADD COLUMN `deviceCodename` VARCHAR(255) NULL,
+  ADD COLUMN `productName` VARCHAR(255) NULL,
+  ADD COLUMN `carrier` VARCHAR(255) NULL,
+  ADD COLUMN `imei` VARCHAR(32) NULL,
+  ADD COLUMN `androidDeviceNumericId` VARCHAR(64) NULL,
+  ADD COLUMN `providerOpaqueId` VARCHAR(128) NULL,
+  ADD COLUMN `providerRegisteredAt` TIMESTAMP NULL,
+  ADD COLUMN `providerStatusAt` TIMESTAMP NULL,
+  ADD COLUMN `providerResponseAt` TIMESTAMP NULL,
+  ADD COLUMN `gmsCoreVersionCode` INT NULL,
+  ADD COLUMN `androidSdkVersion` INT NULL,
+  ADD COLUMN `familyLinkManaged` BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN `familyLinkMemberName` VARCHAR(255) NULL,
+  ADD COLUMN `familyLinkUrl` TEXT NULL,
+  ADD COLUMN `providerCapabilities` JSON NULL,
+  ADD COLUMN `providerFlags` JSON NULL;

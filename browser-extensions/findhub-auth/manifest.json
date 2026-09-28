@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Connect|API — Find Hub Auth",
+  "version": "0.1.7",
+  "minimum_chrome_version": "120",
+  "description": "Vinculação consentida de uma conta Google Find Hub à sua instalação Connect|API. Sem telemetria.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAumXXOvzr5M5wDsLC9dvfTDQKxhrpTXlt57blWJmfV1lK9sEpYq9VA1r4foLZuteYLuPSo3VEF8MfEtdB8q9eqRhTeDUcLyAkpFgBd2Kf0f2Wc5U0x+8Z1MRfyJnfW7LqpgZ84C/YBdmHk0Cjr1uTB898Jk3tEccd6YL+oW+/0aiYZHSGZvIdJYfrEs8oiFiusFdCsDFIP2AiysEUGMtyRgOKZHzD7d7+RhopQVTwk/NAq9bxLXga2GeCrBMwLmLiykNNEe2UwT70nGNCUZ00WWjYhl5qGtn9TWvzJKCcDvmazGW1rfiXedoRKvEfOGjFYT+EfPS4xd/Abc0c+ZNjjQIDAQAB",
+  "permissions": [
+    "scripting"
+  ],
+  "optional_permissions": [
+    "cookies"
+  ],
+  "optional_host_permissions": [
+    "https://accounts.google.com/*",
+    "https://myaccount.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "externally_connectable": {
+    "matches": [
+      "<all_urls>"
+    ]
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Connect|API — Find Hub Auth",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  }
+}

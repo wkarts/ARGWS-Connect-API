@@ -2,6 +2,11 @@ name: GHCR - Sync Infrastructure Images
 
 on:
   workflow_dispatch:
+    inputs:
+      refresh_existing:
+        description: "Atualizar bases existentes explicitamente (não altera versões canônicas)"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -32,11 +37,16 @@ jobs:
       - name: Sync runtime and build images to GHCR
         env:
           OWNER: ${{ github.repository_owner }}
+          REFRESH_EXISTING: ${{ inputs.refresh_existing || false }}
         run: |
           set -euo pipefail
           sync() {
             source="$1"
             target="$2"
+            if [[ "$REFRESH_EXISTING" != "true" ]] && skopeo inspect "docker://$target" >/dev/null 2>&1; then
+              echo "Preserving existing base: $target"
+              return 0
+            fi
             echo "Syncing $source -> $target"
             skopeo copy --all "docker://$source" "docker://$target"
           }
@@ -56,3 +66,5 @@ jobs:
           sync docker.io/library/nats:2.10-alpine            ghcr.io/${OWNER}/argws-connect-nats:2.10-alpine
           sync docker.io/confluentinc/cp-kafka:7.5.0         ghcr.io/${OWNER}/argws-connect-kafka:7.5.0
           sync docker.io/confluentinc/cp-zookeeper:7.5.0     ghcr.io/${OWNER}/argws-connect-zookeeper:7.5.0
+
+          sync docker.io/traccar/traccar:6.15.3-alpine ghcr.io/${OWNER}/argws-connect-traccar:6.15.3-alpine

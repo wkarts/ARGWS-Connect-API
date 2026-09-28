@@ -9,6 +9,7 @@ import type {
   IntegrationKey,
   IntegrationSummary,
   InstanceConfigKey,
+  ManagerEmbeddingSettings,
   Message,
   Overview,
   ProviderMigrationResult,
@@ -19,6 +20,7 @@ import type {
   WhatsAppProvider,
 } from '@/types/domain'
 import type { VoiceMediaCallbacks, VoiceMediaSession } from './voice-media'
+import type { CallCapabilities, VideoMediaCallbacks, VideoMediaPreparation, VideoMediaSession } from './video-media'
 
 const adapter: Record<string, any> = (runtime.compatibility === 'service' ? service : current) as Record<string, any>
 
@@ -53,6 +55,8 @@ export const connect = {
   verify: (code = '', recovery = ''): Promise<Session> => invoke('verify', code, recovery),
   me: (): Promise<Session> => invoke('me'),
   logout: (): Promise<any> => invoke('logout'),
+  embeddingSettings: (): Promise<ManagerEmbeddingSettings> => invoke('embeddingSettings'),
+  saveEmbeddingSettings: (data: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> => invoke('saveEmbeddingSettings', data),
   security: (): Promise<SecurityState> => invoke('security'),
   beginTwoStep: (password: string): Promise<any> => invoke('beginTwoStep', password),
   confirmTwoStep: (code: string): Promise<{ session: Session; recoveryCodes: string[] }> => invoke('confirmTwoStep', code),
@@ -77,9 +81,11 @@ export const connect = {
     const result = await invoke<WhatsAppCall[]>('calls', id)
     return result.map(sanitizeCallIdentity)
   },
-  offerCall: (id: string, number: string, duration?: number): Promise<any> => invoke('offerCall', id, number, duration),
+  callCapabilities: (id: string): Promise<CallCapabilities> => invoke('callCapabilities', id),
+  offerCall: (id: string, number: string, duration?: number, isVideo = false): Promise<any> => invoke('offerCall', id, number, duration, isVideo),
   callAction: (id: string, action: 'accept' | 'reject' | 'end' | 'mute', data: any = {}): Promise<any> => invoke('callAction', id, action, data),
   voiceMedia: (id: string, callId: string, callbacks: VoiceMediaCallbacks = {}): Promise<VoiceMediaSession> => invoke('voiceMedia', id, callId, callbacks),
+  videoMedia: (id: string, callId: string, preparation: VideoMediaPreparation, canvas: HTMLCanvasElement, callbacks: VideoMediaCallbacks = {}): Promise<VideoMediaSession> => invoke('videoMedia', id, callId, preparation, canvas, callbacks),
   integrationSummaries: (id: string): Promise<IntegrationSummary[]> => invoke('integrationSummaries', id),
   findIntegrations: (id: string, key: IntegrationKey): Promise<any[]> => invoke('findIntegrations', id, key),
   createIntegration: (id: string, key: IntegrationKey, data: any): Promise<any> => invoke('createIntegration', id, key, data),
@@ -103,6 +109,47 @@ export const connect = {
   updateUser: (id: string, data: any): Promise<any> => invoke('updateUser', id, data),
   removeUser: (id: string): Promise<any> => invoke('removeUser', id),
   audit: (): Promise<AuditItem[]> => invoke('audit'),
+  findHubAvatar: (id: string, deviceId: string, avatar?: string | null): Promise<any> => invoke('findHubAvatar', id, deviceId, avatar),
+  findHubSnapshot: (id: string): Promise<any> => invoke('findHubSnapshot', id),
+  findHubSettings: (id: string, data?: any): Promise<any> => invoke('findHubSettings', id, data),
+  findHubTraccarConnection: (id: string, data?: any): Promise<any> => invoke('findHubTraccarConnection', id, data),
+  findHubTraccarProvision: (id: string, deviceId: string): Promise<any> => invoke('findHubTraccarProvision', id, deviceId),
+  findHubStream: (id: string, signal: AbortSignal, onEvent: (event: any) => void): Promise<void> => invoke('findHubStream', id, signal, onEvent),
+  findHubBrowserAuth: (id: string, operation: 'start' | 'exchange' | 'complete' | 'cancel', data: any): Promise<any> => invoke('findHubBrowserAuth', id, operation, data),
+  findHubDownloadHelper: (id: string): Promise<void> => invoke('findHubDownloadHelper', id),
+  findHubDisconnect: (id: string): Promise<any> => invoke('findHubDisconnect', id),
+  findHubTraccar: (id: string, deviceId: string, method: 'GET' | 'PUT' | 'DELETE' = 'GET', data?: any): Promise<any> => invoke('findHubTraccar', id, deviceId, method, data),
+  findHubAuthStart: (id: string, email: string): Promise<any> => invoke('findHubAuthStart', id, email),
+  findHubAuthStatus: (id: string): Promise<any> => invoke('findHubAuthStatus', id),
+  findHubImportCredentials: (id: string, data: any): Promise<any> => invoke('findHubImportCredentials', id, data),
+  findHubDevices: (id: string): Promise<any[]> => invoke('findHubDevices', id),
+  findHubRefreshDevices: (id: string): Promise<any[]> => invoke('findHubRefreshDevices', id),
+  findHubCaptureCatalog: (id: string, catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised'): Promise<void> => invoke('findHubCaptureCatalog', id, catalog),
+  findHubProtocolInventory: (id: string): Promise<any> => invoke('findHubProtocolInventory', id),
+  findHubProtocolState: (id: string): Promise<any> => invoke('findHubProtocolState', id),
+  findHubDownloadProtocolInventory: (id: string): Promise<void> => invoke('findHubDownloadProtocolInventory', id),
+  findHubCaptureCatalogRequest: (
+    id: string,
+    catalog: 'spot' | 'android' | 'auto' | 'fastpair' | 'supervised',
+  ): Promise<void> => invoke('findHubCaptureCatalogRequest', id, catalog),
+  findHubCaptureEidInfo: (id: string, requestOnly = false): Promise<void> =>
+    invoke('findHubCaptureEidInfo', id, requestOnly),
+  findHubCaptureSecurityUnlockRequest: (id: string): Promise<void> =>
+    invoke('findHubCaptureSecurityUnlockRequest', id),
+  findHubCaptureActionRequest: (
+    id: string,
+    deviceId: string,
+    action: 'locate' | 'sound-start' | 'sound-stop',
+  ): Promise<void> => invoke('findHubCaptureActionRequest', id, deviceId, action),
+  findHubCaptureProtocolArchive: (id: string, timeoutMs = 30000, deviceIds?: string[]): Promise<void> =>
+    invoke('findHubCaptureProtocolArchive', id, timeoutMs, deviceIds),
+  findHubCaptureDeviceUpdate: (id: string, deviceId: string, timeoutMs?: number): Promise<void> => invoke('findHubCaptureDeviceUpdate', id, deviceId, timeoutMs),
+  findHubLocate: (id: string, deviceId: string, timeoutMs?: number): Promise<any> => invoke('findHubLocate', id, deviceId, timeoutMs),
+  findHubSound: (id: string, deviceId: string, operation: 'start' | 'stop', component = 'UNSPECIFIED'): Promise<any> => invoke('findHubSound', id, deviceId, operation, component),
+  findHubStartTracking: (id: string, deviceId: string, intervalSeconds = 60, timeoutMs?: number): Promise<any> => invoke('findHubStartTracking', id, deviceId, intervalSeconds, timeoutMs),
+  findHubStopTracking: (id: string, deviceId: string): Promise<any> => invoke('findHubStopTracking', id, deviceId),
+  findHubPositions: (id: string, deviceId: string, limit = 100, from?: string, to?: string): Promise<any[]> => invoke('findHubPositions', id, deviceId, limit, from, to),
+  findHubReconcile: (id: string, deviceId: string, data?: any): Promise<any> => invoke('findHubReconcile', id, deviceId, data || {}),
   health: (): Promise<any> => invoke('health'),
   updates: (): Promise<any> => invoke('updates'),
 }

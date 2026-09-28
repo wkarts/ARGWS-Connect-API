@@ -188,6 +188,29 @@ async function main() {
   );
   assert.doesNotMatch(dispatcherSource, /\.message\.create\s*\(/);
   assert.doesNotMatch(dispatcherSource, /config\?\.enabled/);
+  assert.match(dispatcherSource, /messages\.delete/);
+  assert.match(dispatcherSource, /MESSAGES_DELETE/);
+
+  const serializerSource = fs.readFileSync(
+    'src/api/compat/meta-cloud/meta-cloud-webhook.serializer.ts',
+    'utf8',
+  );
+  assert.match(serializerSource, /messages\.delete/);
+  assert.match(serializerSource, /MESSAGES_DELETE/);
+
+  const baileysSource = fs.readFileSync(
+    'src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts',
+    'utf8',
+  );
+  assert.match(baileysSource, /isRevokeMessage/);
+  assert.match(baileysSource, /status:\s*'DELETED'/);
+
+  const zapoSource = fs.readFileSync(
+    'src/api/integrations/channel/whatsapp/zapo.whatsapp.service.ts',
+    'utf8',
+  );
+  assert.match(zapoSource, /isRevokeProtocol/);
+  assert.match(zapoSource, /Events\.MESSAGES_DELETE/);
 
   const graphControllerSource = fs.readFileSync(
     'src/api/compat/meta-cloud/meta-cloud-graph.controller.ts',

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import AppShell from '@/layouts/AppShell.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PanelCard from '@/components/PanelCard.vue'
+import ManagerEmbeddingSettings from '@/components/ManagerEmbeddingSettings.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
 import { useSessionStore } from '@/stores/session'
@@ -36,6 +37,7 @@ async function change(){
           <button class="appearance-option" :class="{active:ui.theme==='dark'}" @click="ui.setTheme('dark')"><span class="appearance-preview dark"></span><strong>Escuro</strong><small>Para ambientes com pouca luz</small></button>
         </div>
       </PanelCard>
+      <ManagerEmbeddingSettings />
       <PanelCard v-if="accountMode" title="Alterar senha">
         <div v-if="error" class="alert error">{{error}}</div><div v-if="message" class="alert success">{{message}}</div>
         <div class="form-stack"><label class="field"><span>Senha atual</span><input v-model="current" type="password"/></label><label class="field"><span>Nova senha</span><input v-model="next" type="password" minlength="12"/></label><label class="field"><span>Confirmar nova senha</span><input v-model="confirm" type="password"/></label><button class="btn primary" :disabled="busy" @click="change">Alterar senha</button></div>

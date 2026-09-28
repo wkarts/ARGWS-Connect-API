@@ -1,0 +1,451 @@
+import { createHash, randomUUID } from 'crypto';
+
+import { FindHubDevice, FindHubPosition, FindHubSoundComponent } from '../findhub.types';
+import {
+  bool,
+  bytes,
+  concat,
+  fieldMessage,
+  fieldString,
+  fieldVarint,
+  float32,
+  int,
+  parseFields,
+  repeatedBytes,
+  sfixed32,
+  string,
+} from './protobuf';
+
+export const DeviceType = {
+  UNKNOWN: 0,
+  ANDROID: 1,
+  SPOT: 2,
+  TEST: 3,
+  AUTO: 4,
+  FASTPAIR: 5,
+  SUPERVISED_ANDROID: 7,
+} as const;
+export const IdentifierType = { ANDROID: 1, SPOT: 2, SUPERVISED_ANDROID: 6 } as const;
+export const SoundComponent = { UNSPECIFIED: 0, RIGHT: 1, LEFT: 2, CASE: 3 } as const;
+
+export function encodeDeviceListRequest(requestId = randomUUID(), deviceType: number = DeviceType.SPOT): Buffer {
+  const payload = concat(fieldVarint(1, deviceType), fieldString(3, requestId));
+  return fieldMessage(1, payload);
+}
+
+type ExecuteActionArgs = {
+  googleDeviceId: string;
+  fcmRegistrationId: string;
+  requestUuid: string;
+  clientUuid: string;
+};
+
+function encodeExecuteActionRequest(args: ExecuteActionArgs, action: Buffer): Buffer {
+  const canonicalId = fieldString(1, args.googleDeviceId);
+  const deviceIdentifier = fieldMessage(1, canonicalId);
+  const scope = concat(fieldVarint(2, DeviceType.SPOT), fieldMessage(3, deviceIdentifier));
+  const gcm = fieldString(1, args.fcmRegistrationId);
+  const metadata = concat(
+    fieldVarint(1, DeviceType.SPOT),
+    fieldString(2, args.requestUuid),
+    fieldString(3, args.clientUuid),
+    fieldMessage(4, gcm),
+    fieldVarint(6, true),
+  );
+  return concat(fieldMessage(1, scope), fieldMessage(2, action), fieldMessage(3, metadata));
+}
+
+export function encodeExecuteLocateRequest(args: ExecuteActionArgs): Buffer {
+  const time = fieldVarint(1, 1732120060);
+  const locate = concat(fieldMessage(2, time), fieldVarint(3, 2));
+  return encodeExecuteActionRequest(args, fieldMessage(30, locate));
+}
+
+export function encodeExecuteSoundRequest(
+  args: ExecuteActionArgs,
+  operation: 'start' | 'stop',
+  component: FindHubSoundComponent = 'UNSPECIFIED',
+): Buffer {
+  const componentId = SoundComponent[component];
+  const sound = componentId === 0 ? Buffer.alloc(0) : fieldVarint(1, componentId);
+  return encodeExecuteActionRequest(args, fieldMessage(operation === 'start' ? 31 : 32, sound));
+}
+
+export function encodeGetEidInfoRequest(): Buffer {
+  return concat(fieldVarint(1, -1), fieldVarint(2, true));
+}
+
+export function encodeSecurityUnlockExtras(sessionId: string = randomUUID()): Buffer {
+  // SecurityDomain.unknown has implicit proto3 presence; omit its zero default.
+  const domain = fieldString(1, 'finder_hw');
+  return concat(fieldVarint(1, 1), fieldMessage(2, domain), fieldString(6, sessionId));
+}
+
+function canonicIds(identifier: Buffer): string[] {
+  const direct = bytes(identifier, 3);
+  const phone = bytes(identifier, 1);
+  const containers = [phone ? bytes(phone, 2) : undefined, direct].filter((value): value is Buffer => Boolean(value));
+  return [
+    ...new Set(
+      containers
+        .flatMap((container) => repeatedBytes(container, 1))
+        .map((item) => string(item, 1))
+        .filter(Boolean),
+    ),
+  ] as string[];
+}
+
+const DEVICE_TYPES: Record<number, FindHubDevice['deviceType']> = {
+  1: 'BEACON',
+  2: 'HEADPHONES',
+  3: 'KEYS',
+  4: 'WATCH',
+  5: 'WALLET',
+  7: 'BAG',
+  8: 'LAPTOP',
+  9: 'CAR',
+  10: 'REMOTE_CONTROL',
+  11: 'BADGE',
+  12: 'BIKE',
+  13: 'CAMERA',
+  14: 'CAT',
+  15: 'CHARGER',
+  16: 'CLOTHING',
+  17: 'DOG',
+  18: 'NOTEBOOK',
+  19: 'PASSPORT',
+  20: 'PHONE',
+  21: 'SPEAKER',
+  22: 'TABLET',
+  23: 'TOY',
+  24: 'UMBRELLA',
+  25: 'STYLUS',
+  26: 'EARBUDS',
+};
+
+function normalizeDeviceType(type: number | undefined): FindHubDevice['deviceType'] {
+  if (!type) return 'UNKNOWN';
+  return DEVICE_TYPES[type] || 'TRACKER';
+}
+
+function fingerprint(value?: Buffer): string | undefined {
+  return value?.length ? createHash('sha256').update(value).digest('hex') : undefined;
+}
+
+function unixSeconds(value?: Buffer): number {
+  return value ? Number(int(value, 1) ?? 0n) : 0;
+}
+
+function timeIso(value?: Buffer): string | null {
+  const seconds = value ? Number(int(value, 1) ?? 0n) : 0;
+  const nanos = value ? Number(int(value, 2) ?? 0n) : 0;
+  if (!seconds) return null;
+  return new Date(seconds * 1000 + Math.floor(nanos / 1_000_000)).toISOString();
+}
+
+function validImei(value?: string): string | undefined {
+  if (!value || !/^\d{15}$/.test(value)) return undefined;
+  const digits = value.split('').map(Number);
+  let sum = 0;
+  for (let index = 0; index < 14; index++) {
+    let digit = digits[index];
+    if (index % 2 === 1) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+  }
+  return (10 - (sum % 10)) % 10 === digits[14] ? value : undefined;
+}
+
+function providerCapabilities(metadata: Buffer): Array<{ actionField: number; state: number }> {
+  return repeatedBytes(metadata, 2)
+    .map((entry) => {
+      const action = bytes(entry, 1);
+      const actionField = action ? parseFields(action)[0]?.no : undefined;
+      if (!actionField) return null;
+      return { actionField, state: Number(int(entry, 2) ?? 0n) };
+    })
+    .filter((entry): entry is { actionField: number; state: number } => Boolean(entry));
+}
+
+function providerFlags(status: Buffer): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const field of [11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 25, 37, 40]) {
+    const value = int(status, field);
+    if (value !== undefined) result[String(field)] = Number(value);
+  }
+
+  // Live supervised-device catalogues expose status field 32 as a nested scalar
+  // (observed as 32.1 = 53). Preserve the wire path without assigning an
+  // unproven semantic such as battery percentage.
+  const field32 = bytes(status, 32);
+  const field32Value = field32 ? int(field32, 1) : undefined;
+  if (field32Value !== undefined) result['32.1'] = Number(field32Value);
+
+  return result;
+}
+
+export function decodeDeviceMetadata(metadata: Buffer): Omit<FindHubDevice, 'id'>[] {
+  const identifier = bytes(metadata, 1) ?? Buffer.alloc(0);
+  const status = bytes(metadata, 3) ?? Buffer.alloc(0);
+  const legacyInformation = bytes(metadata, 4);
+  const modernInformation = status.length ? bytes(status, 26) : undefined;
+  const information = legacyInformation ?? modernInformation ?? Buffer.alloc(0);
+  const registration = bytes(information, 1) ?? Buffer.alloc(0);
+  const deviceDescription = bytes(registration, 2) ?? Buffer.alloc(0);
+  const secrets = bytes(registration, 19) ?? Buffer.alloc(0);
+  const identifierType = Number(int(identifier, 2) ?? 0n);
+  const image = bytes(metadata, 6);
+  const ids = canonicIds(identifier);
+  const phoneInformation = bytes(identifier, 1);
+  const androidDeviceNumericId = phoneInformation ? int(phoneInformation, 1)?.toString() : undefined;
+  const opaqueId = string(metadata, 13) || undefined;
+  const familyLink = status.length ? bytes(status, 38) : undefined;
+  const familyLinkUrl = familyLink ? string(familyLink, 1) : undefined;
+  const familyLinkMemberName = familyLink ? string(familyLink, 2) : undefined;
+  const normalizedIdentifierType: FindHubDevice['identifierType'] =
+    identifierType === IdentifierType.ANDROID
+      ? 'ANDROID'
+      : identifierType === IdentifierType.SPOT
+        ? 'SPOT'
+        : identifierType === IdentifierType.SUPERVISED_ANDROID || Boolean(familyLinkUrl)
+          ? 'SUPERVISED_ANDROID'
+          : 'UNKNOWN';
+
+  const stableIds =
+    ids.length > 0
+      ? ids
+      : opaqueId
+        ? [`metadata:${opaqueId}`]
+        : androidDeviceNumericId
+          ? [`android:${androidDeviceNumericId}`]
+          : [];
+
+  const name =
+    string(metadata, 5) ||
+    string(deviceDescription, 1) ||
+    string(status, 3) ||
+    string(registration, 34) ||
+    'Google Find Hub device';
+  const deviceType = Number(int(deviceDescription, 2) ?? 0n);
+  const normalizedDeviceType = normalizeDeviceType(deviceType);
+  const legacyRegistrationField21 = legacyInformation ? string(registration, 21) : undefined;
+  // Cross-correlation of the same Redmi Note 14 in DevicesList + DeviceUpdate proves
+  // registration field 21 carries the product/variant name (tanzanite_global) for PHONE.
+  // The live catalogue separately exposes the Android codename (tanzanite) in status field 5.
+  // Keep the old fastPairModelId interpretation only for non-PHONE legacy payloads.
+  const legacyPhoneProductName = normalizedDeviceType === 'PHONE' ? legacyRegistrationField21 : undefined;
+  const encryptedIdentityKey = bytes(secrets, 1);
+  const ownerKeyVersion = Number(int(secrets, 3) ?? 0n);
+  const pairedAtSeconds = legacyInformation ? Number(int(registration, 23) ?? 0n) : 0;
+  const secretsCreatedAtSeconds = unixSeconds(bytes(secrets, 8));
+  const accessInformation = repeatedBytes(information, 3).map((access) => ({
+    email: string(access, 1) || undefined,
+    hasAccess: bool(access, 2),
+    isOwner: bool(access, 3),
+    thisAccount: bool(access, 4),
+  }));
+  const locationInformation = legacyInformation ? bytes(information, 2) : undefined;
+  const reports = locationInformation ? bytes(locationInformation, 3) : undefined;
+  const recentAndNetwork = reports ? bytes(reports, 4) : undefined;
+  const networkAggregationMinReports = Number(int(recentAndNetwork ?? Buffer.alloc(0), 9) ?? 0n) || undefined;
+  const capabilities = providerCapabilities(metadata);
+  const flags = status.length ? providerFlags(status) : {};
+  const batteryTierCode = normalizedDeviceType === 'PHONE' ? Number(int(deviceDescription, 11) ?? 0n) : 0;
+  const batteryTier =
+    batteryTierCode === 1 ? 'LOW' : batteryTierCode === 2 ? 'MEDIUM' : batteryTierCode === 3 ? 'HIGH' : undefined;
+  for (const field of [11, 14]) {
+    const value = int(deviceDescription, field);
+    if (value !== undefined) flags[`registration.2.${field}`] = Number(value);
+  }
+
+  return stableIds.map((googleDeviceId) => ({
+    googleDeviceId,
+    canonicalIds: ids,
+    name,
+    identifierType: normalizedIdentifierType,
+    deviceType: normalizedDeviceType,
+    manufacturer: string(status, 4) || string(registration, 20),
+    model: string(status, 3) || string(registration, 34),
+    deviceCodename: string(status, 5),
+    productName: legacyInformation ? legacyPhoneProductName : string(registration, 21),
+    carrier: string(status, 6),
+    imei: validImei(string(status, 7)),
+    androidDeviceNumericId,
+    providerOpaqueId: opaqueId,
+    providerRegisteredAt: timeIso(bytes(status, 2)),
+    providerStatusAt: timeIso(bytes(status, 10)),
+    providerResponseAt: timeIso(bytes(metadata, 12)),
+    gmsCoreVersionCode: Number(int(status, 20) ?? 0n) || undefined,
+    androidSdkVersion: Number(int(status, 21) ?? 0n) || undefined,
+    familyLinkManaged: Boolean(familyLinkUrl),
+    familyLinkMemberName,
+    familyLinkUrl,
+    providerCapabilities: capabilities,
+    providerFlags: flags,
+    batteryTier,
+    batteryTierSource: batteryTier ? 'registration.2.11' : undefined,
+    locateSupported: ids.length > 0,
+    fastPairModelId: legacyInformation && normalizedDeviceType !== 'PHONE' ? legacyRegistrationField21 : undefined,
+    pairedAt: pairedAtSeconds > 0 ? new Date(pairedAtSeconds * 1000).toISOString() : null,
+    accessInformation,
+    imageUrl: image ? string(image, 1) : undefined,
+    ownerKeyVersion,
+    identityKeyFingerprint: fingerprint(encryptedIdentityKey),
+    accountKeyFingerprint: fingerprint(bytes(secrets, 4)),
+    publicAddressFingerprint: fingerprint(bytes(secrets, 11)),
+    secretsCreatedAt: secretsCreatedAtSeconds > 0 ? new Date(secretsCreatedAtSeconds * 1000).toISOString() : null,
+    networkAggregationMinReports,
+  }));
+}
+export function decodeDevicesList(payload: Buffer): Array<Omit<FindHubDevice, 'id'>> {
+  const responseAt = timeIso(bytes(payload, 4));
+  return repeatedBytes(payload, 2).flatMap((metadata) =>
+    decodeDeviceMetadata(metadata).map((device) => ({
+      ...device,
+      providerResponseAt: device.providerResponseAt || responseAt,
+    })),
+  );
+}
+
+export type DecodedDeviceUpdate = {
+  requestUuid?: string;
+  deviceMetadata?: Buffer;
+};
+
+export function decodeDeviceUpdate(payload: Buffer): DecodedDeviceUpdate {
+  const fcm = bytes(payload, 1);
+  return {
+    requestUuid: fcm ? string(fcm, 2) : undefined,
+    deviceMetadata: bytes(payload, 3),
+  };
+}
+
+export type FindHubOwnerKeyEnvelope = {
+  encryptedOwnerKey: Buffer;
+  ownerKeyVersion: number;
+  securityDomain?: string;
+  encryptedOwnerKeyBytes: number;
+  encryptedOwnerKeyFingerprint?: string;
+  providerWire: Record<string, number | string>;
+};
+
+export function decodeEncryptedOwnerKey(payload: Buffer): FindHubOwnerKeyEnvelope {
+  const metadata = bytes(payload, 4);
+  if (!metadata) throw new Error('Find Hub owner-key metadata missing');
+  const encryptedOwnerKey = bytes(metadata, 1);
+  if (!encryptedOwnerKey) throw new Error('Find Hub encrypted owner key missing');
+
+  const providerWire: Record<string, number | string> = {};
+  const responseField3 = bytes(payload, 3);
+  const responseField5 = bytes(payload, 5);
+  const metadataField4 = int(metadata, 4);
+  const metadataField5 = int(metadata, 5);
+  if (responseField3?.length) providerWire['response.3.hex'] = responseField3.toString('hex');
+  if (metadataField4 !== undefined) providerWire['metadata.4'] = Number(metadataField4);
+  if (metadataField5 !== undefined) providerWire['metadata.5'] = Number(metadataField5);
+  if (responseField5?.length) providerWire['response.5.hex'] = responseField5.toString('hex');
+
+  return {
+    encryptedOwnerKey,
+    ownerKeyVersion: Number(int(metadata, 2) ?? 0n),
+    securityDomain: string(metadata, 3) || undefined,
+    encryptedOwnerKeyBytes: encryptedOwnerKey.length,
+    encryptedOwnerKeyFingerprint: fingerprint(encryptedOwnerKey),
+    providerWire,
+  };
+}
+
+export type EncryptedLocationReport = {
+  status: number;
+  semanticLocation?: string;
+  publicKeyRandom: Buffer;
+  encryptedLocation: Buffer;
+  ownReport: boolean;
+  deviceTimeOffset: number;
+  accuracy?: number;
+  timestampSeconds: number;
+};
+
+function decodeReport(report: Buffer, timestampSeconds: number): EncryptedLocationReport | null {
+  const status = Number(int(report, 11) ?? 0n);
+  if (status === 0) {
+    const semantic = bytes(report, 5);
+    return {
+      status,
+      semanticLocation: semantic ? string(semantic, 1) : undefined,
+      publicKeyRandom: Buffer.alloc(0),
+      encryptedLocation: Buffer.alloc(0),
+      ownReport: false,
+      deviceTimeOffset: 0,
+      timestampSeconds,
+    };
+  }
+  const geo = bytes(report, 10);
+  const encrypted = geo ? bytes(geo, 1) : undefined;
+  if (!geo || !encrypted) return null;
+  return {
+    status,
+    publicKeyRandom: bytes(encrypted, 1) ?? Buffer.alloc(0),
+    encryptedLocation: bytes(encrypted, 2) ?? Buffer.alloc(0),
+    ownReport: bool(encrypted, 3),
+    deviceTimeOffset: Number(int(geo, 2) ?? 0n),
+    accuracy: float32(geo, 3),
+    timestampSeconds,
+  };
+}
+
+function timeSeconds(time?: Buffer): number {
+  return time ? Number(int(time, 1) ?? 0n) : 0;
+}
+
+export function decodeLocationReports(deviceMetadata: Buffer): EncryptedLocationReport[] {
+  const information = bytes(deviceMetadata, 4);
+  const locationInformation = information ? bytes(information, 2) : undefined;
+  const reports = locationInformation ? bytes(locationInformation, 3) : undefined;
+  const recentAndNetwork = reports ? bytes(reports, 4) : undefined;
+  if (!recentAndNetwork) return [];
+
+  const decoded: EncryptedLocationReport[] = [];
+  const recent = bytes(recentAndNetwork, 1);
+  const recentTimestamp = timeSeconds(bytes(recentAndNetwork, 2));
+  if (recent) {
+    const report = decodeReport(recent, recentTimestamp);
+    if (report) decoded.push(report);
+  }
+
+  const networks = repeatedBytes(recentAndNetwork, 5);
+  const timestamps = repeatedBytes(recentAndNetwork, 6).map(timeSeconds);
+  for (let index = 0; index < networks.length; index++) {
+    const report = decodeReport(networks[index], timestamps[index] ?? recentTimestamp);
+    if (report) decoded.push(report);
+  }
+  return decoded;
+}
+
+export function decodePlainLocation(payload: Buffer): Pick<FindHubPosition, 'latitude' | 'longitude' | 'altitude'> {
+  const latitude = sfixed32(payload, 1);
+  const longitude = sfixed32(payload, 2);
+  if (latitude === undefined || longitude === undefined) throw new Error('Invalid decrypted Find Hub location');
+  return {
+    latitude: latitude / 1e7,
+    longitude: longitude / 1e7,
+    altitude: Number(int(payload, 3) ?? 0n),
+  };
+}
+
+export function decodeDeviceRegistration(deviceMetadata: Buffer): {
+  encryptedIdentityKey: Buffer;
+  ownerKeyVersion: number;
+} {
+  const information = bytes(deviceMetadata, 4);
+  const registration = information ? bytes(information, 1) : undefined;
+  const secrets = registration ? bytes(registration, 19) : undefined;
+  const encryptedIdentityKey = secrets ? bytes(secrets, 1) : undefined;
+  if (!encryptedIdentityKey) throw new Error('Find Hub encrypted identity key missing');
+  return {
+    encryptedIdentityKey,
+    ownerKeyVersion: Number(int(secrets!, 3) ?? 0n),
+  };
+}

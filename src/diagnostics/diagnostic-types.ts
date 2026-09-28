@@ -6,6 +6,7 @@ export const DIAGNOSTIC_CODES = [
   'runtime.started',
   'runtime.sample',
   'runtime.error',
+  'findhub.reconciliation',
   'connection.state',
   'call.signaling',
   'call.state',

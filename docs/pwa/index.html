@@ -601,6 +601,13 @@
             ? baseConfiguration.sources
             : []
 
+        if (
+          configuredSources.some((source) => String(source.url || '').includes('connect-api.openapi.json')) &&
+          !configuredSources.some((source) => String(source.url || '').includes('findhub.openapi.json'))
+        ) {
+          configuredSources.push({ url: 'openapi/findhub.openapi.json', title: 'Connect|API Google Find Hub', slug: 'findhub' })
+        }
+
         if (configuredSources.length > 0) {
           const runtimeSources = await Promise.all(configuredSources.map((source) => applyRuntimeServer(source)))
           delete baseConfiguration.url

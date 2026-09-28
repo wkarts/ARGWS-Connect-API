@@ -1,0 +1,190 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { test } = require('node:test');
+const root = path.resolve(__dirname, '..');
+const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+const json = (name) => JSON.parse(read(name));
+const python = process.platform === 'win32' ? 'python' : 'python3';
+
+test('all Find Hub deployment mirrors remain synchronized and include a dedicated key', () => {
+  const check = spawnSync(python, ['scripts/sync-findhub-deployments.py', '--check'], { cwd: root, encoding: 'utf8' });
+  assert.equal(check.status, 0, check.stderr || check.stdout);
+  const coverage = json('docs/operations/findhub-deployment-coverage.json');
+  assert.ok(coverage.apiServices.length >= 8, 'Root, profiles and Swarm must be covered');
+  assert.ok(coverage.apiServices.some((item) => item.path === 'Docker/swarm/argws_connect_api_v2.yaml'));
+  assert.ok(coverage.apiServices.some((item) => item.path === 'deploy/develop/compose.yaml'));
+  assert.ok(coverage.apiServices.some((item) => item.path === 'deploy/canonical/compose.yaml'));
+  assert.ok(coverage.scalarComposeFiles.some((item) => item.startsWith('deploy/docs')));
+  assert.equal(coverage.environmentVariables.FINDHUB_CREDENTIALS_KEY, '', 'No shared production encryption key in templates');
+  for (const file of coverage.apiEnvironmentTemplates) {
+    for (const name of Object.keys(coverage.environmentVariables)) {
+      assert.equal((read(file).match(new RegExp(`^${name}=`, 'gm')) || []).length, 1, `${file}: ${name}`);
+    }
+  }
+  for (const file of coverage.scalarComposeFiles) {
+    assert.ok(read(file).includes('openapi/findhub.openapi.json'), file);
+  }
+});
+
+test('Scalar ships a dedicated Find Hub document with every implemented route and real schemas', () => {
+  const general = json('docs/openapi/connect-api.openapi.json');
+  const dedicated = json('docs/openapi/findhub.openapi.json');
+  const implemented = Object.keys(general.paths).filter((item) => item.startsWith('/findhub/')).sort();
+  // Browser authentication plus tracking/SSE/settings, continuous protocol flow, reconciliation, native Traccar, sound and Protocol Lab captures; shared-method paths count once.
+  assert.equal(implemented.length, 39);
+  assert.equal(implemented.reduce((count, route) => count + Object.keys(general.paths[route]).length, 0), 44);
+  assert.ok(implemented.includes('/findhub/sound/start/{deviceId}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/sound/stop/{deviceId}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/catalog/{catalog}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/device-update/{deviceId}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/inventory/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/state/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/flow/snapshot/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/flow/stream/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/archive/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/eid-info/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/request/eid-info/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/request/security-unlock/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/request/catalog/{catalog}/{instanceName}'));
+  assert.ok(implemented.includes('/findhub/protocol/capture/request/action/{action}/{deviceId}/{instanceName}'));
+  assert.deepEqual(Object.keys(dedicated.paths).sort(), implemented);
+  assert.match(dedicated.info.description, /CredentialProvider/);
+  assert.match(dedicated.info.description, /FINDHUB_CREDENTIALS_KEY/);
+  assert.match(dedicated.info.description, /não implementa um login Google OAuth/);
+  assert.ok(read('docs/Dockerfile').includes('COPY docs/openapi/findhub.openapi.json /docs/findhub.openapi.json'));
+  assert.ok(read('docs/pwa/index.html').includes('openapi/findhub.openapi.json'));
+  for (const route of implemented) {
+    for (const operation of Object.values(dedicated.paths[route])) {
+      assert.deepEqual(operation.tags, ['Google Find Hub']);
+      assert.ok(operation.description.length > 60);
+      assert.ok(!JSON.stringify(operation.responses).includes('GenericResponse'), route);
+      assert.deepEqual(operation.security, [{ apiKey: [] }]);
+    }
+  }
+  const start = dedicated.paths['/findhub/auth/start/{instanceName}'].post;
+  assert.ok(start.responses['201']);
+  assert.equal(start.responses['200'], undefined);
+  const remove = dedicated.paths['/findhub/traccar/{deviceId}/{instanceName}'].delete;
+  assert.deepEqual(remove.responses['204'], { description: 'Vínculo removido; resposta sem corpo.' });
+  assert.equal(remove.requestBody, undefined);
+  const catalogCapture = dedicated.paths['/findhub/protocol/capture/catalog/{catalog}/{instanceName}'].post;
+  const updateCapture = dedicated.paths['/findhub/protocol/capture/device-update/{deviceId}/{instanceName}'].post;
+  assert.ok(catalogCapture.responses['200'].content['application/x-protobuf']);
+  assert.ok(updateCapture.responses['200'].content['application/x-protobuf']);
+  assert.match(catalogCapture.description, /sem decodificação/);
+  assert.match(updateCapture.description, /DeviceUpdate FCM/);
+
+  const protocolInventory = dedicated.paths['/findhub/protocol/inventory/{instanceName}'].get;
+  const protocolState = dedicated.paths['/findhub/protocol/state/{instanceName}'].get;
+  const protocolArchive = dedicated.paths['/findhub/protocol/capture/archive/{instanceName}'].post;
+  const eidInfo = dedicated.paths['/findhub/protocol/capture/eid-info/{instanceName}'].post;
+  const eidInfoRequest = dedicated.paths['/findhub/protocol/capture/request/eid-info/{instanceName}'].post;
+  const securityUnlockRequest =
+    dedicated.paths['/findhub/protocol/capture/request/security-unlock/{instanceName}'].post;
+  const actionRequest =
+    dedicated.paths['/findhub/protocol/capture/request/action/{action}/{deviceId}/{instanceName}'].post;
+  assert.ok(protocolInventory.responses['200'].content['application/json']);
+  assert.equal(
+    protocolState.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubProtocolState',
+  );
+  assert.ok(protocolArchive.responses['200'].content['application/zip']);
+  assert.ok(eidInfo.responses['200'].content['application/x-protobuf']);
+  assert.ok(eidInfoRequest.responses['200'].content['application/x-protobuf']);
+  assert.ok(securityUnlockRequest.responses['200'].content['application/x-protobuf']);
+  assert.ok(actionRequest.responses['200'].content['application/x-protobuf']);
+  assert.equal(protocolArchive.requestBody.required, false);
+  assert.equal(
+    protocolArchive.requestBody.content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubProtocolArchiveRequest',
+  );
+
+  const startSound = dedicated.paths['/findhub/sound/start/{deviceId}/{instanceName}'].post;
+  const stopSound = dedicated.paths['/findhub/sound/stop/{deviceId}/{instanceName}'].post;
+  assert.equal(startSound.requestBody.required, false);
+  assert.equal(stopSound.requestBody.required, false);
+  assert.equal(
+    startSound.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubSoundResult',
+  );
+  assert.equal(
+    stopSound.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubSoundResult',
+  );
+
+  const reconcile = dedicated.paths['/findhub/positions/reconcile/{deviceId}/{instanceName}'].post;
+  assert.equal(reconcile.requestBody.required, false);
+  assert.equal(
+    reconcile.requestBody.content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubReconciliationRequest',
+  );
+  assert.equal(
+    reconcile.responses['200'].content['application/json'].schema.$ref,
+    '#/components/schemas/FindHubReconciliationResult',
+  );
+  const bundle = dedicated.components.schemas.FindHubCredentialBundleRequest;
+  assert.deepEqual(bundle.required, ['sessionId', 'bridgeToken', 'email', 'androidId', 'accountToken', 'sharedKey']);
+  assert.equal(bundle.properties.accountToken.writeOnly, true);
+  assert.equal(bundle.properties.sharedKey.writeOnly, true);
+  assert.equal(bundle.properties.FINDHUB_CREDENTIALS_KEY, undefined);
+  function references(value) {
+    if (!value || typeof value !== 'object') return;
+    if (value.$ref && value.$ref.startsWith('#/')) {
+      let found = dedicated;
+      for (const part of value.$ref.slice(2).split('/')) found = found?.[part];
+      assert.ok(found, `Unresolved reference: ${value.$ref}`);
+    }
+    for (const item of Object.values(value)) references(item);
+  }
+  references(dedicated);
+});
+
+test('Find Hub locate maps provider failures to a client error instead of leaking a 500', () => {
+  const controller = read('src/api/integrations/channel/findhub/findhub.controller.ts');
+  const method = controller.match(/public async locate[\s\S]*?\n  }/);
+  assert.ok(method, 'locate must be an async guarded controller action');
+  assert.match(method[0], /try/);
+  assert.match(method[0], /BadRequestException/);
+});
+
+test('Find Hub events describe actual data and do not claim an unimplemented auth notification', () => {
+  const events = json('docs/asyncapi/connect-api-events.asyncapi.json');
+  for (const name of ['findhub.auth.update', 'findhub.devices.updated', 'findhub.location.updated', 'findhub.tracking.update', 'findhub.error']) {
+    const channel = events.channels[name];
+    assert.ok(channel, name);
+    const id = channel.subscribe.message.$ref.split('/').pop();
+    assert.ok(events.components.messages[id]?.payload?.properties?.data, name);
+  }
+  assert.match(events.channels['findhub.auth.update'].description, /não emite/);
+});
+
+
+test('invalid optional Find Hub configuration does not abort other channels deployment', () => {
+  const os = require('node:os');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'findhub-optional-'));
+  try {
+    const envFile = path.join(directory, '.env');
+    const before = 'AUTHENTICATION_API_KEY=keep-fixture-key\nFINDHUB_CREDENTIALS_KEY=invalid-fixture-key\n';
+    fs.writeFileSync(envFile, before, { mode: 0o600 });
+    const strict = spawnSync(python, [path.join(root, 'scripts/prepare-findhub-env.py'), '--env-file', envFile, '--check', '--require-key'], { encoding: 'utf8' });
+    assert.notEqual(strict.status, 0, 'Explicit Find Hub activation must still reject an invalid key');
+    assert.equal(fs.readFileSync(envFile, 'utf8'), before, 'Invalid credentials are never rotated');
+    const coverage = json('docs/operations/findhub-deployment-coverage.json');
+    const candidates = ['prepare-env.sh', 'preflight.sh', ...['canonical','cloudpanel','develop','dockge','homologation','production'].flatMap(name => [`deploy/${name}/prepare-env.sh`, `deploy/${name}/preflight.sh`])];
+    for (const file of candidates) {
+      const script = read(file);
+      const block = script.match(/if ! python3 \.\/prepare-findhub-env\.py[^\n]*\n[\s\S]*?\nfi/);
+      assert.ok(block, `Channel-only warning boundary missing in ${file}`);
+      assert.ok(script.includes('set -euo pipefail'), 'Global validation must remain strict');
+      fs.copyFileSync(path.join(root, 'scripts/prepare-findhub-env.py'), path.join(directory, 'prepare-findhub-env.py'));
+      const result = spawnSync('bash', ['-c', 'set -euo pipefail\n' + block[0] + '\necho OTHER_CHANNELS_CONTINUE'], { cwd: directory, encoding: 'utf8' });
+      assert.equal(result.status, 0, file + ': ' + result.stderr);
+      assert.match(result.stdout, /OTHER_CHANNELS_CONTINUE/);
+      assert.match(result.stderr, /AVISO/);
+      assert.equal(fs.readFileSync(envFile, 'utf8'), before);
+    }
+    assert.ok(coverage.apiServices.length >= 8);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

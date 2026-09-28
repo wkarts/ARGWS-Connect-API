@@ -5,6 +5,8 @@ import { localTemplateSchemas, localTemplateOperations, localTemplatePagination 
 import { operationsStatisticsOperation } from './operations-statistics-schema.mjs';
 import { diagnosticOperations, diagnosticSchemas } from './diagnostics-schema.mjs';
 import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
+import { videoCallOperations, videoCallSchemas } from './video-call-schemas.mjs';
+import { findHubOperations, findHubSchemas, findHubEventMessages } from './findhub-schemas.mjs';
 
 const ROOT = process.cwd();
 const API_DIRS = [
@@ -65,7 +67,7 @@ function tagFromPath(apiPath, sourceFile) {
     websocket: 'WebSocket', rabbitmq: 'RabbitMQ', nats: 'NATS', pusher: 'Pusher', sqs: 'SQS', kafka: 'Kafka',
     s3: 'Storage', storage: 'Storage', minio: 'Storage', chatbot: 'Chatbots', typebot: 'Chatbots', openai: 'Chatbots',
     dify: 'Chatbots', flowise: 'Chatbots', n8n: 'Chatbots', evoai: 'Chatbots', connectai: 'Chatbots',
-    compat: 'Meta Compatible Admin', diagnostics: 'Diagnostics',
+    compat: 'Meta Compatible Admin', diagnostics: 'Diagnostics', 'manager-api': 'Manager',
   };
   if (map[segment]) return map[segment];
   if (sourceFile.includes('/integrations/event/')) return 'Events';
@@ -196,11 +198,37 @@ function discoverRoutes() {
 const requestOverrides = {
   ...localTemplateOperations,
   ...diagnosticOperations,
+  ...videoCallOperations,
+  ...findHubOperations,
   'GET /operations/statistics': operationsStatisticsOperation,
   "GET /operations/snapshot": {"summary": "Resumo operacional privado", "description": "Exige a API key global. Somente verificações técnicas, sem canais ou conteúdo de mensagens. Retorna 503 quando o monitoramento está desabilitado ou indisponível."},
   "GET /operations/history": {"summary": "Consultar histórico operacional", "description": "Lê registros recentes e arquivos compactados sem restaurar dados no banco. Somente administrador da instalação.", "parameters": [{"name": "from", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Primeiro dia inclusivo, YYYY-MM-DD."}, {"name": "to", "in": "query", "required": true, "schema": {"type": "string"}, "description": "Último dia inclusivo, intervalo máximo de 31 dias."}, {"name": "cursor", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Cursor de paginação retornado pela consulta anterior."}, {"name": "limit", "in": "query", "required": false, "schema": {"type": "string"}, "description": "Número de eventos por página, de 1 a 200."}]},
   "GET /operations/archives": {"summary": "Listar arquivos diários", "description": "Índice de dias disponíveis, tamanhos e verificação. Sem conteúdo do WhatsApp."},
   "GET /operations/export": {"summary": "Baixar diagnóstico compactado", "description": "Exportação administrativa de um único dia, sem credenciais ou conteúdo de comunicação.", "parameters": [{"name": "day", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}, {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["text", "jsonl"], "default": "text"}}], "responses": {"200": {"description": "Arquivo GZIP de texto legível ou JSONL.", "content": {"application/gzip": {"schema": {"type": "string", "format": "binary"}}}}}},
+  'GET /manager-api/v1/embedding': {
+    summary: 'Consultar origens autorizadas do Manager',
+    description: 'Configuração administrativa global do iframe. A configuração persistida no banco prevalece sobre o bootstrap do ambiente. Exige exclusivamente a API key global.',
+    responses: {
+      '200': { description: 'Política efetiva de incorporação.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerEmbeddingSettings' } } } },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '503': { description: 'Configuração temporariamente indisponível.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
+  'PUT /manager-api/v1/embedding': {
+    summary: 'Atualizar origens autorizadas do Manager',
+    description: 'Persiste até 12 origens HTTPS exatas. Não aceita caminhos, credenciais ou curingas. Usa versão otimista para impedir sobrescrita concorrente. Exige exclusivamente a API key global.',
+    requestBody: {
+      required: true,
+      content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerEmbeddingUpdateRequest' } } },
+    },
+    responses: {
+      '200': { description: 'Política de incorporação atualizada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerEmbeddingSettings' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '409': { description: 'Versão concorrente da configuração.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '503': { description: 'Configuração temporariamente indisponível.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
   'POST /instance/create': {
     summary: 'Criar instância',
     description: 'Cria uma nova instância e retorna token, estado e QR/pairing quando solicitado.',
@@ -259,6 +287,36 @@ const requestOverrides = {
     },
   },
   'POST /chat/markMessageAsRead/{instanceName}': { summary: 'Marcar mensagem como lida', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageKeyRequest' } } } } },
+  'POST /chat/markMessageAsPlayed/{instanceName}': {
+    summary: 'Marcar áudio recebido como reproduzido (PLAYED)',
+    description: 'Envia o receipt nativo PLAYED ao WhatsApp somente quando o cliente confirma reprodução real do áudio. Não substitui markMessageAsRead, não é disparado por download, histórico ou sincronização e aceita participant opcional para grupos. fromMe deve ser false.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/PlayedMessageRequest' },
+          example: {
+            playedMessages: [
+              {
+                id: '3EB0123456789ABCDEF',
+                fromMe: false,
+                remoteJid: '5575988881111@s.whatsapp.net',
+              },
+            ],
+          },
+        },
+      },
+    },
+    responses: {
+      '201': {
+        description: 'Receipt PLAYED enviado.',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/PlayedMessageResult' } } },
+      },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
   'GET /health': { summary: 'Healthcheck da API', security: [] },
   'GET /': { summary: 'Informações da API', security: [] },
   'POST /verify-creds': { summary: 'Validar credenciais da API' },
@@ -347,12 +405,13 @@ function nativeSpec(routes, version) {
         '![Connect|API REST](openapi/branding/docs/connect-api-rest-light.png)', '',
         'API nativa do Connect|API. Pode coexistir com a fachada Meta Compatible `/graph`.', '',
         '### Autenticação', 'A API nativa usa o header `apikey`. Instâncias podem utilizar a chave global configurada ou o token próprio, conforme os guards da aplicação.', '',
-        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `WHATSAPP-ZAPO`', '',
+        '### Providers', '- `WHATSAPP-BUSINESS`', '- `WHATSAPP-BAILEYS`', '- `WHATSAPP-ZAPO`', '- `GOOGLE-FIND-HUB`', '',
         '### Atualização automática', 'Este documento é materializado por `docs/scripts/generate-openapi.mjs`. Alterações de rotas fazem o `Docs Integrity` falhar até o contrato ser regenerado e versionado.',
       ].join('\n'),
     },
     servers: [{ url: 'https://d.api.connect.argws.com.br', description: 'Develop / homologação' }, { url: 'http://localhost:38080', description: 'Docker local' }],
     tags: [
+      { name: 'Google Find Hub', description: 'Contas Google, autenticação por CredentialProvider, dispositivos, localização, tracking e Traccar. Consulte também o documento dedicado Google Find Hub no seletor do Scalar.' },
       { name: 'Core', description: 'Healthcheck, descoberta e utilidades globais.' }, { name: 'Instances', description: 'Criação, conexão, estado, logout, restart e exclusão.' },
       { name: 'Messages', description: 'Texto, mídia, áudio, PTV, sticker, localização, contatos, reações, enquetes, listas e botões.' },
       { name: 'Chats & Contacts', description: 'Chats, contatos, mensagens persistidas, perfil, presença e privacidade.' }, { name: 'Groups', description: 'Criação e administração de grupos.' },
@@ -363,6 +422,7 @@ function nativeSpec(routes, version) {
       { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' }, { name: 'Chatbots', description: 'Integrações de chatbot/automação.' }, { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
       { name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },
       { name: 'Diagnostics', description: 'Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração.' },
+      { name: 'Manager', description: 'Configuração administrativa global do Manager, incluindo a allowlist persistida de origens de iframe.' },
     ],
     paths,
     components: {
@@ -371,12 +431,72 @@ function nativeSpec(routes, version) {
         ...metaCompatibilityAdminSchemas,
         ...localTemplateSchemas,
         ...diagnosticSchemas,
+        ...videoCallSchemas,
+        ...findHubSchemas,
+        ManagerEmbeddingSettings: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['version', 'configured', 'enabled', 'allowedOrigins', 'effectiveFrameAncestors', 'source', 'allowAnyOrigin'],
+          properties: {
+            version: { type: 'integer', minimum: 1 },
+            configured: { type: 'boolean' },
+            enabled: { type: 'boolean' },
+            allowedOrigins: { type: 'array', maxItems: 12, items: { type: 'string', format: 'uri' } },
+            effectiveFrameAncestors: { type: 'string' },
+            source: { type: 'string', enum: ['database', 'environment'] },
+            allowAnyOrigin: { type: 'boolean' },
+            updatedAt: { type: ['string', 'null'], format: 'date-time' },
+          },
+        },
+        ManagerEmbeddingUpdateRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['version', 'enabled', 'allowedOrigins'],
+          properties: {
+            version: { type: 'integer', minimum: 1 },
+            enabled: { type: 'boolean' },
+            allowedOrigins: { type: 'array', maxItems: 12, items: { type: 'string', format: 'uri' } },
+          },
+        },
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
-        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
+        CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
         ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
+        PlayedMessageRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['playedMessages'],
+          properties: {
+            playedMessages: {
+              type: 'array',
+              minItems: 1,
+              uniqueItems: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'fromMe', 'remoteJid'],
+                properties: {
+                  id: { type: 'string', minLength: 1 },
+                  fromMe: { type: 'boolean', const: false },
+                  remoteJid: { type: 'string', minLength: 1 },
+                  participant: { type: 'string', minLength: 1 },
+                },
+              },
+            },
+          },
+        },
+        PlayedMessageResult: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['success', 'receipt', 'processed'],
+          properties: {
+            success: { const: true },
+            receipt: { const: 'played' },
+            processed: { type: 'integer', minimum: 1 },
+          },
+        },
       },
       responses: {
         BadRequest: { description: 'Requisição inválida.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
@@ -384,6 +504,19 @@ function nativeSpec(routes, version) {
         NotFound: { description: 'Recurso ou instância não encontrado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
       },
     },
+  };
+}
+
+function findHubSpec(native, version) {
+  return {
+    ...native,
+    info: {
+      title: 'Connect|API — Google Find Hub', version,
+      summary: 'Implantação, autenticação, dispositivos, localização e Traccar.',
+      description: fs.readFileSync(path.join(ROOT, 'docs', 'guides', 'google-find-hub.md'), 'utf8'),
+    },
+    tags: native.tags.filter((tag) => tag.name === 'Google Find Hub'),
+    paths: Object.fromEntries(Object.entries(native.paths).filter(([apiPath]) => apiPath.startsWith('/findhub/'))),
   };
 }
 
@@ -446,10 +579,23 @@ function asyncSpec(version) {
   const events = [];
   if (enumMatch) for (const match of enumMatch[1].matchAll(/[A-Z0-9_]+\s*=\s*['"]([^'"]+)['"]/g)) events.push(match[1]);
   const channels = {};
+  const findHubMessages = {};
   for (const event of events) {
     channels[event] = {
       description: `Evento \`${event}\` do Connect|API. A disponibilidade externa depende do transporte habilitado na instância.`,
       subscribe: { operationId: `consume_${event.replace(/[^A-Za-z0-9]+/g, '_')}`, message: { $ref: '#/components/messages/ConnectEvent' } },
+    };
+  }
+  for (const [event, definition] of Object.entries(findHubEventMessages)) {
+    if (!channels[event]) continue;
+    const messageName = event.replace(/[^A-Za-z0-9]+/g, '_');
+    channels[event].description = definition.description;
+    channels[event].subscribe.message = { $ref: `#/components/messages/${messageName}` };
+    findHubMessages[messageName] = {
+      name: messageName, title: event,
+      payload: { type: 'object', additionalProperties: true, properties: {
+        event: { type: 'string' }, instance: {}, data: definition.data,
+      } },
     };
   }
   return {
@@ -463,7 +609,7 @@ function asyncSpec(version) {
       ].join('\n'),
     },
     channels,
-    components: { messages: { ConnectEvent: { name: 'ConnectEvent', title: 'Evento Connect|API', payload: { type: 'object', additionalProperties: true, properties: { event: { type: 'string' }, instance: {}, data: {} } } } } },
+    components: { messages: { ...findHubMessages, ConnectEvent: { name: 'ConnectEvent', title: 'Evento Connect|API', payload: { type: 'object', additionalProperties: true, properties: { event: { type: 'string' }, instance: {}, data: {} } } } } },
   };
 }
 
@@ -483,6 +629,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const routes = discoverRoutes();
 const native = nativeSpec(routes, pkg.version);
 const graph = graphSpec(pkg.version);
+const findhub = findHubSpec(native, pkg.version);
 const asyncapi = asyncSpec(pkg.version);
 const coverage = {
   generatedAt: new Date().toISOString(), version: pkg.version,
@@ -492,6 +639,7 @@ const coverage = {
 };
 
 writeOrCheck(path.join(OUTPUT_DIR, 'connect-api.openapi.json'), stableJson(native));
+writeOrCheck(path.join(OUTPUT_DIR, 'findhub.openapi.json'), stableJson(findhub));
 writeOrCheck(path.join(OUTPUT_DIR, 'meta-compatible.openapi.json'), stableJson(graph));
 writeOrCheck(path.join(ASYNC_DIR, 'connect-api-events.asyncapi.json'), stableJson(asyncapi));
 

@@ -1,0 +1,1054 @@
+export type FindHubProtocolCaptureStatus = 'live' | 'internal-live' | 'request-template' | 'reference-only';
+
+export type FindHubProtocolEvidence =
+  | 'argws-native'
+  | 'live-wire-observation'
+  | 'public-research-reference'
+  | 'independent-public-cross-check'
+  | 'interop-public-cross-check';
+
+export type FindHubProtocolKind =
+  | 'auth'
+  | 'transport'
+  | 'operation'
+  | 'push'
+  | 'network'
+  | 'security'
+  | 'provisioning'
+  | 'anti-stalking'
+  | 'crypto';
+
+export interface FindHubProtocolInventoryItem {
+  key: string;
+  family: string;
+  protocol: string;
+  kind: FindHubProtocolKind;
+  status: FindHubProtocolCaptureStatus;
+  individual: boolean;
+  archive: boolean;
+  variants?: string[];
+  transport?: string;
+  endpoint?: string;
+  messages?: string[];
+  enums?: string[];
+  evidence: FindHubProtocolEvidence[];
+  description: string;
+  applicationAreas?: string[];
+  enrichmentTargets?: string[];
+  sensitive?: boolean;
+}
+
+export interface FindHubProtocolSchemaCatalogItem {
+  key: string;
+  schemaPath: string;
+  evidence: FindHubProtocolEvidence;
+  messages: string[];
+  enums: string[];
+}
+
+export interface FindHubZipEntry {
+  name: string;
+  data: Buffer | string;
+}
+
+// Public repositories and operator-provided samples are research/cross-check material only.
+// They are not runtime dependencies, vendored libraries, forks or implementation packages.
+const evidenceNative: FindHubProtocolEvidence = 'argws-native';
+const evidenceLiveWire: FindHubProtocolEvidence = 'live-wire-observation';
+const evidencePublicResearch: FindHubProtocolEvidence = 'public-research-reference';
+const evidenceIndependentCrossCheck: FindHubProtocolEvidence = 'independent-public-cross-check';
+const evidenceInteropCrossCheck: FindHubProtocolEvidence = 'interop-public-cross-check';
+
+export const FINDHUB_PROTOBUF_SCHEMA_CATALOG: readonly FindHubProtocolSchemaCatalogItem[] = [
+  {
+    key: 'android-checkin',
+    schemaPath: 'Auth/firebase_messaging/proto/android_checkin.proto',
+    evidence: evidencePublicResearch,
+    messages: ['ChromeBuildProto', 'AndroidCheckinProto'],
+    enums: ['Platform', 'Channel', 'DeviceType'],
+  },
+  {
+    key: 'checkin',
+    schemaPath: 'Auth/firebase_messaging/proto/checkin.proto',
+    evidence: evidencePublicResearch,
+    messages: ['GservicesSetting', 'AndroidCheckinRequest', 'AndroidCheckinResponse'],
+    enums: [],
+  },
+  {
+    key: 'mcs',
+    schemaPath: 'Auth/firebase_messaging/proto/mcs.proto',
+    evidence: evidencePublicResearch,
+    messages: [
+      'HeartbeatPing',
+      'HeartbeatAck',
+      'ErrorInfo',
+      'Setting',
+      'HeartbeatStat',
+      'HeartbeatConfig',
+      'ClientEvent',
+      'LoginRequest',
+      'LoginResponse',
+      'StreamErrorStanza',
+      'Close',
+      'Extension',
+      'IqStanza',
+      'AppData',
+      'DataMessageStanza',
+      'StreamAck',
+      'SelectiveAck',
+    ],
+    enums: ['Type', 'AuthService', 'IqType'],
+  },
+  {
+    key: 'common',
+    schemaPath: 'ProtoDecoders/Common.proto',
+    evidence: evidencePublicResearch,
+    messages: [
+      'Time',
+      'LocationReport',
+      'SemanticLocation',
+      'GeoLocation',
+      'EncryptedReport',
+      'GetEidInfoForE2eeDevicesRequest',
+    ],
+    enums: ['Status'],
+  },
+  {
+    key: 'device-update',
+    schemaPath: 'ProtoDecoders/DeviceUpdate.proto',
+    evidence: evidencePublicResearch,
+    messages: [
+      'GetEidInfoForE2eeDevicesResponse',
+      'EncryptedOwnerKeyAndMetadata',
+      'DevicesList',
+      'DevicesListRequest',
+      'DevicesListRequestPayload',
+      'ExecuteActionRequest',
+      'ExecuteActionRequestMetadata',
+      'GcmCloudMessagingIdProtobuf',
+      'ExecuteActionType',
+      'ExecuteActionLocateTrackerType',
+      'ExecuteActionSoundType',
+      'ExecuteActionScope',
+      'ExecuteActionDeviceIdentifier',
+      'DeviceUpdate',
+      'DeviceMetadata',
+      'ImageInformation',
+      'IdentitfierInformation',
+      'PhoneInformation',
+      'CanonicIds',
+      'CanonicId',
+      'DeviceInformation',
+      'DeviceTypeInformation',
+      'DeviceRegistration',
+      'EncryptedUserSecrets',
+      'LocationInformation',
+      'LocationsAndTimestampsWrapper',
+      'RecentLocationAndNetworkLocations',
+      'AccessInformation',
+      'RequestMetadata',
+      'EncryptionUnlockRequestExtras',
+      'SecurityDomain',
+      'Location',
+      'RegisterBleDeviceRequest',
+      'E2EEPublicKeyRegistration',
+      'PublicKeyIdList',
+      'PublicKeyIdInfo',
+      'TruncatedEID',
+      'UploadPrecomputedPublicKeyIdsRequest',
+      'DevicePublicKeyIds',
+      'DeviceCapabilities',
+      'DeviceDescription',
+      'DeviceComponentInformation',
+    ],
+    enums: ['DeviceType', 'SpotContributorType', 'DeviceComponent', 'IdentifierInformationType', 'SpotDeviceType'],
+  },
+  {
+    key: 'location-reports-upload',
+    schemaPath: 'ProtoDecoders/LocationReportsUpload.proto',
+    evidence: evidencePublicResearch,
+    messages: [
+      'LocationReportsUpload',
+      'Report',
+      'Advertisement',
+      'Identifier',
+      'ClientMetadata',
+      'ClientVersionInformation',
+    ],
+    enums: [],
+  },
+  {
+    key: 'tos-acceptance',
+    schemaPath: 'pkg/nova/models/protos/bindings/tosacceptance.pb.go',
+    evidence: evidenceIndependentCrossCheck,
+    messages: ['ToSAcceptance'],
+    enums: [],
+  },
+];
+
+export const FINDHUB_PROTOCOL_INVENTORY: readonly FindHubProtocolInventoryItem[] = [
+  {
+    key: 'auth.embedded-setup',
+    family: 'Google Account',
+    protocol: 'EmbeddedSetup / Credential Provider bootstrap',
+    kind: 'auth',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS',
+    endpoint: 'https://accounts.google.com/EmbeddedSetup',
+    evidence: [evidenceNative],
+    description: 'Superfície de bootstrap/vinculação de conta conhecida pelo produto; não exporta credenciais.',
+    sensitive: true,
+  },
+  {
+    key: 'auth.android-aas-token',
+    family: 'Google Android Auth',
+    protocol: 'AAS token retrieval',
+    kind: 'auth',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS',
+    endpoint: 'https://android.clients.google.com/auth',
+    evidence: [evidenceNative, evidencePublicResearch],
+    description: 'Token AAS usado para derivar service tokens autorizados da conta.',
+    sensitive: true,
+  },
+  {
+    key: 'auth.android-adm-token',
+    family: 'Google Android Auth',
+    protocol: 'ADM service token',
+    kind: 'auth',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    variants: ['android_device_manager'],
+    transport: 'HTTPS',
+    endpoint: 'https://android.clients.google.com/auth',
+    evidence: [evidenceNative, evidencePublicResearch, evidenceIndependentCrossCheck],
+    description: 'Service token usado pelo transporte Nova/Android Device Manager.',
+    sensitive: true,
+  },
+  {
+    key: 'auth.android-spot-token',
+    family: 'Google Android Auth',
+    protocol: 'Spot service token',
+    kind: 'auth',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    variants: ['spot'],
+    transport: 'HTTPS',
+    endpoint: 'https://android.clients.google.com/auth',
+    evidence: [evidenceNative, evidencePublicResearch],
+    description: 'Service token usado pela Spot gRPC API.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.android-checkin',
+    family: 'FCM Registration',
+    protocol: 'AndroidCheckinRequest / AndroidCheckinResponse',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS protobuf',
+    endpoint: 'https://android.clients.google.com/checkin',
+    messages: ['AndroidCheckinProto', 'ChromeBuildProto', 'AndroidCheckinRequest', 'AndroidCheckinResponse'],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Check-in Android/GCM que fornece androidId e securityToken para o canal push.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.gcm-register3',
+    family: 'FCM Registration',
+    protocol: 'Legacy GCM register3',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS form',
+    endpoint: 'https://android.clients.google.com/c2dm/register3',
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
+    description: 'Registro GCM legado usado como etapa do bootstrap FCM.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.firebase-installations',
+    family: 'FCM Registration',
+    protocol: 'Firebase Installations',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS JSON',
+    endpoint: 'https://firebaseinstallations.googleapis.com/v1/',
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
+    description: 'Criação da Firebase Installation e obtenção do auth token da instalação.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.webpush-registration',
+    family: 'FCM Registration',
+    protocol: 'FCM WebPush registration',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS JSON',
+    endpoint: 'https://fcmregistrations.googleapis.com/v1/',
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
+    description: 'Registra endpoint WebPush/P-256 e devolve o registration token usado pelo Find Hub.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.webpush-endpoint',
+    family: 'FCM Registration',
+    protocol: 'FCM send endpoint identity',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS',
+    endpoint: 'https://fcm.googleapis.com/fcm/send/',
+    evidence: [evidenceNative, evidenceInteropCrossCheck],
+    description: 'Endpoint FCM embutido no registro WebPush que referencia o token GCM.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.subscribe',
+    family: 'FCM Registration',
+    protocol: 'FCM topic subscription endpoint',
+    kind: 'transport',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS',
+    endpoint: 'https://fcm.googleapis.com/fcm/connect/subscribe/',
+    evidence: [evidencePublicResearch],
+    description: 'Endpoint de subscription definido pela biblioteca FCM de referência.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.api-v1',
+    family: 'FCM',
+    protocol: 'Firebase Cloud Messaging API v1 namespace',
+    kind: 'transport',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS',
+    endpoint: 'https://fcm.googleapis.com/v1/',
+    evidence: [evidencePublicResearch],
+    description: 'Namespace FCM API v1 definido pela implementação de referência.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.doorbells',
+    family: 'FCM',
+    protocol: 'Doorbells client API',
+    kind: 'transport',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS path',
+    endpoint: '/clients_api/doorbots/{id}',
+    evidence: [evidencePublicResearch],
+    description: 'Endpoint doorbells definido pela biblioteca FCM; uso Find Hub não comprovado no fluxo atual.',
+    sensitive: true,
+  },
+  {
+    key: 'mcs.tls-transport',
+    family: 'MCS',
+    protocol: 'Mobile Connection Server TLS stream',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'TLS framed protobuf',
+    endpoint: 'mtalk.google.com:5228',
+    messages: [
+      'LoginRequest',
+      'LoginResponse',
+      'HeartbeatPing',
+      'HeartbeatAck',
+      'DataMessageStanza',
+      'IqStanza',
+      'Close',
+      'StreamAck',
+      'SelectiveAck',
+      'StreamErrorStanza',
+    ],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Canal persistente MCS usado para receber pushes FCM do Find Hub.',
+    sensitive: true,
+  },
+  {
+    key: 'mcs.login',
+    family: 'MCS',
+    protocol: 'LoginRequest / LoginResponse',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'MCS protobuf tag 2/3',
+    endpoint: 'mtalk.google.com:5228',
+    messages: ['LoginRequest', 'LoginResponse', 'Setting', 'HeartbeatStat'],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Autenticação da sessão MCS usando Android ID e security token.',
+    sensitive: true,
+  },
+  {
+    key: 'mcs.heartbeat',
+    family: 'MCS',
+    protocol: 'HeartbeatPing / HeartbeatAck',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'MCS protobuf tag 0/1',
+    endpoint: 'mtalk.google.com:5228',
+    messages: ['HeartbeatPing', 'HeartbeatAck', 'HeartbeatConfig', 'HeartbeatStat'],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Keepalive e detecção de saúde da conexão MCS.',
+  },
+  {
+    key: 'mcs.data-message',
+    family: 'MCS',
+    protocol: 'DataMessageStanza',
+    kind: 'push',
+    status: 'live',
+    individual: false,
+    archive: true,
+    transport: 'MCS protobuf tag 8',
+    endpoint: 'mtalk.google.com:5228',
+    messages: ['DataMessageStanza', 'AppData'],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Envelope push que transporta DeviceUpdate e outros dados FCM.',
+    sensitive: true,
+  },
+  {
+    key: 'mcs.iq-stanza',
+    family: 'MCS',
+    protocol: 'IqStanza',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    transport: 'MCS protobuf tag 7',
+    endpoint: 'mtalk.google.com:5228',
+    messages: ['IqStanza', 'Extension'],
+    evidence: [evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Stanza IQ do protocolo MCS.',
+  },
+  {
+    key: 'mcs.stream-ack',
+    family: 'MCS',
+    protocol: 'StreamAck',
+    kind: 'transport',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    messages: ['StreamAck'],
+    evidence: [evidencePublicResearch],
+    description: 'ACK de stream definido no proto MCS.',
+  },
+  {
+    key: 'mcs.selective-ack',
+    family: 'MCS',
+    protocol: 'SelectiveAck',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    messages: ['SelectiveAck', 'Extension'],
+    evidence: [evidenceNative, evidencePublicResearch],
+    description: 'ACK seletivo por persistentId usado pela Connect|API após mensagens MCS.',
+    sensitive: true,
+  },
+  {
+    key: 'mcs.close-error',
+    family: 'MCS',
+    protocol: 'Close / StreamErrorStanza / ErrorInfo',
+    kind: 'transport',
+    status: 'internal-live',
+    individual: false,
+    archive: true,
+    messages: ['Close', 'StreamErrorStanza', 'ErrorInfo'],
+    evidence: [evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Encerramento e erro de stream MCS.',
+  },
+  {
+    key: 'nova.devices-list',
+    family: 'Nova',
+    protocol: 'DevicesList',
+    kind: 'operation',
+    status: 'live',
+    individual: true,
+    archive: true,
+    variants: ['spot', 'android', 'auto', 'fastpair', 'supervised'],
+    transport: 'HTTPS protobuf',
+    endpoint: 'https://android.googleapis.com/nova/nbe_list_devices',
+    messages: ['DevicesListRequest', 'DevicesListRequestPayload', 'DevicesList', 'DeviceMetadata'],
+    evidence: [
+      evidenceLiveWire,
+      evidenceNative,
+      evidencePublicResearch,
+      evidenceIndependentCrossCheck,
+      evidenceInteropCrossCheck,
+    ],
+    description: 'Request e response protobuf para os cinco seletores de catálogo observados.',
+    sensitive: true,
+  },
+  {
+    key: 'nova.execute-action.locate',
+    family: 'Nova',
+    protocol: 'ExecuteAction LocateTracker',
+    kind: 'operation',
+    status: 'live',
+    individual: true,
+    archive: true,
+    transport: 'HTTPS protobuf + FCM/MCS response',
+    endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
+    messages: ['ExecuteActionRequest', 'ExecuteActionLocateTrackerType', 'DeviceUpdate'],
+    evidence: [
+      evidenceLiveWire,
+      evidenceNative,
+      evidencePublicResearch,
+      evidenceIndependentCrossCheck,
+      evidenceInteropCrossCheck,
+    ],
+    description: 'Request protobuf Locate e DeviceUpdate FCM correlacionado por dispositivo.',
+    sensitive: true,
+  },
+  {
+    key: 'nova.execute-action.sound-start',
+    family: 'Nova',
+    protocol: 'ExecuteAction StartSound',
+    kind: 'operation',
+    status: 'request-template',
+    individual: true,
+    archive: true,
+    transport: 'HTTPS protobuf',
+    endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
+    messages: ['ExecuteActionRequest', 'ExecuteActionSoundType'],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Request protobuf real de início de som; o Protocol Lab não envia o comando.',
+    sensitive: true,
+  },
+  {
+    key: 'nova.execute-action.sound-stop',
+    family: 'Nova',
+    protocol: 'ExecuteAction StopSound',
+    kind: 'operation',
+    status: 'request-template',
+    individual: true,
+    archive: true,
+    transport: 'HTTPS protobuf',
+    endpoint: 'https://android.googleapis.com/nova/nbe_execute_action',
+    messages: ['ExecuteActionRequest', 'ExecuteActionSoundType'],
+    evidence: [evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Request protobuf real de parada de som; o Protocol Lab não envia o comando.',
+    sensitive: true,
+  },
+  {
+    key: 'fcm.device-update',
+    family: 'FCM / Find Hub',
+    protocol: 'DeviceUpdate push',
+    kind: 'push',
+    status: 'live',
+    individual: true,
+    archive: true,
+    transport: 'MCS DataMessageStanza',
+    messages: ['DeviceUpdate', 'DeviceMetadata', 'LocationInformation', 'RecentLocationAndNetworkLocations'],
+    evidence: [
+      evidenceLiveWire,
+      evidenceNative,
+      evidencePublicResearch,
+      evidenceIndependentCrossCheck,
+      evidenceInteropCrossCheck,
+    ],
+    description: 'Envelope Find Hub recebido via FCM/MCS após ações e atualizações do provider.',
+    sensitive: true,
+  },
+  {
+    key: 'spot.get-eid-info',
+    family: 'Spot gRPC',
+    protocol: 'GetEidInfoForE2eeDevices',
+    kind: 'operation',
+    status: 'live',
+    individual: true,
+    archive: true,
+    transport: 'HTTP/2 gRPC',
+    endpoint: 'https://spot-pa.googleapis.com/google.internal.spot.v1.SpotService/GetEidInfoForE2eeDevices',
+    messages: ['GetEidInfoForE2eeDevicesRequest', 'GetEidInfoForE2eeDevicesResponse', 'EncryptedOwnerKeyAndMetadata'],
+    evidence: [evidenceLiveWire, evidenceNative, evidencePublicResearch, evidenceInteropCrossCheck],
+    description: 'Request e response protobuf E2EE/owner-key envelope da conta.',
+    sensitive: true,
+  },
+  {
+    key: 'spot.create-ble-device',
+    family: 'Spot gRPC',
+    protocol: 'CreateBleDevice',
+    kind: 'provisioning',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTP/2 gRPC',
+    endpoint: 'https://spot-pa.googleapis.com/google.internal.spot.v1.SpotService/CreateBleDevice',
+    messages: [
+      'RegisterBleDeviceRequest',
+      'E2EEPublicKeyRegistration',
+      'DeviceCapabilities',
+      'DeviceDescription',
+      'DeviceComponentInformation',
+    ],
+    evidence: [evidencePublicResearch],
+    description: 'Provisionamento/fabricação de tracker BLE próprio; não é executado automaticamente.',
+    sensitive: true,
+  },
+  {
+    key: 'spot.upload-precomputed-public-key-ids',
+    family: 'Spot gRPC',
+    protocol: 'UploadPrecomputedPublicKeyIds',
+    kind: 'provisioning',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTP/2 gRPC',
+    endpoint: 'https://spot-pa.googleapis.com/google.internal.spot.v1.SpotService/UploadPrecomputedPublicKeyIds',
+    messages: [
+      'UploadPrecomputedPublicKeyIdsRequest',
+      'DevicePublicKeyIds',
+      'PublicKeyIdList',
+      'PublicKeyIdInfo',
+      'TruncatedEID',
+    ],
+    evidence: [evidencePublicResearch],
+    description: 'Upload de EIDs/precomputed public key IDs de trackers customizados.',
+    sensitive: true,
+  },
+  {
+    key: 'findhub.location-reports-upload',
+    family: 'Find Hub Network',
+    protocol: 'LocationReportsUpload',
+    kind: 'network',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'protobuf',
+    messages: [
+      'LocationReportsUpload',
+      'Report',
+      'Advertisement',
+      'Identifier',
+      'ClientMetadata',
+      'ClientVersionInformation',
+      'LocationReport',
+    ],
+    evidence: [evidencePublicResearch, evidenceIndependentCrossCheck],
+    description: 'Upload de observações/crowdsourcing contendo advertisement, tempo e localização.',
+    sensitive: true,
+  },
+  {
+    key: 'security-domain.finder-hw',
+    family: 'Google Security Domain',
+    protocol: 'EncryptionUnlockRequestExtras / finder_hw',
+    kind: 'security',
+    status: 'request-template',
+    individual: true,
+    archive: true,
+    transport: 'HTTPS + protobuf/base64',
+    endpoint: 'https://accounts.google.com/encryption/unlock/android',
+    messages: ['EncryptionUnlockRequestExtras', 'SecurityDomain'],
+    evidence: [evidenceNative, evidencePublicResearch],
+    description: 'Request do domínio finder_hw; o Protocol Lab não executa o desbloqueio.',
+    sensitive: true,
+  },
+  {
+    key: 'key-backup.shared-key',
+    family: 'Key Backup',
+    protocol: 'finder_hw shared-key flow',
+    kind: 'security',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'Browser/security-domain flow',
+    endpoint: 'https://accounts.google.com/encryption/unlock/android',
+    evidence: [evidencePublicResearch],
+    description: 'Fluxo de recuperação da shared key E2EE usado para descriptografar relatórios.',
+    sensitive: true,
+  },
+  {
+    key: 'nova.tos-acceptance',
+    family: 'Nova',
+    protocol: 'ToSAcceptance',
+    kind: 'operation',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    messages: ['ToSAcceptance'],
+    evidence: [evidenceIndependentCrossCheck],
+    description: 'Mensagem ToSAcceptance observada em bindings públicos do ecossistema Nova.',
+  },
+  {
+    key: 'dult.owner-lookup',
+    family: 'DULT',
+    protocol: 'Owner Lookup',
+    kind: 'anti-stalking',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    transport: 'HTTPS owner-lookup link',
+    evidence: [evidencePublicResearch],
+    description: 'Superfície DULT/anti-stalking associada a EIDs e identificação de owner.',
+    sensitive: true,
+  },
+  {
+    key: 'ble.findhub-advertisement',
+    family: 'BLE / FMDN',
+    protocol: 'Find Hub Advertisement / Truncated EID',
+    kind: 'network',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    messages: ['Advertisement', 'Identifier', 'TruncatedEID'],
+    evidence: [evidencePublicResearch],
+    description: 'Estrutura BLE/EID representada nos reports de rede e provisionamento de trackers.',
+    sensitive: true,
+  },
+  {
+    key: 'crypto.eid-generation',
+    family: 'FMDN Crypto',
+    protocol: 'EID generation / rotation',
+    kind: 'crypto',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    evidence: [evidencePublicResearch],
+    description: 'Geração/rotação de EIDs usados por trackers e advertisements.',
+    sensitive: true,
+  },
+  {
+    key: 'crypto.key-derivation',
+    family: 'FMDN Crypto',
+    protocol: 'Key derivation',
+    kind: 'crypto',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    evidence: [evidencePublicResearch],
+    description: 'Derivação de chaves usada pelos fluxos E2EE/FMDN.',
+    sensitive: true,
+  },
+  {
+    key: 'crypto.foreign-tracker',
+    family: 'FMDN Crypto',
+    protocol: 'Foreign tracker cryptor',
+    kind: 'crypto',
+    status: 'reference-only',
+    individual: false,
+    archive: true,
+    evidence: [evidencePublicResearch],
+    description: 'Primitivas de criptografia para trackers estrangeiros/observados.',
+    sensitive: true,
+  },
+];
+
+const PROTOCOL_KIND_ENRICHMENT: Record<
+  FindHubProtocolKind,
+  { applicationAreas: string[]; enrichmentTargets: string[] }
+> = {
+  auth: {
+    applicationAreas: ['Conta e autenticação', 'Prontidão de credenciais'],
+    enrichmentTargets: ['Estado de vinculação e disponibilidade dos service tokens sem expor os segredos'],
+  },
+  transport: {
+    applicationAreas: ['Realtime e transporte push', 'Saúde operacional'],
+    enrichmentTargets: ['Prontidão do canal, heartbeat, frames, ACKs e registro FCM/MCS'],
+  },
+  operation: {
+    applicationAreas: ['Dispositivos e comandos', 'Operações Find Hub'],
+    enrichmentTargets: ['Descoberta, localização, som e capacidades anunciadas pelo provider'],
+  },
+  push: {
+    applicationAreas: ['Realtime', 'Atualização de dispositivo'],
+    enrichmentTargets: ['DeviceUpdate, metadata viva, localização e correlação de request UUID'],
+  },
+  network: {
+    applicationAreas: ['Localização de rede', 'Crowdsourcing e EID'],
+    enrichmentTargets: ['Reports de rede, advertisements, EIDs e contribuição para a Find Hub Network'],
+  },
+  security: {
+    applicationAreas: ['E2EE e Security Domain', 'Integridade de chaves'],
+    enrichmentTargets: ['Versões, domínio, fingerprints e disponibilidade do material criptográfico sem expor chaves'],
+  },
+  provisioning: {
+    applicationAreas: ['Provisionamento BLE', 'Trackers e acessórios'],
+    enrichmentTargets: [
+      'Registro, capabilities, EIDs e lifecycle de trackers próprios quando a superfície for implementada',
+    ],
+  },
+  'anti-stalking': {
+    applicationAreas: ['Anti-stalking e segurança', 'DULT'],
+    enrichmentTargets: ['Owner Lookup e identificação controlada de acessórios desconhecidos'],
+  },
+  crypto: {
+    applicationAreas: ['Criptografia Find Hub', 'EID e descriptografia'],
+    enrichmentTargets: ['Derivação de chaves, geração de EID e validação/descriptografia dos reports'],
+  },
+};
+
+function protocolEnrichment(item: FindHubProtocolInventoryItem) {
+  const base = PROTOCOL_KIND_ENRICHMENT[item.kind];
+  const specific: Record<string, { applicationAreas?: string[]; enrichmentTargets: string[] }> = {
+    'fcm.android-checkin': {
+      applicationAreas: ['Registro FCM', 'Saúde do transporte push'],
+      enrichmentTargets: ['Prontidão do Android Check-in e identidade de transporte sem revelar securityToken'],
+    },
+    'fcm.gcm-register3': {
+      enrichmentTargets: ['Prontidão do registro GCM usado para montar o endpoint FCM'],
+    },
+    'fcm.firebase-installations': {
+      enrichmentTargets: ['Prontidão da Firebase Installation e presença de refresh token sem revelar tokens'],
+    },
+    'fcm.webpush-registration': {
+      enrichmentTargets: ['Prontidão WebPush e fingerprint da chave pública usada pelo canal'],
+    },
+    'mcs.tls-transport': {
+      enrichmentTargets: ['Conectividade TLS/MCS, último frame recebido e reconexão pendente'],
+    },
+    'mcs.login': { enrichmentTargets: ['Estado de autenticação MCS e stream id da sessão'] },
+    'mcs.heartbeat': { enrichmentTargets: ['Heartbeat pendente e frescor do último frame MCS'] },
+    'mcs.data-message': { enrichmentTargets: ['Atividade push e quantidade de persistent IDs reconhecidos'] },
+    'nova.devices-list': {
+      enrichmentTargets: ['Catálogo de dispositivos, IDs, modelo, IMEI, Family Link, capabilities e metadata viva'],
+    },
+    'nova.execute-action.locate': {
+      enrichmentTargets: ['Localização sob demanda e correlação de DeviceUpdate'],
+    },
+    'nova.execute-action.sound-start': {
+      enrichmentTargets: ['Capability de iniciar som por dispositivo/componente'],
+    },
+    'nova.execute-action.sound-stop': {
+      enrichmentTargets: ['Capability de parar som por dispositivo/componente'],
+    },
+    'fcm.device-update': { enrichmentTargets: ['Metadata viva, posição, timestamps e atualização realtime'] },
+    'spot.get-eid-info': {
+      applicationAreas: ['E2EE e owner key', 'Security Domain'],
+      enrichmentTargets: [
+        'securityDomain, ownerKeyVersion, fingerprint/bytes do envelope e campos wire ainda sem semântica',
+      ],
+    },
+    'findhub.location-reports-upload': {
+      enrichmentTargets: ['Crowdsourcing, EID, timestamps e reports de localização enviados à rede'],
+    },
+    'security-domain.finder-hw': {
+      enrichmentTargets: ['Identidade do domínio finder_hw e fluxo autorizado de desbloqueio E2EE'],
+    },
+    'key-backup.shared-key': {
+      enrichmentTargets: ['Disponibilidade do shared-key flow e recuperação E2EE sem exportar a chave'],
+    },
+    'spot.create-ble-device': {
+      enrichmentTargets: ['Provisionamento de tracker, capabilities, descrição e chaves cifradas'],
+    },
+    'spot.upload-precomputed-public-key-ids': {
+      enrichmentTargets: ['Rotação/agenda de EIDs e IDs públicos pré-computados de trackers'],
+    },
+    'nova.tos-acceptance': {
+      enrichmentTargets: ['Estado técnico da superfície de aceite de termos quando implementada'],
+    },
+    'dult.owner-lookup': { enrichmentTargets: ['Owner Lookup e investigação anti-stalking baseada em EID'] },
+    'ble.findhub-advertisement': {
+      enrichmentTargets: ['Advertisement BLE, EID, estado de tracking indesejado e capacidades de acessórios'],
+    },
+    'crypto.eid-generation': { enrichmentTargets: ['Geração/rotação de EID para trackers e correlação temporal'] },
+    'crypto.key-derivation': { enrichmentTargets: ['Derivação criptográfica usada por reports e trackers'] },
+    'crypto.foreign-tracker': {
+      enrichmentTargets: ['Descriptografia/validação de trackers observados sem misturar segredos da conta'],
+    },
+  };
+  const override = specific[item.key];
+  return {
+    applicationAreas: [...(override?.applicationAreas || base.applicationAreas)],
+    enrichmentTargets: [...(override?.enrichmentTargets || base.enrichmentTargets)],
+  };
+}
+
+export function findHubProtocolInventory(): FindHubProtocolInventoryItem[] {
+  return FINDHUB_PROTOCOL_INVENTORY.map((item) => ({
+    ...item,
+    ...protocolEnrichment(item),
+    variants: item.variants ? [...item.variants] : undefined,
+    messages: item.messages ? [...item.messages] : undefined,
+    enums: item.enums ? [...item.enums] : undefined,
+    evidence: [...item.evidence],
+  }));
+}
+
+export function findHubProtocolSchemaCatalog(): FindHubProtocolSchemaCatalogItem[] {
+  return FINDHUB_PROTOBUF_SCHEMA_CATALOG.map((item) => ({
+    ...item,
+    messages: [...item.messages],
+    enums: [...item.enums],
+  }));
+}
+
+export function findHubProtocolInventorySummary() {
+  const artifacts = findHubProtocolInventory();
+  const schemas = findHubProtocolSchemaCatalog();
+  return {
+    protocols: artifacts.length,
+    families: new Set(artifacts.map((item) => item.family)).size,
+    live: artifacts.filter((item) => item.status === 'live').length,
+    internalLive: artifacts.filter((item) => item.status === 'internal-live').length,
+    requestTemplates: artifacts.filter((item) => item.status === 'request-template').length,
+    referenceOnly: artifacts.filter((item) => item.status === 'reference-only').length,
+    protobufSchemas: schemas.length,
+    protobufMessages: schemas.reduce((count, item) => count + item.messages.length, 0),
+    protobufEnums: schemas.reduce((count, item) => count + item.enums.length, 0),
+    enrichedProtocols: artifacts.filter((item) => item.applicationAreas?.length && item.enrichmentTargets?.length)
+      .length,
+  };
+}
+
+export function findHubProtocolLabEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const configured = String(env.FINDHUB_PROTOCOL_LAB_ENABLED || 'auto')
+    .trim()
+    .toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(configured)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(configured)) return false;
+  const nodeEnv = String(env.NODE_ENV || 'development')
+    .trim()
+    .toLowerCase();
+  return nodeEnv !== 'prod' && nodeEnv !== 'production';
+}
+
+export function safeProtocolPathSegment(value: unknown): string {
+  const normalized = String(value || 'artifact')
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96);
+  return normalized || 'artifact';
+}
+
+export function findHubProtocolLabReadme(): string {
+  return [
+    'ARGWS Connect|API - Google Find Hub Protocol Lab',
+    '',
+    'Este inventário NÃO é uma lista curada de poucos protocolos.',
+    'Ele inclui todas as superfícies e todos os schemas protobuf conhecidos nas referências catalogadas pela Connect|API.',
+    '',
+    'Pacote gerado sob demanda. A captura não persiste os binários no banco.',
+    'Arquivos .pb podem conter identificadores, e-mails, IDs canônicos, registration IDs FCM e material criptografado.',
+    'Trate este ZIP como material sensível; não publique em repositórios ou logs.',
+    '',
+    'Conteúdo:',
+    '- protocol-inventory.json: todas as superfícies conhecidas;',
+    '- protocol-schema-catalog.json: todos os schemas/mensagens/enums protobuf conhecidos;',
+    '- protocols/*.json: um descritor por superfície conhecida, inclusive internal-live e reference-only;',
+    '- schemas/*.json: um descritor por arquivo/schema protobuf conhecido;',
+    '- requests/nova/: requests DevicesList e ExecuteAction;',
+    '- responses/nova/: responses DevicesList reais;',
+    '- requests/spot/ e responses/spot/: GetEidInfoForE2eeDevices;',
+    '- requests/security-domain/: template finder_hw;',
+    '- devices/<device>/: requests Locate/Sound e DeviceUpdate real quando disponível;',
+    '- references/: compatibilidade com descritores reference-only;',
+    '- manifest.json: checksums, tamanhos, falhas e itens ignorados.',
+    '',
+    'Status:',
+    '- live: captura/exportação direta disponível;',
+    '- internal-live: protocolo realmente usado pelo runtime, porém ainda sem exportação raw individual;',
+    '- request-template: request real pode ser gerado sem executar a operação mutável;',
+    '- reference-only: superfície conhecida e documentada, mas sem captura ativa na Connect|API.',
+    '',
+    'O Lab nunca envia comandos de som ao montar o ZIP. DeviceUpdate exige um Locate real.',
+    'Protocolos reference-only não são fabricados.',
+    '',
+  ].join('\n');
+}
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let value = n;
+    for (let k = 0; k < 8; k += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[n] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function dosTimestamp(date: Date): { time: number; date: number } {
+  const year = Math.max(1980, date.getFullYear());
+  return {
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+  };
+}
+
+export function createFindHubProtocolZip(entries: FindHubZipEntry[], createdAt = new Date()): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  const stamp = dosTimestamp(createdAt);
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name.replace(/\\/g, '/'), 'utf8');
+    const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data, 'utf8');
+    const checksum = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(stamp.time, 10);
+    local.writeUInt16LE(stamp.date, 12);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, name, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(stamp.time, 12);
+    central.writeUInt16LE(stamp.date, 14);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    offset += local.length + name.length + data.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}

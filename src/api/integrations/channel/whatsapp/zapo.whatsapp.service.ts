@@ -21,6 +21,7 @@ import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createPostgresStore } from '@innovatorssoft/store-postgres';
 import { getContentType } from '@innovatorssoft/zapo-js';
 import { createJid } from '@utils/createJid';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
@@ -32,6 +33,7 @@ import sharp from 'sharp';
 import { PassThrough } from 'stream';
 
 import { diagnostics } from '../../../../diagnostics/diagnostics.service';
+import { getConnectVideoConfig, getConnectVoipEngine } from './voip/connect-voip.config';
 import { ZAPO_WHATSAPP_CAPABILITIES } from './whatsapp.provider.contract';
 import { bindZapoCallDiagnostics } from './zapo.call-diagnostics';
 import { connectCatalogPlugin } from './zapo.catalog.plugin';
@@ -75,8 +77,8 @@ function getSharedZapoPostgresBackend(connectionString: string) {
 /**
  * Native Zapo provider for Connect|API.
  *
- * Zapo owns the WhatsApp Web protocol session. The optional Zapo VOIP plugin
- * owns WhatsApp call signaling/media. No external call bridge is used here.
+ * Zapo owns the WhatsApp Web protocol session. Voice retains its validated
+ * plugin; the public call adapter delegates only video calls to Connect's engine.
  */
 export class ZapoStartupService extends ChannelStartupService {
   constructor(
@@ -94,7 +96,9 @@ export class ZapoStartupService extends ChannelStartupService {
   public stateConnection: wa.StateConnection = { state: 'close' };
   public phoneNumber?: string;
 
-  public readonly capabilities = ZAPO_WHATSAPP_CAPABILITIES;
+  public get capabilities() {
+    return { ...ZAPO_WHATSAPP_CAPABILITIES, videoCalls: this.getCallCapabilities().video };
+  }
 
   private readonly persistedGroups = new Map<string, GroupIdentity>();
   private readonly groupIdentities = new ZapoGroupIdentityCache(async (jid) => {
@@ -115,6 +119,7 @@ export class ZapoStartupService extends ChannelStartupService {
   private readonly contactProfileRefreshAt = new Map<string, number>();
   private readonly contactProfileRefreshTtlMs = 6 * 60 * 60 * 1000;
   private readonly audioEmitter = new EventEmitter2();
+  private readonly videoEmitter = new EventEmitter2();
   private reconnectTimer?: NodeJS.Timeout;
   private historyImportTimer?: NodeJS.Timeout;
   private historyImportPromise: Promise<void> = Promise.resolve();
@@ -600,13 +605,13 @@ export class ZapoStartupService extends ChannelStartupService {
       .filter((call: any) => !ended.has(String(call?.stateData?.state ?? call?.state ?? '').toLowerCase())).length;
   }
 
-  /** Place a WhatsApp call directly through Zapo VOIP. */
+  /** Place a WhatsApp call through the configured public VoIP plugin. */
   public async offerCall({ number, isVideo, callDuration }: OfferCallDto) {
     await this.ensureConnected();
     this.ensureVoip();
 
-    if (isVideo) {
-      throw new BadRequestException('The native Zapo provider currently supports audio calls only');
+    if (isVideo && !this.getCallCapabilities().video) {
+      throw new BadRequestException('Chamadas de vídeo estão indisponíveis no mecanismo de chamadas selecionado.');
     }
 
     const maxConcurrentCalls = this.effectiveMaxConcurrentCalls();
@@ -634,6 +639,9 @@ export class ZapoStartupService extends ChannelStartupService {
   public async acceptCall(callId: string) {
     await this.ensureConnected();
     this.ensureVoip();
+    if (this.isVideoCall(this.client.voip.getCall(callId)) && !this.getCallCapabilities().video) {
+      throw new BadRequestException('Chamadas de vídeo estão indisponíveis no mecanismo de chamadas selecionado.');
+    }
     await this.client.voip.acceptCall(callId);
     return this.normalizeCall(this.client.voip.getCall(callId));
   }
@@ -690,6 +698,47 @@ export class ZapoStartupService extends ChannelStartupService {
     return this.client.voip.feedLiveAudio(callId, pcm);
   }
 
+  public getCallCapabilities() {
+    const voip = this.client?.voip;
+    const audio = Boolean(voip && process.env.ZAPO_VOIP_ENABLED !== 'false');
+    const engine = voip?.engine === 'connect-video-adapter' ? 'connect' : voip ? 'zapo-native' : getConnectVoipEngine();
+    // Native video is not enabled by method detection alone: it needs a qualified implementation.
+    const video = audio && voip?.engine === 'connect-video-adapter' && voip.videoEnabled === true && getConnectVideoConfig().enabled &&
+      typeof voip.feedLiveVideo === 'function' && typeof voip.requestVideoKeyFrame === 'function';
+    return { audio, video, engine, ...(video ? { videoCodec: 'h264' as const } : {}) };
+  }
+
+  /** Encoded frames stay inside the media plane; never forward them to webhooks or logs. */
+  public onInboundVideo(handler: (event: {
+    call: any;
+    frame: { codec: 'h264'; timestampUs: number; keyFrame: boolean; data: Uint8Array };
+  }) => void) {
+    this.videoEmitter.on('video', handler);
+    return () => this.videoEmitter.off('video', handler);
+  }
+
+  public onVideoKeyFrameRequest(handler: (event: { callId: string }) => void) {
+    this.videoEmitter.on('keyframe', handler);
+    return () => this.videoEmitter.off('keyframe', handler);
+  }
+
+  public onCallEnded(handler: (callId: string) => void) {
+    this.videoEmitter.on('ended', handler);
+    return () => this.videoEmitter.off('ended', handler);
+  }
+
+  public feedLiveVideo(callId: string, data: Uint8Array, timestampUs: number): number {
+    this.ensureVoip();
+    if (!this.getCallCapabilities().video) throw new BadRequestException('Chamadas de vídeo estão desativadas.');
+    return this.client.voip.feedLiveVideo(callId, data, timestampUs);
+  }
+
+  public requestVideoKeyFrame(callId: string): void {
+    this.ensureVoip();
+    if (!this.getCallCapabilities().video) throw new BadRequestException('Chamadas de vídeo estão desativadas.');
+    this.client.voip.requestVideoKeyFrame(callId);
+  }
+
   private async loadRuntimeConfiguration() {
     await Promise.all([this.loadChatwoot(), this.loadSettings(), this.loadWebhook(), this.loadProxy()]);
   }
@@ -708,10 +757,8 @@ export class ZapoStartupService extends ChannelStartupService {
     }
 
     // Provider modules are loaded lazily so Baileys/Meta startup remains independent from Zapo/VoIP.
-    const [{ ConsoleLogger, createStore, WaClient }, { voipPlugin }] = await Promise.all([
-      import('@innovatorssoft/zapo-js'),
-      import('@innovatorssoft/voip'),
-    ]);
+    const { ConsoleLogger, createStore, WaClient } = await import('@innovatorssoft/zapo-js');
+    const engine = getConnectVoipEngine();
 
     this.storeBackend = getSharedZapoPostgresBackend(database.CONNECTION.URI);
 
@@ -740,10 +787,20 @@ export class ZapoStartupService extends ChannelStartupService {
     this.cleanupPoller = this.storeBackend.startCleanup(this.instanceId);
 
     const maxConcurrentCalls = Math.max(1, Number.parseInt(process.env.ZAPO_VOIP_MAX_CONCURRENT_CALLS || '4'));
-    const plugins = [
-      connectCatalogPlugin(),
-      ...(process.env.ZAPO_VOIP_ENABLED === 'false' ? [] : [voipPlugin({ maxConcurrentCalls, logLevel: 'warn' })]),
-    ];
+    const plugins: any[] = [connectCatalogPlugin()];
+    if (process.env.ZAPO_VOIP_ENABLED !== 'false') {
+      if (engine === 'connect') {
+        const { connectCallAdapterPlugin } = await import('./voip/connect-call-adapter.plugin');
+        const video = getConnectVideoConfig();
+        plugins.push(connectCallAdapterPlugin({
+          maxConcurrentCalls, logLevel: 'warn', videoEnabled: video.enabled,
+          maxVideoFrameBytes: video.maxFrameBytes, maxVideoFps: video.maxFps,
+        }));
+      } else {
+        const { voipPlugin } = await import('@innovatorssoft/voip');
+        plugins.push(voipPlugin({ maxConcurrentCalls, logLevel: 'warn' }));
+      }
+    }
     const session = this.configService.get<ConfigSessionPhone>('CONFIG_SESSION_PHONE');
     const configuredBrowser =
       process.env.WHATSAPP_PROTOCOL_BROWSER_NAME || process.env.ZAPO_DEVICE_BROWSER || session.NAME || 'Chrome';
@@ -839,21 +896,31 @@ export class ZapoStartupService extends ChannelStartupService {
       if (call?.callId) {
         this.callMuteStates.delete(call.callId);
         this.outgoingCallPeers.delete(call.callId);
+        this.videoEmitter.emit('ended', call.callId);
       }
     });
 
     this.client.on('voip_call_error', (error: Error) => {
       diagnostics.record({ code: 'runtime.error', component: 'voip', instanceId: this.instance.name, error });
-      this.sendDataWebhook(Events.CALL, {
-        action: 'error',
-        provider: Integration.WHATSAPP_ZAPO,
-        error: error?.message || String(error),
-      });
+      void Promise.resolve()
+        .then(() => this.sendDataWebhook(Events.CALL, {
+          action: 'error',
+          provider: Integration.WHATSAPP_ZAPO,
+          error: error?.message || String(error),
+        }))
+        .catch((webhookError: Error) => this.logger.error(webhookError));
     });
 
     this.client.on('voip_call_inbound_audio', ({ call, pcm }: any) => {
       // PCM stays inside the media plane and is exposed only to internal consumers (PBX/bridge).
       this.audioEmitter.emit('audio', { call: this.normalizeCall(call), pcm });
+    });
+
+    this.client.on('voip_call_inbound_video', ({ call, frame }: any) => {
+      this.videoEmitter.emit('video', { call: this.normalizeCall(call), frame });
+    });
+    this.client.on('voip_call_video_keyframe_request', ({ callId }: { callId: string }) => {
+      this.videoEmitter.emit('keyframe', { callId });
     });
   }
 
@@ -1335,6 +1402,74 @@ export class ZapoStartupService extends ChannelStartupService {
     };
 
     const db = this.configService.get<Database>('DATABASE');
+    const protocol = message?.protocolMessage;
+    const protocolType = protocol?.type;
+    const isRevokeProtocol =
+      Boolean(protocol?.key?.id) &&
+      (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
+
+    if (isRevokeProtocol) {
+      const targetKey = protocol.key;
+      const targetMessage = await this.prismaRepository.message.findFirst({
+        where: {
+          instanceId: this.instanceId,
+          key: { path: prismaJsonPath('id'), equals: String(targetKey.id) },
+        },
+      });
+
+      let persistedMessage: any = targetMessage;
+      if (targetMessage?.id) {
+        const existingKey =
+          typeof targetMessage.key === 'object' && targetMessage.key !== null ? targetMessage.key : {};
+
+        persistedMessage = await this.prismaRepository.message.update({
+          where: { id: targetMessage.id },
+          data: {
+            key: { ...existingKey, deleted: true },
+            status: 'DELETED',
+          },
+        });
+
+        if (db.SAVE_DATA.MESSAGE_UPDATE) {
+          await this.prismaRepository.messageUpdate.create({
+            data: {
+              messageId: targetMessage.id,
+              keyId: String(targetKey.id),
+              remoteJid: targetKey.remoteJid || persistedMessage.key?.remoteJid || canonicalRemoteJid,
+              fromMe: Boolean(targetKey.fromMe),
+              participant: targetKey.participant,
+              status: 'DELETED',
+              instanceId: this.instanceId,
+            },
+          });
+        }
+      }
+
+      const deletionKey = {
+        ...targetKey,
+        remoteJid: targetKey.remoteJid || persistedMessage?.key?.remoteJid || canonicalRemoteJid,
+      };
+
+      this.sendDataWebhook(Events.MESSAGES_DELETE, {
+        id: persistedMessage?.id,
+        instanceId: this.instanceId,
+        key: deletionKey,
+        status: 'DELETED',
+        messageTimestamp: messageRaw.messageTimestamp,
+        source: persistedMessage?.source || messageRaw.source,
+      });
+
+      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
+        await this.chatwootService.eventWhatsapp(
+          Events.MESSAGES_DELETE,
+          { instanceName: this.instance.name, instanceId: this.instanceId },
+          { key: deletionKey, status: 'DELETED' },
+        );
+      }
+
+      return;
+    }
+
     if (db.SAVE_DATA.NEW_MESSAGE) {
       await this.prismaRepository.message
         .create({ data: messageRaw })
@@ -1569,11 +1704,18 @@ export class ZapoStartupService extends ChannelStartupService {
   }
 
   private emitCall(action: 'incoming' | 'state' | 'ended', call: any) {
-    this.sendDataWebhook(Events.CALL, {
-      action,
-      provider: Integration.WHATSAPP_ZAPO,
-      call: this.normalizeCall(call),
-    });
+    void Promise.resolve()
+      .then(() => this.sendDataWebhook(Events.CALL, {
+        action,
+        provider: Integration.WHATSAPP_ZAPO,
+        call: this.normalizeCall(call),
+      }))
+      .catch((webhookError: Error) => this.logger.error(webhookError));
+  }
+
+  private isVideoCall(call: any): boolean {
+    // The Connect engine exposes mediaType; legacy providers may expose isVideo.
+    return typeof call?.isVideo === 'boolean' ? call.isVideo : call?.mediaType === 'video';
   }
 
   private normalizeCall(call: any) {
@@ -1593,7 +1735,7 @@ export class ZapoStartupService extends ChannelStartupService {
       callerPnJid: call.callerPn,
       callCreator: call.callCreator,
       callCreatorJid: call.callCreator,
-      isVideo: call.isVideo,
+      isVideo: this.isVideoCall(call),
       direction: call.direction,
       state: call.stateData?.state ?? call.state,
       stateData: call.stateData,

@@ -23,6 +23,43 @@ Para expor o Connect|API DOCs, crie um segundo Reverse Proxy/hostname apontando 
 
 O snippet `nginx/api-location.conf.example` já contém headers de WebSocket e limite de upload compatível com a API.
 
+## Manager em iframe / Hub
+
+`MANAGER_IFRAME_ENABLED` e `MANAGER_FRAME_ANCESTORS` são apenas o bootstrap inicial.
+Depois do primeiro salvamento em **Configurações → Incorporação em iframe**, a allowlist
+persistida no banco passa a ser a fonte autoritativa e o `.env` não sobrepõe essa decisão.
+
+Cadastre somente origens HTTPS exatas, uma por linha, por exemplo:
+
+```text
+https://hub-dev.argws.com.br
+https://hub.argws.com.br
+```
+
+O CloudPanel pode acrescentar `X-Frame-Options: SAMEORIGIN` depois que a aplicação já
+respondeu corretamente. O snippet oficial possui um bloco `location ^~ /manager/`
+que neutraliza esse header legado sem substituir a CSP da aplicação. A diretiva
+`frame-ancestors` continua sendo calculada pela Connect|API a partir do cadastro.
+
+Validação esperada:
+
+```bash
+curl -I https://d.api.connect.argws.com.br/manager/login
+```
+
+Após cadastrar apenas o Hub de desenvolvimento, deve aparecer algo equivalente a:
+
+```text
+Content-Security-Policy: frame-ancestors 'self' https://hub-dev.argws.com.br
+X-Connect-Manager-Embedding: enabled
+X-Connect-Manager-Frame-Ancestors: 'self' https://hub-dev.argws.com.br
+```
+
+e não deve existir `X-Frame-Options: SAMEORIGIN` nem `DENY`. Se esse header ainda
+aparecer, ele está sendo injetado por uma camada posterior ao container (CloudPanel,
+Nginx adicional, CDN ou WAF).
+
+
 ## Serviços padrão
 
 `docker compose up -d` inicia:

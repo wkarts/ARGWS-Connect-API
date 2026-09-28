@@ -1,0 +1,859 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import vm from 'node:vm'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const ts = createRequire(import.meta.url)('typescript')
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const read = name => fs.readFileSync(path.join(root, name), 'utf8')
+function load(source, globals = {}, dependencies = {}) {
+  const module = { exports: {} }
+  vm.runInNewContext(ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText, {
+    module, exports: module.exports, Uint8Array, ArrayBuffer, DataView, BigInt, URL, Error, AbortController,
+    require(name) { assert.ok(name in dependencies, `Unexpected module ${name}`); return dependencies[name] },
+    ...globals,
+  })
+  return module.exports
+}
+const codec = load(read('src/services/video-frame.ts'))
+const annexb = new Uint8Array([0, 0, 0, 1, 0x65, 0x88, 0x84])
+const spsFrame = (profile, compatibility, level) => new Uint8Array([0, 0, 0, 1, 0x67, profile, compatibility, level, 0x80, 0, 0, 1, 0x65, 0x88, 0x84])
+const spsPpsFrame = new Uint8Array([
+  0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f, 0x80,
+  0, 0, 0, 1, 0x68, 0xce, 0x06, 0xe2,
+  ...annexb,
+])
+const drain = async (cycles = 6) => { for (let n = 0; n < cycles; n++) await Promise.resolve() }
+
+test('CV binary framing preserves H.264 bytes, keyframe and microseconds above uint32', () => {
+  const bytes = codec.encodeVideoFrame({ data: annexb, timestampUs: 12_345_678_910, keyFrame: true })
+  const header = new DataView(bytes)
+  assert.equal(header.getUint16(0), 0x4356)
+  assert.equal(header.getBigUint64(4), 12345678910n)
+  assert.equal(header.getUint32(12), annexb.length)
+  const frame = codec.decodeVideoFrame(bytes)
+  assert.deepEqual([...frame.data], [...annexb])
+  assert.equal(frame.timestampUs, 12_345_678_910)
+  assert.equal(frame.keyFrame, true)
+})
+
+test('CV rejects oversized, truncated, unknown versions/flags and unsafe timestamps', () => {
+  assert.throws(() => codec.encodeVideoFrame({ data: annexb, timestampUs: -1, keyFrame: false }))
+  assert.throws(() => codec.encodeVideoFrame({ data: annexb, timestampUs: 0, keyFrame: false }, 6))
+  for (const corrupt of [
+    view => view.setUint8(0, 0), view => view.setUint8(2, 2), view => view.setUint8(3, 2),
+    view => view.setUint32(12, 100), view => view.setBigUint64(4, BigInt(Number.MAX_SAFE_INTEGER) + 1n),
+  ]) {
+    const packet = codec.encodeVideoFrame({ data: annexb, timestampUs: 0, keyFrame: false })
+    corrupt(new DataView(packet))
+    assert.throws(() => codec.decodeVideoFrame(packet))
+  }
+  assert.throws(() => codec.decodeVideoFrame(new ArrayBuffer(16)))
+})
+
+function harness({
+  supported = true, ready = true, cameraError = false, ticketStatus = 200, remoteSupported = true, decoderSupport,
+  cameraErrors = [], cameraDelay, codecDelay,
+} = {}) {
+  let timerId = 0, now = 1000, getUserMediaCalls = 0
+  const timers = new Map(), listeners = new Map(), encoders = [], decoders = [], sockets = [], requests = [], states = [], errors = [], ended = [], recoveries = [], frames = [], draws = []
+  const track = { readyState: 'live', enabled: true, stopped: false, addEventListener() {}, removeEventListener() {}, stop() { this.stopped = true; this.readyState = 'ended' } }
+  const stream = { getVideoTracks: () => [track], getTracks: () => [track] }
+  const canvas = { width: 0, height: 0, getContext: () => ({ drawImage(...args) { draws.push(args) } }) }
+  class Encoder {
+    state = 'unconfigured'; encodeQueueSize = 0; encoded = []
+    static async isConfigSupported(config) { assert.equal(config.avc.format, 'annexb'); await codecDelay; return { supported } }
+    constructor(options) { this.options = options; encoders.push(this) }
+    configure(config) { this.config = config; this.state = 'configured' }
+    encode(frame, options) { this.encoded.push({ frame, options }) }
+    close() { this.state = 'closed' }
+  }
+  class Decoder {
+    state = 'unconfigured'; decodeQueueSize = 0; decoded = []
+    static async isConfigSupported(config) {
+      if (config.codec === 'avc1.42E01F') return { supported }
+      return decoderSupport ? decoderSupport(config) : { supported: remoteSupported }
+    }
+    constructor(options) { this.options = options; decoders.push(this) }
+    configure(config) { this.config = config; this.state = 'configured' }
+    decode(chunk) { this.decoded.push(chunk); const frame = { displayWidth: 640, displayHeight: 480, closed: false, close() { this.closed = true } }; frames.push(frame); this.options.output(frame) }
+    fail(error = new Error('Decoder failure')) { this.state = 'closed'; this.options.error(error) }
+    close() { this.state = 'closed' }
+    reset() { this.state = 'unconfigured' }
+  }
+  class Socket {
+    static OPEN = 1
+    readyState = 1; bufferedAmount = 0; sent = []; closed = false
+    constructor(url) { this.url = url; sockets.push(this); queueMicrotask(() => this.onopen?.()) }
+    send(value) {
+      this.sent.push(value)
+      if (ready && typeof value === 'string' && JSON.parse(value).ticket) queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ type: 'ready', codec: 'h264', format: 'annexb' }) }))
+    }
+    close() { this.closed = true; this.readyState = 3 }
+    disconnect(code = 1006, reason = 'network') {
+      this.closed = true; this.readyState = 3; this.onclose?.({ code, reason })
+    }
+  }
+  const api = load(read('src/services/video-media.ts'), {
+    isSecureContext: true, VideoEncoder: Encoder, VideoDecoder: Decoder, WebSocket: Socket,
+    VideoFrame: class { constructor(canvas, options) { this.timestamp = options.timestamp; this.closed = false; frames.push(this) } close() { this.closed = true } },
+    EncodedVideoChunk: class { constructor(init) { Object.assign(this, init) } },
+    performance: { now: () => now },
+    navigator: { mediaDevices: { async getUserMedia(options) {
+      getUserMediaCalls++
+      assert.equal(options.audio, false)
+      await cameraDelay
+      if (cameraError) throw new Error('Câmera negada')
+      const name = cameraErrors[getUserMediaCalls - 1]
+      if (name) { const error = new Error(name === 'NotReadableError' ? 'Device in use' : name); error.name = name; throw error }
+      return stream
+    } } },
+    window: {
+      setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id },
+      clearTimeout(id) { timers.delete(id) },
+      addEventListener(type, fn) { listeners.set(type, fn) }, removeEventListener(type) { listeners.delete(type) },
+    },
+    document: { createElement(tag) { return tag === 'video' ? { muted: false, playsInline: false, readyState: 4, async play() {}, pause() {}, srcObject: null } : canvas } },
+    async fetch(url, init) {
+      requests.push({ url, init })
+      return { ok: ticketStatus === 200, async json() { return { ticket: 'single-use-ticket', codec: 'h264', format: 'annexb', width: 640, height: 480, maxFps: 30, bitrate: 800000, maxFrameBytes: 8388608 } } }
+    },
+  }, { './video-frame': codec })
+  async function begin() {
+    const preparation = await api.VideoMediaSession.prepare()
+    const credentials = { apiBaseUrl: 'https://api.example.test/?secret=discard#fragment', instanceName: 'instance one', callId: 'call-a', token: 'private-instance-key' }
+    // Production apiBaseUrl has no query; websocket must still discard all URL credentials.
+    credentials.apiBaseUrl = 'https://api.example.test'
+    const session = new api.VideoMediaSession(credentials, preparation, canvas, {
+      onState: state => states.push(state), onError: error => errors.push(error), onCallEnded: () => ended.push(now), onRemoteRecovery: () => recoveries.push(now),
+    })
+    return { session, preparation, credentials }
+  }
+  return { ...api, begin, track, timers, listeners, encoders, decoders, sockets, requests, states, errors, ended, recoveries, frames, draws, advance(ms) { now += ms }, getUserMediaCalls: () => getUserMediaCalls }
+}
+
+test('preflight verifies both codecs before requesting camera and leaves calls untouched when unsupported', async () => {
+  const h = harness({ supported: false })
+  await assert.rejects(h.VideoMediaSession.prepare(), /enviar e receber H.264/)
+  assert.equal(h.getUserMediaCalls(), 0)
+  assert.equal(h.requests.length, 0)
+  assert.equal(h.sockets.length, 0)
+  const denied = harness({ cameraError: true })
+  await assert.rejects(denied.VideoMediaSession.prepare(), /Câmera negada/)
+  assert.equal(denied.requests.length, 0)
+})
+
+test('a transient busy camera retries once after a bounded delay and returns its live stream', async () => {
+  for (const name of ['NotReadableError', 'TrackStartError']) {
+    const h = harness({ cameraErrors: [name] })
+    const result = h.VideoMediaSession.prepare()
+    await drain()
+    assert.equal(h.getUserMediaCalls(), 1)
+    assert.equal(h.timers.size, 1)
+    const [id, timer] = [...h.timers][0]
+    assert.ok(timer.delay > 0 && timer.delay <= 1000, 'Release delay stays bounded')
+    h.timers.delete(id); timer.fn()
+    const preparation = await result
+    assert.equal(h.getUserMediaCalls(), 2)
+    assert.equal(preparation.stream.getVideoTracks()[0].readyState, 'live')
+    preparation.stream.getTracks().forEach(track => track.stop())
+  }
+})
+
+test('persistent camera busy fails after one retry with a localized recoverable error', async () => {
+  const h = harness({ cameraErrors: ['NotReadableError', 'NotReadableError'] })
+  const result = h.VideoMediaSession.prepare()
+  await drain()
+  const [id, timer] = [...h.timers][0]
+  h.timers.delete(id); timer.fn()
+  await assert.rejects(result, /Não foi possível abrir a câmera/)
+  assert.equal(h.getUserMediaCalls(), 2)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.requests.length, 0)
+})
+
+test('permission denial and missing camera never retry or initiate signaling', async () => {
+  for (const name of ['NotAllowedError', 'PermissionDeniedError', 'NotFoundError', 'DevicesNotFoundError']) {
+    const h = harness({ cameraErrors: [name] })
+    await assert.rejects(h.VideoMediaSession.prepare(), /câmera/)
+    assert.equal(h.getUserMediaCalls(), 1, name)
+    assert.equal(h.timers.size, 0, name)
+    assert.equal(h.requests.length, 0, name)
+  }
+})
+
+test('cancelled preparation does not acquire a camera before or after pending codec support checks', async () => {
+  const before = new AbortController()
+  before.abort()
+  const first = harness()
+  await assert.rejects(first.VideoMediaSession.prepare({}, before.signal), { name: 'AbortError' })
+  assert.equal(first.getUserMediaCalls(), 0)
+
+  const codec = deferred(), during = new AbortController()
+  const second = harness({ codecDelay: codec.promise })
+  const preparation = second.VideoMediaSession.prepare({}, during.signal)
+  during.abort(); codec.resolve()
+  await assert.rejects(preparation, { name: 'AbortError' })
+  assert.equal(second.getUserMediaCalls(), 0)
+})
+
+test('camera permission resolving after cancellation releases every acquired track', async () => {
+  const camera = deferred(), controller = new AbortController()
+  const h = harness({ cameraDelay: camera.promise })
+  const result = h.VideoMediaSession.prepare({}, controller.signal)
+  await drain()
+  assert.equal(h.getUserMediaCalls(), 1)
+  controller.abort(); camera.resolve()
+  await assert.rejects(result, { name: 'AbortError' })
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.getUserMediaCalls(), 1)
+  assert.equal(h.requests.length, 0)
+})
+
+test('cancellation during the driver release delay prevents a second camera acquisition', async () => {
+  const controller = new AbortController()
+  const h = harness({ cameraErrors: ['NotReadableError'] })
+  const result = h.VideoMediaSession.prepare({}, controller.signal)
+  await drain()
+  assert.equal(h.getUserMediaCalls(), 1)
+  controller.abort()
+  const [id, timer] = [...h.timers][0]
+  h.timers.delete(id); timer.fn()
+  await assert.rejects(result, { name: 'AbortError' })
+  assert.equal(h.getUserMediaCalls(), 1)
+  assert.equal(h.requests.length, 0)
+})
+
+test('session uses scoped one-use ticket in first WS control frame and transmits real encoder output', async () => {
+  const h = harness(); const { session, credentials } = await h.begin()
+  await session.start()
+  const request = h.requests[0]
+  assert.equal(request.url, 'https://api.example.test/call/videoMediaTicket/instance%20one')
+  assert.equal(request.init.headers.apikey, 'private-instance-key')
+  assert.equal(request.init.body, JSON.stringify({ callId: 'call-a' }))
+  assert.equal(request.init.cache, 'no-store')
+  assert.equal(String(h.sockets[0].url), 'wss://api.example.test/video/media')
+  assert.deepEqual(JSON.parse(h.sockets[0].sent[0]), { ticket: 'single-use-ticket' })
+  assert.equal(credentials.token, '')
+  h.encoders[0].options.output({ type: 'key', timestamp: 1000000, byteLength: annexb.length, copyTo: out => out.set(annexb) })
+  const binary = h.sockets[0].sent.find(value => value instanceof ArrayBuffer)
+  assert.deepEqual([...codec.decodeVideoFrame(binary).data], [...annexb])
+  assert.ok(h.encoders[0].encoded[0].frame.closed, 'Captured VideoFrame is released after encode')
+  session.stop()
+})
+
+test('inbound delta waits for keyframe; decoded video draws to canvas and releases frame', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0]
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 123, keyFrame: false }) })
+  assert.equal(h.decoders[0].decoded.length, 0)
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 124, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[0].decoded.length, 1)
+  assert.equal(h.decoders[0].decoded[0].timestamp, 124)
+  assert.ok(h.frames.at(-1).closed)
+  assert.equal(h.draws.at(-1)[0], h.frames.at(-1))
+  session.stop()
+})
+
+test('inbound IDR recovers decoder timeline after a remote timestamp reset', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0]
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 1000, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[0].decoded.length, 1)
+
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 800, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[0].decoded.length, 2)
+  assert.equal(h.decoders[0].decoded.at(-1).timestamp, 800)
+  session.stop()
+})
+
+test('manual remote keyframe request keeps the decoder waiting for a fresh IDR', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  h.advance(600)
+  const before = h.sockets[0].sent.length
+  assert.equal(session.requestRemoteKeyFrame(), true)
+  assert.equal(h.sockets[0].sent.length, before + 1)
+  assert.deepEqual(JSON.parse(h.sockets[0].sent.at(-1)), { type: 'request_keyframe' })
+  session.stop()
+})
+
+test('a closed remote decoder is rebuilt locally and resumes on the next IDR without reconnecting the call', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0], original = h.decoders[0]
+  h.advance(600)
+  const controlsBefore = socket.sent.length
+  original.fail()
+  assert.equal(h.decoders.length, 2)
+  assert.equal(h.decoders[1].state, 'configured')
+  assert.equal(h.track.stopped, false)
+  assert.equal(socket.closed, false)
+  assert.equal(h.errors.length, 0)
+  assert.equal(h.states.includes('error'), false)
+  assert.equal(h.recoveries.length, 1)
+  assert.deepEqual(JSON.parse(socket.sent.at(-1)), { type: 'request_keyframe' })
+  assert.equal(socket.sent.length, controlsBefore + 1)
+  original.options.error(new Error('late stale error'))
+  assert.equal(h.decoders.length, 2, 'a stale decoder cannot restart recovery again')
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 124, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[1].decoded.length, 1)
+  session.stop()
+})
+
+test('a recovered decoder receives cached SPS/PPS when the next IDR omits them', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0], original = h.decoders[0]
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: spsPpsFrame, timestampUs: 100, keyFrame: true }) })
+  await drain()
+  assert.equal(original.decoded.length, 1)
+
+  original.fail()
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 101, keyFrame: true }) })
+  await drain()
+
+  assert.equal(h.decoders.length, 2)
+  assert.deepEqual([...h.decoders[1].decoded[0].data], [...spsPpsFrame])
+  session.stop()
+})
+
+test('backpressure drops stale encoded deltas until a new IDR, requests IDR on control and camera resume', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0], encoder = h.encoders[0]
+  const output = type => encoder.options.output({ type, timestamp: 1000, byteLength: annexb.length, copyTo: out => out.set(annexb) })
+  output('key'); const before = socket.sent.length
+  socket.bufferedAmount = 600 * 1024; output('delta'); socket.bufferedAmount = 0; output('delta')
+  assert.equal(socket.sent.length, before)
+  output('key'); assert.equal(socket.sent.length, before + 1)
+  socket.onmessage({ data: JSON.stringify({ type: 'request_keyframe' }) })
+  const tick = [...h.timers.values()].find(item => item.delay < 1000)
+  h.advance(35); tick.fn()
+  assert.equal(encoder.encoded.at(-1).options.keyFrame, true)
+  session.setCameraEnabled(false); assert.equal(h.track.enabled, false)
+  const encodedBefore = encoder.encoded.length; tick.fn(); assert.equal(encoder.encoded.length, encodedBefore)
+  session.setCameraEnabled(true); tick.fn(); assert.equal(encoder.encoded.at(-1).options.keyFrame, true)
+  session.stop()
+})
+
+test('page exit stops camera, encoders, WS and timers without leaving media active', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start(); h.listeners.get('pagehide')()
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.encoders[0].state, 'closed')
+  assert.equal(h.decoders[0].state, 'closed')
+  assert.equal(h.sockets[0].closed, true)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.listeners.size, 0)
+  session.stop()
+})
+
+test('an unexpected socket loss reconnects the video with the same camera and ticket credential', async () => {
+  const h = harness(); const { session, credentials } = await h.begin(); await session.start()
+  h.sockets[0].disconnect()
+  assert.equal(h.track.stopped, false)
+  assert.equal(h.states.at(-1), 'connecting')
+  const reconnect = [...h.timers.entries()].find(([, timer]) => timer.delay === 500)
+  assert.ok(reconnect)
+  h.timers.delete(reconnect[0]); reconnect[1].fn()
+  await drain(30)
+  assert.equal(h.sockets.length, 2)
+  assert.equal(h.states.at(-1), 'ready')
+  assert.equal(h.requests.length, 2)
+  assert.equal(h.requests[1].init.headers.apikey, 'private-instance-key')
+  assert.equal(h.track.stopped, false)
+  assert.equal(credentials.token, '')
+  session.stop()
+})
+
+test('a provider terminal close ends the media session without retrying the video socket', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  h.sockets[0].disconnect(1000, 'Call ended')
+  await drain()
+  assert.deepEqual(h.ended, [1000])
+  assert.equal(h.states.at(-1), 'closed')
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.sockets.length, 1)
+  session.stop()
+})
+
+test('failed ticket and stalled WS release camera and reject start instead of false success', async () => {
+  const denied = harness({ ticketStatus: 403 }); const a = await denied.begin()
+  await assert.rejects(a.session.start(), /autorizar/)
+  assert.equal(denied.track.stopped, true)
+  const stalled = harness({ ready: false }); const b = await stalled.begin()
+  const pending = b.session.start()
+  for (let n = 0; n < 8; n++) await Promise.resolve()
+  const timeout = [...stalled.timers.values()].find(item => item.delay === 15000)
+  assert.ok(timeout); timeout.fn()
+  await assert.rejects(pending, /encerrada/)
+  assert.equal(stalled.track.stopped, true)
+  assert.equal(stalled.states.includes('ready'), false)
+})
+
+test('404 video ticket releases camera and codecs without opening a socket or ending the call', async () => {
+  const h = harness({ ticketStatus: 404 })
+  const { session, credentials } = await h.begin()
+  await assert.rejects(session.start(), /autorizar o vídeo/)
+  assert.equal(h.track.stopped, true)
+  assert.equal(h.encoders[0].state, 'closed')
+  assert.equal(h.decoders[0].state, 'closed')
+  assert.equal(h.sockets.length, 0)
+  assert.equal(h.requests.length, 1)
+  assert.equal(h.requests[0].url, 'https://api.example.test/call/videoMediaTicket/instance%20one')
+  assert.equal(credentials.token, '')
+  assert.equal(h.states.at(-1), 'error')
+  assert.equal(h.states.includes('ready'), false)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.listeners.size, 0)
+})
+
+test('Annex-B SPS extraction supports 3/4-byte start codes and rejects truncated or conflicting profiles', () => {
+  assert.equal(codec.h264DecoderCodec(spsFrame(0x4d, 0x40, 0x1f)), 'avc1.4D401F')
+  assert.equal(codec.h264DecoderCodec(spsFrame(0x64, 0, 0x28).slice(1)), 'avc1.640028')
+  assert.equal(codec.h264DecoderCodec(annexb), null)
+  assert.throws(() => codec.h264DecoderCodec(new Uint8Array([0, 0, 1, 0x67, 0x64])))
+  assert.throws(() => codec.h264DecoderCodec(new Uint8Array([...spsFrame(0x4d, 0x40, 0x1f), ...spsFrame(0x64, 0, 0x28)])))
+})
+
+test('receiver derives Main/High profile from SPS and checks decoder support without changing local encoder', async () => {
+  const h = harness(); const { session } = await h.begin(); await session.start()
+  for (const [profile, compatibility, level, expected] of [[0x4d, 0x40, 0x1f, 'avc1.4D401F'], [0x64, 0, 0x28, 'avc1.640028']]) {
+    h.sockets[0].onmessage({ data: codec.encodeVideoFrame({ data: spsFrame(profile, compatibility, level), timestampUs: profile * 1000, keyFrame: true }) })
+    await drain()
+    assert.equal(h.decoders[0].config.codec, expected)
+    assert.equal(h.decoders[0].decoded.at(-1).type, 'key')
+    assert.equal(h.encoders[0].config.codec, 'avc1.42E01F')
+  }
+  session.stop()
+})
+
+test('unsupported remote SPS ends only video with recoverable explanation; does not report ready remote frame', async () => {
+  const h = harness({ remoteSupported: false }); const { session } = await h.begin(); await session.start()
+  h.sockets[0].onmessage({ data: codec.encodeVideoFrame({ data: spsFrame(0x64, 0, 0x28), timestampUs: 1000, keyFrame: true }) })
+  await drain()
+  assert.equal(h.decoders[0].decoded.length, 0)
+  assert.equal(h.states.at(-1), 'error')
+  assert.match(h.errors.at(-1), /perfil H.264.*áudio continua/)
+  assert.equal(h.track.stopped, true)
+})
+
+test('pending codec checks retain one frame, drop deltas and cannot revive a stopped session', async () => {
+  let release
+  const pending = new Promise(resolve => { release = resolve })
+  const h = harness({ decoderSupport: () => pending }); const { session } = await h.begin(); await session.start()
+  const socket = h.sockets[0]
+  socket.onmessage({ data: codec.encodeVideoFrame({ data: spsFrame(0x64, 0, 0x28), timestampUs: 1000, keyFrame: true }) })
+  for (let i = 0; i < 20; i++) socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: i + 1001, keyFrame: false }) })
+  assert.equal(h.decoders[0].decoded.length, 0)
+  session.stop(); release({ supported: true }); await drain()
+  assert.equal(h.decoders[0].state, 'closed')
+  assert.equal(h.decoders[0].decoded.length, 0)
+  assert.equal(h.states.at(-1), 'closed')
+})
+
+function viewHarness({
+  rejectCamera = false, videoSupported = true, offerDelay, actionDelay, videoStartError,
+  cameraDelay, exclusiveCamera = false, callsResponse, connectionResponse, now = () => Date.now(),
+} = {}) {
+  const requests = [], videoCallbacks = [], tracks = [], videoSessions = [], watchers = [], unmountHooks = []
+  const intervals = new Map()
+  let intervalId = 0
+  const state = value => ({ value })
+  const media = { stops: 0, muted: false, stop() { this.stops++ }, setMicMuted(muted) { this.muted = muted } }
+  const capabilities = videoSupported ? { audio: true, video: true, videoCodec: 'h264' } : null
+  const source = read('src/views/VoiceView.vue').split('<script setup lang="ts">')[1].split('</script>')[0]
+  const dependencies = {
+    vue: {
+      ref: state, shallowRef: state, computed: fn => ({ get value() { return fn() } }), nextTick: async () => {},
+      onBeforeUnmount(callback) { unmountHooks.push(callback) }, onMounted() {},
+      watch(source, callback) { watchers.push({ source, callback }) },
+    },
+    'vue-router': { useRoute: () => ({ query: { instance: 'i1' } }), useRouter: () => ({}) },
+    '@/services/connect': { connect: {
+      async offerCall(...args) { requests.push(['offer', ...args]); await offerDelay; return { callId: 'c1' } },
+      async callAction(...args) { requests.push(['action', ...args]); await actionDelay },
+      async voiceMedia(id, callId, callbacks) { requests.push(['audio']); callbacks.onState('ready'); return media },
+      async videoMedia(id, callId, preparation, canvas, callbacks) {
+        requests.push(['video']); videoCallbacks.push(callbacks)
+        if (videoStartError) throw videoStartError
+        const video = {
+          stops: 0,
+          stop() { this.stops++; preparation.stream.getTracks().forEach(track => track.stop()) },
+        }
+        videoSessions.push(video)
+        callbacks.onSession?.(video)
+        callbacks.onState('ready'); return video
+      },
+      async connection(id) { return connectionResponse ? connectionResponse(id) : {} },
+      async calls(id) { return callsResponse ? callsResponse(id) : [{ callId: 'c1', state: 'ringing' }, { callId: 'c2', state: 'ringing' }] },
+      async callCapabilities() { return capabilities }, async loadInstanceConfig() { return {} },
+    } },
+    '@/config/runtime': { featureEnabled: () => false },
+    '@/services/errors': { friendlyError: error => error.message },
+    '@/services/findhub-channel': load(read('src/services/findhub-channel.ts')),
+    '@/services/normalizers': { isCallActive: call => !['ended', 'failed'].includes(call.state) },
+    '@/services/video-media': { VideoMediaSession: { async prepare() {
+      requests.push(['camera'])
+      if (typeof rejectCamera === 'function' ? rejectCamera() : rejectCamera) throw new Error('Câmera negada')
+      await cameraDelay
+      if (exclusiveCamera && tracks.some(track => track.readyState === 'live')) throw new Error('Device in use')
+      const track = { stops: 0, readyState: 'live', stop() { this.stops++; this.readyState = 'ended' } }
+      tracks.push(track)
+      return { stream: { getTracks: () => [track], getVideoTracks: () => [track] } }
+    } } },
+  }
+  for (const item of ['@/layouts/AppShell.vue', '@/components/PageHeader.vue', '@/components/PanelCard.vue', '@/components/AppIcon.vue', '@/components/EmptyState.vue']) dependencies[item] = {}
+  const api = load(source + '\nmodule.exports = { makeTestCall, action, reconnectVideo, loadCalls, closeMedia, openVideoModal, minimizeVideoModal, startPolling, instances, number, callCapabilities, remoteCanvas, mediaState, mediaCallId, selected, feedback, videoState, videoStream, videoModalOpen, remoteVideoReady, remoteVideoRecovering, mediaError, error, busy, calls, instanceDetails };', {
+    window: { setInterval(callback) { const id = ++intervalId; intervals.set(id, callback); return id }, clearInterval(id) { intervals.delete(id) } },
+    Date: { now },
+  }, dependencies)
+  api.instances.value = ['i1', 'i2'].map(id => ({ id, capabilities: { calls: true, voice: true } }))
+  api.number.value = '5511999999999'
+  api.remoteCanvas.value = {}
+  api.callCapabilities.value = capabilities
+  return {
+    api, requests, tracks, media, videoSessions, videoCallbacks,
+    tickPolling() { for (const callback of [...intervals.values()]) callback() },
+    get track() { return tracks[0] }, get video() { return videoSessions[0] },
+    async changeInstance(id) {
+      api.selected.value = id
+      await Promise.all(watchers.filter(item => item.source === api.selected).map(item => item.callback()))
+    },
+    unmount() { unmountHooks.forEach(callback => callback()) },
+  }
+}
+
+test('camera denial prevents both video offer and acceptance requests', async () => {
+  const h = viewHarness({ rejectCamera: true })
+  await h.api.makeTestCall(true)
+  await h.api.action({ callId: 'c1', isVideo: true }, 'accept')
+  assert.deepEqual(h.requests, [['camera'], ['camera']])
+})
+
+test('voice offering and acceptance retain existing behavior with no video capabilities or camera', async () => {
+  const h = viewHarness({ videoSupported: false, rejectCamera: true })
+  await h.api.makeTestCall(false)
+  await h.api.action({ callId: 'c1', isVideo: false }, 'accept')
+  assert.equal(h.requests.some(([type]) => type === 'camera' || type === 'video'), false)
+  assert.equal(h.requests[0][0], 'offer')
+  assert.equal(h.requests[0][4], false)
+  assert.ok(h.requests.some(([type]) => type === 'action'))
+})
+
+test('video permission precedes API offer and bidirectional video session attaches alongside audio', async () => {
+  const h = viewHarness()
+  await h.api.makeTestCall(true)
+  assert.equal(h.requests[0][0], 'camera')
+  assert.equal(h.requests[1][0], 'offer')
+  assert.equal(h.requests[1][4], true)
+  assert.ok(h.requests.some(([type]) => type === 'audio'))
+  assert.ok(h.requests.some(([type]) => type === 'video'))
+})
+
+test('minimizing keeps the video render surface and the last remote frame available for reopening', async () => {
+  const h = viewHarness()
+  await h.api.makeTestCall(true)
+  h.videoCallbacks[0].onRemoteFrame()
+  assert.equal(h.api.remoteVideoReady.value, true)
+  h.videoCallbacks[0].onRemoteRecovery()
+  assert.equal(h.api.remoteVideoReady.value, true, 'transient decoder recovery must not blank a valid frame')
+  assert.equal(h.api.remoteVideoRecovering.value, true)
+  h.api.minimizeVideoModal()
+  assert.equal(h.api.videoModalOpen.value, false)
+  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
+  h.api.openVideoModal()
+  assert.equal(h.api.videoModalOpen.value, true)
+  h.videoCallbacks[0].onRemoteFrame()
+  assert.equal(h.api.remoteVideoRecovering.value, false)
+  h.unmount()
+})
+
+test('rejected video authorization exposes an error and releases busy while preserving the voice call', async () => {
+  const message = 'Não foi possível autorizar o vídeo desta chamada.'
+  const h = viewHarness({ videoStartError: new Error(message) })
+  await h.api.makeTestCall(true)
+  assert.equal(h.api.busy.value, false)
+  assert.equal(h.api.videoState.value, 'error')
+  assert.equal(h.api.mediaError.value, message)
+  assert.equal(h.track.stops, 1)
+  assert.equal(h.api.mediaState.value, 'ready')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.requests.filter(([type]) => type === 'offer').length, 1)
+  assert.equal(h.requests.some(([type]) => type === 'action'), false)
+})
+
+test('video error and reconnect preserve the exact voice session, microphone state and audio status', async () => {
+  const h = viewHarness()
+  await h.api.makeTestCall(true)
+  h.media.setMicMuted(true)
+  h.videoCallbacks[0].onError('Perfil remoto não suportado')
+  h.videoCallbacks[0].onState('error')
+  assert.equal(h.api.mediaState.value, 'ready')
+  assert.equal(h.media.stops, 0)
+  await h.api.reconnectVideo()
+  assert.equal(h.requests.filter(([type]) => type === 'audio').length, 1)
+  assert.equal(h.requests.filter(([type]) => type === 'video').length, 2)
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.media.muted, true)
+  assert.equal(h.api.mediaState.value, 'ready')
+  assert.equal(h.video.stops, 1)
+})
+
+test('switching instance during offer or acceptance discards late response and releases prepared camera', async () => {
+  for (const operation of ['offer', 'accept']) {
+    let release
+    const pending = new Promise(resolve => { release = resolve })
+    const h = viewHarness(operation === 'offer' ? { offerDelay: pending } : { actionDelay: pending })
+    const result = operation === 'offer' ? h.api.makeTestCall(true) : h.api.action({ callId: 'c1', isVideo: true }, 'accept')
+    await drain()
+    h.api.selected.value = 'other-instance'
+    release(); await result
+    assert.equal(h.requests.some(([type]) => type === 'audio' || type === 'video'), false)
+    assert.equal(h.api.feedback.value, '')
+    assert.equal(h.track.stops, 1)
+  }
+})
+
+function deferred() {
+  let resolve
+  const promise = new Promise(done => { resolve = done })
+  return { promise, resolve }
+}
+
+test('a second video offer or incoming acceptance releases the previous exclusive camera first', async () => {
+  for (const operation of ['offer', 'accept']) {
+    const h = viewHarness({ exclusiveCamera: true })
+    await h.api.makeTestCall(true)
+    assert.equal(h.tracks[0].readyState, 'live')
+    if (operation === 'offer') await h.api.makeTestCall(true)
+    else await h.api.action({ callId: 'c2', isVideo: true, direction: 'incoming', state: 'ringing' }, 'accept')
+    assert.equal(h.api.error.value, '', operation)
+    assert.equal(h.tracks.length, 2, operation)
+    assert.equal(h.tracks[0].readyState, 'ended', operation)
+    assert.equal(h.tracks[1].readyState, 'live', operation)
+    assert.equal(h.requests.filter(([type]) => type === 'video').length, 2, operation)
+    h.unmount()
+  }
+})
+
+test('reconnecting video releases the exclusive camera without reopening or stopping audio', async () => {
+  const h = viewHarness({ exclusiveCamera: true })
+  await h.api.makeTestCall(true)
+  h.media.setMicMuted(true)
+  await h.api.reconnectVideo()
+  assert.equal(h.api.mediaError.value, '')
+  assert.equal(h.tracks.length, 2)
+  assert.equal(h.tracks[0].readyState, 'ended')
+  assert.equal(h.tracks[1].readyState, 'live')
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.media.muted, true)
+  assert.equal(h.requests.filter(([type]) => type === 'audio').length, 1)
+  h.unmount()
+})
+
+test('duplicate commands while camera permission is pending open only one camera and signal once', async () => {
+  for (const operation of ['offer', 'accept']) {
+    const camera = deferred()
+    const h = viewHarness({ cameraDelay: camera.promise })
+    const run = () => operation === 'offer' ? h.api.makeTestCall(true) : h.api.action({ callId: 'c1', isVideo: true }, 'accept')
+    const first = run()
+    const second = run()
+    await drain()
+    assert.equal(h.requests.filter(([type]) => type === 'camera').length, 1, operation)
+    camera.resolve(); await Promise.all([first, second])
+    assert.equal(h.requests.filter(([type]) => type === (operation === 'offer' ? 'offer' : 'action')).length, 1, operation)
+    h.unmount()
+  }
+})
+
+test('late camera permission after switching instance or leaving the page releases tracks without signaling', async () => {
+  for (const transition of ['switch', 'unmount']) {
+    for (const operation of ['offer', 'accept']) {
+      const camera = deferred()
+      const h = viewHarness({ cameraDelay: camera.promise })
+      const result = operation === 'offer' ? h.api.makeTestCall(true) : h.api.action({ callId: 'c1', isVideo: true }, 'accept')
+      await drain()
+      if (transition === 'switch') await h.changeInstance('i2')
+      else h.unmount()
+      camera.resolve(); await result
+      assert.equal(h.tracks.length, 1)
+      assert.equal(h.tracks[0].readyState, 'ended', `${transition}/${operation}`)
+      assert.equal(h.requests.some(([type]) => ['offer', 'action', 'audio', 'video'].includes(type)), false)
+      assert.equal(h.api.busy.value, false)
+    }
+  }
+})
+
+test('acquired camera is released immediately on instance change or unmount while signaling is pending', async () => {
+  for (const transition of ['switch', 'unmount']) {
+    for (const operation of ['offer', 'accept']) {
+      const signaling = deferred()
+      const h = viewHarness(operation === 'offer' ? { offerDelay: signaling.promise } : { actionDelay: signaling.promise })
+      const result = operation === 'offer' ? h.api.makeTestCall(true) : h.api.action({ callId: 'c1', isVideo: true }, 'accept')
+      await drain()
+      assert.equal(h.tracks[0].readyState, 'live')
+      if (transition === 'switch') await h.changeInstance('i2')
+      else h.unmount()
+      assert.equal(h.tracks[0].readyState, 'ended', `${transition}/${operation}: do not wait for the API response`)
+      signaling.resolve(); await result
+      assert.equal(h.requests.some(([type]) => type === 'audio' || type === 'video'), false)
+    }
+  }
+})
+
+test('a poll started before new media cannot close it with an old empty call snapshot', async () => {
+  const previous = deferred()
+  let count = 0
+  const h = viewHarness({ callsResponse: () => ++count === 1 ? previous.promise : [{ callId: 'c1', state: 'ringing' }] })
+  const polling = h.api.loadCalls(true)
+  await drain()
+  await h.api.makeTestCall(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  previous.resolve([]); await polling
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.tracks[0].readyState, 'live')
+  assert.equal(h.media.stops, 0)
+  h.unmount()
+})
+
+test('voice media keeps its bounded calls-list fallback after a missing snapshot', async () => {
+  let now = 1_000, missing = false
+  const active = [{ callId: 'c1', state: 'active' }]
+  const h = viewHarness({ now: () => now, callsResponse: () => missing ? [] : active })
+  await h.api.makeTestCall(false)
+  missing = true
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  now += 7_999
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  now += 1
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, '')
+  assert.equal(h.media.stops, 1)
+  h.unmount()
+})
+
+test('video media survives stale call snapshots and closes only on the provider terminal event', async () => {
+  let now = 1_000, missing = false
+  const active = [{ callId: 'c1', state: 'active', isVideo: true }]
+  const h = viewHarness({ now: () => now, callsResponse: () => missing ? [] : active })
+  await h.api.makeTestCall(true)
+  h.api.minimizeVideoModal()
+  missing = true
+  await h.api.loadCalls(true)
+  now += 30_000
+  await h.api.loadCalls(true)
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
+  assert.equal(h.api.videoModalOpen.value, false)
+  assert.equal(h.media.stops, 0)
+  h.videoCallbacks[0].onCallEnded()
+  assert.equal(h.api.mediaCallId.value, '')
+  assert.equal(h.track.readyState, 'ended')
+  assert.equal(h.media.stops, 1)
+  h.unmount()
+})
+
+test('out-of-order polls cannot replace a newer call snapshot', async () => {
+  const previous = deferred()
+  let count = 0
+  const latest = [{ callId: 'new-call', state: 'ringing' }]
+  const h = viewHarness({ callsResponse: () => ++count === 1 ? previous.promise : latest })
+  const first = h.api.loadCalls(true)
+  await drain()
+  await h.api.loadCalls(true)
+  previous.resolve([{ callId: 'old-call', state: 'ringing' }]); await first
+  assert.equal(h.api.calls.value[0].callId, 'new-call')
+})
+
+test('a response from the previous instance cannot replace calls or close current video', async () => {
+  const previous = deferred()
+  let count = 0
+  const h = viewHarness({ callsResponse: id => id === 'i1' && ++count === 1 ? previous.promise : [{ callId: 'c1', state: 'ringing' }] })
+  const first = h.api.loadCalls(true)
+  await drain()
+  await h.changeInstance('i2')
+  h.api.number.value = '5511888888888'
+  await h.api.makeTestCall(true)
+  previous.resolve([{ callId: 'from-i1', state: 'ringing' }]); await first
+  assert.equal(h.api.calls.value[0].callId, 'c1')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.tracks[0].readyState, 'live')
+  assert.equal(h.media.stops, 0)
+  h.unmount()
+})
+
+
+test('polling waits for a slow call snapshot before starting the next tick and still detects hangup', async () => {
+  const slow = deferred()
+  let requests = 0
+  let now = 1_000
+  const active = [{ callId: 'c1', state: 'ringing' }]
+  const h = viewHarness({ now: () => now, callsResponse: () => {
+    requests++
+    if (requests === 1) return active
+    if (requests === 2) return slow.promise
+    return []
+  } })
+  await h.api.makeTestCall(false)
+  h.api.startPolling()
+  h.tickPolling(); await drain()
+  assert.equal(requests, 2)
+  for (let tick = 0; tick < 5; tick++) { h.tickPolling(); await drain() }
+  assert.equal(requests, 2, 'Repeated timer ticks do not overlap the pending HTTP request')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+
+  slow.resolve(active); await drain()
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  h.tickPolling(); await drain()
+  assert.equal(requests, 3, 'Polling resumes after the slow request settles')
+  assert.equal(h.api.mediaCallId.value, 'c1', 'One empty snapshot cannot tear down a healthy call')
+  now += 8_000
+  h.tickPolling(); await drain()
+  assert.equal(requests, 4)
+  assert.equal(h.api.mediaCallId.value, '', 'A fresh empty snapshot still closes the ended call')
+  assert.equal(h.media.stops, 1)
+  h.unmount()
+})
+
+
+test('a failed camera reconnect remains retryable on the same call without replacing its audio session', async () => {
+  let cameraUnavailable = false
+  const h = viewHarness({ exclusiveCamera: true, rejectCamera: () => cameraUnavailable })
+  await h.api.makeTestCall(true)
+  h.media.setMicMuted(true)
+  cameraUnavailable = true
+  await h.api.reconnectVideo()
+  assert.equal(h.api.videoState.value, 'error')
+  assert.equal(h.api.videoStream.value, null)
+  assert.equal(h.api.busy.value, false)
+  assert.equal(h.tracks[0].readyState, 'ended')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.api.mediaState.value, 'ready')
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.media.muted, true)
+
+  cameraUnavailable = false
+  await h.api.reconnectVideo()
+  assert.equal(h.api.videoState.value, 'ready')
+  assert.equal(h.api.mediaError.value, '')
+  assert.equal(h.api.mediaCallId.value, 'c1')
+  assert.equal(h.api.videoStream.value.getVideoTracks()[0].readyState, 'live')
+  assert.equal(h.tracks.length, 2)
+  assert.equal(h.requests.filter(([type]) => type === 'audio').length, 1)
+  assert.equal(h.requests.filter(([type]) => type === 'video').length, 2)
+  assert.equal(h.requests.filter(([type]) => type === 'offer').length, 1)
+  assert.equal(h.requests.some(([type]) => type === 'action'), false)
+  assert.equal(h.media.stops, 0)
+  assert.equal(h.media.muted, true)
+  h.unmount()
+})

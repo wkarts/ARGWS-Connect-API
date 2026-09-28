@@ -5,10 +5,11 @@ import { authGuard } from '@api/guards/auth.guard';
 import { instanceExistsGuard, instanceLoggedGuard } from '@api/guards/instance.guard';
 import Telemetry from '@api/guards/telemetry.guard';
 import { ChannelRouter } from '@api/integrations/channel/channel.router';
+import { findHubChannelBoundary } from '@api/integrations/channel/findhub/findhub-boundary.guard';
 import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
-import { waMonitor } from '@api/server.module';
+import { managerEmbeddingService, waMonitor } from '@api/server.module';
 import { observeOperations } from '@api/services/operations.service';
 import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
@@ -25,6 +26,7 @@ import { GroupRouter } from './group.router';
 import { InstanceRouter } from './instance.router';
 import { LabelRouter } from './label.router';
 import { LocalTemplateRouter } from './local-template.router';
+import { ManagerEmbeddingRouter } from './manager-embedding.router';
 import { OperationsRouter } from './operations.router';
 import { ProxyRouter } from './proxy.router';
 import { MessageRouter } from './sendMessage.router';
@@ -36,9 +38,10 @@ const router: Router = Router();
 router.use(observeOperations);
 router.use('/operations', new OperationsRouter().router);
 router.use('/diagnostics', new DiagnosticsRouter().router);
+router.use('/manager-api/v1', new ManagerEmbeddingRouter(managerEmbeddingService).router);
 const serverConfig = configService.get('SERVER');
 const databaseConfig = configService.get<Database>('DATABASE');
-const guards = [instanceExistsGuard, instanceLoggedGuard, authGuard['apikey']];
+const guards = [instanceExistsGuard, instanceLoggedGuard, authGuard['apikey'], findHubChannelBoundary];
 
 const telemetry = new Telemetry();
 
@@ -156,7 +159,7 @@ if (metricsConfig.ENABLED) {
   });
 }
 
-if (!serverConfig.DISABLE_MANAGER) router.use('/manager', new ViewsRouter().router);
+if (!serverConfig.DISABLE_MANAGER) router.use('/manager', new ViewsRouter(managerEmbeddingService).router);
 
 const managerAssetsPath = path.join(process.cwd(), 'manager', 'dist', 'assets');
 router.use(

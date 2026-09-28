@@ -63,6 +63,31 @@ export const readMessageSchema: JSONSchema7 = {
   required: ['readMessages'],
 };
 
+export const playedMessageSchema: JSONSchema7 = {
+  $id: v4(),
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    playedMessages: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          fromMe: { type: 'boolean', enum: [false] },
+          remoteJid: { type: 'string', minLength: 1 },
+          participant: { type: 'string', minLength: 1 },
+        },
+        required: ['id', 'fromMe', 'remoteJid'],
+      },
+    },
+  },
+  required: ['playedMessages'],
+};
+
 export const archiveChatSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',

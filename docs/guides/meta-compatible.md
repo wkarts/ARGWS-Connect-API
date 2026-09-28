@@ -213,11 +213,33 @@ participante remoto há `contacts: []`. Status mantêm IDs, timestamps e mapeame
 `sent/delivered/read/failed/deleted`; sem telefone de destino, mantêm `recipient_id`
 vazio, sem inventar PN. Broadcast/canais não são convertidos em conversa individual.
 
-O conjunto de eventos despachados permanece o mesmo (`messages.upsert` e
-`messages.update`, incluindo as variantes maiúsculas). Esta entrega não assina
-`SEND_MESSAGE` adicionalmente, evitando duplicar o webhook de um envio que já gera
-upsert/eco. Testes de API/bot verificam o upsert com `fromMe=true` e origem existente.
-Não há uma nova API genérica de payload bruto nesta alteração.
+O conjunto de eventos Meta-compatible cobre `messages.upsert`,
+`messages.update` e agora também `messages.delete`, incluindo as variantes
+maiúsculas. Um revoke recebido do smartphone da própria conta ou do interlocutor é
+normalizado como um status da mensagem original:
+
+```json
+{
+  "statuses": [
+    {
+      "id": "<ID_REAL_DA_MENSAGEM>",
+      "status": "deleted",
+      "timestamp": "<unix_timestamp>",
+      "recipient_id": "<telefone_quando_resolvido>"
+    }
+  ]
+}
+```
+
+O evento de exclusão usa o ID real da mensagem alvo, não o ID do
+`protocolMessage` de controle. Baileys e ZAPO persistem o estado `DELETED` da
+mensagem original antes de despachar o webhook, permitindo que consumidores façam
+reconciliação posterior mesmo se estiverem temporariamente indisponíveis.
+
+Esta entrega não assina `SEND_MESSAGE` adicionalmente, evitando duplicar o webhook
+de um envio que já gera upsert/eco. Testes de API/bot verificam o upsert com
+`fromMe=true` e origem existente. Não há uma nova API genérica de payload bruto
+nesta alteração.
 
 A autenticação Graph continua Bearer do token da instância. OAuth `190` por token
 inadequado não é contornado. As rotas nativas de envio e seus guards permanecem iguais.

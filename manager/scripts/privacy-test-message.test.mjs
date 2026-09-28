@@ -37,6 +37,8 @@ function router(features) {
   load('src/router/index.ts', {
     'vue-router': { createWebHistory: () => ({}), createRouter: value => { config = value; return { beforeEach: handler => { guard = handler; } }; } },
     '@/config/runtime': { appBasePath: () => '/manager/', runtime: { authMode: 'access-code' }, featureEnabled: (name, fallback) => features[name] ?? fallback },
+    '@/services/connect': { connect: { connection: async () => null } },
+    '@/services/findhub-channel': load('src/services/findhub-channel.ts'),
     '@/stores/session': { useSessionStore: () => ({ restore: async () => { restored++; return true; }, security: {}, hasPermission: () => true }) },
   });
   return { config, check: async path => { const route = config.routes.find(r => r.path === path); assert.ok(route); return guard({ ...route, meta: route.meta || {} }); }, restored: () => restored };

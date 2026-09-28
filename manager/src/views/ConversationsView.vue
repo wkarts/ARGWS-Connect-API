@@ -5,6 +5,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
+import { isFindHub } from '@/services/findhub-channel'
 import { friendlyError } from '@/services/errors'
 import type { ConnectionItem, Conversation, Message } from '@/types/domain'
 
@@ -107,7 +108,7 @@ async function send() {
 }
 
 onMounted(async () => {
-  instances.value = await connect.connections().catch(() => [])
+  instances.value = (await connect.connections().catch(() => [])).filter((item) => !isFindHub(item))
   selectedInstance.value = instances.value[0]?.id || ''
   await loadChats()
 })

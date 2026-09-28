@@ -1,0 +1,283 @@
+# Google Find Hub — superfície de protocolo aprendida das referências
+
+Esta implementação foi revisada contra os dois pacotes de referência fornecidos para a evolução do Connect|API:
+
+- material público de pesquisa: usado somente para aprendizado e cross-check do wire Nova/SPOT, protobufs, FCM/MCS, criptografia, catálogo, localização e ações; não é dependência da aplicação;
+- `find-my-device-rest-api`: wrapper REST sobre a mesma família de protocolo, útil para cache, force refresh, polling e seleção do relatório mais recente.
+
+Nenhum campo é fabricado. Quando o material fornecido não demonstra uma capacidade, o Connect|API declara essa capacidade como indisponível em vez de devolver um valor sintético.
+
+## Recursos comprovados e portados
+
+| Recurso | Origem no material | Connect|API |
+| --- | --- | --- |
+| Catálogo por seletores SPOT / ANDROID / AUTO / FASTPAIR / SUPERVISED | Nova ListDevices | Suportado; seletores são tratados como caminhos de descoberta, não como tipo semântico do aparelho |
+| Todos os IDs canônicos | DeviceMetadata / CanonicIds | Persistidos e expostos |
+| Tipo do identificador | IdentifierInformationType + captura viva | ANDROID / SPOT / SUPERVISED_ANDROID / UNKNOWN |
+| Tipos detalhados | SpotDeviceType | Suportados sem reduzir tudo a TRACKER |
+| Fabricante e modelo | DeviceRegistration + catálogo vivo 2026 | Persistidos |
+| Fast Pair Model ID | DeviceRegistration.fastPairModelId | Persistido quando a semântica é compatível; em PHONE o field 21 foi comprovado como product/variant name, não Fast Pair |
+| Data de pareamento | DeviceRegistration.pairDate | Persistida |
+| Ownership/acesso | DeviceInformation.accessInformation | Persistido e exibido |
+| Owner key version | EncryptedUserSecrets.ownerKeyVersion | Persistido |
+| Material criptográfico | EncryptedUserSecrets | Somente fingerprints SHA-256; chaves brutas não são expostas |
+| Mínimo de agregação de rede | minLocationsNeededForAggregation | Persistido |
+| Locate ativo | ExecuteAction.locateTracker | Suportado |
+| Tocar som | ExecuteAction.startSound | Suportado quando o provider anuncia action field 31; fallback legado para SPOT sem capabilities |
+| Parar som | ExecuteAction.stopSound | Suportado quando o provider anuncia action field 32; fallback legado para SPOT sem capabilities |
+| Componentes de som | DeviceComponent | UNSPECIFIED / RIGHT / LEFT / CASE |
+| Localização LAST_KNOWN | Common.Status | Preservada como origem |
+| Localização CROWDSOURCED | Common.Status | Preservada como origem |
+| Localização AGGREGATED | Common.Status | Preservada como origem |
+| Relatórios recentes/rede | RecentLocationAndNetworkLocations | Decriptados e deduplicados |
+| Push realtime | FCM/MCS | Conexão persistente |
+| Histórico local | Connect|API | Persistente e opcional |
+| Reconciliação | Connect|API sobre os reports devolvidos | Best effort, sem prometer timeline completa |
+
+## Metadados descobertos no protocolo vivo de 2026
+
+Capturas reais de `DevicesList` mostraram que o backend atual possui um layout mais novo que o `DeviceUpdate.proto` público usado como referência de pesquisa. O decoder da Connect|API mantém compatibilidade com o layout legado e passou a reconhecer, quando presentes:
+
+- fabricante;
+- modelo;
+- codinome do dispositivo;
+- produto/variant name;
+- operadora;
+- IMEI validado por formato/check digit;
+- ID numérico Android;
+- ID opaco estável do metadata;
+- timestamps de registro/status/resposta do provider;
+- versão numérica do Google Play Services;
+- Android SDK;
+- capacidades brutas numeradas pelo provider;
+- flags numéricas ainda sem semântica oficial;
+- indicação de dispositivo supervisionado Family Link, nome do membro e URL devolvida pelo Google;
+- metadata offline/E2EE legado ainda embutido no layout novo.
+
+O layout vivo também apresentou `IdentifierInformationType = 6` em um aparelho supervisionado do Family Link. A Connect|API o representa semanticamente como `SUPERVISED_ANDROID`, sem fingir que esse nome constava no proto legado.
+
+Dispositivos supervisionados podem aparecer sem um ID canônico compatível com o wire de `ExecuteAction.locateTracker`. Nesses casos eles continuam visíveis no catálogo e com seus metadados preservados, mas `locateSupported=false` impede a aplicação de enviar uma ação com identificador inventado.
+
+### Ainda não confirmado
+
+Os catálogos capturados **não demonstraram de forma segura**:
+
+- percentual de bateria;
+- MEID;
+- número de série;
+- SSID atual;
+- RSSI Wi-Fi;
+- intensidade do sinal celular.
+
+O wrapper `find-my-device-rest-api` mantém `battery_level` como `null` para `SPOT_DEVICE`. Embora o produto oficial Find Hub apresente bateria e conectividade para aparelhos online, é necessário mapear a superfície/status protobuf correspondente antes de expor esses campos.
+
+### Correlação real: Redmi Note 14 entre DevicesList e DeviceUpdate
+
+Em 2026-09-26 foram comparados, para o mesmo Redmi Note 14, `DevicesList` solicitados como `SPOT`, `ANDROID`, `AUTO`, `FASTPAIR` e `SUPERVISED`, além de um `DeviceUpdate` recebido após Locate. Os binários privados não são versionados; somente fixtures sintéticas sanitizadas entram nos testes.
+
+A correlação mostrou:
+
+- os catálogos solicitados como `SPOT`, `ANDROID`, `AUTO`, `FASTPAIR` e `SUPERVISED` devolveram o mesmo conjunto de dispositivos;
+- removendo somente `providerResponseAt`, o `DeviceMetadata` do Redmi Note 14 é byte a byte idêntico nos cinco seletores; o mesmo vale para o segundo dispositivo supervisionado retornado pela conta;
+- nas cinco respostas, o Redmi Note 14 continua declarando `identifierType=ANDROID`; o selector usado na requisição não reescreve o tipo do dispositivo;
+- a única diferença observada entre essas cinco capturas foi o timestamp de resposta do provider;
+- em cada resposta, o `responseTime` do envelope e o `DeviceMetadata.field12` dos dispositivos carregam o mesmo instante, validando o fallback `metadata.field12 -> payload.field4` usado pelo decoder;
+- a diferença de três bytes observada no arquivo SUPERVISED é explicada apenas pelo tamanho da codificação varint desse timestamp, não por ausência de campos;
+- no catálogo, o Redmi Note 14 aparece com `identifierType=ANDROID`, ID numérico Android, canonical ID, modelo `24117RN76L`, fabricante `Xiaomi`, codinome `tanzanite`, produto `tanzanite_global`, operadora e IMEI;
+- no `DeviceUpdate` de Locate, o mesmo canonical ID aparece com `identifierType=SPOT`;
+- portanto `identifierType` descreve a superfície/envelope retornado e **não deve ser usado isoladamente como capability gate**;
+- o catálogo do aparelho anuncia action fields `31` e `32`, e o DeviceUpdate conserva essas duas capabilities, confirmando Start Sound e Stop Sound para esse telefone mesmo quando o catálogo o classifica como `ANDROID`;
+- o `DeviceRegistration` embutido no DeviceUpdate é **byte a byte idêntico** ao registration embutido no catálogo moderno do mesmo aparelho;
+- por isso os registration fields ainda anônimos `11`, `22`, `24`, `25`, `33` e `40` observados nessa amostra pertencem ao bloco estável de registro/metadata e não devem ser tratados como bateria ou sinal;
+- registration field `21` contém `tanzanite_global`, enquanto o catálogo moderno expõe separadamente o codinome `tanzanite` em status field `5`. Para `PHONE`, field `21` é tratado como `productName`, não como `fastPairModelId` nem como `deviceCodename`;
+- o relatório de localização contém `accuracy=100.0`; esse valor é precisão em metros e **não** percentual de bateria;
+- o timestamp do relatório pode ser anterior ao horário em que a Connect|API recebeu o envelope, reforçando a distinção entre nova resposta do provider e nova observação de posição.
+
+O decoder preserva a interpretação legada de field `21` como Fast Pair apenas para tipos não-`PHONE`, onde essa semântica ainda é compatível com o proto de referência.
+
+### Bateria: tier suportado, percentual ainda não comprovado
+
+As cinco capturas do Redmi Note 14 preservam `DeviceRegistration.deviceTypeInformation.field11 = 3` e `field14 = 1`. O mesmo caminho `field11=3` também aparece no Redmi Note 7 analisado.
+
+Uma implementação pública independente do protocolo Google Find Hub interpreta especificamente `DeviceTypeInformation.field11` em telefones Android como **tier de bateria**, com:
+
+```text
+1 = LOW
+2 = MEDIUM
+3 = HIGH
+```
+
+A estrutura coincide exatamente com o wire real capturado nos telefones. A Connect|API passa a expor essa informação como `batteryTier` e preserva a origem em `batteryTierSource="registration.2.11"`. O valor bruto continua disponível em `providerFlags["registration.2.11"]`.
+
+Isso **não** autoriza inferir percentual. Portanto não existe `batteryLevel=NN` sintético: o contrato suporta a faixa LOW/MEDIUM/HIGH e declara `percentageSupported=false`.
+
+Separadamente, o segundo dispositivo supervisionado retornado pela conta inclui `status.32.1 = 53`. Esse campo permanece somente como candidato a algum valor percentual/telemetria; é preservado cru em `providerFlags["32.1"]` e não é apresentado como bateria até haver correlação suficiente.
+
+As capturas atuais ainda **não demonstram de forma segura** MEID, número de série, SSID/RSSI Wi-Fi ou intensidade celular.
+
+## Enriquecimento transversal por protocolo
+
+O Protocol Lab não é apenas um downloader. **Todas as superfícies catalogadas** recebem `applicationAreas` e `enrichmentTargets`, tornando explícito onde cada protocolo já alimenta — ou poderá alimentar, quando houver implementação comprovada — a conta, realtime, catálogo de devices, E2EE, localização de rede, provisioning BLE, DULT e criptografia.
+
+O status continua autoritativo: `reference-only` descreve potencial técnico conhecido e **não** disponibilidade atual. A Connect|API não fabrica payloads ou dados para preencher lacunas.
+
+### Estado vivo sanitizado
+
+`GET /findhub/protocol/state/:instanceName` produz um snapshot sob demanda:
+
+- E2EE: `securityDomain`, `ownerKeyVersion`, tamanho e SHA-256 do envelope cifrado;
+- campos wire adicionais do `GetEidInfoForE2eeDevices` são preservados pelo caminho numérico, sem receber nomes não comprovados;
+- FCM: prontidão de Check-in/GCM/Firebase Installation/WebPush e fingerprint da chave pública;
+- MCS: conexão, último frame, stream id, heartbeat, reconexão, buffer e quantidade de persistent IDs.
+
+A resposta **não retorna** AAS/service token, Android security token, registration token, private key, auth secret, shared key, owner key ou encrypted owner key bruto.
+
+Três capturas reais independentes do Protocol Lab analisadas em 2026-09-27 devolveram o mesmo `GetEidInfoForE2eeDevices` de 87 bytes. Além de `ownerKeyVersion=1` e `securityDomain=finder_hw`, o wire contém campos adicionais estáveis ainda ausentes dos protos públicos de referência. Esses valores permanecem como wire metadata; nenhuma semântica foi inventada.
+
+O ZIP completo inclui também `runtime/protocol-state.json` quando o estado vivo pode ser consultado.
+
+## Protocol Lab: integração dedicada, download individual e pacote ZIP
+
+O Manager da instância Find Hub possui um **Protocol Lab** como item próprio do menu de integrações, no mesmo nível de Traccar, Webhooks e demais transportes. A tela de Dispositivos permanece dedicada à operação do aparelho e não carrega controles forenses. No Lab é possível baixar tudo, filtrar/baixar por protocolo, baixar schemas individualmente ou gerar um ZIP restrito a um único device.
+
+O pacote ZIP inclui, conforme disponibilidade:
+
+- requests e responses `DevicesList` dos seletores SPOT, ANDROID, AUTO, FASTPAIR e SUPERVISED;
+- request e response `GetEidInfoForE2eeDevices` da Spot API;
+- request `EncryptionUnlockRequestExtras` do security domain `finder_hw`, sem executar o desbloqueio;
+- requests `ExecuteAction` Locate, StartSound e StopSound por dispositivo; o empacotador **não envia os comandos de som**;
+- `DeviceUpdate` real e o `DeviceMetadata` extraído para dispositivos localizáveis, mediante Locate real;
+- `protocol-inventory.json`;
+- `manifest.json` com tamanho, SHA-256, falhas individuais e itens ignorados;
+- descritores em `references/*.json` para famílias conhecidas ainda não capturadas ativamente.
+
+O inventário não é uma seleção manual de poucos protocolos. Ele cataloga todas as superfícies atualmente comprovadas nas referências utilizadas pela Connect|API e separa `live`, `internal-live`, `request-template` e `reference-only`.
+
+Além de Nova/Spot, o catálogo inclui Android Check-in, GCM register3, Firebase Installations, FCM registration/WebPush, FCM subscribe, namespace FCM API v1, Doorbells client API, MCS TLS/Login/Heartbeat/DataMessage/IQ/Acks/Close, DeviceUpdate, LocationReportsUpload, ToSAcceptance, Security Domain/Key Backup, DULT Owner Lookup e as primitivas FMDN de EID/key derivation/foreign-tracker.
+
+O ZIP inclui ainda `protocol-schema-catalog.json` e um descritor em `schemas/*.json` para cada schema protobuf conhecido. O catálogo atual cobre 7 conjuntos de schema, 77 mensagens e 12 enums, incluindo os protos Android Check-in, Check-in, MCS, Common, DeviceUpdate, LocationReportsUpload e ToSAcceptance.
+
+Superfícies sem captura ativa continuam `reference-only`; a Connect|API as inclui no inventário e no ZIP, mas não fabrica payloads para preencher essas lacunas.
+
+Uma falha isolada — por exemplo, ausência de DeviceUpdate de um aparelho offline — é registrada no `manifest.json` e não invalida os demais arquivos do ZIP.
+
+O pacote é material forense sensível: pode conter e-mails, IDs canônicos, registration IDs FCM e material criptográfico cifrado. Não deve ser publicado em repositórios ou logs.
+
+### Disponibilidade por ambiente
+
+`FINDHUB_PROTOCOL_LAB_ENABLED` controla tanto a UI quanto os endpoints `/findhub/protocol/*`:
+
+- `auto`: habilita fora de `NODE_ENV=PROD|production` e desabilita em produção;
+- `true`: habilita explicitamente, inclusive em produção;
+- `false`: desabilita completamente.
+
+Os deploys `develop` usam `true` explicitamente porque executam o bundle otimizado com `NODE_ENV=PROD`; os demais ambientes podem manter `auto` para ficarem fechados por padrão.
+
+## Frescor de localização: solicitação não é observação nova
+
+O tracking da Connect|API pode enviar comandos em intervalos menores que vinte minutos e aceita `intervalSeconds=0` para consultas serializadas contínuas. Isso **não obriga o provider a gerar um novo fix GPS**.
+
+Para tornar essa diferença auditável, cada dispositivo mantém:
+
+- `providerRequestCount`: quantidade de comandos de localização enviados;
+- `providerReportCount`: quantidade de relatórios de posição realmente recebidos;
+- `providerRepeatedReportCount`: relatórios que não eram uma observação mais nova que a posição local;
+- `lastProviderRequestAt`: quando o último comando foi enviado;
+- `lastProviderReportAt`: timestamp do último relatório devolvido pelo provider;
+- `lastReceivedAt`: quando a Connect|API efetivamente recebeu/persistiu a observação.
+
+Assim é possível distinguir, por exemplo, “40 solicitações em 20 minutos” de “Google forneceu somente um timestamp novo nesse período”.
+
+## Captura forense do protobuf real
+
+A Connect|API oferece captura opt-in dos binários recebidos diretamente das superfícies Google antes da interpretação dos campos. O objetivo é permitir engenharia reversa controlada de campos ainda desconhecidos sem adulterar o payload.
+
+No Manager da instância Find Hub, em **Dispositivos**, estão disponíveis:
+
+- **Capturar SPOT .pb** — resposta bruta `DevicesList` do catálogo SPOT;
+- **Capturar Android .pb** — resposta bruta `DevicesList` do catálogo Android;
+- **Capturar DeviceUpdate .pb** — envia um Locate para o dispositivo selecionado, correlaciona pelo `requestUuid` e entrega o primeiro envelope FCM `DeviceUpdate` bruto recebido.
+
+A API também permite consultar manualmente os catálogos complementares definidos pelo protobuf de referência:
+
+```text
+spot
+android
+auto
+fastpair
+supervised
+```
+
+Endpoint:
+
+```http
+POST /findhub/protocol/capture/catalog/:catalog/:instanceName
+```
+
+Para uma captura FCM:
+
+```http
+POST /findhub/protocol/capture/device-update/:deviceId/:instanceName
+Content-Type: application/json
+
+{
+  "timeoutMs": 120000
+}
+```
+
+As respostas usam `application/x-protobuf` e `Content-Disposition: attachment`.
+
+A captura **não**:
+
+- grava o protobuf bruto no banco;
+- grava o payload bruto no diagnóstico normal;
+- modifica credenciais;
+- exige desvincular/revincular a conta;
+- altera histórico, tracking ou Traccar.
+
+Os arquivos podem conter identificadores do aparelho, e-mails presentes em `AccessInformation` e blobs criptográficos cifrados do Find Hub. Devem ser tratados como material sensível.
+
+Esses arquivos são os artefatos preferidos para investigar campos não nomeados pelo `DeviceUpdate.proto`, inclusive candidatos a status do aparelho, bateria, IMEI, MEID, serial ou outros metadados que possam existir em campos protobuf ainda desconhecidos.
+
+### Catálogos adicionais observados no proto de referência
+
+O `DeviceType` observado no material público de referência declara:
+
+```text
+UNKNOWN_DEVICE_TYPE = 0
+ANDROID_DEVICE = 1
+SPOT_DEVICE = 2
+TEST_DEVICE_TYPE = 3
+AUTO_DEVICE = 4
+FASTPAIR_DEVICE = 5
+SUPERVISED_ANDROID_DEVICE = 7
+```
+
+As capturas reais de 2026 mostraram que SPOT, Android, Auto, Fast Pair e Supervised podem devolver o mesmo catálogo completo. Por isso a Connect|API trata os cinco valores como caminhos de descoberta best-effort: consulta SPOT primeiro e, em seguida, Android, Auto, Fast Pair e Supervised em paralelo; aceita qualquer resposta legível e deduplica por `googleDeviceId`. SPOT permanece apenas como desempate final de compatibilidade quando o mesmo dispositivo aparece em múltiplas respostas, enquanto `providerResponseAt` preserva o timestamp mais recente observado entre os seletores. Sua indisponibilidade isolada não derruba a descoberta.
+
+## Recursos presentes no material e que pertencem a outro ciclo
+
+O material público de pesquisa também descreve um fluxo de fabricação/provisionamento de rastreadores BLE próprios:
+
+- `CreateBleDevice`;
+- geração de EIK/EID;
+- upload de `PrecomputedPublicKeyIds`;
+- rotação periódica de IDs;
+- chaves de ringing/recovery/unwanted-tracking;
+- firmware ESP32/Zephyr.
+
+Esse fluxo cria material criptográfico que precisa ser guardado e renovado de forma diferente das credenciais de uma conta existente. Ele não deve ser misturado silenciosamente ao cadastro de celulares/acessórios já pertencentes à conta. Sua portabilidade exige armazenamento cifrado dedicado e recuperação/backup do segredo de fabricação.
+
+## Segurança
+
+O Manager e as APIs públicas não retornam:
+
+- encrypted identity key;
+- encrypted account key;
+- owner key;
+- shared key;
+- AAS token;
+- FCM private key;
+- advertisement/identity key de um tracker customizado.
+
+Quando é útil correlacionar uma identidade criptográfica sem revelar o segredo, a API retorna somente fingerprint SHA-256.
