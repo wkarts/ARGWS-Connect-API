@@ -63,6 +63,25 @@ test('two Connect video sessions exchange encrypted H264 in both directions with
   } finally { p.close(); }
 });
 
+test('a resumed camera timeline recovers on the next IDR instead of dropping video forever', async () => {
+  const p = await pair();
+  try {
+    p.a.session.feedLiveVideo(au, 1_000_000);
+    for (const packet of p.a.packets) p.b.session.onRelayData(packet);
+    assert.equal(p.b.frames.length, 1);
+
+    // Simulate the remote RTP source restarting at a lower timestamp while
+    // the call remains active. The next access unit is an IDR and is safe to
+    // use as the new recovery point.
+    p.b.session.videoClock = { last: 900_000, ticks: 90_000 };
+    const before = p.a.packets.length;
+    p.a.session.feedLiveVideo(au, 3_000_000);
+    for (const packet of p.a.packets.slice(before)) p.b.session.onRelayData(packet);
+    assert.equal(p.b.frames.length, 2);
+    assert.ok(p.b.frames[1].timestampUs > p.b.frames[0].timestampUs);
+  } finally { p.close(); }
+});
+
 test('authenticated PLI/FIR targets the local encoder, while tamper/replay/wrong target do not', async (t) => {
   let now = 1000;
   t.mock.method(Date, 'now', () => now);

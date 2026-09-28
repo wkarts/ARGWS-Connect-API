@@ -20,6 +20,8 @@ export type VideoMediaPreparation = {
   settings: Required<Pick<VideoMediaSettings, 'width' | 'height' | 'maxFps' | 'bitrate' | 'maxFrameBytes'>>
 }
 
+const REMOTE_FRAME_TIMEOUT_MS = 2500
+
 function bounded(value: number | undefined, fallback: number, min: number, max: number) {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, Math.trunc(value!))) : fallback
 }
@@ -46,6 +48,11 @@ export class VideoMediaSession {
   private lastKeyFrameAt = 0
   private lastKeyFrameRequestAt = -Infinity
   private lastTimestamp = -1
+  private lastRemoteTimestamp = -1
+  private lastRemoteFrameAt = 0
+  private remoteRecoveryTimer: number | undefined
+  private processingFrame = false
+  private pendingFrame: ArrayBuffer | null = null
   private pageHide = () => this.stop()
 
   constructor(
@@ -180,6 +187,7 @@ export class VideoMediaSession {
           if (this.remoteCanvas.width !== frame.displayWidth) this.remoteCanvas.width = frame.displayWidth
           if (this.remoteCanvas.height !== frame.displayHeight) this.remoteCanvas.height = frame.displayHeight
           context.drawImage(frame, 0, 0)
+          this.lastRemoteFrameAt = performance.now()
           this.callbacks.onRemoteFrame?.()
         } finally { frame.close() }
       },
@@ -252,6 +260,7 @@ export class VideoMediaSession {
               window.clearTimeout(this.connectTimer)
               this.rejectConnection = null
               this.callbacks.onState?.('ready')
+              this.startRemoteRecovery()
               this.requestKeyFrame()
               resolve()
             } else if (message.type === 'request_keyframe') this.needsKeyFrame = true
@@ -260,13 +269,48 @@ export class VideoMediaSession {
           return
         }
         if (!this.ready || !(event.data instanceof ArrayBuffer)) return
-        void this.receiveFrame(event.data).catch(() => { if (!this.closed) this.recoverDecoder() })
+        this.enqueueFrame(event.data)
       }
       socket.onerror = () => this.fail(new Error('Não foi possível conectar o vídeo da chamada.'))
       socket.onclose = () => {
         if (!this.closed) this.fail(new Error('A transmissão de vídeo foi desconectada.'))
       }
     })
+  }
+
+  private enqueueFrame(packet: ArrayBuffer) {
+    if (this.closed) return
+    if (this.processingFrame) {
+      // Keep only the newest access unit while codec support or decode output
+      // is pending. A bounded queue is essential for a light, low-latency UI.
+      this.pendingFrame = packet
+      return
+    }
+    this.processingFrame = true
+    void this.receiveFrame(packet)
+      .catch(() => { if (!this.closed) this.recoverDecoder() })
+      .finally(() => {
+        this.processingFrame = false
+        const next = this.pendingFrame
+        this.pendingFrame = null
+        if (next && !this.closed) this.enqueueFrame(next)
+      })
+  }
+
+  private startRemoteRecovery() {
+    if (this.remoteRecoveryTimer !== undefined) window.clearTimeout(this.remoteRecoveryTimer)
+    this.lastRemoteFrameAt = performance.now()
+    const check = () => {
+      if (this.closed || !this.ready) return
+      const now = performance.now()
+      if (now - this.lastRemoteFrameAt >= REMOTE_FRAME_TIMEOUT_MS) {
+        this.decoderNeedsKeyFrame = true
+        this.requestKeyFrame()
+        this.lastRemoteFrameAt = now
+      }
+      this.remoteRecoveryTimer = window.setTimeout(check, 1000)
+    }
+    this.remoteRecoveryTimer = window.setTimeout(check, 1000)
   }
 
   private async receiveFrame(packet: ArrayBuffer) {
@@ -276,6 +320,25 @@ export class VideoMediaSession {
       return
     }
     const frame = decodeVideoFrame(packet, this.preparation.settings.maxFrameBytes)
+    if (frame.timestampUs <= this.lastRemoteTimestamp) {
+      if (!frame.keyFrame) {
+        this.decoderNeedsKeyFrame = true
+        this.requestKeyFrame()
+        return
+      }
+      // Keep decoding recoverable when the sender restarts its clock. The
+      // server also gates this transition on an IDR, so dependent frames are
+      // never fed into a fresh decoder timeline.
+      try {
+        this.decoder?.reset()
+        this.decoder?.configure(this.remoteDecoderConfig)
+      } catch {
+        this.recoverDecoder()
+        return
+      }
+      this.decoderNeedsKeyFrame = true
+      this.lastRemoteTimestamp = -1
+    }
     const remoteCodec = h264DecoderCodec(frame.data)
     if (remoteCodec && remoteCodec !== this.remoteDecoderConfig.codec) {
       this.decoderNeedsKeyFrame = true
@@ -304,16 +367,22 @@ export class VideoMediaSession {
     }
     if (this.closed) return
     if (!this.decoder || this.decoder.state !== 'configured') { this.recoverDecoder(); return }
-    if (this.decoder.decodeQueueSize > 4) { this.recoverDecoder(); return }
+    if (this.decoder.decodeQueueSize > 4) {
+      this.decoderNeedsKeyFrame = true
+      this.requestKeyFrame()
+      return
+    }
     if (this.decoderNeedsKeyFrame && !frame.keyFrame) { this.requestKeyFrame(); return }
     try {
       this.decoder.decode(new EncodedVideoChunk({ type: frame.keyFrame ? 'key' : 'delta', timestamp: frame.timestampUs, data: frame.data }))
+      this.lastRemoteTimestamp = frame.timestampUs
       if (frame.keyFrame) this.decoderNeedsKeyFrame = false
     } catch { this.recoverDecoder() }
   }
 
   private recoverDecoder() {
     this.decoderNeedsKeyFrame = true
+    this.lastRemoteTimestamp = -1
     if (this.decoder?.state === 'closed') {
       this.fail(new Error('Não foi possível decodificar o vídeo remoto. Reconecte a mídia da chamada.'))
       return
@@ -352,6 +421,11 @@ export class VideoMediaSession {
     this.rejectConnection = null
     window.clearTimeout(this.captureTimer)
     window.clearTimeout(this.connectTimer)
+    if (this.remoteRecoveryTimer !== undefined) window.clearTimeout(this.remoteRecoveryTimer)
+    this.remoteRecoveryTimer = undefined
+    this.pendingFrame = null
+    this.lastRemoteTimestamp = -1
+    this.lastRemoteFrameAt = 0
     window.removeEventListener('pagehide', this.pageHide)
     for (const track of this.preparation.stream.getTracks()) { track.removeEventListener('ended', this.pageHide); track.stop() }
     if (this.encoder && this.encoder.state !== 'closed') this.encoder.close()

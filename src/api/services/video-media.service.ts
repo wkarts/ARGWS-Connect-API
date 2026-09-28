@@ -293,13 +293,21 @@ export class VideoMediaService {
               if (state !== 'ready' || ws.readyState !== 1 || String(call?.callId || call?.id) !== grant.callId) return;
               try {
                 if (frame?.codec !== 'h264') return;
-                if (
-                  ws.bufferedAmount + VIDEO_FRAME_HEADER_BYTES + frame.data.byteLength > MAX_BUFFERED_BYTES ||
-                  frame.timestampUs <= lastInboundTimestamp
-                ) {
+                if (ws.bufferedAmount + VIDEO_FRAME_HEADER_BYTES + frame.data.byteLength > MAX_BUFFERED_BYTES) {
                   waitingInboundKeyframe = true;
                   requestRemoteKeyframe();
                   return;
+                }
+                if (frame.timestampUs <= lastInboundTimestamp) {
+                  waitingInboundKeyframe = true;
+                  // A resumed camera or a different active device can restart
+                  // its RTP clock. Only an IDR may establish the new timeline;
+                  // dependent frames remain blocked until that recovery point.
+                  if (!frame.keyFrame) {
+                    requestRemoteKeyframe();
+                    return;
+                  }
+                  lastInboundTimestamp = -1;
                 }
                 if (waitingInboundKeyframe && !frame.keyFrame) {
                   requestRemoteKeyframe();

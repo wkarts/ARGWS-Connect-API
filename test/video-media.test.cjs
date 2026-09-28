@@ -260,6 +260,20 @@ test('video flows in both directions; cross-call frames and undecodable deltas a
   ctx.close();
 });
 
+test('an inbound IDR reopens the media timeline after a remote timestamp reset', async () => {
+  const ctx = setup();
+  await authenticate(ctx);
+  ctx.inbound(frame(1000));
+  assert.equal(ctx.ws.sent.filter(item => item.options?.binary).length, 1);
+
+  ctx.inbound(frame(900, false));
+  assert.equal(ctx.ws.sent.filter(item => item.options?.binary).length, 1);
+
+  ctx.inbound(frame(800, true));
+  assert.equal(ctx.ws.sent.filter(item => item.options?.binary).length, 2);
+  ctx.close();
+});
+
 test('duplicate camera session is rejected without disturbing the existing call or stream', async () => {
   const ctx = setup();
   await authenticate(ctx);

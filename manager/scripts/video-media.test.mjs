@@ -242,6 +242,7 @@ test('inbound delta waits for keyframe; decoded video draws to canvas and releas
   socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 123, keyFrame: false }) })
   assert.equal(h.decoders[0].decoded.length, 0)
   socket.onmessage({ data: codec.encodeVideoFrame({ data: annexb, timestampUs: 124, keyFrame: true }) })
+  await drain()
   assert.equal(h.decoders[0].decoded.length, 1)
   assert.equal(h.decoders[0].decoded[0].timestamp, 124)
   assert.ok(h.frames.at(-1).closed)
