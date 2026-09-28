@@ -30,7 +30,8 @@ function explicitMediaOrigins(values: string[], env: NodeJS.ProcessEnv): string[
       const url = new URL(value);
       const localHttp = !production && url.protocol === 'http:' && localDevelopmentHost(url.hostname);
       if (url.protocol !== 'https:' && !localHttp) continue;
-      if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) continue;
+      if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== ''))
+        continue;
       const origin = url.origin;
       if (!origins.includes(origin)) origins.push(origin);
     } catch {
@@ -112,17 +113,32 @@ export function managerFramePolicy(
 ): ManagerFramePolicy {
   if (persisted?.configured) {
     if (!persisted.enabled) {
-      return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'", permissionsPolicy: mediaPermissionsPolicy() };
+      return {
+        enabled: false,
+        frameAncestors: "'none'",
+        contentSecurityPolicy: "frame-ancestors 'none'",
+        permissionsPolicy: mediaPermissionsPolicy(),
+      };
     }
 
     let allowed: string[];
     try {
       allowed = normalizeManagerFrameOrigins(persisted.allowedOrigins || []);
     } catch {
-      return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'", permissionsPolicy: mediaPermissionsPolicy() };
+      return {
+        enabled: false,
+        frameAncestors: "'none'",
+        contentSecurityPolicy: "frame-ancestors 'none'",
+        permissionsPolicy: mediaPermissionsPolicy(),
+      };
     }
     if (!allowed.length) {
-      return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'", permissionsPolicy: mediaPermissionsPolicy() };
+      return {
+        enabled: false,
+        frameAncestors: "'none'",
+        contentSecurityPolicy: "frame-ancestors 'none'",
+        permissionsPolicy: mediaPermissionsPolicy(),
+      };
     }
 
     const frameAncestors = ["'self'", ...allowed].join(' ');
@@ -136,7 +152,12 @@ export function managerFramePolicy(
 
   const enabled = envBoolean(env.MANAGER_IFRAME_ENABLED, true);
   if (!enabled) {
-    return { enabled: false, frameAncestors: "'none'", contentSecurityPolicy: "frame-ancestors 'none'", permissionsPolicy: mediaPermissionsPolicy() };
+    return {
+      enabled: false,
+      frameAncestors: "'none'",
+      contentSecurityPolicy: "frame-ancestors 'none'",
+      permissionsPolicy: mediaPermissionsPolicy(),
+    };
   }
 
   const ancestors = envFrameAncestors(env);
