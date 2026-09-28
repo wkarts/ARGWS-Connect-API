@@ -26,7 +26,14 @@ async function pair(options = {}) {
     info.stateData.state = m.CallState.Active;
     info.stateData.connectedAt = new Date();
     const frames = [], feedback = [], packets = [], control = [];
-    const deps = { authClient: { getCurrentCredentials: () => ({ meLid: own, meJid: own }) } };
+    const deps = {
+      authClient: { getCurrentCredentials: () => ({ meLid: own, meJid: own }) },
+      signalDeviceSync: {
+        async syncDeviceList(jids) {
+          return [{ jid: jids[0], deviceJids: options.peerDevices || [] }];
+        },
+      },
+    };
     const session = new m.WaCallMediaSession({ deps, logger, info, maxVideoFps: options.maxVideoFps,
       delegate: { emitState() {}, emitIncoming() {}, emitEnded() {}, emitInboundAudio() {}, emitOutboundAudioFinished() {},
         emitInboundVideo: (_, frame) => frames.push(frame), emitVideoKeyFrameRequest: () => feedback.push(callId) } });
@@ -130,6 +137,31 @@ test('video subscriptions include announced remote devices and request recovery 
     assert.ok(p.b.session.peerStreamSsrcs.includes(alternate));
     assert.equal(p.b.session.requestVideoKeyFrame(), true);
     assert.equal(p.b.control.length, 2);
+  } finally { p.close(); }
+});
+
+test('incoming video refreshes the peer device list without blocking the voice path', async () => {
+  const alternatePeer = '111111:14@lid';
+  const p = await pair({ peerDevices: [alternatePeer] });
+  try {
+    const devices = await p.b.session.resolveVideoPeerDevices([aJid]);
+    assert.deepEqual(devices, [aJid, alternatePeer]);
+  } finally { p.close(); }
+});
+
+test('an authenticated companion stream recovers when its device SSRC was absent from the initial list', async () => {
+  const p = await pair();
+  try {
+    // Simulate an incoming call whose offer only carried the account JID. The
+    // relay can still deliver the authenticated companion stream after the
+    // device list is refreshed.
+    p.b.session.peerStreamSsrcs = [];
+    p.b.session.peerVideoSsrcs = [];
+    p.b.session.peerVideoSsrc = 0;
+    p.a.session.feedLiveVideo(au, 1_000_000);
+    for (const packet of p.a.packets) p.b.session.onRelayData(packet);
+    assert.equal(p.b.frames.length, 1);
+    assert.ok(p.b.session.peerStreamSsrcs.includes(p.m.generateSecureSsrc(callId, aJid, 2)));
   } finally { p.close(); }
 });
 
