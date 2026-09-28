@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Prepare empty bind directories for non-root auxiliary services, never existing databases."""
+"""Prepare selected non-root auxiliary bind directories, never existing databases."""
+import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
 
-COMPOSE = ['docker', 'compose', '--env-file', '.env', '-f', 'compose.yaml']
-TARGETS = {'mysql-': {'/var/lib/mysql'}, 'kafka-': {'/var/lib/kafka/data'},
-           'zookeeper-': {'/var/lib/zookeeper/data', '/var/lib/zookeeper/log'}}
+TARGETS = {'mysql': {'/var/lib/mysql'}, 'kafka': {'/var/lib/kafka/data'},
+           'zookeeper': {'/var/lib/zookeeper/data', '/var/lib/zookeeper/log'}}
 BASE = ['docker', 'run', '--rm', '--pull', 'never', '--network', 'none', '--read-only',
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true']
 INIT = '''set -eu
@@ -70,9 +70,25 @@ def initialize(image, path, uid, gid, active_mounts):
     return 'preparado'
 
 
+def compose_command(env_file, compose_file):
+    return ['docker', 'compose', '--env-file', env_file, '-f', compose_file]
+
+
+def target_paths(service_name):
+    return next(
+        (paths for name, paths in TARGETS.items() if service_name == name or service_name.startswith(name + '-')),
+        None,
+    )
+
+
 def main():
-    config = json.loads(run(COMPOSE + ['config', '--format', 'json']).stdout)
-    selected = set(run(COMPOSE + ['config', '--services']).stdout.split())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--env-file', default='.env')
+    parser.add_argument('--compose-file', default='compose.yaml')
+    args = parser.parse_args()
+    compose = compose_command(args.env_file, args.compose_file)
+    config = json.loads(run(compose + ['config', '--format', 'json']).stdout)
+    selected = set(run(compose + ['config', '--services']).stdout.split())
     running = run(['docker', 'ps', '--quiet']).stdout.split()
     active_mounts = set()
     if running:
@@ -82,7 +98,7 @@ def main():
     plan = []
     owners = {}
     for name, service in config['services'].items():
-        targets = next((targets for prefix, targets in TARGETS.items() if name.startswith(prefix)), None)
+        targets = target_paths(name)
         if name not in selected or targets is None:
             continue
         image = service['image']

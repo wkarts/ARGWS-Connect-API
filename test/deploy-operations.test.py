@@ -96,7 +96,7 @@ class EnvironmentTests(unittest.TestCase):
         outputs = sync.generate(ROOT)
         for path, expected in outputs.items():
             self.assertEqual((ROOT / path).read_text(), expected, path)
-        self.assertFalse(any(path.startswith(('deploy/canonical/', 'deploy/docs/', 'deploy/docs-develop/')) for path in outputs))
+        self.assertFalse(any(path.startswith(('deploy/docs/', 'deploy/docs-develop/')) for path in outputs))
         for path, api, agent, *_ in sync.CASES:
             text = outputs[path]
             self.assertIn('OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}', text)
@@ -105,6 +105,17 @@ class EnvironmentTests(unittest.TestCase):
             self.assertNotIn('8092:8092', text)
             self.assertNotIn('docker.sock', text)
             self.assertEqual(text.count('  ' + agent + ':\n'), 1)
+        helper = (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text()
+        for directory, compose_file in sync.VOLUME_CASES:
+            prefix = '' if directory == '.' else directory + '/'
+            self.assertEqual(outputs[prefix + 'prepare-volumes.py'], helper)
+            for script in ('deploy.sh', 'update.sh'):
+                text = outputs[prefix + script]
+                pull = text.index('docker compose')
+                prepared = text.index(f'python3 ./prepare-volumes.py --compose-file {compose_file}')
+                up = text.index(' up -d', prepared)
+                self.assertLess(pull, prepared, script)
+                self.assertLess(prepared, up, script)
 
 if __name__ == '__main__':
     unittest.main()

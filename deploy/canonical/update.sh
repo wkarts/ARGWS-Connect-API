@@ -4,6 +4,7 @@ cd "$(dirname "$0")"
 ./prepare-env.sh
 ./preflight.sh
 docker compose --env-file .env -f compose.yaml pull
+python3 ./prepare-volumes.py --compose-file compose.yaml
 # Backup de segurança antes da atualização. Em instalação nova não há estado para salvar.
 if docker compose --env-file .env -f compose.yaml ps -q 2>/dev/null | grep -q .; then
   echo "Criando backup Connect|API antes da atualização..."
