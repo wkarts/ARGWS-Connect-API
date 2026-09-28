@@ -190,6 +190,9 @@ function harness(options = {}) {
       findHubProtocolSchemaCatalog: () => [],
       safeProtocolPathSegment: (value) => String(value || 'artifact'),
     },
+    './findhub-flow.service': loadSource('src/api/integrations/channel/findhub/services/findhub-flow.service.ts', {
+      crypto: require('node:crypto'),
+    }),
     '../../../../../diagnostics/diagnostics.service': { diagnostics: { record() {} } },
     '../auth/findhub-auth.error': { FindHubAuthError },
     '../auth/findhub-auth-broker.service': {

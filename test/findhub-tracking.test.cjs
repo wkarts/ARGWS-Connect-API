@@ -61,6 +61,7 @@ test('history is deduplicated and scoped; last position never regresses',async()
 test('disabled historian keeps last position but adds no historical row',async()=>{const h=runtimeHarness();h.account.trackingSettings.historyEnabled=false;await h.runtime.persistPosition(await h.runtime.device('d-a'),position);assert.equal(h.positions.length,0);assert.equal(h.row.latestPosition.latitude,position.latitude)});
 test('retention 0 preserves all history; positive retention never deletes another account',async()=>{const h=runtimeHarness();h.account.trackingSettings.retentionDays=0;assert.equal(await h.runtime.pruneHistory(),0);h.account.trackingSettings.retentionDays=1;h.runtime.options=undefined;h.positions.push({id:'old-a',instanceId:'a',deviceId:'d-a',recordedAt:new Date(now-172800000)},{id:'old-b',instanceId:'b',deviceId:'d-b',recordedAt:new Date(now-172800000)});assert.equal(await h.runtime.pruneHistory(),1);assert.equal(h.positions[0].instanceId,'b')});
 test('runtime SSE subscription does not receive other account events or API credentials',async()=>{const h=runtimeHarness(),seen=[];const stop=h.runtime.subscribe(e=>seen.push(e));h.emitter.emit('findhub:stream:b',{instanceId:'b'});await h.runtime.emit('findhub.location.updated',{location:position});assert.equal(seen.length,1);assert.equal(seen[0].instanceId,'a');assert.ok(!JSON.stringify(seen).includes('private-api-key'));stop();await h.runtime.emit('findhub.error',{});assert.equal(seen.length,1)});
+test('runtime protocol flow exposes normalized scoped events without changing the business bus',async()=>{const h=runtimeHarness(),seen=[];const stop=h.runtime.subscribeFlow(e=>seen.push(e));await h.runtime.emit('findhub.location.updated',{location:position});const snapshot=h.runtime.flowSnapshot();assert.equal(seen.at(-1).kind,'location.observed');assert.equal(seen.at(-1).instanceId,'a');assert.equal(snapshot.events.at(-1).kind,'location.observed');assert.equal(snapshot.connected,true);assert.equal(snapshot.state,'open');stop()});
 test('history query checks device ownership before reading rows',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.positions('d-b'));assert.equal(h.calls.filter(c=>c[0]==='history-read').length,0)});
 test('settings use an allowlist, never exposing or accepting credential fields',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.saveSettings({token:'bad'}));const saved=await h.runtime.saveSettings({retentionDays:0});assert.equal(saved.retentionDays,0);assert.equal(h.account.trackingSettings.retentionDays,0)});
 test('reconciliation settings are additive and keep periodic mode opt-in',()=>{
@@ -213,7 +214,7 @@ test('Google synchronization never overwrites operator avatar',async()=>{
  h.db.findHubDevice.upsert=async({update})=>{assert.equal(Object.hasOwn(update,'avatarData'),false);Object.assign(h.row,update);return h.row};
  await h.runtime.refreshDevices();assert.equal(h.row.avatarData,image);
 });
-function protocolDeadlineHarness(metadataIds=[]){
+function protocolDeadlineHarness(metadataIds=[],options={}){
  const timers=[],calls=[];let finish;
  const overrides={
   '../auth/google-play-auth.client':{GooglePlayAuthClient:class{}},
@@ -230,9 +231,22 @@ function protocolDeadlineHarness(metadataIds=[]){
  };
  const globals={setTimeout(fn,ms){const timer={fn,ms,unref(){},cleared:false};timers.push(timer);return timer},clearTimeout(t){if(t)t.cleared=true}};
  const {FindHubProtocolClient,createFindHubLocateDiagnostics}=load(dir+'findhub-protocol.client.ts',overrides,globals);
- const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{});
+ const client=new FindHubProtocolClient({aas:{},ownerKey:Buffer.alloc(32).toString('base64')},Buffer.alloc(32),'fixture',async()=>{},options.onObservation,options.onFlowEvent,options.resolveDevice);
  return {client,createFindHubLocateDiagnostics,timers,calls,finish:()=>finish(),push(positions,id=calls[0].args.requestUuid){client.handlePushPayload(Buffer.from(JSON.stringify({id,positions})))}};
 }
+test('uncorrelated DeviceUpdate can feed the continuous monitor without an active HTTP request',async()=>{
+ const received=[],flow=[];
+ const h=protocolDeadlineHarness(['g'],{
+  onObservation:async(device,positions)=>received.push({device,positions}),
+  onFlowEvent:(kind,data)=>flow.push({kind,data}),
+  resolveDevice:async googleDeviceId=>googleDeviceId==='g'?{id:'one',googleDeviceId:'g',trackingEnabled:true}:undefined,
+ });
+ h.push([position],null);
+ await Promise.resolve();await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ assert.equal(received.length,1);assert.equal(received[0].device.id,'one');assert.equal(received[0].positions[0].latitude,position.latitude);
+ assert.equal(flow.find(event=>event.kind==='device.update').data.correlation,'passive');
+ assert.equal(flow.find(event=>event.kind==='location.decoded').data.persisted,true);
+});
 test('1 ms operator wait starts after command submission and never cancels the command',async()=>{
  const h=protocolDeadlineHarness();h.client.onObservation=async()=>{};const pending=h.client.locate({id:'one',googleDeviceId:'g'},1);
  assert.equal(h.timers.length,0);assert.equal(h.calls.length,1);assert.equal(h.calls[0].signal.aborted,false);

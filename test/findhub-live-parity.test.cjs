@@ -28,16 +28,20 @@ test('network ciphertext tampering is rejected', () => {
   assert.throws(() => crypto.decryptLocationReport(Buffer.from(v.identityKey,'hex'), {...v, publicKeyRandom:Buffer.from(v.publicKeyRandom,'hex'),encryptedLocation:data}));
 });
 
-function heartbeatHarness() {
+function heartbeatHarness(onFrame = () => {}) {
   const intervals=[],timeouts=[],writes=[];let clock=1000,destroyed=0;
   class Clock extends Date { static now(){return clock;} }
   const globals={Date:Clock,setInterval(fn,ms){const t={fn,ms,unref(){}};intervals.push(t);return t;},clearInterval(t){if(t)t.cleared=true;},setTimeout(fn,ms){const t={fn,ms,unref(){}};timeouts.push(t);return t;},clearTimeout(t){if(t)t.cleared=true;}};
   const {FindHubFcmClient}=load('src/api/integrations/channel/findhub/protocol/fcm.client.ts',{},globals);
   const socket={write(packet){writes.push(packet);},destroy(){destroyed++;client.scheduleReconnect();}};
-  const client=new FindHubFcmClient(null,async()=>{},()=>{});
+  const client=new FindHubFcmClient(null,async()=>{},()=>{},onFrame);
   client.socket=socket;client.authenticated=true;client.firstOutbound=false;client.startHeartbeatMonitor(socket);
   return {client,intervals,timeouts,writes,setClock(v){clock=v;},destroyed:()=>destroyed};
 }
+test('FCM flow metadata is sanitized and does not expose frame bytes',()=>{
+ const frames=[];const h=heartbeatHarness(frame=>frames.push(frame));h.client.handleFrame(1,Buffer.from([1,2,3]));
+ assert.equal(frames.length,1);assert.equal(frames[0].tag,1);assert.equal(frames[0].payloadBytes,3);assert.equal(frames[0].streamId,1);assert.equal(frames[0].receivedAt,new Date(1000).toISOString());assert.deepEqual([...frames[0].appDataKeys],[]);assert.equal(frames[0].persistentIdFingerprint,undefined);assert.equal(frames[0].rawDataBytes,undefined);
+});
 test('FCM proactively probes an idle connection and accepts heartbeat acknowledgement',async()=>{
  const h=heartbeatHarness();h.setClock(20999);h.intervals[0].fn();assert.equal(h.writes.length,0);
  h.setClock(21000);h.intervals[0].fn();assert.equal(h.writes.length,1);assert.equal(h.writes[0][0],0);
