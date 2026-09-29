@@ -26,6 +26,11 @@ def env_values(path):
     return values
 
 
+def command_text(service):
+    value = service.get('command', '')
+    return value[0] if isinstance(value, list) and len(value) == 1 else value
+
+
 class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
     def test_deploy_tree_has_no_host_executables_or_full_stack_fork(self):
         forbidden = {'.py', '.sh', '.cjs'}
@@ -66,7 +71,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         volume_init = services['volume-init-fersoft-connect-production']
         self.assertEqual(volume_init['profiles'], ['kafka', 'extended'])
         self.assertEqual(volume_init['restart'], 'unless-stopped')
-        self.assertIn('volume-init-ready', volume_init['command'])
+        self.assertIn('volume-init-ready', command_text(volume_init))
         self.assertEqual(
             services['zookeeper-fersoft-connect-production']['depends_on']['volume-init-fersoft-connect-production']['condition'],
             'service_healthy',
@@ -78,7 +83,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         mysql_init = services['mysql-volume-init-fersoft-connect-production']
         self.assertEqual(mysql_init['profiles'], ['mysql'])
         self.assertEqual(mysql_init['restart'], 'unless-stopped')
-        self.assertIn('chown --no-dereference --recursive 1001:0', mysql_init['command'])
+        self.assertIn('chown --no-dereference --recursive 1001:0', command_text(mysql_init))
         self.assertEqual(
             services['mysql-fersoft-connect-production']['depends_on']['mysql-volume-init-fersoft-connect-production']['condition'],
             'service_healthy',
@@ -89,7 +94,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         )
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']
         self.assertEqual(bootstrap['restart'], 'unless-stopped')
-        self.assertIn('traccar-bootstrap-ready', bootstrap['command'])
+        self.assertIn('traccar-bootstrap-ready', command_text(bootstrap))
 
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')

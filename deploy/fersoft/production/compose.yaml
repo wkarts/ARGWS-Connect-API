@@ -486,57 +486,27 @@ services:
     entrypoint:
     - /bin/bash
     - -ec
-    command: |-
-      set -Eeuo pipefail
-      data_directory="$${PGDATA:-/var/lib/postgresql/data}"
-      if [ ! -s "$$data_directory/PG_VERSION" ]; then
-        exec /usr/local/bin/docker-entrypoint.sh postgres
-      fi
-      : "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
-      /usr/local/bin/docker-entrypoint.sh postgres &
-      postgres_pid="$$!"
-      stop_postgres() {
-        kill -TERM "$$postgres_pid" 2>/dev/null || true
-        wait "$$postgres_pid" || true
-        exit 0
-      }
-      trap stop_postgres INT TERM
-
-      admin=""
-      for candidate in postgres traccar; do
-        for attempt in $$(seq 1 60); do
-          if psql --no-password -h /var/run/postgresql -U "$$candidate" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
-            admin="$$candidate"
-            break 2
-          fi
-          if [ "$$candidate" = postgres ] && command -v gosu >/dev/null 2>&1 && gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
-            admin="postgres"
-            break 2
-          fi
-          sleep 1
-        done
-      done
-      if [ -z "$$admin" ]; then
-        echo 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2
-        kill -TERM "$$postgres_pid" 2>/dev/null || true
-        wait "$$postgres_pid" || true
-        exit 31
-      fi
-
-      role_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
-      role_created=false
-      if [ "$$role_exists" != 1 ]; then
-        psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U "$$admin" -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
-        role_created=true
-      fi
-      database_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
-      if [ "$$database_exists" != 1 ]; then
-        psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
-      elif [ "$$role_created" = true ]; then
-        psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
-      fi
-      PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1
-      wait "$$postgres_pid"
+    command:
+    - "set -Eeuo pipefail\ndata_directory=\"$${PGDATA:-/var/lib/postgresql/data}\"\nif [ ! -s \"$$data_directory/PG_VERSION\"\
+      \ ]; then\n  exec /usr/local/bin/docker-entrypoint.sh postgres\nfi\n: \"$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD\
+      \ nao configurada}\"\n/usr/local/bin/docker-entrypoint.sh postgres &\npostgres_pid=\"$$!\"\nstop_postgres() {\n  kill\
+      \ -TERM \"$$postgres_pid\" 2>/dev/null || true\n  wait \"$$postgres_pid\" || true\n  exit 0\n}\ntrap stop_postgres INT\
+      \ TERM\n\nadmin=\"\"\nfor candidate in postgres traccar; do\n  for attempt in $$(seq 1 60); do\n    if psql --no-password\
+      \ -h /var/run/postgresql -U \"$$candidate\" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then\n      admin=\"$$candidate\"\
+      \n      break 2\n    fi\n    if [ \"$$candidate\" = postgres ] && command -v gosu >/dev/null 2>&1 && gosu postgres psql\
+      \ --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then\n      admin=\"\
+      postgres\"\n      break 2\n    fi\n    sleep 1\n  done\ndone\nif [ -z \"$$admin\" ]; then\n  echo 'Nao foi possivel\
+      \ validar a administracao local do PostgreSQL do Traccar.' >&2\n  kill -TERM \"$$postgres_pid\" 2>/dev/null || true\n\
+      \  wait \"$$postgres_pid\" || true\n  exit 31\nfi\n\nrole_exists=\"$$(psql --no-password -h /var/run/postgresql -U \"\
+      $$admin\" -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname = 'traccar'\")\"\nrole_created=false\nif [ \"$$role_exists\"\
+      \ != 1 ]; then\n  psql --no-password -v ON_ERROR_STOP=1 -v traccar_password=\"$$TRACCAR_DATABASE_PASSWORD\" -h /var/run/postgresql\
+      \ -U \"$$admin\" -d postgres -c \"CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'\"\n  role_created=true\nfi\n\
+      database_exists=\"$$(psql --no-password -h /var/run/postgresql -U \"$$admin\" -d postgres -tAc \"SELECT 1 FROM pg_database\
+      \ WHERE datname = 'traccar'\")\"\nif [ \"$$database_exists\" != 1 ]; then\n  psql --no-password -v ON_ERROR_STOP=1 -h\
+      \ /var/run/postgresql -U \"$$admin\" -d postgres -c 'CREATE DATABASE traccar OWNER traccar'\nelif [ \"$$role_created\"\
+      \ = true ]; then\n  psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U \"$$admin\" -d postgres -c 'ALTER\
+      \ DATABASE traccar OWNER TO traccar'\nfi\nPGPASSWORD=\"$$TRACCAR_DATABASE_PASSWORD\" psql --no-password -h 127.0.0.1\
+      \ -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1\nwait \"$$postgres_pid\"\n"
     volumes:
     - ${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data
     networks:
@@ -563,36 +533,24 @@ services:
     entrypoint:
     - /bin/sh
     - -ec
-    command: |-
-      node - <<'NODE'
-        'use strict';
-        // Internal-only one-time bootstrap. Never resets users or changes existing passwords.
-        const root = process.env.TRACCAR_INTERNAL_URL || 'http://traccar:8082';
-        const email = process.env.TRACCAR_ADMIN_EMAIL;
-        const password = process.env.TRACCAR_ADMIN_PASSWORD;
-        async function main() {
-          if (!email || !password || password.length < 32) throw new Error('Segredos Traccar nao preparados.');
-          let cookie = '';
-          async function request(path, method='GET', data, form=false) {
-            const response = await fetch(root+path, { method, redirect:'error', signal:AbortSignal.timeout(15000),
-              headers:{ ...(cookie?{Cookie:cookie}:{}), ...(data?{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'}:{}) },
-              body:data ? form ? new URLSearchParams(data).toString() : JSON.stringify(data) : undefined });
-            if(!response.ok) throw new Error('Traccar bootstrap recusado (HTTP '+response.status+').');
-            const set = response.headers.getSetCookie().map(x=>x.split(';')[0]).find(x=>x.startsWith('JSESSIONID=')); if(set) cookie=set;
-            return response.status===204?null:response.json();
-          }
-          let server;
-          for(let n=0;n<40;n++) {try {server=await request('/api/server');break;}catch {if(n===39)throw new Error('Traccar indisponivel no bootstrap.');await new Promise(r=>setTimeout(r,3000));}}
-          if(server.newServer===true) await request('/api/users','POST',{name:'Connect internal service',email,password});
-          await request('/api/session','POST',{email,password},true);
-          server=await request('/api/server');
-          if(server.registration) await request('/api/server','PUT',{...server,registration:false});
-          console.log('Traccar interno validado. Registro publico desabilitado; credenciais existentes preservadas.');
-        }
-        main().catch(()=>{console.error('Falha ao preparar Traccar. Verifique os segredos sem apagar usuarios/volumes. A API principal nao depende deste bootstrap.');process.exitCode=1;});
-      NODE
-      touch /tmp/traccar-bootstrap-ready
-      exec tail -f /dev/null
+    command:
+    - "node - <<'NODE'\n  'use strict';\n  // Internal-only one-time bootstrap. Never resets users or changes existing passwords.\n\
+      \  const root = process.env.TRACCAR_INTERNAL_URL || 'http://traccar:8082';\n  const email = process.env.TRACCAR_ADMIN_EMAIL;\n\
+      \  const password = process.env.TRACCAR_ADMIN_PASSWORD;\n  async function main() {\n    if (!email || !password || password.length\
+      \ < 32) throw new Error('Segredos Traccar nao preparados.');\n    let cookie = '';\n    async function request(path,\
+      \ method='GET', data, form=false) {\n      const response = await fetch(root+path, { method, redirect:'error', signal:AbortSignal.timeout(15000),\n\
+      \        headers:{ ...(cookie?{Cookie:cookie}:{}), ...(data?{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'}:{})\
+      \ },\n        body:data ? form ? new URLSearchParams(data).toString() : JSON.stringify(data) : undefined });\n     \
+      \ if(!response.ok) throw new Error('Traccar bootstrap recusado (HTTP '+response.status+').');\n      const set = response.headers.getSetCookie().map(x=>x.split(';')[0]).find(x=>x.startsWith('JSESSIONID='));\
+      \ if(set) cookie=set;\n      return response.status===204?null:response.json();\n    }\n    let server;\n    for(let\
+      \ n=0;n<40;n++) {try {server=await request('/api/server');break;}catch {if(n===39)throw new Error('Traccar indisponivel\
+      \ no bootstrap.');await new Promise(r=>setTimeout(r,3000));}}\n    if(server.newServer===true) await request('/api/users','POST',{name:'Connect\
+      \ internal service',email,password});\n    await request('/api/session','POST',{email,password},true);\n    server=await\
+      \ request('/api/server');\n    if(server.registration) await request('/api/server','PUT',{...server,registration:false});\n\
+      \    console.log('Traccar interno validado. Registro publico desabilitado; credenciais existentes preservadas.');\n\
+      \  }\n  main().catch(()=>{console.error('Falha ao preparar Traccar. Verifique os segredos sem apagar usuarios/volumes.\
+      \ A API principal nao depende deste bootstrap.');process.exitCode=1;});\nNODE\ntouch /tmp/traccar-bootstrap-ready\n\
+      exec tail -f /dev/null\n"
     environment:
       TRACCAR_INTERNAL_URL: http://traccar:8082
       TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
@@ -631,30 +589,14 @@ services:
     entrypoint:
     - /bin/sh
     - -ec
-    command: |-
-      prepare_directory() {
-        path="$$1"
-        owner="$$2"
-        label="$$3"
-        mkdir -p "$$path"
-        if [ -n "$$(ls -A "$$path")" ]; then
-          actual="$$(stat -c '%u:%g' "$$path")"
-          [ "$$actual" = "$$owner" ] || {
-            echo "$$label contem dados e pertence a $$actual; esperado $$owner. Nenhum dado foi alterado." >&2
-            exit 23
-          }
-          echo "$$label preservado"
-          return
-        fi
-        chown --no-dereference "$$owner" "$$path"
-        chmod u+rwx "$$path"
-        echo "$$label preparado"
-      }
-      prepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data
-      prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log
-      prepare_directory /prepared/kafka 1000:1000 kafka
-      touch /tmp/volume-init-ready
-      exec tail -f /dev/null
+    command:
+    - "prepare_directory() {\n  path=\"$$1\"\n  owner=\"$$2\"\n  label=\"$$3\"\n  mkdir -p \"$$path\"\n  if [ -n \"$$(ls -A\
+      \ \"$$path\")\" ]; then\n    actual=\"$$(stat -c '%u:%g' \"$$path\")\"\n    [ \"$$actual\" = \"$$owner\" ] || {\n  \
+      \    echo \"$$label contem dados e pertence a $$actual; esperado $$owner. Nenhum dado foi alterado.\" >&2\n      exit\
+      \ 23\n    }\n    echo \"$$label preservado\"\n    return\n  fi\n  chown --no-dereference \"$$owner\" \"$$path\"\n  chmod\
+      \ u+rwx \"$$path\"\n  echo \"$$label preparado\"\n}\nprepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data\n\
+      prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log\nprepare_directory /prepared/kafka 1000:1000 kafka\n\
+      touch /tmp/volume-init-ready\nexec tail -f /dev/null\n"
     cap_drop:
     - ALL
     cap_add:
@@ -691,14 +633,22 @@ services:
     entrypoint:
     - /bin/sh
     - -ec
-    command: |-
-      mkdir -p /prepared/mysql
+    command:
+    - 'mkdir -p /prepared/mysql
+
       # Percona 8.0 runs as uid 1001. Ownership repair changes metadata only;
+
       # it never removes or initializes files in an existing data directory.
+
       chown --no-dereference --recursive 1001:0 /prepared/mysql
+
       chmod u+rwx /prepared/mysql
+
       touch /tmp/mysql-volume-init-ready
+
       exec tail -f /dev/null
+
+      '
     cap_drop:
     - ALL
     cap_add:

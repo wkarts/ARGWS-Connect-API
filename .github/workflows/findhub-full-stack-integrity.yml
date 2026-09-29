@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           docker compose --env-file .env -f compose.yaml up -d --pull never
-          python3 "$GITHUB_WORKSPACE/scripts/check-full-stack-runtime.py" --expected 15 --timeout 270
+          python3 "$GITHUB_WORKSPACE/scripts/check-full-stack-runtime.py" --expected 16 --timeout 270
       - name: Preserve sanitized readiness report
         if: always()
         uses: actions/upload-artifact@v4
