@@ -11,6 +11,7 @@ on:
       - 'scripts/sync-traccar-deployments.py'
       - 'scripts/check-full-stack-runtime.py'
       - 'test/compose-env-only-deployments.test.py'
+      - 'test/traccar-deployment.test.py'
       - 'test/deploy-operations.test.py'
       - '.github/workflows/findhub-full-stack-integrity.yml'
   workflow_dispatch:
@@ -32,8 +33,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/sync-operations-deployments.py --check
+          python3 scripts/sync-traccar-deployments.py --check
           python3 scripts/sync-fersoft-deployments.py --check
           python3 test/deploy-operations.test.py
+          python3 test/traccar-deployment.test.py
           python3 test/compose-env-only-deployments.test.py
 
   runtime:
@@ -101,6 +104,14 @@ jobs:
           set -euo pipefail
           docker compose --env-file .env -f compose.yaml up -d --pull never
           python3 "$GITHUB_WORKSPACE/scripts/check-full-stack-runtime.py" --expected 16 --timeout 270
+      - name: Verify Traccar PostgreSQL after persistent-volume restart
+        working-directory: ${{ matrix.stack }}
+        run: |
+          set -euo pipefail
+          database_service="$(docker compose --env-file .env -f compose.yaml config --services | sed -n '/^traccar-postgres/p' | head -n 1)"
+          test -n "$database_service"
+          docker compose --env-file .env -f compose.yaml up -d --pull never --no-deps --force-recreate "$database_service"
+          python3 "$GITHUB_WORKSPACE/scripts/check-full-stack-runtime.py" --expected 16 --timeout 180
       - name: Preserve sanitized readiness report
         if: always()
         uses: actions/upload-artifact@v4
