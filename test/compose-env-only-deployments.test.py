@@ -92,6 +92,10 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             services['traccar-postgres-fersoft-connect-production']['entrypoint'],
             ['/bin/bash', '-ec'],
         )
+        self.assertEqual(
+            services['traccar-postgres-fersoft-connect-production']['environment']['TRACCAR_DATABASE_PASSWORD'],
+            '${TRACCAR_DATABASE_PASSWORD:-}',
+        )
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']
         self.assertEqual(bootstrap['restart'], 'unless-stopped')
         self.assertIn('traccar-bootstrap-ready', command_text(bootstrap))
