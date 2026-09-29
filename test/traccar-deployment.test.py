@@ -28,10 +28,8 @@ class TraccarDeployment(unittest.TestCase):
    before=text[:start];self.assertNotRegex(before,r'depends_on:[^\n]*traccar')
  def test_all_deployments_embed_bootstrap_without_host_source_file(self):
   inventory=json.loads((ROOT/'docs/deployment/traccar-inventory.json').read_text())['apiComposeFiles']
-  generated=['deploy/develop/full-stack/compose.yaml','deploy/production/full-stack/compose.yaml',
-             'deploy/fersoft/develop/compose.yaml','deploy/fersoft/production/compose.yaml',
-             'deploy/fersoft/develop/full-stack/compose.yaml','deploy/fersoft/production/full-stack/compose.yaml']
-  files=inventory+generated;self.assertEqual(len(files),15)
+  generated=['deploy/fersoft/develop/compose.yaml','deploy/fersoft/production/compose.yaml']
+  files=inventory+generated;self.assertEqual(len(files),11)
   program=(ROOT/'scripts/traccar-bootstrap.cjs').read_text().removeprefix('#!/usr/bin/env node\n').rstrip()
   code_extensions=('.cjs','.mjs','.js','.ts','.py','.sh')
   for name in files:
@@ -53,7 +51,7 @@ class TraccarDeployment(unittest.TestCase):
    for service in ['traccar','traccar-postgres','traccar-bootstrap']:
     name=f'{service}-argws-connect-{stack}'
     self.assertIn(f'  {name}:\n    container_name: {name}\n',text)
- def test_root_helper_has_correct_relative_path(self):self.assertIn('./scripts/prepare-traccar-env.py',(ROOT/'prepare-env.sh').read_text())
+ def test_root_does_not_ship_a_host_prepare_helper(self):self.assertFalse((ROOT/'prepare-env.sh').exists())
  def test_existing_sync_contracts_still_pass(self):
   for file in ['sync-findhub-deployments.py','sync-operations-deployments.py']:subprocess.run(['python3','scripts/'+file,'--check'],cwd=ROOT,check=True)
 if __name__=='__main__':unittest.main()

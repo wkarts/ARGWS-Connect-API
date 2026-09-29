@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Deployment packages must run with Compose, .env and persisted volumes only."""
+import importlib.util
+import unittest
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def env_values(path):
+    values = {}
+    for raw in path.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if line and not line.startswith('#') and '=' in line:
+            key, value = line.split('=', 1)
+            values[key] = value
+    return values
+
+
+class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
+    def test_deploy_tree_has_no_host_executables_or_full_stack_fork(self):
+        forbidden = {'.py', '.sh', '.cjs'}
+        files = [path for path in (ROOT / 'deploy').rglob('*') if path.is_file()]
+        self.assertFalse(
+            [path.relative_to(ROOT).as_posix() for path in files if path.suffix in forbidden],
+            'deployment files must not require host executables',
+        )
+        self.assertFalse([path for path in (ROOT / 'deploy').rglob('full-stack') if path.is_dir()])
+
+    def test_fersoft_directories_contain_only_compose_and_environment_template(self):
+        for channel in ('develop', 'production'):
+            folder = ROOT / 'deploy' / 'fersoft' / channel
+            self.assertEqual({path.name for path in folder.iterdir() if path.is_file()}, {'compose.yaml', 'env.example'})
+
+    def test_fersoft_production_is_full_stack_selected_by_env(self):
+        environment = env_values(ROOT / 'deploy/fersoft/production/env.example')
+        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar')
+        for key in ('OPERATIONS_ENABLED', 'NATS_ENABLED', 'KAFKA_ENABLED', 'MYSQL_SERVICE_ENABLED', 'TRACCAR_ENABLED'):
+            self.assertEqual(environment[key], 'true', key)
+        self.assertEqual(environment['TRACCAR_MODE'], 'internal')
+
+        compose = yaml.safe_load((ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8'))
+        services = compose['services']
+        expected = {
+            'api-fersoft-connect-production', 'docs-fersoft-connect-production',
+            'postgres-fersoft-connect-production', 'redis-fersoft-connect-production',
+            'rabbitmq-fersoft-connect-production', 'minio-fersoft-connect-production',
+            'operations-fersoft-connect-production', 'nats-fersoft-connect-production',
+            'mysql-fersoft-connect-production', 'zookeeper-fersoft-connect-production',
+            'kafka-fersoft-connect-production', 'traccar-fersoft-connect-production',
+            'traccar-postgres-fersoft-connect-production',
+            'traccar-bootstrap-fersoft-connect-production', 'volume-init-fersoft-connect-production',
+        }
+        self.assertEqual(set(services), expected)
+        self.assertNotIn('ports', services['docs-fersoft-connect-production'])
+        self.assertEqual(services['volume-init-fersoft-connect-production']['profiles'], ['kafka', 'extended'])
+        self.assertEqual(
+            services['zookeeper-fersoft-connect-production']['depends_on']['volume-init-fersoft-connect-production']['condition'],
+            'service_completed_successfully',
+        )
+        self.assertEqual(
+            services['kafka-fersoft-connect-production']['depends_on']['volume-init-fersoft-connect-production']['condition'],
+            'service_completed_successfully',
+        )
+
+    def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
+        raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')
+        self.assertIn('traccar-bootstrap-fersoft-connect-production:', raw)
+        self.assertIn('entrypoint:', raw)
+        self.assertNotIn('traccar-bootstrap.cjs', raw)
+        self.assertNotIn('/scripts/', raw)
+        self.assertNotIn('../', raw)
+
+    def test_fersoft_generator_is_synchronized(self):
+        sync = load('sync_fersoft', ROOT / 'scripts/sync-fersoft-deployments.py')
+        for relative, content in sync.generate().items():
+            self.assertEqual((ROOT / relative).read_text(encoding='utf-8'), content, relative)
+
+
+if __name__ == '__main__':
+    unittest.main()
