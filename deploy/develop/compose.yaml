@@ -85,6 +85,9 @@ services:
     logging: *default-logging
 
   mysql-argws-connect-develop:
+    depends_on:
+      mysql-volume-init-argws-connect-develop:
+        condition: service_healthy
     profiles: ["mysql"]
     image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
     pull_policy: always
@@ -113,7 +116,6 @@ services:
       options:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
-
   operations-argws-connect-develop:
     container_name: operations-argws-connect-develop
     profiles: ["operations"]
@@ -277,7 +279,7 @@ services:
   zookeeper-argws-connect-develop:
     depends_on:
       volume-init-argws-connect-develop:
-        condition: service_completed_successfully
+        condition: service_healthy
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
@@ -304,7 +306,7 @@ services:
       zookeeper-argws-connect-develop:
         condition: service_started
       volume-init-argws-connect-develop:
-        condition: service_completed_successfully
+        condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper-argws-connect-develop:2181
@@ -350,6 +352,12 @@ services:
     networks:
       argws-connect-develop-net:
         aliases: [traccar]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S --spider -T 5 http://127.0.0.1:8082/api/server 2>&1 | grep -Eq 'HTTP/[0-9.]+ (200|401)'"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     logging:
       driver: json-file
       options:
@@ -364,52 +372,129 @@ services:
       POSTGRES_DB: traccar
       POSTGRES_USER: traccar
       POSTGRES_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        set -Eeuo pipefail
+        data_directory="$${PGDATA:-/var/lib/postgresql/data}"
+        if [ ! -s "$$data_directory/PG_VERSION" ]; then
+          exec /usr/local/bin/docker-entrypoint.sh postgres
+        fi
+        : "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
+        /usr/local/bin/docker-entrypoint.sh postgres &
+        postgres_pid="$$!"
+        stop_postgres() {
+          kill -TERM "$$postgres_pid" 2>/dev/null || true
+          wait "$$postgres_pid" || true
+          exit 0
+        }
+        trap stop_postgres INT TERM
+
+        admin=""
+        for candidate in postgres traccar; do
+          for attempt in $$(seq 1 60); do
+            if psql --no-password -h /var/run/postgresql -U "$$candidate" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+              admin="$$candidate"
+              break 2
+            fi
+            if [ "$$candidate" = postgres ] && command -v gosu >/dev/null 2>&1 && gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+              admin="postgres"
+              break 2
+            fi
+            sleep 1
+          done
+        done
+        if [ -z "$$admin" ]; then
+          echo 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2
+          kill -TERM "$$postgres_pid" 2>/dev/null || true
+          wait "$$postgres_pid" || true
+          exit 31
+        fi
+
+        role_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
+        role_created=false
+        if [ "$$role_exists" != 1 ]; then
+          psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U "$$admin" -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
+          role_created=true
+        fi
+        database_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
+        if [ "$$database_exists" != 1 ]; then
+          psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
+        elif [ "$$role_created" = true ]; then
+          psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
+        fi
+        PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1
+        wait "$$postgres_pid"
     volumes:
       - ${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data
     networks: [argws-connect-develop-net]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U traccar -d traccar"]
+      test: ['CMD-SHELL', 'PGPASSWORD="$${TRACCAR_DATABASE_PASSWORD}" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT 1" | grep -qx 1']
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 15
+      start_period: 75s
   traccar-bootstrap-argws-connect-develop:
     container_name: traccar-bootstrap-argws-connect-develop
     profiles: [traccar]
     image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
-    entrypoint:
-      - node
-      - -e
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      traccar-argws-connect-develop:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
       - |
-        'use strict';
-        // Internal-only one-time bootstrap. Never resets users or changes existing passwords.
-        const root = process.env.TRACCAR_INTERNAL_URL || 'http://traccar:8082';
-        const email = process.env.TRACCAR_ADMIN_EMAIL;
-        const password = process.env.TRACCAR_ADMIN_PASSWORD;
-        async function main() {
-          if (!email || !password || password.length < 32) throw new Error('Segredos Traccar nao preparados.');
-          let cookie = '';
-          async function request(path, method='GET', data, form=false) {
-            const response = await fetch(root+path, { method, redirect:'error', signal:AbortSignal.timeout(15000),
-              headers:{ ...(cookie?{Cookie:cookie}:{}), ...(data?{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'}:{}) },
-              body:data ? form ? new URLSearchParams(data).toString() : JSON.stringify(data) : undefined });
-            if(!response.ok) throw new Error('Traccar bootstrap recusado (HTTP '+response.status+').');
-            const set = response.headers.getSetCookie().map(x=>x.split(';')[0]).find(x=>x.startsWith('JSESSIONID=')); if(set) cookie=set;
-            return response.status===204?null:response.json();
+        node - <<'NODE'
+          'use strict';
+          // Internal-only one-time bootstrap. Never resets users or changes existing passwords.
+          const root = process.env.TRACCAR_INTERNAL_URL || 'http://traccar:8082';
+          const email = process.env.TRACCAR_ADMIN_EMAIL;
+          const password = process.env.TRACCAR_ADMIN_PASSWORD;
+          async function main() {
+            if (!email || !password || password.length < 32) throw new Error('Segredos Traccar nao preparados.');
+            let cookie = '';
+            async function request(path, method='GET', data, form=false) {
+              const response = await fetch(root+path, { method, redirect:'error', signal:AbortSignal.timeout(15000),
+                headers:{ ...(cookie?{Cookie:cookie}:{}), ...(data?{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'}:{}) },
+                body:data ? form ? new URLSearchParams(data).toString() : JSON.stringify(data) : undefined });
+              if(!response.ok) throw new Error('Traccar bootstrap recusado (HTTP '+response.status+').');
+              const set = response.headers.getSetCookie().map(x=>x.split(';')[0]).find(x=>x.startsWith('JSESSIONID=')); if(set) cookie=set;
+              return response.status===204?null:response.json();
+            }
+            let server;
+            for(let n=0;n<40;n++) {try {server=await request('/api/server');break;}catch {if(n===39)throw new Error('Traccar indisponivel no bootstrap.');await new Promise(r=>setTimeout(r,3000));}}
+            if(server.newServer===true) await request('/api/users','POST',{name:'Connect internal service',email,password});
+            await request('/api/session','POST',{email,password},true);
+            server=await request('/api/server');
+            if(server.registration) await request('/api/server','PUT',{...server,registration:false});
+            console.log('Traccar interno validado. Registro publico desabilitado; credenciais existentes preservadas.');
           }
-          let server;
-          for(let n=0;n<40;n++) {try {server=await request('/api/server');break;}catch {if(n===39)throw new Error('Traccar indisponivel no bootstrap.');await new Promise(r=>setTimeout(r,3000));}}
-          if(server.newServer===true) await request('/api/users','POST',{name:'Connect internal service',email,password});
-          await request('/api/session','POST',{email,password},true);
-          server=await request('/api/server');
-          if(server.registration) await request('/api/server','PUT',{...server,registration:false});
-          console.log('Traccar interno validado. Registro publico desabilitado; credenciais existentes preservadas.');
-        }
-        main().catch(()=>{console.error('Falha ao preparar Traccar. Verifique os segredos sem apagar usuarios/volumes. A API principal nao depende deste bootstrap.');process.exitCode=1;});
+          main().catch(()=>{console.error('Falha ao preparar Traccar. Verifique os segredos sem apagar usuarios/volumes. A API principal nao depende deste bootstrap.');process.exitCode=1;});
+        NODE
+        touch /tmp/traccar-bootstrap-ready
+        exec tail -f /dev/null
     environment:
       TRACCAR_INTERNAL_URL: http://traccar:8082
       TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
       TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/traccar-bootstrap-ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     networks: [argws-connect-develop-net]
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
   # END OPTIONAL TRACCAR
 
   # BEGIN COMPOSE VOLUME INIT
@@ -418,7 +503,7 @@ services:
     profiles: ["kafka", "extended"]
     image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     pull_policy: always
-    restart: "no"
+    restart: unless-stopped
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -444,17 +529,59 @@ services:
         prepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data
         prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log
         prepare_directory /prepared/kafka 1000:1000 kafka
+        touch /tmp/volume-init-ready
+        exec tail -f /dev/null
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     read_only: true
     tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/volume-init-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     volumes:
       - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/prepared/zookeeper-data
       - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/prepared/zookeeper-log
       - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/prepared/kafka
     networks: [argws-connect-develop-net]
   # END COMPOSE VOLUME INIT
+
+  # BEGIN COMPOSE MYSQL VOLUME INIT
+  mysql-volume-init-argws-connect-develop:
+    container_name: mysql-volume-init-argws-connect-develop
+    profiles: ["mysql"]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    pull_policy: always
+    restart: unless-stopped
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /prepared/mysql
+        # Percona 8.0 runs as uid 1001. Ownership repair changes metadata only;
+        # it never removes or initializes files in an existing data directory.
+        chown --no-dereference --recursive 1001:0 /prepared/mysql
+        chmod u+rwx /prepared/mysql
+        touch /tmp/mysql-volume-init-ready
+        exec tail -f /dev/null
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/mysql-volume-init-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/prepared/mysql
+    networks: [argws-connect-develop-net]
+  # END COMPOSE MYSQL VOLUME INIT
 
 networks:
   argws-connect-develop-net:

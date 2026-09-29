@@ -34,17 +34,6 @@ ops = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ops)
 
 
-class LiteralBlock(str):
-    """Keep the in-Compose Node bootstrap readable after the YAML round trip."""
-
-
-def literal_block(dumper, value):
-    return dumper.represent_scalar('tag:yaml.org,2002:str', value, style='|')
-
-
-yaml.SafeDumper.add_representer(LiteralBlock, literal_block)
-
-
 def suffix(channel):
     return f'fersoft-connect-{channel}'
 
@@ -98,12 +87,6 @@ def compose_for(channel):
     )
     services = compose['services']
     services[f'docs-{suffix(channel)}'].pop('ports', None)
-    for name, service in services.items():
-        entrypoint = service.get('entrypoint', [])
-        if name.startswith('traccar-bootstrap-') and entrypoint[:2] == ['node', '-e']:
-            entrypoint[2] = LiteralBlock(entrypoint[2].rstrip())
-        if name.startswith('volume-init-') and isinstance(service.get('command'), str):
-            service['command'] = LiteralBlock(service['command'].rstrip())
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
 
 

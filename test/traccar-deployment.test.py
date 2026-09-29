@@ -30,14 +30,20 @@ class TraccarDeployment(unittest.TestCase):
   inventory=json.loads((ROOT/'docs/deployment/traccar-inventory.json').read_text())['apiComposeFiles']
   generated=['deploy/fersoft/develop/compose.yaml','deploy/fersoft/production/compose.yaml']
   files=inventory+generated;self.assertEqual(len(files),11)
-  program=(ROOT/'scripts/traccar-bootstrap.cjs').read_text().removeprefix('#!/usr/bin/env node\n').rstrip()
   code_extensions=('.cjs','.mjs','.js','.ts','.py','.sh')
   for name in files:
    raw=(ROOT/name).read_text();self.assertNotIn('traccar-bootstrap.cjs',raw,name)
    services=yaml.safe_load(raw)['services']
    bootstrap=[service for service_name,service in services.items() if service_name.startswith('traccar-bootstrap')]
    self.assertEqual(len(bootstrap),1,name);entrypoint=bootstrap[0].get('entrypoint')
-   self.assertEqual(entrypoint[:2],['node','-e'],name);self.assertEqual(entrypoint[2].rstrip(),program,name)
+   self.assertEqual(entrypoint,['/bin/sh','-ec'],name)
+   command=bootstrap[0].get('command');command=command[0] if isinstance(command,list) else command
+   self.assertIn("node - <<'NODE'",command,name);self.assertIn('Traccar interno validado.',command,name);self.assertIn('traccar-bootstrap-ready',command,name)
+   self.assertIn('healthcheck',bootstrap[0],name)
+   databases=[service for service_name,service in services.items() if service_name.startswith('traccar-postgres')]
+   self.assertEqual(len(databases),1,name);self.assertEqual(databases[0].get('entrypoint'),['/bin/bash','-ec'],name)
+   database_command=databases[0].get('command');database_command=database_command[0] if isinstance(database_command,list) else database_command
+   self.assertIn('CREATE ROLE traccar LOGIN',database_command,name);self.assertIn('ALTER DATABASE traccar OWNER TO traccar',database_command,name)
    self.assertNotIn('volumes',bootstrap[0],name)
    for service in services.values():
     for volume in service.get('volumes',[]):

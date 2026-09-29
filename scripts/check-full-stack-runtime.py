@@ -24,8 +24,7 @@ def assess(containers, expected):
         state = item.get('State', {})
         status = state.get('Status', 'unknown')
         health = state.get('Health', {}).get('Status', 'not-configured')
-        oneshot = service.startswith(('traccar-bootstrap-', 'volume-init-')) or service == 'volume-init'
-        ready = (status == 'exited' and state.get('ExitCode') == 0) if oneshot else (
+        ready = (
             status == 'running' and state.get('Running') and not state.get('Restarting')
             and health in ('healthy', 'not-configured'))
         states[service] = {'status': status, 'health': health, 'exitCode': state.get('ExitCode'),
@@ -71,7 +70,7 @@ def diagnose(expected, states, output):
 def probe(expected, port, deadline):
     checks = [['curl', '--fail', '--silent', '--show-error', '--max-time', '3', f'http://127.0.0.1:{port}/health']]
     for name in expected:
-        if name.startswith('mysql-'):
+        if name.startswith('mysql-') and not name.startswith('mysql-volume-init-'):
             checks.append(['docker', 'exec', name, 'sh', '-c',
                 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --connect-timeout=3 --protocol=TCP -h127.0.0.1 -u"$MYSQL_USER" --database="$MYSQL_DATABASE" -Nse "SELECT 1"'])
         elif name.startswith('nats-'):
