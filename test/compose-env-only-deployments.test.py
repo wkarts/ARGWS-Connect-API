@@ -59,18 +59,37 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'kafka-fersoft-connect-production', 'traccar-fersoft-connect-production',
             'traccar-postgres-fersoft-connect-production',
             'traccar-bootstrap-fersoft-connect-production', 'volume-init-fersoft-connect-production',
+            'mysql-volume-init-fersoft-connect-production',
         }
         self.assertEqual(set(services), expected)
         self.assertNotIn('ports', services['docs-fersoft-connect-production'])
-        self.assertEqual(services['volume-init-fersoft-connect-production']['profiles'], ['kafka', 'extended'])
+        volume_init = services['volume-init-fersoft-connect-production']
+        self.assertEqual(volume_init['profiles'], ['kafka', 'extended'])
+        self.assertEqual(volume_init['restart'], 'unless-stopped')
+        self.assertIn('volume-init-ready', volume_init['command'])
         self.assertEqual(
             services['zookeeper-fersoft-connect-production']['depends_on']['volume-init-fersoft-connect-production']['condition'],
-            'service_completed_successfully',
+            'service_healthy',
         )
         self.assertEqual(
             services['kafka-fersoft-connect-production']['depends_on']['volume-init-fersoft-connect-production']['condition'],
-            'service_completed_successfully',
+            'service_healthy',
         )
+        mysql_init = services['mysql-volume-init-fersoft-connect-production']
+        self.assertEqual(mysql_init['profiles'], ['mysql'])
+        self.assertEqual(mysql_init['restart'], 'unless-stopped')
+        self.assertIn('chown --no-dereference --recursive 1001:0', mysql_init['command'])
+        self.assertEqual(
+            services['mysql-fersoft-connect-production']['depends_on']['mysql-volume-init-fersoft-connect-production']['condition'],
+            'service_healthy',
+        )
+        self.assertEqual(
+            services['traccar-postgres-fersoft-connect-production']['entrypoint'],
+            ['/bin/bash', '-ec'],
+        )
+        bootstrap = services['traccar-bootstrap-fersoft-connect-production']
+        self.assertEqual(bootstrap['restart'], 'unless-stopped')
+        self.assertIn('traccar-bootstrap-ready', bootstrap['command'])
 
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')

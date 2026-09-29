@@ -7,7 +7,7 @@ def module(file):
  spec=importlib.util.spec_from_file_location(file.stem.replace('-','_'),file);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 
 def bootstrap_program(root):
- """Return the tested bootstrap source for `node -e`, without a host bind mount."""
+ """Return the tested bootstrap source embedded in Compose, without a host bind mount."""
  source=(root/'scripts/traccar-bootstrap.cjs').read_text(encoding='utf-8')
  return source.removeprefix('#!/usr/bin/env node\n').rstrip()
 
@@ -18,26 +18,27 @@ def replace_service(text, base, name, transform):
  return text
 
 def init_dependency(block, init):
- if re.search(r'^      '+re.escape(init)+r':', block, re.M):
-  return block
+ generated=f'      {init}:\n        condition: service_healthy\n'
+ existing=re.search(r'^      '+re.escape(init)+r':\n(?:        [^\n]*\n)*', block, re.M)
+ if existing:
+  return block[:existing.start()]+generated+block[existing.end():]
  compact=re.search(r'^    depends_on:\s*\[([^\]]*)\]\s*$', block, re.M)
  if compact:
   names=[name.strip() for name in compact.group(1).split(',') if name.strip()]
   dependencies='    depends_on:\n'+''.join('      '+name+':\n        condition: service_started\n' for name in names)
-  dependencies+='      '+init+':\n        condition: service_completed_successfully'
+  dependencies+=generated
   return block[:compact.start()] + dependencies + block[compact.end():]
  listed=re.search(r'^    depends_on:\n((?:      - [^\n]+\n)+)', block, re.M)
  if listed:
   names=[line.split('- ',1)[1].strip() for line in listed.group(1).splitlines() if '- ' in line]
   dependencies='    depends_on:\n'+''.join('      '+name+':\n        condition: service_started\n' for name in names)
-  dependencies+='      '+init+':\n        condition: service_completed_successfully\n'
+  dependencies+=generated
   return block[:listed.start()] + dependencies + block[listed.end():]
  mapping=re.search(r'^    depends_on:\n', block, re.M)
  if mapping:
-  dependency='      '+init+':\n        condition: service_completed_successfully\n'
-  return block[:mapping.end()] + dependency + block[mapping.end():]
+  return block[:mapping.end()] + generated + block[mapping.end():]
  first=block.index('\n')+1
- dependency='    depends_on:\n      '+init+':\n        condition: service_completed_successfully\n'
+ dependency='    depends_on:\n'+generated
  return block[:first] + dependency + block[first:]
 
 def volume_init_service(name, network, named):
@@ -47,7 +48,7 @@ def volume_init_service(name, network, named):
 {container}    profiles: ["kafka", "extended"]
     image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     pull_policy: always
-    restart: "no"
+    restart: unless-stopped
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -73,17 +74,61 @@ def volume_init_service(name, network, named):
         prepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data
         prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log
         prepare_directory /prepared/kafka 1000:1000 kafka
+        touch /tmp/volume-init-ready
+        exec tail -f /dev/null
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     read_only: true
     tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/volume-init-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     volumes:
       - ${{ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}}:/prepared/zookeeper-data
       - ${{ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}}:/prepared/zookeeper-log
       - ${{ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}}:/prepared/kafka
     networks: [{network}]
   # END COMPOSE VOLUME INIT
+'''
+
+def mysql_volume_init_service(name, network, named):
+ container=f'    container_name: {name}\n' if named else ''
+ return f'''  # BEGIN COMPOSE MYSQL VOLUME INIT
+  {name}:
+{container}    profiles: ["mysql"]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    pull_policy: always
+    restart: unless-stopped
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /prepared/mysql
+        # Percona 8.0 runs as uid 1001. Ownership repair changes metadata only;
+        # it never removes or initializes files in an existing data directory.
+        chown --no-dereference --recursive 1001:0 /prepared/mysql
+        chmod u+rwx /prepared/mysql
+        touch /tmp/mysql-volume-init-ready
+        exec tail -f /dev/null
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/mysql-volume-init-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - ${{ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}}:/prepared/mysql
+    networks: [{network}]
+  # END COMPOSE MYSQL VOLUME INIT
 '''
 
 def add_volume_init(text, base, network, suffix):
@@ -100,6 +145,71 @@ def add_volume_init(text, base, network, suffix):
  end_services=re.search(r'^[^\s#][^\n]*:',text[header.end():],re.M)
  offset=header.end()+end_services.start() if end_services else len(text)
  return text[:offset]+volume_init_service(init, network, bool(suffix))+'\n'+text[offset:]
+
+def add_mysql_volume_init(text, base, network, suffix):
+ mysql='mysql'+suffix
+ names={name for name, *_ in base.service_blocks(text)}
+ if mysql not in names:
+  return text
+ text=re.sub(r'\n  # BEGIN COMPOSE MYSQL VOLUME INIT\n.*?^  # END COMPOSE MYSQL VOLUME INIT\n', '', text, flags=re.M|re.S)
+ init='mysql-volume-init'+suffix
+ text=replace_service(text, base, mysql, lambda block: init_dependency(block, init))
+ header=re.search(r'^services:\s*\n',text,re.M)
+ end_services=re.search(r'^[^\s#][^\n]*:',text[header.end():],re.M)
+ offset=header.end()+end_services.start() if end_services else len(text)
+ return text[:offset]+mysql_volume_init_service(init, network, bool(suffix))+'\n'+text[offset:]
+
+def traccar_postgres_command():
+ return '''set -Eeuo pipefail
+data_directory="$${PGDATA:-/var/lib/postgresql/data}"
+if [ ! -s "$$data_directory/PG_VERSION" ]; then
+  exec /usr/local/bin/docker-entrypoint.sh postgres
+fi
+: "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
+/usr/local/bin/docker-entrypoint.sh postgres &
+postgres_pid="$$!"
+stop_postgres() {
+  kill -TERM "$$postgres_pid" 2>/dev/null || true
+  wait "$$postgres_pid" || true
+  exit 0
+}
+trap stop_postgres INT TERM
+
+admin=""
+for candidate in postgres traccar; do
+  for attempt in $$(seq 1 60); do
+    if psql --no-password -h /var/run/postgresql -U "$$candidate" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+      admin="$$candidate"
+      break 2
+    fi
+    if [ "$$candidate" = postgres ] && command -v gosu >/dev/null 2>&1 && gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+      admin="postgres"
+      break 2
+    fi
+    sleep 1
+  done
+done
+if [ -z "$$admin" ]; then
+  echo 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2
+  kill -TERM "$$postgres_pid" 2>/dev/null || true
+  wait "$$postgres_pid" || true
+  exit 31
+fi
+
+role_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
+role_created=false
+if [ "$$role_exists" != 1 ]; then
+  psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U "$$admin" -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
+  role_created=true
+fi
+database_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
+if [ "$$database_exists" != 1 ]; then
+  psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
+elif [ "$$role_created" = true ]; then
+  psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
+fi
+PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1
+wait "$$postgres_pid"'''
 
 def generate(root, overrides=None):
  overrides = overrides or {}
@@ -127,12 +237,14 @@ def generate(root, overrides=None):
   text=re.sub(r'\n  # BEGIN OPTIONAL TRACCAR\n.*?^  # END OPTIONAL TRACCAR\n', '', text, flags=re.M|re.S)
   suffix=api[3:] if api.startswith('api-') else ''
   tracker='traccar'+suffix;db='traccar-postgres'+suffix;bootstrap='traccar-bootstrap'+suffix
-  bootstrap_source='\n'.join('        '+line for line in bootstrap_program(root).splitlines())
+  bootstrap_source='\n'.join(('          '+line) if line else '' for line in bootstrap_program(root).splitlines())
+  postgres_command='\n'.join(('        '+line) if line else '' for line in traccar_postgres_command().splitlines())
   swarm='Docker/swarm/' in name
   optional='    deploy:\n      replicas: ${TRACCAR_REPLICAS:-0}\n' if swarm else '    profiles: [traccar]\n'
   restart='' if swarm else '    restart: unless-stopped\n'
   depends='' if swarm else f'    depends_on:\n      {db}:\n        condition: service_healthy\n'
   bootstrap_optional=optional+('      restart_policy:\n        condition: on-failure\n        max_attempts: 5\n' if swarm else '')
+  bootstrap_depends='' if swarm else f'    depends_on:\n      {tracker}:\n        condition: service_healthy\n'
   service=f'''  # BEGIN OPTIONAL TRACCAR
   {tracker}:
 {optional}    image: ${{ARGWS_CONNECT_TRACCAR_IMAGE:-ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine}}
@@ -155,6 +267,12 @@ def generate(root, overrides=None):
     networks:
       {network}:
         aliases: [traccar]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S --spider -T 5 http://127.0.0.1:8082/api/server 2>&1 | grep -Eq 'HTTP/[0-9.]+ (200|401)'"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     logging:
       driver: json-file
       options:
@@ -166,26 +284,50 @@ def generate(root, overrides=None):
       POSTGRES_DB: traccar
       POSTGRES_USER: traccar
       POSTGRES_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+{postgres_command}
     volumes:
       - ${{ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}}:/var/lib/postgresql/data
     networks: [{network}]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U traccar -d traccar"]
+      test: ['CMD-SHELL', 'PGPASSWORD="$${{TRACCAR_DATABASE_PASSWORD}}" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT 1" | grep -qx 1']
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 15
+      start_period: 75s
   {bootstrap}:
 {bootstrap_optional}    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
-    entrypoint:
-      - node
-      - -e
+    pull_policy: always
+{restart}{bootstrap_depends}    entrypoint: ["/bin/sh", "-ec"]
+    command:
       - |
+        node - <<'NODE'
 {bootstrap_source}
+        NODE
+        touch /tmp/traccar-bootstrap-ready
+        exec tail -f /dev/null
     environment:
       TRACCAR_INTERNAL_URL: http://traccar:8082
       TRACCAR_ADMIN_EMAIL: ${{TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}}
       TRACCAR_ADMIN_PASSWORD: ${{TRACCAR_ADMIN_PASSWORD:-}}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/traccar-bootstrap-ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
     networks: [{network}]
+    logging:
+      driver: json-file
+      options:
+        max-size: ${{DOCKER_LOG_MAX_SIZE:-20m}}
+        max-file: "${{DOCKER_LOG_MAX_FILE:-5}}"
   # END OPTIONAL TRACCAR
 '''
   # Preserve the explicit container-name convention of the existing named API stacks.
@@ -198,6 +340,7 @@ def generate(root, overrides=None):
   text=text[:offset]+service+'\n'+text[offset:]
   if not swarm:
    text=add_volume_init(text,base,network,suffix)
+   text=add_mysql_volume_init(text,base,network,suffix)
   # Each Compose embeds the bootstrap program so the runtime requires only the
   # Compose file, its .env, and data volumes.
   directory=Path(name).parent

@@ -119,13 +119,15 @@ class EnvironmentTests(unittest.TestCase):
             mysql = 'mysql' + ('-' + suffix if suffix else '')
             self.assertIn('  ' + mysql + ':\n', text)
             self.assertIn('profiles: ["mysql"]', text)
+            self.assertIn('# BEGIN COMPOSE MYSQL VOLUME INIT', text)
+            self.assertIn('mysql-volume-init' + ('-' + suffix if suffix else ''), text)
         self.assertFalse(any(Path(path).suffix in {'.py', '.sh', '.cjs'} for path in outputs))
         self.assertFalse(any('full-stack/' in path for path in outputs))
         for path, *_ in sync.CASES:
             text = outputs[path]
             if 'zookeeper' in text and 'kafka' in text:
                 self.assertIn('# BEGIN COMPOSE VOLUME INIT', text)
-                self.assertIn('service_completed_successfully', text)
+                self.assertIn('service_healthy', text)
 
 if __name__ == '__main__':
     unittest.main()

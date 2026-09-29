@@ -76,7 +76,7 @@ jobs:
               },
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
-          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'volume-init')
+          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'volume-init')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
@@ -86,6 +86,7 @@ jobs:
               'zookeeper': 'ghcr.io/wkarts/argws-connect-zookeeper:7.5.0',
               'kafka': 'ghcr.io/wkarts/argws-connect-kafka:7.5.0',
               'mysql': 'ghcr.io/wkarts/argws-connect-mysql:8.0',
+              'mysql-volume-init': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
               'traccar': 'ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine',
               'traccar-postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'traccar-bootstrap': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
@@ -167,15 +168,22 @@ jobs:
               assert mysql.get('profiles') == ['mysql'], f'{stack}: MySQL auxiliar deve ser opcional'
               assert f'mysql-{suffix}' not in api_service.get('depends_on', {}), f'{stack}: MySQL nao pode bloquear a API PostgreSQL'
               assert not mysql.get('privileged') and not mysql.get('network_mode'), f'{stack}: MySQL deve usar somente a rede interna'
+              mysql_volume_init = full['services'][f'mysql-volume-init-{suffix}']
+              assert mysql_volume_init.get('profiles') == ['mysql'], f'{stack}: mysql-volume-init deve acompanhar MySQL'
+              assert mysql_volume_init.get('restart') == 'unless-stopped', f'{stack}: mysql-volume-init deve permanecer saudavel no Dockge'
+              assert mysql_volume_init.get('read_only') is True and not mysql_volume_init.get('privileged'), f'{stack}: mysql-volume-init deve ser limitado'
+              assert set(mysql_volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: mysql-volume-init recebeu capabilities indevidas'
+              assert mysql.get('depends_on', {})[f'mysql-volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: MySQL deve aguardar mysql-volume-init'
 
               volume_init = full['services'][f'volume-init-{suffix}']
               assert volume_init.get('profiles') == ['kafka', 'extended'], f'{stack}: volume-init deve acompanhar Kafka'
+              assert volume_init.get('restart') == 'unless-stopped', f'{stack}: volume-init deve permanecer saudavel no Dockge'
               assert volume_init.get('read_only') is True and not volume_init.get('privileged'), f'{stack}: volume-init deve ser limitado'
               assert 'ALL' in volume_init.get('cap_drop', []), f'{stack}: volume-init deve remover capabilities por padrao'
               assert set(volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: volume-init recebeu capabilities indevidas'
               for resource in ('zookeeper', 'kafka'):
                   dependency = full['services'][f'{resource}-{suffix}'].get('depends_on', {})
-                  assert dependency[f'volume-init-{suffix}']['condition'] == 'service_completed_successfully', f'{stack}: {resource} deve aguardar volume-init'
+                  assert dependency[f'volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: {resource} deve aguardar volume-init'
 
               if stack in ('production', 'develop'):
                   agent_name = f'operations-{suffix}'

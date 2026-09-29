@@ -42,10 +42,16 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-Kafka e ZooKeeper dependem do service interno `volume-init`. Ele só prepara
-diretórios vazios e nunca remove dados nem executa alteração recursiva. Se
-encontrar dados com proprietário incompatível, encerra com uma mensagem clara e
-impede que os brokers iniciem sobre um volume inseguro.
+Kafka e ZooKeeper dependem do service interno `volume-init`. Ele fica saudável
+em execução depois de preparar apenas diretórios vazios, por isso não deixa a
+stack como encerrada no Dockge. Diretórios com dados e proprietário incompatível
+continuam preservados e bloqueiam os brokers com erro explícito.
+
+MySQL depende de `mysql-volume-init`, também interno ao Compose. Ele corrige
+somente a propriedade do próprio bind `./volumes/mysql` para o usuário da imagem
+Percona; não remove, recria ou inicializa arquivos existentes. O banco Traccar
+reconcilia a conta e o database `traccar` ausentes no próprio entrypoint, sem
+trocar uma credencial já existente.
 
 ## Fersoft
 

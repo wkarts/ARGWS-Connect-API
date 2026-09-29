@@ -99,11 +99,12 @@ def compose_for(channel):
     services = compose['services']
     services[f'docs-{suffix(channel)}'].pop('ports', None)
     for name, service in services.items():
-        entrypoint = service.get('entrypoint', [])
-        if name.startswith('traccar-bootstrap-') and entrypoint[:2] == ['node', '-e']:
-            entrypoint[2] = LiteralBlock(entrypoint[2].rstrip())
-        if name.startswith('volume-init-') and isinstance(service.get('command'), str):
-            service['command'] = LiteralBlock(service['command'].rstrip())
+        if name.startswith(('traccar-bootstrap-', 'volume-init-', 'mysql-volume-init-', 'traccar-postgres-')):
+            command = service.get('command')
+            if isinstance(command, list) and len(command) == 1 and isinstance(command[0], str):
+                service['command'] = LiteralBlock(command[0].rstrip())
+            elif isinstance(command, str):
+                service['command'] = LiteralBlock(command.rstrip())
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
 
 
