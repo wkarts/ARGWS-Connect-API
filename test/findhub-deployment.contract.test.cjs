@@ -161,7 +161,7 @@ test('Find Hub events describe actual data and do not claim an unimplemented aut
 });
 
 
-test('invalid optional Find Hub configuration does not abort other channels deployment', () => {
+test('Find Hub credential tooling is not shipped with deployment packages', () => {
   const os = require('node:os');
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'findhub-optional-'));
   try {
@@ -172,18 +172,18 @@ test('invalid optional Find Hub configuration does not abort other channels depl
     assert.notEqual(strict.status, 0, 'Explicit Find Hub activation must still reject an invalid key');
     assert.equal(fs.readFileSync(envFile, 'utf8'), before, 'Invalid credentials are never rotated');
     const coverage = json('docs/operations/findhub-deployment-coverage.json');
-    const candidates = ['prepare-env.sh', 'preflight.sh', ...['canonical','cloudpanel','develop','dockge','homologation','production'].flatMap(name => [`deploy/${name}/prepare-env.sh`, `deploy/${name}/preflight.sh`])];
-    for (const file of candidates) {
-      const script = read(file);
-      const block = script.match(/if ! python3 \.\/prepare-findhub-env\.py[^\n]*\n[\s\S]*?\nfi/);
-      assert.ok(block, `Channel-only warning boundary missing in ${file}`);
-      assert.ok(script.includes('set -euo pipefail'), 'Global validation must remain strict');
-      fs.copyFileSync(path.join(root, 'scripts/prepare-findhub-env.py'), path.join(directory, 'prepare-findhub-env.py'));
-      const result = spawnSync('bash', ['-c', 'set -euo pipefail\n' + block[0] + '\necho OTHER_CHANNELS_CONTINUE'], { cwd: directory, encoding: 'utf8' });
-      assert.equal(result.status, 0, file + ': ' + result.stderr);
-      assert.match(result.stdout, /OTHER_CHANNELS_CONTINUE/);
-      assert.match(result.stderr, /AVISO/);
-      assert.equal(fs.readFileSync(envFile, 'utf8'), before);
+    const deploymentFiles = [];
+    const walk = (folder) => {
+      for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+        const target = path.join(folder, entry.name);
+        if (entry.isDirectory()) walk(target);
+        else deploymentFiles.push(path.relative(root, target));
+      }
+    };
+    walk(path.join(root, 'deploy'));
+    assert.ok(!deploymentFiles.some((file) => /\.(?:py|sh|cjs)$/.test(file)), 'Deploys use only Compose and environment files');
+    for (const file of coverage.apiEnvironmentTemplates) {
+      assert.equal((read(file).match(/^FINDHUB_CREDENTIALS_KEY=/gm) || []).length, 1, file);
     }
     assert.ok(coverage.apiServices.length >= 8);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
