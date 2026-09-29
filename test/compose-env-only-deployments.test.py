@@ -52,6 +52,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         for key in ('OPERATIONS_ENABLED', 'NATS_ENABLED', 'KAFKA_ENABLED', 'MYSQL_SERVICE_ENABLED', 'TRACCAR_ENABLED'):
             self.assertEqual(environment[key], 'true', key)
         self.assertEqual(environment['TRACCAR_MODE'], 'internal')
+        self.assertNotIn('TRACCAR_PUBLIC_URL', environment)
 
         compose = yaml.safe_load((ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8'))
         services = compose['services']
@@ -68,6 +69,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         }
         self.assertEqual(set(services), expected)
         self.assertNotIn('ports', services['docs-fersoft-connect-production'])
+        self.assertNotIn('TRACCAR_PUBLIC_URL', services['api-fersoft-connect-production']['environment'])
         volume_init = services['volume-init-fersoft-connect-production']
         self.assertEqual(volume_init['profiles'], ['kafka', 'extended'])
         self.assertEqual(volume_init['restart'], 'unless-stopped')
@@ -102,7 +104,12 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertEqual(traccar_postgres['entrypoint'], ['/bin/bash', '-ec'])
         self.assertIn('CREATE ROLE traccar LOGIN', command_text(traccar_postgres))
         self.assertIn('CREATE DATABASE traccar OWNER traccar', command_text(traccar_postgres))
-        self.assertNotIn('ALTER ROLE traccar', command_text(traccar_postgres))
+        self.assertIn('postgres --single', command_text(traccar_postgres))
+        self.assertIn(
+            'ALTER ROLE traccar NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+            command_text(traccar_postgres),
+        )
+        self.assertNotIn('ALTER ROLE traccar PASSWORD', command_text(traccar_postgres))
         self.assertEqual(
             traccar_postgres['environment']['TRACCAR_DATABASE_PASSWORD'],
             '${TRACCAR_DATABASE_PASSWORD:-}',

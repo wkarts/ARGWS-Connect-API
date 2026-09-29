@@ -85,7 +85,21 @@ http://traccar:8082  REST/admin backend-only
 http://traccar:5055  receptor OsmAnd
 ```
 
-O Traccar tem banco PostgreSQL separado e volumes próprios. Não há dependência `depends_on` da API sobre ele. **Nenhuma porta Traccar é publicada no host por padrão**. Em um volume vazio, o PostgreSQL usa o bootstrap oficial da imagem; em um volume legado, o entrypoint incorporado ao Compose inicia o cluster existente e cria somente a role e o database `traccar` que estiverem ausentes. Ele não remove dados, não reinicializa o volume e não altera a senha de uma role já existente. O health check do banco só fica verde após autenticar a role `traccar` com `TRACCAR_DATABASE_PASSWORD`, evitando que o Traccar seja iniciado contra uma identidade incompleta. O bootstrap cria o administrador somente em um banco novo, valida as credenciais existentes e desabilita registro público; nunca redefine senhas. Ambos permanecem saudáveis em execução após a validação, evitando que o Dockge marque a stack como encerrada por um job concluído. Seu código é incorporado ao próprio Compose: depois de preparar o `.env`, o runtime não requer nem monta um arquivo `traccar-bootstrap.cjs` externo. Para acesso direto de um rastreador físico externo, publicar um receptor seguro é uma decisão adicional de infraestrutura; não exponha a administração indiscriminadamente.
+### Acesso pelo Manager sem novo login
+
+O item **Traccar** é uma tela nativa do Manager, sem divulgar a senha
+administrativa ao navegador e sem criar domínio adicional. A API do Connect
+consulta `http://traccar:8082` somente na rede Docker, mantém a sessão do
+Traccar em memória no servidor e entrega ao Manager apenas dados de frota,
+posição e disponibilidade. O acesso segue a mesma autenticação do Manager.
+Não há nova porta Docker, serviço, volume, Traefik, DNS ou arquivo auxiliar no
+runtime da stack.
+
+Não use um proxy de subcaminho para tentar incorporar a interface web nativa do
+Traccar: ela usa assets e endpoints `/api` na raiz e colidiria com a API do
+Connect. A tela nativa do Manager evita essa colisão e mantém o Traccar privado.
+
+O Traccar tem banco PostgreSQL separado e volumes próprios. Não há dependência `depends_on` da API sobre ele. **Nenhuma porta Traccar é publicada no host por padrão**. Em um volume vazio, o PostgreSQL usa o bootstrap oficial da imagem. Em um volume legado, o entrypoint incorporado ao Compose preserva o cluster e segue duas rotas seguras: usa a administração `postgres` quando ela existe; quando o próprio PostgreSQL comprova que não existem nem `postgres` nem `traccar`, executa uma recuperação local em modo single-user, cria somente a role ausente `traccar`, cria ou atribui seu banco dedicado e remove imediatamente os privilégios temporários de recuperação. Ele não remove dados, não reinicializa o volume e não altera a senha de uma role já existente. Se houver uma identidade existente incompatível, ele interrompe com diagnóstico em vez de alterar credenciais ou roles desconhecidas. O health check do banco só fica verde após autenticar a role `traccar` com `TRACCAR_DATABASE_PASSWORD`, evitando que o Traccar seja iniciado contra uma identidade incompleta. O bootstrap cria o administrador somente em um banco novo, valida as credenciais existentes e desabilita registro público; nunca redefine senhas. Ambos permanecem saudáveis em execução após a validação, evitando que o Dockge marque a stack como encerrada por um job concluído. Seu código é incorporado ao próprio Compose: depois de preparar o `.env`, o runtime não requer nem monta um arquivo `traccar-bootstrap.cjs` externo. Para acesso direto de um rastreador físico externo, publicar um receptor seguro é uma decisão adicional de infraestrutura; não exponha a administração indiscriminadamente.
 
 O inventário completo dos nove Compose e defaults está em `docs/deployment/traccar-inventory.json`. Os geradores existentes de operações e Find Hub foram integrados ao gerador Traccar; `--check` detecta divergências sem editar arquivos.
 

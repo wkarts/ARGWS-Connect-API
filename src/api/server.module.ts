@@ -58,6 +58,7 @@ import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
 import { StatusBroadcastRetentionService } from './services/status-broadcast-retention.service';
 import { TemplateService } from './services/template.service';
+import { TraccarManagerService } from './services/traccar-manager.service';
 import { VideoMediaService } from './services/video-media.service';
 import { VoiceMediaService } from './services/voice-media.service';
 
@@ -79,6 +80,7 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 export const prismaRepository = new PrismaRepository(configService);
 export const statusBroadcastRetentionService = new StatusBroadcastRetentionService(prismaRepository);
 export const managerEmbeddingService = new ManagerEmbeddingService(prismaRepository);
+export const traccarManagerService = new TraccarManagerService();
 export const localTemplateService = new LocalTemplateService(prismaRepository);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);
 export const metaCloudAuthService = new MetaCloudAuthService();

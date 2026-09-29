@@ -1,5 +1,6 @@
 import { RouterBroker } from '@api/abstract/abstract.router';
 import { ManagerEmbeddingService } from '@api/services/manager-embedding.service';
+import { traccarManagerPortalEnabled } from '@api/services/traccar-manager.service';
 import { managerFeatures } from '@config/manager-features.config';
 import { internalDocsTarget } from '@utils/internalDocsTarget';
 import { type ManagerFramePolicy, managerFramePolicy } from '@utils/managerFramePolicy';
@@ -36,7 +37,7 @@ function managerRuntimeConfig(embedding: ManagerFramePolicy = managerFramePolicy
     authMode: process.env.MANAGER_AUTH_MODE === 'account' ? 'account' : 'access-code',
     appVersion: applicationVersion,
     embedding,
-    features: managerFeatures(),
+    features: { ...managerFeatures(), traccar: traccarManagerPortalEnabled() },
   };
 }
 

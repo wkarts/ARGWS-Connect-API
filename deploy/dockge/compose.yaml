@@ -357,6 +357,8 @@ services:
         set -Eeuo pipefail
         : "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
         data_directory="$${PGDATA:-/var/lib/postgresql/data}"
+        postgres_pid=''
+        recovery_role_pending=false
 
         # Empty volume: retain the upstream PostgreSQL initialization behavior.
         if [ ! -s "$$data_directory/PG_VERSION" ]; then
@@ -368,46 +370,174 @@ services:
           echo 'gosu nao esta disponivel na imagem PostgreSQL do Traccar.' >&2
           exit 30
         fi
-        /usr/local/bin/docker-entrypoint.sh postgres &
-        postgres_pid="$$!"
-        stop_postgres() {
-          kill -TERM "$$postgres_pid" 2>/dev/null || true
-          wait "$$postgres_pid" || true
+
+        start_postgres() {
+          /usr/local/bin/docker-entrypoint.sh postgres &
+          postgres_pid="$$!"
+        }
+
+        shutdown_postgres() {
+          if [ -n "$${postgres_pid:-}" ] && kill -0 "$$postgres_pid" 2>/dev/null; then
+            kill -TERM "$$postgres_pid" 2>/dev/null || true
+          fi
+          if [ -n "$${postgres_pid:-}" ]; then
+            wait "$$postgres_pid" || true
+          fi
+          postgres_pid=''
+        }
+
+        demote_recovery_role() {
+          [ "$$recovery_role_pending" = true ] || return 0
+          if PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -v ON_ERROR_STOP=1 -h 127.0.0.1 -U traccar -d template1 -c 'ALTER ROLE traccar NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS' >/dev/null; then
+            recovery_role_pending=false
+            return 0
+          fi
+          return 1
+        }
+
+        cleanup_recovery_role() {
+          [ "$$recovery_role_pending" = true ] || return 0
+          if demote_recovery_role; then
+            return 0
+          fi
+          shutdown_postgres
+          if printf '%s\n' 'ALTER ROLE traccar NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;' | gosu postgres postgres --single -D "$$data_directory" template1 >/dev/null; then
+            recovery_role_pending=false
+            return 0
+          fi
+          return 1
+        }
+
+        abort_recovery() {
+          code="$$1"
+          message="$$2"
+          echo "$$message" >&2
+          if ! cleanup_recovery_role; then
+            echo 'Nao foi possivel remover os privilegios temporarios de recuperacao do Traccar.' >&2
+          fi
+          shutdown_postgres
+          exit "$$code"
+        }
+
+        on_signal() {
+          cleanup_recovery_role || true
+          shutdown_postgres
           exit 0
         }
-        trap stop_postgres INT TERM
+        trap on_signal INT TERM
 
-        postgres_ready=false
+        wait_for_server() {
+          for attempt in $$(seq 1 60); do
+            if [ -S /var/run/postgresql/.s.PGSQL.5432 ]; then
+              return 0
+            fi
+            if ! kill -0 "$$postgres_pid" 2>/dev/null; then
+              wait "$$postgres_pid" || true
+              return 1
+            fi
+            sleep 1
+          done
+          return 1
+        }
+
+        start_postgres
+        if ! wait_for_server; then
+          shutdown_postgres
+          echo 'PostgreSQL do Traccar nao ficou disponivel.' >&2
+          exit 31
+        fi
+
+        # Standard clusters retain the upstream postgres superuser. Prefer that route.
+        admin_ready=false
+        admin_probe=''
         for attempt in $$(seq 1 60); do
-          if gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
-            postgres_ready=true
+          if admin_probe="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' 2>&1)"; then
+            admin_ready=true
+            break
+          fi
+          if printf '%s' "$$admin_probe" | grep -Fq 'role "postgres" does not exist'; then
             break
           fi
           if ! kill -0 "$$postgres_pid" 2>/dev/null; then
-            wait "$$postgres_pid" || true
+            shutdown_postgres
             exit 31
           fi
           sleep 1
         done
-        if [ "$$postgres_ready" != true ]; then
-          echo 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2
-          kill -TERM "$$postgres_pid" 2>/dev/null || true
-          wait "$$postgres_pid" || true
-          exit 31
-        fi
 
-        role_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
-        role_created=false
-        if [ "$$role_exists" != 1 ]; then
-          gosu postgres psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U postgres -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
-          role_created=true
-        fi
+        if [ "$$admin_ready" = true ]; then
+          role_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
+          role_created=false
+          if [ "$$role_exists" != 1 ]; then
+            gosu postgres psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U postgres -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
+            role_created=true
+          fi
 
-        database_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
-        if [ "$$database_exists" != 1 ]; then
-          gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
-        elif [ "$$role_created" = true ]; then
-          gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
+          database_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
+          if [ "$$database_exists" != 1 ]; then
+            gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
+          elif [ "$$role_created" = true ]; then
+            gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
+          fi
+        else
+          # A legacy cluster can have a custom initial superuser. Do not mutate an
+          # existing Traccar role or password. Recover only when PostgreSQL proves that
+          # both standard identities are absent, as in a never-finished first startup.
+          target_probe=''
+          if target_probe="$$(PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' 2>&1)" && [ "$$target_probe" = 1 ]; then
+            wait "$$postgres_pid"
+            exit $$?
+          fi
+
+          if ! printf '%s' "$$admin_probe" | grep -Fq 'role "postgres" does not exist' || ! printf '%s' "$$target_probe" | grep -Fq 'role "traccar" does not exist'; then
+            echo 'O volume do PostgreSQL do Traccar possui uma identidade existente que nao sera alterada automaticamente.' >&2
+            [ -z "$$admin_probe" ] || printf '%s\n' "$$admin_probe" >&2
+            [ -z "$$target_probe" ] || printf '%s\n' "$$target_probe" >&2
+            shutdown_postgres
+            exit 32
+          fi
+
+          echo 'Recuperando somente a identidade ausente do PostgreSQL do Traccar.' >&2
+          shutdown_postgres
+          recovery_password="$$(printf '%s' "$$TRACCAR_DATABASE_PASSWORD" | sed "s/'/''/g")"
+          if ! printf "CREATE ROLE traccar LOGIN SUPERUSER CREATEDB CREATEROLE PASSWORD '%s';\n" "$$recovery_password" | gosu postgres postgres --single -D "$$data_directory" template1 >/dev/null; then
+            echo 'Falha ao criar a identidade ausente do Traccar pelo modo de recuperacao do PostgreSQL.' >&2
+            exit 33
+          fi
+          recovery_role_pending=true
+
+          start_postgres
+          if ! wait_for_server; then
+            abort_recovery 33 'PostgreSQL do Traccar nao reiniciou apos a recuperacao da identidade.'
+          fi
+          recovery_ready=false
+          for attempt in $$(seq 1 60); do
+            if PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d template1 -tAc 'SELECT 1' | grep -qx 1; then
+              recovery_ready=true
+              break
+            fi
+            if ! kill -0 "$$postgres_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$$recovery_ready" != true ]; then
+            abort_recovery 33 'A identidade recuperada do Traccar nao conseguiu acessar o PostgreSQL.'
+          fi
+
+          if ! database_exists="$$(PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d template1 -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"; then
+            abort_recovery 33 'Nao foi possivel verificar o banco dedicado do Traccar.'
+          fi
+          if [ "$$database_exists" != 1 ]; then
+            if ! PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -v ON_ERROR_STOP=1 -h 127.0.0.1 -U traccar -d template1 -c 'CREATE DATABASE traccar OWNER traccar'; then
+              abort_recovery 33 'Nao foi possivel criar o banco dedicado do Traccar.'
+            fi
+          elif ! PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -v ON_ERROR_STOP=1 -h 127.0.0.1 -U traccar -d template1 -c 'ALTER DATABASE traccar OWNER TO traccar'; then
+            abort_recovery 33 'Nao foi possivel atribuir o banco dedicado ao Traccar.'
+          fi
+          if ! demote_recovery_role; then
+            abort_recovery 33 'Nao foi possivel remover os privilegios temporarios de recuperacao do Traccar.'
+          fi
         fi
 
         # Existing role passwords are intentionally never changed.

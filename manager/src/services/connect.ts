@@ -57,6 +57,7 @@ export const connect = {
   logout: (): Promise<any> => invoke('logout'),
   embeddingSettings: (): Promise<ManagerEmbeddingSettings> => invoke('embeddingSettings'),
   saveEmbeddingSettings: (data: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> => invoke('saveEmbeddingSettings', data),
+  traccarOverview: (): Promise<{ server: any; devices: any[]; positions: any[]; refreshedAt: string }> => invoke('traccarOverview'),
   security: (): Promise<SecurityState> => invoke('security'),
   beginTwoStep: (password: string): Promise<any> => invoke('beginTwoStep', password),
   confirmTwoStep: (code: string): Promise<{ session: Session; recoveryCodes: string[] }> => invoke('confirmTwoStep', code),

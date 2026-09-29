@@ -6,7 +6,7 @@ spec=importlib.util.spec_from_file_location('prepare',ROOT/'scripts/prepare-trac
 class TraccarDeployment(unittest.TestCase):
  def test_disabled_no_secrets_or_profile_required(self):
   out=m.prepare('KEEP=unchanged\nCOMPOSE_PROFILES=operations\n');e=m.parse(out)
-  self.assertEqual(e['TRACCAR_ENABLED'],'false');self.assertEqual(e['TRACCAR_ADMIN_PASSWORD'],'');self.assertEqual(e['COMPOSE_PROFILES'],'operations')
+  self.assertEqual(e['TRACCAR_ENABLED'],'false');self.assertEqual(e['TRACCAR_ADMIN_PASSWORD'],'');self.assertEqual(e['COMPOSE_PROFILES'],'operations');self.assertNotIn('TRACCAR_PUBLIC_URL',e)
  def test_internal_generates_once_preserves_other_configuration(self):
   text='# comment\nWHATSAPP_TOKEN=private\nTRACCAR_ENABLED=true\nTRACCAR_MODE=internal\nCOMPOSE_PROFILES=operations,docs\n'
   out=m.prepare(text);e=m.parse(out);self.assertGreaterEqual(len(e['TRACCAR_ADMIN_PASSWORD']),32);self.assertEqual(m.prepare(out),out);self.assertIn('WHATSAPP_TOKEN=private',out);self.assertEqual(e['COMPOSE_PROFILES'],'operations,docs,traccar');self.assertEqual(e['TRACCAR_REPLICAS'],'1')
@@ -22,7 +22,7 @@ class TraccarDeployment(unittest.TestCase):
   inv=json.loads((ROOT/'docs/deployment/traccar-inventory.json').read_text());self.assertEqual(len(inv['apiComposeFiles']),9);self.assertEqual(inv['unsupportedComposeFiles'],[])
   for name in inv['apiComposeFiles']:
    text=(ROOT/name).read_text();start=text.index('  # BEGIN OPTIONAL TRACCAR');end=text.index('  # END OPTIONAL TRACCAR')
-   block=text[start:end];self.assertNotIn('    ports:',block);self.assertIn('SERVER_STATISTICS: ""',block);self.assertIn('argws-connect-traccar:6.15.3-alpine',block)
+   block=text[start:end];self.assertNotIn('TRACCAR_PUBLIC_URL',text,name);self.assertNotIn('    ports:',block);self.assertIn('SERVER_STATISTICS: ""',block);self.assertIn('argws-connect-traccar:6.15.3-alpine',block)
    if 'swarm' in name:self.assertIn('replicas: ${TRACCAR_REPLICAS:-0}',block)
    else:self.assertEqual(block.count('profiles: [traccar]'),3)
    before=text[:start];self.assertNotRegex(before,r'depends_on:[^\n]*traccar')
@@ -46,8 +46,11 @@ class TraccarDeployment(unittest.TestCase):
    command=database.get('command');command=command[0] if isinstance(command,list) else command
    self.assertIn('CREATE ROLE traccar LOGIN',command,name)
    self.assertIn('CREATE DATABASE traccar OWNER traccar',command,name)
+   self.assertIn('postgres --single',command,name)
+   self.assertIn('both standard identities are absent',command,name)
+   self.assertIn('ALTER ROLE traccar NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',command,name)
    self.assertIn('Existing role passwords are intentionally never changed.',command,name)
-   self.assertNotIn('ALTER ROLE traccar',command,name)
+   self.assertNotIn('ALTER ROLE traccar PASSWORD',command,name)
    environment=database.get('environment',{})
    self.assertEqual(environment.get('POSTGRES_DB'),'traccar',name)
    self.assertEqual(environment.get('POSTGRES_USER'),'traccar',name)
@@ -69,6 +72,15 @@ class TraccarDeployment(unittest.TestCase):
      self.assertFalse(source.endswith(code_extensions),f'{name}: source code cannot be mounted at runtime')
   copies=sorted(path.relative_to(ROOT).as_posix() for path in ROOT.rglob('traccar-bootstrap.cjs') if '.git' not in path.parts)
   self.assertEqual(copies,['scripts/traccar-bootstrap.cjs'])
+ def test_traccar_postgres_recovery_command_is_valid_bash(self):
+  sync=load=None
+  spec=importlib.util.spec_from_file_location('sync_traccar',ROOT/'scripts/sync-traccar-deployments.py');sync=importlib.util.module_from_spec(spec);spec.loader.exec_module(sync)
+  command=sync.traccar_postgres_command().replace('$$','$')
+  result=subprocess.run(['bash','-n'],input=command,text=True,capture_output=True)
+  self.assertEqual(result.returncode,0,result.stderr)
+  self.assertIn('postgres --single',command)
+  self.assertIn('role "postgres" does not exist',command)
+  self.assertIn('role "traccar" does not exist',command)
  def test_named_official_stacks_preserve_container_identity(self):
   for stack in ['production','develop','canonical']:
    text=(ROOT/f'deploy/{stack}/compose.yaml').read_text()

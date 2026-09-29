@@ -3,7 +3,7 @@ import { Auth, configService } from '@config/env.config';
 import { timingSafeEqual } from 'crypto';
 import { Request, Response, Router } from 'express';
 
-function globalAdmin(req: Request, res: Response, next: () => void) {
+export function globalAdmin(req: Request, res: Response, next: () => void) {
   const expected = configService.get<Auth>('AUTHENTICATION').API_KEY.KEY;
   const supplied = req.get('apikey') || '';
   res.set('Cache-Control', 'no-store');
