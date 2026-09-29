@@ -126,6 +126,10 @@ TRACCAR_ENABLED=true
 Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
 O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos
 de runtime já pertencem às imagens dos services.
+
+O Manager mostra o painel de frota usando somente a API interna do Traccar; não
+cria hostname, porta, service ou arquivo de runtime adicional. A senha e a
+sessão administrativa do Traccar permanecem no servidor.
 '''
 
 

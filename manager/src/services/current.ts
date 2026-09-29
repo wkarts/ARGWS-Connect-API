@@ -814,6 +814,9 @@ export const current = {
   async saveEmbeddingSettings(data: { version: number; enabled: boolean; allowedOrigins: string[] }): Promise<ManagerEmbeddingSettings> {
     return api<ManagerEmbeddingSettings>('/manager-api/v1/embedding', { method: 'PUT', data })
   },
+  async traccarOverview(): Promise<{ server: any; devices: any[]; positions: any[]; refreshedAt: string }> {
+    return api<{ server: any; devices: any[]; positions: any[]; refreshedAt: string }>('/manager-api/v1/traccar/overview')
+  },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },
   async verify() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },

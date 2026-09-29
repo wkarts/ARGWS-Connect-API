@@ -19,7 +19,10 @@ const groups = [
     { label:'Mensagens', to:'/mensagens', icon:'mail', permission:'messages.read', feature:'messages' },
     { label:'Contatos', to:'/contatos', icon:'users', permission:'messages.read', feature:'contacts' },
   ]},
-  { title: 'LOCALIZAÇÃO', items: [{ label:'Google Find Hub', to:'/findhub', icon:'location', permission:'instances.read' }] },
+  { title: 'LOCALIZAÇÃO', items: [
+    { label:'Google Find Hub', to:'/findhub', icon:'location', permission:'instances.read' },
+    { label:'Traccar', to:'/traccar', icon:'location', permission:'instances.read', feature:'traccar' },
+  ] },
   { title: 'VOZ', items: [
     { label:'Chamadas', to:'/chamadas', icon:'phone', permission:'pbx.read', feature:'voice' },
     { label:'Ramais', to:'/ramais', icon:'hash', permission:'pbx.read', feature:'voiceExtensions' },

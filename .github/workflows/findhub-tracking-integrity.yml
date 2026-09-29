@@ -4,6 +4,10 @@ on:
     branches: [develop, main]
     paths:
       - 'src/api/integrations/channel/findhub/**'
+      - 'src/api/routes/**'
+      - 'src/api/services/**'
+      - 'src/api/server.module.ts'
+      - 'src/main.ts'
       - 'manager/src/**'
       - 'scripts/*traccar*'
       - 'scripts/ghcr-retention.py'
@@ -20,6 +24,10 @@ on:
     branches: [develop, main]
     paths:
       - 'src/api/integrations/channel/findhub/**'
+      - 'src/api/routes/**'
+      - 'src/api/services/**'
+      - 'src/api/server.module.ts'
+      - 'src/main.ts'
       - '.github/retention-policy.json'
       - '.github/workflows/findhub-tracking-integrity.yml'
       - 'scripts/*traccar*'
@@ -62,6 +70,69 @@ jobs:
           python3 scripts/sync-findhub-deployments.py --check
           python3 scripts/sync-operations-deployments.py --check
           python3 scripts/check-traccar-compose.py
+      - name: Recover a legacy Traccar PostgreSQL identity through the official Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          legacy_data="$(mktemp -d)"
+          runtime_env="$(mktemp)"
+          cleanup() {
+            docker compose --env-file "$runtime_env" -f deploy/fersoft/production/compose.yaml --profile traccar down --remove-orphans || true
+            docker rm -f traccar-legacy-init || true
+            # PostgreSQL owns its initialized files. Remove them from a disposable
+            # container instead of letting a permission-only cleanup failure mask
+            # a successful recovery assertion on the GitHub runner.
+            docker run --rm --user 0:0 -v "$legacy_data:/data" postgres:15 sh -ec 'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +' || true
+            rmdir "$legacy_data" || true
+            rm -f "$runtime_env" || true
+          }
+          trap cleanup EXIT
+
+          docker run -d --name traccar-legacy-init \
+            -e POSTGRES_USER=legacy_owner \
+            -e POSTGRES_PASSWORD="$password" \
+            -e POSTGRES_DB=legacy_bootstrap \
+            -v "$legacy_data:/var/lib/postgresql/data" \
+            postgres:15
+          for attempt in $(seq 1 60); do
+            if docker exec traccar-legacy-init pg_isready -U legacy_owner -d legacy_bootstrap; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker logs traccar-legacy-init
+              exit 1
+            fi
+            sleep 1
+          done
+          docker rm -f traccar-legacy-init
+
+          cat > "$runtime_env" <<EOF
+          COMPOSE_PROJECT_NAME=traccar-legacy-recovery
+          COMPOSE_PROFILES=traccar
+          ARGWS_CONNECT_NETWORK_NAME=traccar-legacy-recovery-net
+          ARGWS_CONNECT_TRACCAR_DB_PATH=$legacy_data
+          TRACCAR_DATABASE_PASSWORD=$password
+          TZ=America/Bahia
+          EOF
+
+          docker compose --env-file "$runtime_env" -f deploy/fersoft/production/compose.yaml --profile traccar up -d --force-recreate traccar-postgres-fersoft-connect-production
+          for attempt in $(seq 1 90); do
+            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' traccar-postgres-fersoft-connect-production 2>/dev/null || true)"
+            if [ "$health" = healthy ]; then
+              break
+            fi
+            if [ "$attempt" = 90 ]; then
+              docker logs traccar-postgres-fersoft-connect-production
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec traccar-postgres-fersoft-connect-production sh -ec 'PGPASSWORD="$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT 1" | grep -qx 1'
+          docker exec traccar-postgres-fersoft-connect-production sh -ec 'PGPASSWORD="$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT rolsuper::text FROM pg_roles WHERE rolname = current_user" | grep -qx false'
+          docker exec traccar-postgres-fersoft-connect-production sh -ec 'PGPASSWORD="$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()" | grep -qx traccar'
       - name: Start disposable official Traccar and PostgreSQL
         shell: bash
         run: |

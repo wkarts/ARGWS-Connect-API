@@ -12773,6 +12773,100 @@
         }
       }
     },
+    "/manager-api/v1/traccar/overview": {
+      "get": {
+        "tags": [
+          "Manager"
+        ],
+        "summary": "Overview",
+        "operationId": "get_manager_api_v1_traccar_overview",
+        "description": "Endpoint descoberto do código em `src/api/routes/manager-traccar.router.ts`.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/manager-traccar.router.ts"
+      }
+    },
+    "/manager-api/v1/traccar/status": {
+      "get": {
+        "tags": [
+          "Manager"
+        ],
+        "summary": "Status",
+        "operationId": "get_manager_api_v1_traccar_status",
+        "description": "Endpoint descoberto do código em `src/api/routes/manager-traccar.router.ts`.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação concluída com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/manager-traccar.router.ts"
+      }
+    },
     "/message/sendButtons/{instanceName}": {
       "post": {
         "tags": [
