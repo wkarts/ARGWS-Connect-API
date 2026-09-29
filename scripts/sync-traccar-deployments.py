@@ -11,6 +11,72 @@ def bootstrap_program(root):
  source=(root/'scripts/traccar-bootstrap.cjs').read_text(encoding='utf-8')
  return source.removeprefix('#!/usr/bin/env node\n').rstrip()
 
+def traccar_postgres_command():
+ """Start a legacy Traccar cluster and add only its missing database identity.
+
+ Empty volumes keep the upstream PostgreSQL initialization path. Existing volumes
+ are not initialized again: only a missing ``traccar`` role/database is created.
+ """
+ return '''set -Eeuo pipefail
+: "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
+data_directory="$${PGDATA:-/var/lib/postgresql/data}"
+
+# Empty volume: retain the upstream PostgreSQL initialization behavior.
+if [ ! -s "$$data_directory/PG_VERSION" ]; then
+  exec /usr/local/bin/docker-entrypoint.sh postgres
+fi
+
+# Existing volume: preserve data and reconcile only the missing Traccar identity.
+if ! command -v gosu >/dev/null 2>&1; then
+  echo 'gosu nao esta disponivel na imagem PostgreSQL do Traccar.' >&2
+  exit 30
+fi
+/usr/local/bin/docker-entrypoint.sh postgres &
+postgres_pid="$$!"
+stop_postgres() {
+  kill -TERM "$$postgres_pid" 2>/dev/null || true
+  wait "$$postgres_pid" || true
+  exit 0
+}
+trap stop_postgres INT TERM
+
+postgres_ready=false
+for attempt in $$(seq 1 60); do
+  if gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+    postgres_ready=true
+    break
+  fi
+  if ! kill -0 "$$postgres_pid" 2>/dev/null; then
+    wait "$$postgres_pid" || true
+    exit 31
+  fi
+  sleep 1
+done
+if [ "$$postgres_ready" != true ]; then
+  echo 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2
+  kill -TERM "$$postgres_pid" 2>/dev/null || true
+  wait "$$postgres_pid" || true
+  exit 31
+fi
+
+role_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
+role_created=false
+if [ "$$role_exists" != 1 ]; then
+  gosu postgres psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U postgres -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
+  role_created=true
+fi
+
+database_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
+if [ "$$database_exists" != 1 ]; then
+  gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
+elif [ "$$role_created" = true ]; then
+  gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
+fi
+
+# Existing role passwords are intentionally never changed.
+PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1
+wait "$$postgres_pid"'''
+
 def replace_service(text, base, name, transform):
  for service,start,end,block in base.service_blocks(text):
   if service == name:
@@ -186,6 +252,7 @@ def generate(root, overrides=None):
   suffix=api[3:] if api.startswith('api-') else ''
   tracker='traccar'+suffix;db='traccar-postgres'+suffix;bootstrap='traccar-bootstrap'+suffix
   bootstrap_source='\n'.join(('          '+line) if line else '' for line in bootstrap_program(root).splitlines())
+  postgres_command='\n'.join(('        '+line) if line else '' for line in traccar_postgres_command().splitlines())
   swarm='Docker/swarm/' in name
   optional='    deploy:\n      replicas: ${TRACCAR_REPLICAS:-0}\n' if swarm else '    profiles: [traccar]\n'
   restart='' if swarm else '    restart: unless-stopped\n'
@@ -232,15 +299,19 @@ def generate(root, overrides=None):
       POSTGRES_USER: traccar
       POSTGRES_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
       TRACCAR_DATABASE_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+{postgres_command}
     volumes:
       - ${{ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}}:/var/lib/postgresql/data
     networks: [{network}]
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U "$${{POSTGRES_USER}}" -d "$${{POSTGRES_DB}}"']
+      test: ['CMD-SHELL', 'PGPASSWORD="$${{TRACCAR_DATABASE_PASSWORD}}" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT 1" | grep -qx 1']
       interval: 10s
       timeout: 5s
       retries: 15
-      start_period: 20s
+      start_period: 75s
   {bootstrap}:
 {bootstrap_optional}    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     pull_policy: always

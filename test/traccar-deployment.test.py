@@ -42,14 +42,20 @@ class TraccarDeployment(unittest.TestCase):
    self.assertIn('healthcheck',bootstrap[0],name)
    databases=[service for service_name,service in services.items() if service_name.startswith('traccar-postgres')]
    self.assertEqual(len(databases),1,name);database=databases[0]
-   self.assertNotIn('entrypoint',database,name);self.assertNotIn('command',database,name)
+   self.assertEqual(database.get('entrypoint'),['/bin/bash','-ec'],name)
+   command=database.get('command');command=command[0] if isinstance(command,list) else command
+   self.assertIn('CREATE ROLE traccar LOGIN',command,name)
+   self.assertIn('CREATE DATABASE traccar OWNER traccar',command,name)
+   self.assertIn('Existing role passwords are intentionally never changed.',command,name)
+   self.assertNotIn('ALTER ROLE traccar',command,name)
    environment=database.get('environment',{})
    self.assertEqual(environment.get('POSTGRES_DB'),'traccar',name)
    self.assertEqual(environment.get('POSTGRES_USER'),'traccar',name)
    self.assertEqual(environment.get('POSTGRES_PASSWORD'),'${TRACCAR_DATABASE_PASSWORD:-}',name)
    self.assertEqual(environment.get('TRACCAR_DATABASE_PASSWORD'),'${TRACCAR_DATABASE_PASSWORD:-}',name)
    healthcheck=' '.join(database['healthcheck']['test'])
-   self.assertIn('pg_isready',healthcheck,name);self.assertNotIn('psql --no-password',healthcheck,name)
+   self.assertIn('PGPASSWORD=',healthcheck,name);self.assertIn('psql --no-password',healthcheck,name)
+   self.assertNotIn('pg_isready',healthcheck,name)
    primary=[service for service_name,service in services.items() if service_name.startswith('postgres')]
    if primary:
     self.assertEqual(len(primary),1,name)

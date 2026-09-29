@@ -99,13 +99,16 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             traccar_postgres['volumes'],
             ['${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data'],
         )
-        self.assertNotIn('entrypoint', traccar_postgres)
-        self.assertNotIn('command', traccar_postgres)
+        self.assertEqual(traccar_postgres['entrypoint'], ['/bin/bash', '-ec'])
+        self.assertIn('CREATE ROLE traccar LOGIN', command_text(traccar_postgres))
+        self.assertIn('CREATE DATABASE traccar OWNER traccar', command_text(traccar_postgres))
+        self.assertNotIn('ALTER ROLE traccar', command_text(traccar_postgres))
         self.assertEqual(
             traccar_postgres['environment']['TRACCAR_DATABASE_PASSWORD'],
             '${TRACCAR_DATABASE_PASSWORD:-}',
         )
-        self.assertIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))
+        self.assertIn('psql --no-password', ' '.join(traccar_postgres['healthcheck']['test']))
+        self.assertNotIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']
         self.assertEqual(bootstrap['restart'], 'unless-stopped')
         self.assertIn('traccar-bootstrap-ready', command_text(bootstrap))
