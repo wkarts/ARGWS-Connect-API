@@ -70,7 +70,7 @@ onBeforeUnmount(() => {
   <AppShell>
     <PageHeader
       title="Traccar"
-      description="Monitoramento interno da frota, já autenticado pela sua sessão atual do Manager."
+      description="Monitoramento interno da frota, já autenticado pela sua sessão atual do painel."
     >
       <button class="btn ghost" :disabled="busy" @click="reload">
         <AppIcon name="refresh" :size="16" />{{ busy ? 'Atualizando…' : 'Atualizar' }}

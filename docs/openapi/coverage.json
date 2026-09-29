@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-29T17:03:15.311Z",
+  "generatedAt": "2026-09-29T20:40:15.456Z",
   "version": "1.1.10",
-  "sourceDigest": "4fab4bd657993d9892b22fef824d641ea50c797370a17c00cd6cc93fcff5a7f1",
+  "sourceDigest": "830eb366e2b4e425811617ee5b54a37a98a0c616397a36b029bfd0b04cb13bf9",
   "operations": [
     {
       "method": "GET",
@@ -877,6 +877,16 @@
       "method": "PUT",
       "path": "/manager-api/v1/embedding",
       "source": "src/api/routes/manager-embedding.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/manager-api/v1/traccar/overview",
+      "source": "src/api/routes/manager-traccar.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/manager-api/v1/traccar/status",
+      "source": "src/api/routes/manager-traccar.router.ts"
     },
     {
       "method": "POST",
