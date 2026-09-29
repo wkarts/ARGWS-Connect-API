@@ -17,7 +17,7 @@ DEFAULTS = {
 }
 SOURCE = '{"url":"openapi/findhub.openapi.json","title":"Connect|API Google Find Hub","slug":"findhub"}'
 HEADER = '''\n# Google Find Hub: chave LOCAL de criptografia, nao uma chave do Google.
-# Execute python3 prepare-findhub-env.py (ou prepare-env.sh) uma vez; nao rotacione a chave em updates.
+# Defina uma chave forte diretamente no .env e nao a rotacione em updates.
 # Guarde a chave com seguranca junto do backup. Nao enviar para Manager/Scalar/webhooks.
 '''
 SKIP = {'.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'third-party'}
@@ -94,6 +94,12 @@ def scalar_source(text):
 
 
 def env_template(text):
+    text = re.sub(
+        r'^# Execute python3 prepare-findhub-env\.py \(ou prepare-env\.sh\) uma vez; nao rotacione a chave em updates\.$',
+        '# Defina uma chave forte diretamente no .env e nao a rotacione em updates.',
+        text,
+        flags=re.M,
+    )
     missing = []
     for name, default in DEFAULTS.items():
         pattern = r'^' + re.escape(name) + r'=[^\n]*$'
@@ -117,7 +123,6 @@ def generate(root, overrides=None):
     api_profiles = []
     scalar_profiles = []
     excluded = []
-    api_directories = {'.'}
     for path in paths:
         if not path.endswith(('.yaml', '.yml')) or path.startswith('.github/'):
             continue
@@ -130,7 +135,6 @@ def generate(root, overrides=None):
             if api_service(name, block):
                 current = current[:start] + with_environment(block) + current[end:]
                 api_profiles.append({'path': path, 'service': name})
-                api_directories.add(Path(path).parent.as_posix())
         updated = scalar_source(current)
         if 'findhub.openapi.json' in updated and 'API_REFERENCE_CONFIG' in updated:
             scalar_profiles.append(path)
@@ -148,42 +152,8 @@ def generate(root, overrides=None):
         else:
             updated = scalar_source(env_template(before))
             envs.append(path)
-            api_directories.add(Path(path).parent.as_posix())
         if updated != before:
             outputs[path] = updated
-    helper = read('scripts/prepare-findhub-env.py')
-    for directory in sorted(api_directories):
-        prefix = '' if directory == '.' else directory + '/'
-        # Profiles copied out of the repository must remain self-contained.
-        if prefix + 'prepare-env.sh' not in paths:
-            continue
-        outputs[prefix + 'prepare-findhub-env.py'] = helper
-        prepare_path = prefix + 'prepare-env.sh'
-        prepare = read(prepare_path)
-        legacy_hook = 'python3 ./prepare-findhub-env.py --env-file .env "$@"\n'
-        hook = ('if ! python3 ./prepare-findhub-env.py --env-file .env "$@"; then\n'
-                '  echo "AVISO: Find Hub requer ajuste de configuracao; outros canais nao foram bloqueados. Nenhuma chave invalida foi substituida." >&2\n'
-                'fi\n')
-        if legacy_hook in prepare:
-            prepare = prepare.replace(legacy_hook, hook)
-        elif hook not in prepare:
-            prepare = prepare.rstrip() + '\n' + hook
-        outputs[prepare_path] = prepare
-        preflight_path = prefix + 'preflight.sh'
-        if preflight_path in paths:
-            preflight = read(preflight_path)
-            legacy_hook = 'python3 ./prepare-findhub-env.py --env-file .env --check\n'
-            hook = ('if ! python3 ./prepare-findhub-env.py --env-file .env --check; then\n'
-                    '  echo "AVISO: Find Hub indisponivel ate corrigir sua configuracao. A validacao dos demais canais continua." >&2\n'
-                    'fi\n')
-            if legacy_hook in preflight:
-                preflight = preflight.replace(legacy_hook, hook)
-            if hook not in preflight:
-                anchor = 'cd "$(dirname "$0")"\n'
-                if anchor not in preflight:
-                    raise ValueError('Unknown preflight entry point: ' + preflight_path)
-                preflight = preflight.replace(anchor, anchor + hook, 1)
-            outputs[preflight_path] = preflight
     outputs['docs/operations/findhub-deployment-coverage.json'] = json.dumps({
         'apiServices': sorted(api_profiles, key=lambda item: (item['path'], item['service'])),
         'apiEnvironmentTemplates': sorted(envs),

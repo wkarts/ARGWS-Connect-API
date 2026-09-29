@@ -1,22 +1,11 @@
-# ARGWS Connect API — Production
+# ARGWS Connect API — Produção
 
-    Stack independente `production`.
+Runtime: `compose.yaml`, `.env` e `./volumes/*`.
 
-    - URL: `https://api.connect.argws.com.br`
-    - Porta local API: `38080`
-    - Porta local DOCs: `38180`
-    - API image: `ghcr.io/wkarts/argws-connect-api:latest`
-    - DOCs image: `ghcr.io/wkarts/argws-connect-docs:latest`
-    - Portas locais publicadas: API + Connect|API DOCs
-    - Manager: `https://api.connect.argws.com.br/manager`
-    - Persistência: `./volumes/...`
-    - Serviços core: API, Connect|API DOCs, PostgreSQL, Redis, RabbitMQ e MinIO
-    - Profiles opcionais: `nats`, `kafka`, `extended`
+```bash
+docker compose --env-file .env -f compose.yaml pull
+docker compose --env-file .env -f compose.yaml up -d --pull never
+```
 
-    Convenção dos services: `<recurso>-argws-connect-production`.
-
-    ```bash
-    ./prepare-env.sh
-    ./deploy.sh
-    ```
-    
+Preserve o `.env` e os volumes existentes. A seleção de profiles pertence ao
+`.env`; nenhum instalador externo é necessário.

@@ -11,6 +11,95 @@ def bootstrap_program(root):
  source=(root/'scripts/traccar-bootstrap.cjs').read_text(encoding='utf-8')
  return source.removeprefix('#!/usr/bin/env node\n').rstrip()
 
+def replace_service(text, base, name, transform):
+ for service,start,end,block in base.service_blocks(text):
+  if service == name:
+   return text[:start] + transform(block).rstrip() + '\n' + text[end:]
+ return text
+
+def init_dependency(block, init):
+ if re.search(r'^      '+re.escape(init)+r':', block, re.M):
+  return block
+ compact=re.search(r'^    depends_on:\s*\[([^\]]*)\]\s*$', block, re.M)
+ if compact:
+  names=[name.strip() for name in compact.group(1).split(',') if name.strip()]
+  dependencies='    depends_on:\n'+''.join('      '+name+':\n        condition: service_started\n' for name in names)
+  dependencies+='      '+init+':\n        condition: service_completed_successfully'
+  return block[:compact.start()] + dependencies + block[compact.end():]
+ listed=re.search(r'^    depends_on:\n((?:      - [^\n]+\n)+)', block, re.M)
+ if listed:
+  names=[line.split('- ',1)[1].strip() for line in listed.group(1).splitlines() if '- ' in line]
+  dependencies='    depends_on:\n'+''.join('      '+name+':\n        condition: service_started\n' for name in names)
+  dependencies+='      '+init+':\n        condition: service_completed_successfully\n'
+  return block[:listed.start()] + dependencies + block[listed.end():]
+ mapping=re.search(r'^    depends_on:\n', block, re.M)
+ if mapping:
+  dependency='      '+init+':\n        condition: service_completed_successfully\n'
+  return block[:mapping.end()] + dependency + block[mapping.end():]
+ first=block.index('\n')+1
+ dependency='    depends_on:\n      '+init+':\n        condition: service_completed_successfully\n'
+ return block[:first] + dependency + block[first:]
+
+def volume_init_service(name, network, named):
+ container=f'    container_name: {name}\n' if named else ''
+ return f'''  # BEGIN COMPOSE VOLUME INIT
+  {name}:
+{container}    profiles: ["kafka", "extended"]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    pull_policy: always
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      prepare_directory() {{
+        path="$1"
+        owner="$2"
+        label="$3"
+        mkdir -p "$path"
+        if [ -n "$(ls -A "$path")" ]; then
+          actual="$(stat -c '%u:%g' "$path")"
+          [ "$actual" = "$owner" ] || {{
+            echo "$label contem dados e pertence a $actual; esperado $owner. Nenhum dado foi alterado." >&2
+            exit 23
+          }}
+          echo "$label preservado"
+          return
+        fi
+        chown --no-dereference "$owner" "$path"
+        chmod u+rwx "$path"
+        echo "$label preparado"
+      }}
+      prepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data
+      prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log
+      prepare_directory /prepared/kafka 1000:1000 kafka
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ${{ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}}:/prepared/zookeeper-data
+      - ${{ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}}:/prepared/zookeeper-log
+      - ${{ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}}:/prepared/kafka
+    networks: [{network}]
+  # END COMPOSE VOLUME INIT
+'''
+
+def add_volume_init(text, base, network, suffix):
+ zookeeper='zookeeper'+suffix
+ kafka='kafka'+suffix
+ names={name for name, *_ in base.service_blocks(text)}
+ if not {zookeeper, kafka} <= names:
+  return text
+ text=re.sub(r'\n  # BEGIN COMPOSE VOLUME INIT\n.*?^  # END COMPOSE VOLUME INIT\n', '', text, flags=re.M|re.S)
+ init='volume-init'+suffix
+ text=replace_service(text, base, zookeeper, lambda block: init_dependency(block, init))
+ text=replace_service(text, base, kafka, lambda block: init_dependency(block, init))
+ header=re.search(r'^services:\s*\n',text,re.M)
+ end_services=re.search(r'^[^\s#][^\n]*:',text[header.end():],re.M)
+ offset=header.end()+end_services.start() if end_services else len(text)
+ return text[:offset]+volume_init_service(init, network, bool(suffix))+'\n'+text[offset:]
+
 def generate(root, overrides=None):
  overrides = overrides or {}
  read = lambda path: overrides.get(str(path), (root/path).read_text() if (root/path).exists() else "")
@@ -106,24 +195,18 @@ def generate(root, overrides=None):
   end_services=re.search(r'^[^\s#][^\n]*:',text[header.end():],re.M)
   offset=header.end()+end_services.start() if end_services else len(text)
   text=text[:offset]+service+'\n'+text[offset:]
+  if not swarm:
+   text=add_volume_init(text,base,network,suffix)
   # Each Compose embeds the bootstrap program so the runtime requires only the
   # Compose file, its .env, and data volumes.
   directory=Path(name).parent
   outputs[name]=text;profiles.append(name)
-  if directory != Path('.'):outputs[(directory/'prepare-traccar-env.py').as_posix()]=(root/'scripts/prepare-traccar-env.py').read_text()
   for file in (directory/'env.example', directory/'.env.example'):
    if not (root/file).exists():continue
    source=read(file)
    for key,value in env.DEFAULTS.items():
     if not re.search(r'^'+key+r'=',source,re.M):source+=('' if source.endswith('\n') else '\n')+key+'='+value+'\n'
    outputs[file.as_posix()]=source
-  prep=directory/'prepare-env.sh'
-  if (root/prep).exists():
-   source=read(prep)
-   if 'prepare-traccar-env.py' not in source:source+='python3 '+('./scripts/prepare-traccar-env.py' if directory==Path('.') else './prepare-traccar-env.py')+' --env-file .env "$@"\n'
-   outputs[prep.as_posix()]=source
-  op=directory/'prepare-operations-env.py'
-  if (root/op).exists():outputs[op.as_posix()]=(root/'scripts/prepare-operations-env.py').read_text()
  outputs['docs/deployment/traccar-inventory.json']=json.dumps({'apiComposeFiles':profiles,'unsupportedComposeFiles':excluded,'defaults':env.DEFAULTS,'policy':'Optional profile, independent database, no published ports, no API dependency. Swarm uses replicas=0 by default.'},indent=2)+'\n'
  return outputs
 

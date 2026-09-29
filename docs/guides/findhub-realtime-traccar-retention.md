@@ -66,17 +66,17 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-Execute o preparador existente ou o helper distribuído ao lado do Compose:
+Defina também no próprio `.env` as duas senhas fortes já preservadas pela
+instalação e inclua `traccar` em `COMPOSE_PROFILES`. Em seguida suba diretamente:
 
 ```bash
-python3 ./prepare-traccar-env.py --env-file .env
-python3 ./prepare-traccar-env.py --env-file .env --check
 docker compose --env-file .env -f compose.yaml up -d
 ```
 
-Use `-f docker-compose.yml` nos perfis que já usam esse nome. No checkout raiz, o helper está em `scripts/prepare-traccar-env.py` e os Compose existentes são `docker-compose.yaml`/`docker-compose.dev.yaml`.
-
-O preparador gera uma única vez `TRACCAR_ADMIN_PASSWORD` e `TRACCAR_DATABASE_PASSWORD`, sem imprimir valores; preserva senhas válidas e os demais profiles, acrescentando `traccar` a `COMPOSE_PROFILES`. Valores duplicados/inválidos são recusados sem sobrescrever o ambiente. O Swarm existente usa `TRACCAR_REPLICAS=1`; desabilitado usa 0. Mudanças na UI não iniciam containers Docker: o profile precisa estar implantado pelo administrador.
+Use `-f docker-compose.yml` nos perfis que usam esse nome. Não existe helper
+distribuído ao lado do Compose: senhas, profiles e demais configurações pertencem
+somente ao `.env`. Mudanças na UI não iniciam containers Docker: o profile precisa
+estar selecionado pelo administrador.
 
 O serviço recebe por rede interna:
 

@@ -61,7 +61,10 @@ Named volumes não pertencem ao contrato canônico.
 
 ## Segredos
 
-`env.example` contém placeholders seguros. `prepare-env.sh` cria o `.env` real localmente, gera valores fortes, aplica `chmod 600` e não altera um `.env` já existente.
+`env.example` contém placeholders seguros. Em uma instalação, o `.env` é o único
+arquivo de configuração e deve ser criado e protegido pelo operador antes do
+primeiro `docker compose up`; uma atualização preserva esse arquivo sem rotacionar
+segredos.
 
 ## Isolamento
 
@@ -92,5 +95,5 @@ Core e mensageria opcional são consumidos via `ghcr.io/wkarts/*`. O bootstrap i
 - ausência de `container_name` fixo;
 - portas distintas entre produção e homologação;
 - paridade de env;
-- scripts executáveis;
+- ausência de auxiliares executáveis no pacote de deployment;
 - manifests GHCR do core.

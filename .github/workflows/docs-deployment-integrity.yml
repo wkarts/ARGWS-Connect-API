@@ -141,7 +141,7 @@ jobs:
             fi
           done
 
-      - name: Validate standalone Nginx examples and scripts
+      - name: Validate standalone Nginx examples and declarative package
         shell: bash
         run: |
           set -euo pipefail
@@ -149,12 +149,7 @@ jobs:
           grep -q '127.0.0.1:38280' deploy/docs/nginx-location.conf.example
           grep -q 'd.docs.connect.argws.com.br' deploy/docs-develop/nginx-location.conf.example
           grep -q '127.0.0.1:38282' deploy/docs-develop/nginx-location.conf.example
-          for stack in docs docs-develop; do
-            for script in deploy.sh update.sh status.sh preflight.sh; do
-              test -x "deploy/${stack}/${script}"
-              bash -n "deploy/${stack}/${script}"
-            done
-          done
+          ! find deploy -type f \( -name '*.py' -o -name '*.sh' -o -name '*.cjs' \) -print -quit | grep -q .
 
       - name: Login GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

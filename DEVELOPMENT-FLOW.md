@@ -140,7 +140,8 @@ Deployment:
 
 ```bash
 cd deploy/develop
-./update.sh
+docker compose --env-file .env -f compose.yaml pull
+docker compose --env-file .env -f compose.yaml up -d --pull never
 ```
 
 O Compose usa projeto, containers, rede, volumes e porta próprios do ambiente `develop` e não compartilha identidade de stack com produção/canonical.

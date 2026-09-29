@@ -22,25 +22,30 @@ Todos mantêm alias interno `operations`, nenhuma porta pública do agente, nenh
 
 Os modelos `env.example`/`.env.example` ativos incluem `COMPOSE_PROFILES=operations`, `OPERATIONS_ENABLED=true`, `OPERATIONS_AGENT_URL`, `OPERATIONS_INTERNAL_TOKEN`, `ARGWS_CONNECT_OPERATIONS_DATA_PATH`, `OPERATIONS_HOT_DAYS` e `OPERATIONS_RETENTION_DAYS`.
 
-Cada diretório de implantação recebe `prepare-env.sh` e uma cópia sincronizada do preparador Python, de modo que o diretório também funciona isoladamente. O preparador cria um ambiente novo ou completa somente as variáveis operacionais ausentes no ambiente existente. O token dedicado é aleatório (32 bytes), gerado localmente; não é a API key global. Reexecuções não trocam esse token ou outras credenciais. O arquivo é escrito atomicamente com permissão 0600. Não é executado como shell.
+O `.env` é a única fonte de configuração da instalação. Em um ambiente novo, o
+operador define `OPERATIONS_INTERNAL_TOKEN` forte diretamente nele; em um ambiente
+existente, o valor já configurado é preservado. Não há preparador distribuído na
+stack e nenhuma credencial é rotacionada automaticamente.
 
 ```bash
-# Dentro do diretório ATUAL da stack, com os arquivos atualizados:
-./prepare-env.sh
-./preflight.sh
-./deploy.sh
+# Dentro do diretório atual da stack:
+docker compose --env-file .env -f compose.yaml pull
+docker compose --env-file .env -f compose.yaml up -d --pull never
 ```
 
 Uma opção `OPERATIONS_ENABLED=false` já gravada é preservada. Para habilitá-la conscientemente:
 
-```bash
-./prepare-env.sh --enable
-./deploy.sh
-```
+Defina `OPERATIONS_ENABLED=true` e inclua `operations` em `COMPOSE_PROFILES` no
+`.env`, depois execute o mesmo `docker compose up -d`.
 
-Perfis salvos como `nats` e `kafka` são preservados; perfis informados pelo shell são somados apenas na execução. `deploy.sh` e `update.sh` preparam os parâmetros antes de invocar Compose. Não é necessário colocar blocos manuais diferentes em cada serviço.
+Perfis como `nats` e `kafka` são declarados no próprio `.env`. Não é necessário
+colocar blocos manuais diferentes em cada service ou executar auxiliares antes do
+Compose.
 
-No Dockge, atualize também o YAML e os arquivos de preparação da stack, não somente a imagem. Execute o preparador uma vez antes de aplicar o Compose pela interface. `docker compose pull` não modifica o Compose nem o `.env` existentes. Não execute `down -v`. Recriar a API interrompe chamadas em andamento, portanto utilize janela sem chamadas. O comando de atualização existente continua realizando backup consistente, que pode parar a API durante a captura.
+No Dockge, atualize o `compose.yaml` e mantenha o `.env`/volumes existentes, não
+somente a imagem. `docker compose pull` não modifica esses arquivos. Não execute
+`down -v`. Recriar a API interrompe chamadas em andamento, portanto utilize janela
+sem chamadas.
 
 Para imagens antigas sem `operations-agent/server.cjs`, use uma versão compatível antes de selecionar o perfil. Esta correção não altera tags já publicadas nem faz deploy remoto.
 
@@ -65,6 +70,8 @@ O agente mantém cache por dia (máximo 32 entradas), 30 segundos para arquivos 
 
 ## Manutenção dos modelos
 
-`scripts/sync-operations-deployments.py` sincroniza somente arquivos versionados de implantação. CI usa `--check`, sem modificar arquivos. `scripts/prepare-operations-env.py` é o preparador de ambientes da instalação; não são o mesmo comando.
+`scripts/sync-operations-deployments.py` é manutenção interna do repositório e
+sincroniza somente templates versionados. CI usa `--check`, sem modificar
+instalações. Ele não é entregue nem necessário no host de deployment.
 
 Validação: preparação nova e atualização idempotente, preservação de credenciais/perfis/volumes, rejeição de configuração inconsistente, Compose com perfil ativado/desativado, autorização de estatísticas, agregação ponderada, privacidade, fuso, arquivos compactados e estados sem dados.

@@ -1,56 +1,56 @@
-name: Find Hub - Full stack and device controls
+name: Find Hub - Compose full-stack integrity
+
 on:
   pull_request:
     branches: [develop, main]
     paths:
-      - 'deploy/*/full-stack/**'
-      - 'deploy/fersoft/**'
-      - 'scripts/*full-stack*'
+      - 'deploy/**'
+      - 'scripts/sync-operations-deployments.py'
       - 'scripts/sync-fersoft-deployments.py'
-      - 'test/full-stack-runtime.test.py'
-      - 'test/full-stack-volumes.test.py'
-      - 'test/full-stack-deployment.test.py'
-      - 'test/fersoft-deployments.test.py'
-      - 'src/api/integrations/channel/findhub/**'
-      - 'manager/src/components/FindHub*'
+      - 'scripts/sync-findhub-deployments.py'
+      - 'scripts/sync-traccar-deployments.py'
+      - 'scripts/check-full-stack-runtime.py'
+      - 'test/compose-env-only-deployments.test.py'
+      - 'test/deploy-operations.test.py'
       - '.github/workflows/findhub-full-stack-integrity.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
   packages: read
+
 concurrency:
-  group: findhub-full-stack-${{ github.event.pull_request.number || github.ref }}
+  group: compose-full-stack-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
 jobs:
   contracts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Validate generated profiles and safe import
+      - name: Validate declarative deployment contract
         run: |
           set -euo pipefail
           python3 scripts/sync-operations-deployments.py --check
-          python3 scripts/sync-full-stack-deployments.py --check
           python3 scripts/sync-fersoft-deployments.py --check
-          python3 test/full-stack-deployment.test.py
-          python3 test/full-stack-runtime.test.py
-          python3 test/full-stack-volumes.test.py
-          python3 test/fersoft-deployments.test.py
+          python3 test/deploy-operations.test.py
+          python3 test/compose-env-only-deployments.test.py
+
   runtime:
-    name: Full stack / ${{ matrix.label }}
+    name: Compose full stack / ${{ matrix.label }}
     needs: contracts
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: develop
-            stack: deploy/develop/full-stack
+            stack: deploy/develop
           - label: production
-            stack: deploy/production/full-stack
+            stack: deploy/production
           - label: fersoft-develop
-            stack: deploy/fersoft/develop/full-stack
+            stack: deploy/fersoft/develop
           - label: fersoft-production
-            stack: deploy/fersoft/production/full-stack
+            stack: deploy/fersoft/production
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -60,27 +60,52 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Prepare disposable full stack (no operator credentials)
+      - name: Prepare disposable .env without deployment helpers
         working-directory: ${{ matrix.stack }}
         run: |
           set -euo pipefail
-          python3 prepare-env.py
-          python3 prepare-env.py --check
+          cp env.example .env
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, secrets
+
+          path = Path('.env')
+          value = secrets.token_hex(32)
+          text = re.sub(r'CHANGE_ME_[A-Z0-9_]+', value, path.read_text())
+          updates = {
+              'COMPOSE_PROFILES': 'operations,nats,kafka,mysql,traccar',
+              'OPERATIONS_ENABLED': 'true',
+              'NATS_ENABLED': 'true',
+              'KAFKA_ENABLED': 'true',
+              'KAFKA_AUTO_CREATE_TOPICS': 'true',
+              'MYSQL_SERVICE_ENABLED': 'true',
+              'TRACCAR_ENABLED': 'true',
+              'TRACCAR_MODE': 'internal',
+              'FINDHUB_CREDENTIALS_KEY': value,
+              'TRACCAR_ADMIN_PASSWORD': value,
+              'TRACCAR_DATABASE_PASSWORD': value,
+          }
+          for key, replacement in updates.items():
+              pattern = rf'^{re.escape(key)}=.*$'
+              if re.search(pattern, text, flags=re.M):
+                  text = re.sub(pattern, f'{key}={replacement}', text, flags=re.M)
+              else:
+                  text += f'\n{key}={replacement}\n'
+          path.write_text(text)
+          PY
           docker compose --env-file .env -f compose.yaml config --quiet
           docker compose --env-file .env -f compose.yaml pull
       - name: Start and verify all local services
         working-directory: ${{ matrix.stack }}
         run: |
           set -euo pipefail
-          python3 prepare-volumes.py --compose-file compose.yaml
-          python3 prepare-volumes.py --compose-file compose.yaml
           docker compose --env-file .env -f compose.yaml up -d --pull never
-          python3 ./check-runtime.py --expected 14 --timeout 270
+          python3 "$GITHUB_WORKSPACE/scripts/check-full-stack-runtime.py" --expected 15 --timeout 270
       - name: Preserve sanitized readiness report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-stack-readiness-${{ matrix.label }}-${{ github.run_id }}
+          name: compose-full-stack-readiness-${{ matrix.label }}-${{ github.run_id }}
           path: ${{ matrix.stack }}/full-stack-diagnostics.json
           if-no-files-found: ignore
           retention-days: 7

@@ -1,21 +1,26 @@
 # Full stack e controles de dispositivo
 
-## Deploys novos, originais preservados
+## Full stack declarativa
 
-`deploy/develop/full-stack` e `deploy/production/full-stack` são alternativas ao respectivo deploy pai.
-API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO, Operations, NATS/JetStream,
-Kafka/ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL Traccar e bootstrap Traccar: 14 serviços.
-Apenas a porta da API é publicada. O bootstrap termina com código 0; não é um serviço permanente. Ele é incorporado ao `compose.yaml`, portanto o deploy usa somente `.env`, Compose e os volumes de dados — não há arquivo de código auxiliar para montar no host.
+Não existem mais diretórios `full-stack` alternativos. O mesmo `compose.yaml`
+contém API/Manager, DOCs, PostgreSQL principal, Redis, RabbitMQ, MinIO,
+Operations, NATS/JetStream, Kafka/ZooKeeper, MySQL auxiliar, Traccar, PostgreSQL
+Traccar e bootstrap Traccar. O `.env` seleciona todos os services:
 
-Na nova pasta, use `bash prepare-env.sh --from-env ../.env` para importar uma instalação existente.
-Não copie simplesmente os caminhos `./volumes`: o preparador resolve cada caminho em relação
-à origem, preservando banco, sessões e cofre. Não use os dois Compose simultaneamente.
-Nunca use `down -v` para atualizar. Faça backup antes de migrations/deploy.
+```dotenv
+COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar
+OPERATIONS_ENABLED=true
+NATS_ENABLED=true
+KAFKA_ENABLED=true
+MYSQL_SERVICE_ENABLED=true
+TRACCAR_ENABLED=true
+TRACCAR_MODE=internal
+```
 
-Para uma instalação nova sem dados anteriores, `bash prepare-env.sh` gera segredos locais e grava
-`.env` com permissão 0600. Para atualizar `.env` já preparado, o mesmo comando é idempotente.
-`--all-services` seleciona os opcionais locais. NATS/Kafka ganham flags e profiles coerentes;
-o modo externo Traccar já configurado é preservado, sem iniciar um Traccar interno conflitante.
+Preserve o `.env` e `./volumes` já existentes e suba pelo Dockge/Compose. O
+bootstrap do Traccar e o preparo seguro de binds vazios Kafka/ZooKeeper são
+services internos do próprio Compose; nenhum arquivo auxiliar é montado no host.
+Nunca use `down -v` para atualizar.
 
 SQS/Pusher e modelos de IA externos dependem das credenciais do administrador; habilitar seus
 módulos não cria os respectivos serviços remotos. MySQL é auxiliar: PostgreSQL continua como banco

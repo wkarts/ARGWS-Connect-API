@@ -18,38 +18,28 @@ jobs:
       - name: Check generated templates without rewriting sources
         run: |
           python3 scripts/sync-operations-deployments.py --check
-          python3 scripts/sync-full-stack-deployments.py --check
           python3 scripts/sync-fersoft-deployments.py --check
-      - name: Test secure idempotent environment preparation
+      - name: Validate declarative deployment templates
         run: |
           python3 test/deploy-operations.test.py
-          python3 test/fersoft-deployments.test.py
+          python3 test/compose-env-only-deployments.test.py
       - name: Validate all active layouts with operations enabled and disabled
         run: python3 test/operations-compose-contract.py
       - name: Test statistics calculations, privacy and archived runtime reads
         run: node --test test/operations-statistics.test.cjs test/operations-statistics-http.test.cjs
-      - name: Check syntax of all active launch scripts
+      - name: Enforce Compose plus environment deployment contract
         run: |
           set -euo pipefail
-          for dir in . deploy/develop deploy/production deploy/homologation deploy/cloudpanel deploy/dockge; do
-            for script in prepare-env.sh preflight.sh deploy.sh update.sh; do
-              test -x "$dir/$script"
-              bash -n "$dir/$script"
-            done
-          done
-          find deploy/fersoft -type f -name '*.sh' -print0 | while IFS= read -r -d '' script; do
-            test -x "$script"
-            bash -n "$script"
-          done
+          ! find deploy -type f \( -name '*.py' -o -name '*.sh' -o -name '*.cjs' \) -print -quit | grep -q .
+          ! find deploy -type d -name full-stack -print -quit | grep -q .
       - name: Package deployment templates without runtime secrets
         run: |
           python3 - <<'PY'
           import zipfile
           from pathlib import Path
           with zipfile.ZipFile('Connect-API-Deployments-Operations.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
-              paths = [*Path('deploy').rglob('*'), *Path('scripts').glob('*operations*.py'), Path('docs/operations/deploy-and-statistics.md')]
-              paths += [Path(name) for name in ['docker-compose.yaml', 'docker-compose.dev.yaml', 'env.example', '.env.example', 'prepare-env.sh', 'prepare-operations-env.py', 'deploy.sh', 'update.sh', 'preflight.sh', 'backup.sh', 'verify-backup.sh', 'restore-backup.sh']]
-              paths += [Path('prepare-volumes.py'), Path('scripts/prepare-full-stack-volumes.py'), Path('scripts/sync-fersoft-deployments.py'), Path('scripts/connect-stack-backup.sh'), Path('scripts/connect-backup-crypto.cjs')]
+              paths = [*Path('deploy').rglob('*'), Path('docs/operations/deploy-and-statistics.md')]
+              paths += [Path(name) for name in ['docker-compose.yaml', 'docker-compose.dev.yaml', 'env.example', '.env.example']]
               for path in paths:
                   if not path.is_file() or path.name == '.env' or path.name.endswith('.lock') or '__pycache__' in path.parts or 'volumes' in path.parts:
                       continue

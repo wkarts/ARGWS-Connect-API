@@ -1,12 +1,20 @@
 # Deployments Fersoft
 
-Quatro perfis sao mantidos sem remover os deploys oficiais existentes.
+Cada diretório (`develop/` e `production/`) contém somente `compose.yaml` e
+`env.example`. Em uma instalação existente, mantenha o `.env` atual e os
+diretórios `./volumes/*`; não copie nem execute auxiliares externos.
 
-develop/: normal, derivado de deploy/develop.
-develop/full-stack/: 14 servicos, derivado de deploy/develop/full-stack.
-production/: normal, derivado de deploy/production.
-production/full-stack/: 14 servicos, derivado de deploy/production/full-stack.
+A full stack é selecionada pelo próprio `.env`:
 
-Cada perfil aponta para nomes de projeto, rede, servicos internos, banco, dominio e dados Fersoft.
-As imagens e referencias GHCR sao exatamente as do template de origem e nao sao reescritas por este gerador.
-Full stack e alternativa ao normal do mesmo canal e compartilha somente os dados daquele canal em ../volumes.
+```dotenv
+COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar
+OPERATIONS_ENABLED=true
+NATS_ENABLED=true
+KAFKA_ENABLED=true
+MYSQL_SERVICE_ENABLED=true
+TRACCAR_ENABLED=true
+```
+
+Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
+O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos
+de runtime já pertencem às imagens dos services.

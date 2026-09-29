@@ -256,6 +256,9 @@ services:
     logging: *default-logging
 
   zookeeper:
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_ZOOKEEPER_IMAGE:-ghcr.io/wkarts/argws-connect-zookeeper:7.5.0}
     pull_policy: always
@@ -274,7 +277,6 @@ services:
         aliases:
           - argws-connect-zookeeper
     logging: *default-logging
-
   kafka:
     profiles: ["kafka", "extended"]
     image: ${ARGWS_CONNECT_KAFKA_IMAGE:-ghcr.io/wkarts/argws-connect-kafka:7.5.0}
@@ -282,7 +284,10 @@ services:
     container_name: argws_connect_kafka
     restart: unless-stopped
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_started
+      volume-init:
+        condition: service_completed_successfully
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: argws-connect-zookeeper:2181
@@ -301,7 +306,6 @@ services:
         aliases:
           - argws-connect-kafka
     logging: *default-logging
-
   mysql:
     profiles: ["mysql"]
     image: ${ARGWS_CONNECT_MYSQL_IMAGE:-ghcr.io/wkarts/argws-connect-mysql:8.0}
@@ -416,6 +420,48 @@ services:
       TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
     networks: [argws-connect-net]
   # END OPTIONAL TRACCAR
+
+  # BEGIN COMPOSE VOLUME INIT
+  volume-init:
+    profiles: ["kafka", "extended"]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    pull_policy: always
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      prepare_directory() {
+        path="$1"
+        owner="$2"
+        label="$3"
+        mkdir -p "$path"
+        if [ -n "$(ls -A "$path")" ]; then
+          actual="$(stat -c '%u:%g' "$path")"
+          [ "$actual" = "$owner" ] || {
+            echo "$label contem dados e pertence a $actual; esperado $owner. Nenhum dado foi alterado." >&2
+            exit 23
+          }
+          echo "$label preservado"
+          return
+        fi
+        chown --no-dereference "$owner" "$path"
+        chmod u+rwx "$path"
+        echo "$label preparado"
+      }
+      prepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data
+      prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log
+      prepare_directory /prepared/kafka 1000:1000 kafka
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ${ARGWS_CONNECT_ZOOKEEPER_DATA_PATH:-./volumes/zookeeper/data}:/prepared/zookeeper-data
+      - ${ARGWS_CONNECT_ZOOKEEPER_LOG_PATH:-./volumes/zookeeper/log}:/prepared/zookeeper-log
+      - ${ARGWS_CONNECT_KAFKA_DATA_PATH:-./volumes/kafka}:/prepared/kafka
+    networks: [argws-connect-net]
+  # END COMPOSE VOLUME INIT
 
 networks:
   argws-connect-net:

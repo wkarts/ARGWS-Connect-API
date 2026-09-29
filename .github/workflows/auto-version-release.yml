@@ -59,7 +59,9 @@ jobs:
           npm run test:operations
           node --test test/operations-resilience.test.cjs test/operations-statistics.test.cjs test/operations-statistics-http.test.cjs test/release-version.test.cjs
           python3 scripts/sync-operations-deployments.py --check
+          python3 scripts/sync-fersoft-deployments.py --check
           python3 test/deploy-operations.test.py
+          python3 test/compose-env-only-deployments.test.py
           python3 test/operations-compose-contract.py
       - name: Validate production Manager
         run: |

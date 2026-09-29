@@ -1,22 +1,10 @@
 # ARGWS Connect API — Develop
 
-    Stack independente `develop`.
+Runtime: `compose.yaml`, `.env` e `./volumes/*`.
 
-    - URL: `https://d.api.connect.argws.com.br`
-    - Porta local API: `38082`
-    - Porta local DOCs: `38182`
-    - API image: `ghcr.io/wkarts/argws-connect-api:develop`
-    - DOCs image: `ghcr.io/wkarts/argws-connect-docs:develop`
-    - Portas locais publicadas: API + Connect|API DOCs
-    - Manager: `https://d.api.connect.argws.com.br/manager`
-    - Persistência: `./volumes/...`
-    - Serviços core: API, Connect|API DOCs, PostgreSQL, Redis, RabbitMQ e MinIO
-    - Profiles opcionais: `nats`, `kafka`, `extended`
+```bash
+docker compose --env-file .env -f compose.yaml pull
+docker compose --env-file .env -f compose.yaml up -d --pull never
+```
 
-    Convenção dos services: `<recurso>-argws-connect-develop`.
-
-    ```bash
-    ./prepare-env.sh
-    ./deploy.sh
-    ```
-    
+Os profiles são definidos no `.env`; o mesmo Compose atende core e full stack.

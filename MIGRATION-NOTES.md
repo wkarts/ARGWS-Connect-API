@@ -59,7 +59,9 @@ A imagem da API passa a usar Node 22 sobre Debian Bookworm Slim para suportar o 
 
 A atualização preserva as instâncias existentes e suas credenciais persistidas. A migration de independência de provider não converte automaticamente registros legados `CONNECT` para ZAPO e não remove configurações legadas durante esta transição.
 
-As stacks principais executam `backup.sh` e `verify-backup.sh` antes de `docker compose up` durante `update.sh`. O backup `.connectbak` é autenticado e criptografado pela `AUTHENTICATION_API_KEY` da instalação.
+O contrato atual de deployment usa somente Compose, `.env` e volumes. Qualquer
+backup automatizado deve ser entregue como service interno; o arquivo
+`.connectbak` continua autenticado e criptografado pela `AUTHENTICATION_API_KEY`
+da instalação.
 
 Novas alterações de banco nesta entrega são aditivas, incluindo `Setting.voipMaxConcurrentCalls`.
-

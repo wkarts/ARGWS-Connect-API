@@ -119,17 +119,13 @@ class EnvironmentTests(unittest.TestCase):
             mysql = 'mysql' + ('-' + suffix if suffix else '')
             self.assertIn('  ' + mysql + ':\n', text)
             self.assertIn('profiles: ["mysql"]', text)
-        helper = (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text()
-        for directory, compose_file in sync.VOLUME_CASES:
-            prefix = '' if directory == '.' else directory + '/'
-            self.assertEqual(outputs[prefix + 'prepare-volumes.py'], helper)
-            for script in ('deploy.sh', 'update.sh'):
-                text = outputs[prefix + script]
-                pull = text.index('docker compose')
-                prepared = text.index(f'python3 ./prepare-volumes.py --compose-file {compose_file}')
-                up = text.index(' up -d', prepared)
-                self.assertLess(pull, prepared, script)
-                self.assertLess(prepared, up, script)
+        self.assertFalse(any(Path(path).suffix in {'.py', '.sh', '.cjs'} for path in outputs))
+        self.assertFalse(any('full-stack/' in path for path in outputs))
+        for path, *_ in sync.CASES:
+            text = outputs[path]
+            if 'zookeeper' in text and 'kafka' in text:
+                self.assertIn('# BEGIN COMPOSE VOLUME INIT', text)
+                self.assertIn('service_completed_successfully', text)
 
 if __name__ == '__main__':
     unittest.main()
