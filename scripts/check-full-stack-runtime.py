@@ -70,7 +70,7 @@ def diagnose(expected, states, output):
 def probe(expected, port, deadline):
     checks = [['curl', '--fail', '--silent', '--show-error', '--max-time', '3', f'http://127.0.0.1:{port}/health']]
     for name in expected:
-        if name.startswith('mysql-'):
+        if name.startswith('mysql-') and not name.startswith('mysql-volume-init-'):
             checks.append(['docker', 'exec', name, 'sh', '-c',
                 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --connect-timeout=3 --protocol=TCP -h127.0.0.1 -u"$MYSQL_USER" --database="$MYSQL_DATABASE" -Nse "SELECT 1"'])
         elif name.startswith('nats-'):
