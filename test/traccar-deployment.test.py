@@ -42,6 +42,7 @@ class TraccarDeployment(unittest.TestCase):
    self.assertIn('healthcheck',bootstrap[0],name)
    databases=[service for service_name,service in services.items() if service_name.startswith('traccar-postgres')]
    self.assertEqual(len(databases),1,name);self.assertEqual(databases[0].get('entrypoint'),['/bin/bash','-ec'],name)
+   self.assertEqual(databases[0].get('environment',{}).get('TRACCAR_DATABASE_PASSWORD'),'${TRACCAR_DATABASE_PASSWORD:-}',f'{name}: bootstrap persistente requer a variavel interna')
    database_command=databases[0].get('command');database_command=database_command[0] if isinstance(database_command,list) else database_command
    self.assertIn('CREATE ROLE traccar LOGIN',database_command,name);self.assertIn('ALTER DATABASE traccar OWNER TO traccar',database_command,name)
    self.assertNotIn('volumes',bootstrap[0],name)
