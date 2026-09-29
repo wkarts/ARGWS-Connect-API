@@ -8,19 +8,17 @@ O provider `GOOGLE-FIND-HUB` representa uma conta Google autorizada por instânc
 
 `FINDHUB_CREDENTIALS_KEY` é uma chave **local do servidor**, usada por AES-256-GCM para cifrar as credenciais no banco. Não é uma API key do Google Cloud, token do Traccar ou segredo que o usuário deva preencher no Manager.
 
-Na pasta da stack que contém o `.env` efetivamente usado:
+Na pasta da stack que contém o `.env` efetivamente usado, defina uma única vez
+uma chave forte diretamente no `.env`:
 
-```bash
-# Prepara somente as configurações Find Hub. Preserva o restante do .env.
-python3 ./prepare-findhub-env.py --env-file .env
-
-# Verifica sem mostrar o segredo.
-python3 ./prepare-findhub-env.py --env-file .env --check --require-key
+```dotenv
+FINDHUB_CREDENTIALS_KEY=<64-caracteres-hex-ou-base64-de-32-bytes>
 ```
 
-`prepare-env.sh` também chama esse preparador nos perfis com instalador. Uma chave existente válida nunca é rotacionada. Uma chave não vazia e inválida é rejeitada, não substituída. O arquivo é gravado com permissão 0600. **Se você já possuía contas cifradas e perdeu a chave, restaure a chave do backup: gerar outra não recupera os dados antigos.**
-
-Para configuração manual, gere uma única vez com `openssl rand -hex 32`, guarde o resultado em `FINDHUB_CREDENTIALS_KEY` no `.env` e não exponha o valor no frontend. Aceita 64 caracteres hex ou base64 de 32 bytes.
+Gere o valor com `openssl rand -hex 32` e guarde-o junto do backup. Uma chave
+existente válida nunca deve ser rotacionada durante atualização. **Se você já
+possuía contas cifradas e perdeu a chave, restaure a chave do backup: gerar
+outra não recupera os dados antigos.**
 
 Recrie o container da API: `restart` não reaplica mudanças de ambiente. Exemplo específico do perfil `deploy/develop`:
 
@@ -37,7 +35,7 @@ Nos perfis raiz, CloudPanel, Dockge e homologação, o serviço pode se chamar `
 
 | Variável | Padrão no template | Uso |
 | --- | --- | --- |
-| `FINDHUB_CREDENTIALS_KEY` | vazio; preparador gera chave dedicada | Cifra credenciais. Obrigatória ao instanciar Find Hub; não é exigida pelos providers WhatsApp. |
+| `FINDHUB_CREDENTIALS_KEY` | vazio; operador define uma chave dedicada no `.env` | Cifra credenciais. Obrigatória ao instanciar Find Hub; não é exigida pelos providers WhatsApp. |
 | `FINDHUB_DEFAULT_TRACKING_INTERVAL_SECONDS` | `60` | Intervalo inicial de novos dispositivos. |
 | `FINDHUB_MIN_TRACKING_INTERVAL_SECONDS` | `30` | Mínimo aplicado ao iniciar tracking. |
 | `FINDHUB_LOCATION_TIMEOUT_MS` | `30000` | Espera máxima da solicitação de posição. |

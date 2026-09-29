@@ -4,6 +4,8 @@ Baileys
 /dist
 /.generated
 /node_modules
+__pycache__/
+*.py[cod]
 
 /Docker/.env
 

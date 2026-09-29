@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Generate isolated Fersoft normal and full-stack deployments from official templates."""
+"""Generate the Fersoft deployment contract: Compose, environment and volumes only.
+
+An installed Fersoft stack never needs a helper executable. Service selection is
+declared in .env and every runtime bootstrap lives in its image or Compose
+entrypoint.
+"""
 import argparse
 import importlib.util
-import re
 from pathlib import Path
 
 import yaml
@@ -31,7 +35,7 @@ spec.loader.exec_module(ops)
 
 
 class LiteralBlock(str):
-    """Keep an embedded Node bootstrap readable in generated Compose files."""
+    """Keep the in-Compose Node bootstrap readable after the YAML round trip."""
 
 
 def literal_block(dumper, value):
@@ -61,16 +65,7 @@ def replace_identity(value, channel):
     return value
 
 
-def with_volume_hook(text, compose_file='compose.yaml'):
-    hook = f'python3 ./prepare-volumes.py --compose-file {compose_file}\n'
-    text = re.sub(r'^python3 \./prepare-volumes\.py --compose-file [^\n]+\n', '', text, flags=re.M)
-    match = re.search(r'^docker compose\b[^\n]*\bpull\b[^\n]*\n', text, re.M)
-    if not match:
-        raise ValueError('Deploy Fersoft sem etapa docker compose pull.')
-    return text[:match.end()] + hook + text[match.end():]
-
-
-def fersoft_overrides(channel, full):
+def overrides(channel):
     stack = suffix(channel)
     server = 'https://d.api.connect.fersofterp.com.br' if channel == 'develop' else 'https://api.connect.fersofterp.com.br'
     host = server.split('://', 1)[1]
@@ -92,243 +87,71 @@ def fersoft_overrides(channel, full):
         'TRACCAR_ADMIN_EMAIL': 'suporte@fersofterp.com.br',
         'KAFKA_BROKERS': f'kafka-{stack}:9092',
     }
-    if full:
-        values.update(FULL_STACK_DEFAULTS)
+    values.update(FULL_STACK_DEFAULTS)
     return values
 
 
-def compose_for(channel, full):
-    base = ROOT / f'deploy/{channel}/' / ('full-stack/compose.yaml' if full else 'compose.yaml')
-    compose = replace_identity(yaml.safe_load(base.read_text(encoding='utf-8')), channel)
+def compose_for(channel):
+    compose = replace_identity(
+        yaml.safe_load((ROOT / f'deploy/{channel}/compose.yaml').read_text(encoding='utf-8')),
+        channel,
+    )
     services = compose['services']
     services[f'docs-{suffix(channel)}'].pop('ports', None)
     for name, service in services.items():
         entrypoint = service.get('entrypoint', [])
         if name.startswith('traccar-bootstrap-') and entrypoint[:2] == ['node', '-e']:
             entrypoint[2] = LiteralBlock(entrypoint[2].rstrip())
-    text = yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
-    return text.replace(':-./volumes/', ':-../volumes/') if full else text
+        if name.startswith('volume-init-') and isinstance(service.get('command'), str):
+            service['command'] = LiteralBlock(service['command'].rstrip())
+    return yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
 
 
-def environment_for(channel, full):
-    base = ROOT / f'deploy/{channel}/' / ('full-stack/env.example' if full else 'env.example')
-    text = base.read_text(encoding='utf-8').replace(source_suffix(channel), suffix(channel))
-    for key, value in fersoft_overrides(channel, full).items():
+def environment_for(channel):
+    text = (ROOT / f'deploy/{channel}/env.example').read_text(encoding='utf-8')
+    text = text.replace(source_suffix(channel), suffix(channel))
+    for key, value in overrides(channel).items():
         text = ops.set_value(text, key, value)
-    if full:
-        text = text.replace('=./volumes/', '=../volumes/')
-        header = '# FERSOFT FULL STACK: 14 servicos, uma porta publica e canais isolados.\n'
-    else:
-        header = '# FERSOFT NORMAL: core oficial, uma porta publica e canais isolados.\n'
+    header = (
+        '# FERSOFT FULL STACK: um compose, um .env e os volumes existentes.\n'
+        '# Todos os services opcionais sao selecionados aqui; nao use arquivos auxiliares.\n'
+    )
     return header + text.replace(
         '# Duas portas locais publicadas: API e Connect|API DOCs. Manager permanece em /manager.',
         '# Uma porta local publicada: API. Manager e DOCs permanecem na API.',
     )
 
 
-def normal_preflight(channel):
-    text = (ROOT / f'deploy/{channel}/preflight.sh').read_text(encoding='utf-8')
-    kafka_line = '[[ "$profiles" == *,kafka,* || "$profiles" == *,extended,* ]] && image_vars+=(ARGWS_CONNECT_KAFKA_IMAGE ARGWS_CONNECT_ZOOKEEPER_IMAGE)\n'
-    mysql_line = '[[ "$profiles" == *,mysql,* ]] && image_vars+=(ARGWS_CONNECT_MYSQL_IMAGE)\n'
-    if mysql_line not in text:
-        text = text.replace(kafka_line, kafka_line + mysql_line)
-    return text.replace(f'Preflight {channel} concluido.', f'Preflight Fersoft {channel} concluido.')
+def readme():
+    return '''# Deployments Fersoft
 
+Cada diretório (`develop/` e `production/`) contém somente `compose.yaml` e
+`env.example`. Em uma instalação existente, mantenha o `.env` atual e os
+diretórios `./volumes/*`; não copie nem execute auxiliares externos.
 
-def normal_deploy(channel, update=False):
-    name = 'update.sh' if update else 'deploy.sh'
-    text = (ROOT / f'deploy/{channel}/{name}').read_text(encoding='utf-8')
-    source_host = 'https://d.api.connect.argws.com.br' if channel == 'develop' else 'https://api.connect.argws.com.br'
-    target_host = 'https://d.api.connect.fersofterp.com.br' if channel == 'develop' else 'https://api.connect.fersofterp.com.br'
-    text = text.replace(source_host, target_host)
-    text = re.sub(r'^echo "DOCs local:.*\n', '', text, flags=re.M)
-    return with_volume_hook(text)
+A full stack é selecionada pelo próprio `.env`:
 
+```dotenv
+COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar
+OPERATIONS_ENABLED=true
+NATS_ENABLED=true
+KAFKA_ENABLED=true
+MYSQL_SERVICE_ENABLED=true
+TRACCAR_ENABLED=true
+```
 
-def recover_full_stack(channel):
-    stack = suffix(channel)
-    auxiliary = ' '.join(f'{service}-{stack}' for service in ('mysql', 'kafka', 'zookeeper'))
-    return f'''#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-python3 ./prepare-operations-env.py --check
-export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"
-docker compose --env-file .env -f compose.yaml config --quiet
-expected="$(docker compose --env-file .env -f compose.yaml config --services | wc -l | tr -d '[:space:]')"
-[[ "$expected" == "14" ]] || {{ echo "ERRO: esta recuperacao requer os 14 servicos locais selecionados no .env." >&2; exit 2; }}
-docker compose --env-file .env -f compose.yaml pull
-# Stop only the three auxiliary services whose bind permissions are checked below.
-docker compose --env-file .env -f compose.yaml stop {auxiliary} || true
-python3 ./prepare-volumes.py --compose-file compose.yaml
-docker compose --env-file .env -f compose.yaml up -d --pull never
-python3 ./check-runtime.py --expected 14
+Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
+O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos
+de runtime já pertencem às imagens dos services.
 '''
-
-
-def backup_script(levels):
-    return f'''#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-exec {'../' * levels}scripts/connect-stack-backup.sh backup --stack-dir . --compose-file compose.yaml
-'''
-
-
-def verify_script(levels):
-    return f'''#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-[[ $# -eq 1 ]] || {{ echo "Uso: $0 arquivo.connectbak" >&2; exit 2; }}
-exec {'../' * levels}scripts/connect-stack-backup.sh verify --stack-dir . --compose-file compose.yaml --file "$1"
-'''
-
-
-def full_preflight():
-    return '''#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-python3 ./prepare-env.py --check
-docker compose --env-file .env -f compose.yaml config --quiet
-echo "Preflight Fersoft full stack concluido."
-'''
-
-
-def full_deploy(update=False):
-    backup = '''if docker compose --env-file .env -f compose.yaml ps -q 2>/dev/null | grep -q .; then
-  echo "Criando backup Connect|API antes da atualizacao..."
-  BACKUP_FILE="$(./backup.sh)"
-  ./verify-backup.sh "$BACKUP_FILE"
-fi
-''' if update else ''
-    return '''#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-python3 ./prepare-env.py --check
-docker compose --env-file .env -f compose.yaml config --quiet
-docker compose --env-file .env -f compose.yaml pull
-python3 ./prepare-volumes.py --compose-file compose.yaml
-''' + backup + '''docker compose --env-file .env -f compose.yaml up -d --pull never
-python3 ./check-runtime.py --expected 14
-'''
-
-
-def readme(channel, full):
-    mode = 'full stack (14 servicos)' if full else 'normal (core oficial e profiles opt-in)'
-    data = '../volumes' if full else './volumes'
-    source = f'deploy/{channel}' + ('/full-stack' if full else '')
-    migration = ' Leia MIGRACAO-FULL-STACK-FERSOFT.md antes de migrar um pacote Fersoft anterior.' if full else ''
-    return f'''# Fersoft - {channel} - {mode}
-
-Este deploy e independente do outro canal Fersoft. Projeto, rede, banco, porta e dados nao sao compartilhados.
-Somente a API publica porta no host; Manager e DOCs ficam em /manager e /manager/docs.
-
-As referencias de imagem sao herdadas sem alteracao de {source}; nao ha politica, tag ou workflow GHCR Fersoft.
-Dados: {data}.
-Nunca execute down -v, chmod 777 ou chown -R.
-
-Instalar:
-  ./prepare-env.sh
-  ./deploy.sh
-
-Atualizar:
-  ./update.sh
-
-Recuperar uma full stack configurada com todos os 14 servicos, sem remover dados ou trocar segredos:
-  ./recover-full-stack.sh
-
-Antes de iniciar Kafka, ZooKeeper e MySQL, os scripts preparam apenas binds vazios para o UID/GID real
-das imagens. Diretorios ja gravados e sem permissao sao recusados sem alteracao; a stack nao e marcada como
-saudavel ate que os probes reais passem. O bootstrap Traccar esta incorporado ao proprio `compose.yaml`;
-o runtime nao requer arquivo de codigo externo.{migration}
-'''
-
-
-def migration(channel):
-    return f'''# Migracao Fersoft full stack - {channel}
-
-O pacote antigo iniciava MySQL, Kafka e ZooKeeper sem preparar os binds. Este perfil preserva o projeto
-{suffix(channel)}, a rede e os dados existentes em ../volumes, mas executa a preparacao segura antes do start.
-
-1. Faça backup privado do .env, volumes e chaves.
-2. Copie este diretorio full-stack para dentro da instalacao Fersoft atual.
-3. No novo diretorio, execute:
-   bash prepare-env.sh --from-env ../.env
-   bash deploy.sh
-
-A importacao preserva senhas, chaves, caminhos e configuracoes. Production aplica somente GHCR
-as mesmas referencias do template ARGWS de production; develop faz o mesmo com o template de develop.
-
-Se prepare-volumes.py recusar um diretorio nao vazio sem permissao, nenhum dado foi alterado. Preserve e
-inspecione antes de qualquer acao manual. Nunca apague volumes, use chmod 777 ou chown recursivo para esconder
-a falha.
-'''
-
-
-def normal_files(channel):
-    folder = Path('deploy/fersoft') / channel
-    return {
-        folder / 'compose.yaml': '# Generated Fersoft deployment. Do not edit by hand.\n' + compose_for(channel, False),
-        folder / 'env.example': environment_for(channel, False),
-        folder / 'README.md': readme(channel, False),
-        folder / 'prepare-env.sh': (ROOT / f'deploy/{channel}/prepare-env.sh').read_text(encoding='utf-8'),
-        folder / 'preflight.sh': normal_preflight(channel),
-        folder / 'deploy.sh': normal_deploy(channel),
-        folder / 'update.sh': normal_deploy(channel, update=True),
-        folder / 'status.sh': (ROOT / f'deploy/{channel}/status.sh').read_text(encoding='utf-8'),
-        folder / 'registry-login.sh': (ROOT / f'deploy/{channel}/registry-login.sh').read_text(encoding='utf-8'),
-        folder / 'backup.sh': backup_script(3),
-        folder / 'verify-backup.sh': verify_script(3),
-        folder / 'prepare-operations-env.py': (ROOT / 'scripts/prepare-operations-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-findhub-env.py': (ROOT / 'scripts/prepare-findhub-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-traccar-env.py': (ROOT / 'scripts/prepare-traccar-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-volumes.py': (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text(encoding='utf-8'),
-        folder / 'check-runtime.py': (ROOT / 'scripts/check-full-stack-runtime.py').read_text(encoding='utf-8'),
-        folder / 'recover-full-stack.sh': recover_full_stack(channel),
-    }
-
-
-def full_files(channel):
-    folder = Path('deploy/fersoft') / channel / 'full-stack'
-    return {
-        folder / 'compose.yaml': '# Generated Fersoft full-stack deployment. Do not edit by hand.\n' + compose_for(channel, True),
-        folder / 'env.example': environment_for(channel, True),
-        folder / 'README.md': readme(channel, True),
-        folder / 'MIGRACAO-FULL-STACK-FERSOFT.md': migration(channel),
-        folder / 'prepare-env.py': (ROOT / 'scripts/prepare-full-stack-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-env.sh': '#!/usr/bin/env bash\nset -euo pipefail\ncd "$(dirname "$0")"\npython3 ./prepare-env.py "$@"\n',
-        folder / 'preflight.sh': full_preflight(),
-        folder / 'deploy.sh': full_deploy(),
-        folder / 'update.sh': full_deploy(update=True),
-        folder / 'status.sh': '#!/usr/bin/env bash\nset -euo pipefail\ncd "$(dirname "$0")"\ndocker compose --env-file .env -f compose.yaml ps\n',
-        folder / 'registry-login.sh': (ROOT / f'deploy/{channel}/registry-login.sh').read_text(encoding='utf-8'),
-        folder / 'backup.sh': backup_script(4),
-        folder / 'verify-backup.sh': verify_script(4),
-        folder / 'prepare-operations-env.py': (ROOT / 'scripts/prepare-operations-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-findhub-env.py': (ROOT / 'scripts/prepare-findhub-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-traccar-env.py': (ROOT / 'scripts/prepare-traccar-env.py').read_text(encoding='utf-8'),
-        folder / 'prepare-volumes.py': (ROOT / 'scripts/prepare-full-stack-volumes.py').read_text(encoding='utf-8'),
-        folder / 'check-runtime.py': (ROOT / 'scripts/check-full-stack-runtime.py').read_text(encoding='utf-8'),
-    }
 
 
 def generate():
-    files = {
-        Path('deploy/fersoft/README.md'): '''# Deployments Fersoft
-
-Quatro perfis sao mantidos sem remover os deploys oficiais existentes.
-
-develop/: normal, derivado de deploy/develop.
-develop/full-stack/: 14 servicos, derivado de deploy/develop/full-stack.
-production/: normal, derivado de deploy/production.
-production/full-stack/: 14 servicos, derivado de deploy/production/full-stack.
-
-Cada perfil aponta para nomes de projeto, rede, servicos internos, banco, dominio e dados Fersoft.
-As imagens e referencias GHCR sao exatamente as do template de origem e nao sao reescritas por este gerador.
-Full stack e alternativa ao normal do mesmo canal e compartilha somente os dados daquele canal em ../volumes.
-'''
-    }
+    files = {Path('deploy/fersoft/README.md'): readme()}
     for channel in CHANNELS:
-        files.update(normal_files(channel))
-        files.update(full_files(channel))
+        folder = Path('deploy/fersoft') / channel
+        files[folder / 'compose.yaml'] = '# Generated Fersoft Compose deployment. Do not edit by hand.\n' + compose_for(channel)
+        files[folder / 'env.example'] = environment_for(channel)
     return files
 
 
@@ -344,8 +167,6 @@ def main():
             if not args.check:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding='utf-8')
-                if path.suffix in ('.sh', '.py'):
-                    path.chmod(0o755)
     if args.check and changed:
         raise SystemExit('Deploys Fersoft desatualizados: ' + ', '.join(changed))
     print('Deploys Fersoft sincronizados: ' + str(len(changed)))

@@ -31,6 +31,7 @@ CASES = [
     ('deploy/cloudpanel/docker-compose.yml', 'api', 'operations', 'argws-connect-net', 'latest', True),
     ('deploy/dockge/compose.yaml', 'api', 'operations', 'argws-connect-net', 'latest', True),
 ]
+COMPOSE_ONLY_CASES = ['deploy/canonical/compose.yaml']
 VOLUME_CASES = [
     ('.', 'docker-compose.yaml'),
     ('deploy/develop', 'compose.yaml'),
@@ -214,30 +215,17 @@ def env_text(text):
     return text
 
 
-def wrapper():
-    return '''#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-command -v python3 >/dev/null 2>&1 || { echo "ERRO: python3 necessario para preparar o ambiente com seguranca."; exit 1; }
-python3 ./prepare-operations-env.py --env-file .env --template env.example "$@"
-'''
-
-
-def with_volume_preparation(text, compose_file):
-    """Run the finite bind preparation after images are local and before any container starts."""
-    hook = f'python3 ./prepare-volumes.py --compose-file {compose_file}\n'
-    text = re.sub(r'^python3 \./prepare-volumes\.py --compose-file [^\n]+\n', '', text, flags=re.M)
-    match = re.search(r'^docker compose\b[^\n]*\bpull\b[^\n]*\n', text, re.M)
-    if not match:
-        raise ValueError('Unknown installer pull step: ' + compose_file)
-    return text[:match.end()] + hook + text[match.end():]
-
-
 def generate(root):
+    """Synchronize declarative templates only.
+
+    An installed stack is Compose + .env + its persisted volumes.  Repository
+    maintenance helpers must never be copied into a deployment directory.
+    """
     outputs = {}
-    helper = (root / 'scripts/prepare-operations-env.py').read_text()
     for path, api, agent, network, image, full in CASES:
         outputs[path] = compose_text((root / path).read_text(), api, agent, network, image, full)
+    for path in COMPOSE_ONLY_CASES:
+        outputs[path] = (root / path).read_text()
     for path, api, network in MYSQL_CASES:
         source = outputs.get(path, (root / path).read_text())
         outputs[path] = ensure_optional_mysql(source, api, network)
@@ -262,47 +250,8 @@ def generate(root):
             else:
                 template = template.rstrip() + '\n' + line + '\n'
         outputs[path] = template
-    for directory in ['.'] + directories:
-        prefix = '' if directory == '.' else directory + '/'
-        outputs[prefix + 'prepare-operations-env.py'] = helper
-        outputs[prefix + 'prepare-env.sh'] = wrapper()
-        compose = 'docker-compose.yaml' if directory == '.' else 'docker-compose.yml' if directory.endswith('cloudpanel') else 'compose.yaml'
-        for script in ('deploy.sh', 'update.sh', 'preflight.sh'):
-            path = prefix + script
-            if (root / path).exists():
-                text = (root / path).read_text()
-                if script != 'preflight.sh':
-                    text = re.sub(r'^\./prepare-env\.sh\s*\n', '', text, flags=re.M)
-                    hook = './prepare-env.sh\nexport COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"\n'
-                else:
-                    hook = 'python3 ./prepare-operations-env.py --check\nexport COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"\n'
-                text = re.sub(r'^export COMPOSE_PROFILES="\$\(python3 \./prepare-operations-env.py --print-profiles\)"\n', '', text, flags=re.M)
-                text = re.sub(r'^python3 \./prepare-operations-env.py --check\n', '', text, flags=re.M)
-                needle = 'cd "$(dirname "$0")"\n'
-                if needle not in text:
-                    raise ValueError('Unknown installer entry point: ' + path)
-                text = text.replace(needle, needle + hook, 1)
-                if directory.endswith('cloudpanel'):
-                    text = text.replace('-f compose.yaml', '-f docker-compose.yml')
-                outputs[path] = text
-            else:
-                text = '#!/usr/bin/env bash\nset -euo pipefail\ncd "$(dirname "$0")"\n'
-                text += 'python3 ./prepare-operations-env.py --check\n' if script == 'preflight.sh' else './prepare-env.sh\n'
-                text += 'export COMPOSE_PROFILES="$(python3 ./prepare-operations-env.py --print-profiles)"\n'
-                text += f'docker compose --env-file .env -f {compose} config --quiet\n'
-                if script != 'preflight.sh':
-                    text += f'docker compose --env-file .env -f {compose} pull\n'
-                    if script == 'update.sh':
-                        text += f'''if docker compose --env-file .env -f {compose} ps -q | grep -q .; then
-  echo "Criando e verificando backup antes da atualizacao (aguarde janela sem chamadas)."
-  BACKUP_FILE="$(bash ./backup.sh)"
-  bash ./verify-backup.sh "$BACKUP_FILE"
-fi
-'''
-                    text += f'docker compose --env-file .env -f {compose} up -d\ndocker compose --env-file .env -f {compose} ps\n'
-                outputs[path] = text
     # Preserve Find Hub in the existing operations scope only. The independent
-    # Find Hub generator owns its additional canonical/docs/Swarm deployment files.
+    # Find Hub generator owns its additional canonical/docs/Swarm Compose files.
     from runpy import run_path
     findhub = run_path(str(root / 'scripts/sync-findhub-deployments.py'))
     additions = findhub['generate'](root, overrides=outputs)
@@ -311,14 +260,6 @@ fi
     additions = traccar['generate'](root, overrides=outputs)
     outputs.update({path: content for path, content in additions.items() if path in outputs})
 
-    volume_helper = (root / 'scripts/prepare-full-stack-volumes.py').read_text()
-    for directory, compose_file in VOLUME_CASES:
-        prefix = '' if directory == '.' else directory + '/'
-        outputs[prefix + 'prepare-volumes.py'] = volume_helper
-        for script in ('deploy.sh', 'update.sh'):
-            path = prefix + script
-            source = outputs.get(path, (root / path).read_text())
-            outputs[path] = with_volume_preparation(source, compose_file)
     return outputs
 
 
@@ -334,8 +275,6 @@ def main():
             changed.append(path)
             if not args.check:
                 target.write_text(text)
-        if not args.check and path.endswith('.sh'):
-            target.chmod(0o755)
     if args.check and changed:
         raise SystemExit('Operations deployment templates out of sync: ' + ', '.join(changed))
     print('Operations deployment contract: ' + ('verified' if args.check else f'{len(changed)} files synchronized'))

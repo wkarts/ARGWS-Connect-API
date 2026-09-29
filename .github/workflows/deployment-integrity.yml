@@ -76,7 +76,7 @@ jobs:
               },
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
-          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'traccar', 'traccar-postgres', 'traccar-bootstrap')
+          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'volume-init')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
@@ -89,6 +89,7 @@ jobs:
               'traccar': 'ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine',
               'traccar-postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'traccar-bootstrap': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
+              'volume-init': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
           }
 
           def env_values(path):
@@ -166,6 +167,15 @@ jobs:
               assert mysql.get('profiles') == ['mysql'], f'{stack}: MySQL auxiliar deve ser opcional'
               assert f'mysql-{suffix}' not in api_service.get('depends_on', {}), f'{stack}: MySQL nao pode bloquear a API PostgreSQL'
               assert not mysql.get('privileged') and not mysql.get('network_mode'), f'{stack}: MySQL deve usar somente a rede interna'
+
+              volume_init = full['services'][f'volume-init-{suffix}']
+              assert volume_init.get('profiles') == ['kafka', 'extended'], f'{stack}: volume-init deve acompanhar Kafka'
+              assert volume_init.get('read_only') is True and not volume_init.get('privileged'), f'{stack}: volume-init deve ser limitado'
+              assert 'ALL' in volume_init.get('cap_drop', []), f'{stack}: volume-init deve remover capabilities por padrao'
+              assert set(volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: volume-init recebeu capabilities indevidas'
+              for resource in ('zookeeper', 'kafka'):
+                  dependency = full['services'][f'{resource}-{suffix}'].get('depends_on', {})
+                  assert dependency[f'volume-init-{suffix}']['condition'] == 'service_completed_successfully', f'{stack}: {resource} deve aguardar volume-init'
 
               if stack in ('production', 'develop'):
                   agent_name = f'operations-{suffix}'
@@ -317,15 +327,11 @@ jobs:
           print('Auxiliary DOCs deployment contract OK')
           PY
 
-      - name: Validate deployment scripts
+      - name: Validate Compose plus environment deployment contract
         run: |
           set -euo pipefail
-          for dir in deploy/production deploy/develop deploy/canonical; do
-            for script in prepare-env.sh deploy.sh update.sh status.sh preflight.sh registry-login.sh; do
-              test -x "$dir/$script"
-              bash -n "$dir/$script"
-            done
-          done
+          ! find deploy -type f \( -name '*.py' -o -name '*.sh' -o -name '*.cjs' \) -print -quit | grep -q .
+          ! find deploy -type d -name full-stack -print -quit | grep -q .
 
       - name: Login GHCR for image checks
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

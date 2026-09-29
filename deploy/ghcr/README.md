@@ -68,7 +68,7 @@ Um repositório público não garante que todos os packages do GHCR estejam púb
 ```bash
 export GHCR_USERNAME=wkarts
 export GHCR_TOKEN='PAT_COM_READ_PACKAGES'
-./registry-login.sh
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 ```
 
 O token de registry não deve ser armazenado no `.env` entregue à API.

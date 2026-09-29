@@ -24,7 +24,7 @@ def assess(containers, expected):
         state = item.get('State', {})
         status = state.get('Status', 'unknown')
         health = state.get('Health', {}).get('Status', 'not-configured')
-        oneshot = service.startswith('traccar-bootstrap-')
+        oneshot = service.startswith(('traccar-bootstrap-', 'volume-init-')) or service == 'volume-init'
         ready = (status == 'exited' and state.get('ExitCode') == 0) if oneshot else (
             status == 'running' and state.get('Running') and not state.get('Restarting')
             and health in ('healthy', 'not-configured'))
