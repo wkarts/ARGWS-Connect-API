@@ -486,26 +486,28 @@ services:
     - /bin/bash
     - -ec
     command:
-    - "set -Eeuo pipefail\ndata_directory=\"$${PGDATA:-/var/lib/postgresql/data}\"\nif [ ! -s \"$$data_directory/PG_VERSION\"\
-      \ ]; then\n  exec /usr/local/bin/docker-entrypoint.sh postgres\nfi\n: \"$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD\
-      \ nao configurada}\"\n/usr/local/bin/docker-entrypoint.sh postgres &\npostgres_pid=\"$$!\"\nstop_postgres() {\n  kill\
-      \ -TERM \"$$postgres_pid\" 2>/dev/null || true\n  wait \"$$postgres_pid\" || true\n  exit 0\n}\ntrap stop_postgres INT\
-      \ TERM\n\nadmin=\"\"\nfor candidate in postgres traccar; do\n  for attempt in $$(seq 1 60); do\n    if psql --no-password\
-      \ -h /var/run/postgresql -U \"$$candidate\" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then\n      admin=\"$$candidate\"\
-      \n      break 2\n    fi\n    if [ \"$$candidate\" = postgres ] && command -v gosu >/dev/null 2>&1 && gosu postgres psql\
-      \ --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then\n      admin=\"\
-      postgres\"\n      break 2\n    fi\n    sleep 1\n  done\ndone\nif [ -z \"$$admin\" ]; then\n  echo 'Nao foi possivel\
-      \ validar a administracao local do PostgreSQL do Traccar.' >&2\n  kill -TERM \"$$postgres_pid\" 2>/dev/null || true\n\
-      \  wait \"$$postgres_pid\" || true\n  exit 31\nfi\n\nrole_exists=\"$$(psql --no-password -h /var/run/postgresql -U \"\
-      $$admin\" -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname = 'traccar'\")\"\nrole_created=false\nif [ \"$$role_exists\"\
-      \ != 1 ]; then\n  psql --no-password -v ON_ERROR_STOP=1 -v traccar_password=\"$$TRACCAR_DATABASE_PASSWORD\" -h /var/run/postgresql\
-      \ -U \"$$admin\" -d postgres -c \"CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'\"\n  role_created=true\nfi\n\
-      database_exists=\"$$(psql --no-password -h /var/run/postgresql -U \"$$admin\" -d postgres -tAc \"SELECT 1 FROM pg_database\
-      \ WHERE datname = 'traccar'\")\"\nif [ \"$$database_exists\" != 1 ]; then\n  psql --no-password -v ON_ERROR_STOP=1 -h\
-      \ /var/run/postgresql -U \"$$admin\" -d postgres -c 'CREATE DATABASE traccar OWNER traccar'\nelif [ \"$$role_created\"\
-      \ = true ]; then\n  psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U \"$$admin\" -d postgres -c 'ALTER\
-      \ DATABASE traccar OWNER TO traccar'\nfi\nPGPASSWORD=\"$$TRACCAR_DATABASE_PASSWORD\" psql --no-password -h 127.0.0.1\
-      \ -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1\nwait \"$$postgres_pid\"\n"
+    - "set -Eeuo pipefail\n: \"$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}\"\ndata_directory=\"\
+      $${PGDATA:-/var/lib/postgresql/data}\"\n\n# Empty volume: retain the upstream PostgreSQL initialization behavior.\n\
+      if [ ! -s \"$$data_directory/PG_VERSION\" ]; then\n  exec /usr/local/bin/docker-entrypoint.sh postgres\nfi\n\n# Existing\
+      \ volume: preserve data and reconcile only the missing Traccar identity.\nif ! command -v gosu >/dev/null 2>&1; then\n\
+      \  echo 'gosu nao esta disponivel na imagem PostgreSQL do Traccar.' >&2\n  exit 30\nfi\n/usr/local/bin/docker-entrypoint.sh\
+      \ postgres &\npostgres_pid=\"$$!\"\nstop_postgres() {\n  kill -TERM \"$$postgres_pid\" 2>/dev/null || true\n  wait \"\
+      $$postgres_pid\" || true\n  exit 0\n}\ntrap stop_postgres INT TERM\n\npostgres_ready=false\nfor attempt in $$(seq 1\
+      \ 60); do\n  if gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null\
+      \ 2>&1; then\n    postgres_ready=true\n    break\n  fi\n  if ! kill -0 \"$$postgres_pid\" 2>/dev/null; then\n    wait\
+      \ \"$$postgres_pid\" || true\n    exit 31\n  fi\n  sleep 1\ndone\nif [ \"$$postgres_ready\" != true ]; then\n  echo\
+      \ 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2\n  kill -TERM \"$$postgres_pid\" 2>/dev/null\
+      \ || true\n  wait \"$$postgres_pid\" || true\n  exit 31\nfi\n\nrole_exists=\"$$(gosu postgres psql --no-password -h\
+      \ /var/run/postgresql -U postgres -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname = 'traccar'\")\"\nrole_created=false\n\
+      if [ \"$$role_exists\" != 1 ]; then\n  gosu postgres psql --no-password -v ON_ERROR_STOP=1 -v traccar_password=\"$$TRACCAR_DATABASE_PASSWORD\"\
+      \ -h /var/run/postgresql -U postgres -d postgres -c \"CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'\"\n  role_created=true\n\
+      fi\n\ndatabase_exists=\"$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc \"SELECT\
+      \ 1 FROM pg_database WHERE datname = 'traccar'\")\"\nif [ \"$$database_exists\" != 1 ]; then\n  gosu postgres psql --no-password\
+      \ -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'CREATE DATABASE traccar OWNER traccar'\nelif\
+      \ [ \"$$role_created\" = true ]; then\n  gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql\
+      \ -U postgres -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'\nfi\n\n# Existing role passwords are intentionally\
+      \ never changed.\nPGPASSWORD=\"$$TRACCAR_DATABASE_PASSWORD\" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc\
+      \ 'SELECT 1' | grep -qx 1\nwait \"$$postgres_pid\"\n"
     volumes:
     - ${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data
     networks:
