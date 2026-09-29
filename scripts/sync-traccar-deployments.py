@@ -284,6 +284,7 @@ def generate(root, overrides=None):
       POSTGRES_DB: traccar
       POSTGRES_USER: traccar
       POSTGRES_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
+      TRACCAR_DATABASE_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
     entrypoint: ["/bin/bash", "-ec"]
     command:
       - |
