@@ -81,7 +81,12 @@ jobs:
           cleanup() {
             docker compose --env-file "$runtime_env" -f deploy/fersoft/production/compose.yaml --profile traccar down --remove-orphans || true
             docker rm -f traccar-legacy-init || true
-            rm -rf "$legacy_data" "$runtime_env"
+            # PostgreSQL owns its initialized files. Remove them from a disposable
+            # container instead of letting a permission-only cleanup failure mask
+            # a successful recovery assertion on the GitHub runner.
+            docker run --rm --user 0:0 -v "$legacy_data:/data" postgres:15 sh -ec 'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +' || true
+            rmdir "$legacy_data" || true
+            rm -f "$runtime_env" || true
           }
           trap cleanup EXIT
 
