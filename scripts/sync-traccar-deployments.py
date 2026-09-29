@@ -159,58 +159,6 @@ def add_mysql_volume_init(text, base, network, suffix):
  offset=header.end()+end_services.start() if end_services else len(text)
  return text[:offset]+mysql_volume_init_service(init, network, bool(suffix))+'\n'+text[offset:]
 
-def traccar_postgres_command():
- return '''set -Eeuo pipefail
-data_directory="$${PGDATA:-/var/lib/postgresql/data}"
-if [ ! -s "$$data_directory/PG_VERSION" ]; then
-  exec /usr/local/bin/docker-entrypoint.sh postgres
-fi
-: "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
-/usr/local/bin/docker-entrypoint.sh postgres &
-postgres_pid="$$!"
-stop_postgres() {
-  kill -TERM "$$postgres_pid" 2>/dev/null || true
-  wait "$$postgres_pid" || true
-  exit 0
-}
-trap stop_postgres INT TERM
-
-admin=""
-for candidate in postgres traccar; do
-  for attempt in $$(seq 1 60); do
-    if psql --no-password -h /var/run/postgresql -U "$$candidate" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
-      admin="$$candidate"
-      break 2
-    fi
-    if [ "$$candidate" = postgres ] && command -v gosu >/dev/null 2>&1 && gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
-      admin="postgres"
-      break 2
-    fi
-    sleep 1
-  done
-done
-if [ -z "$$admin" ]; then
-  echo 'Nao foi possivel validar a administracao local do PostgreSQL do Traccar.' >&2
-  kill -TERM "$$postgres_pid" 2>/dev/null || true
-  wait "$$postgres_pid" || true
-  exit 31
-fi
-
-role_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
-role_created=false
-if [ "$$role_exists" != 1 ]; then
-  psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U "$$admin" -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
-  role_created=true
-fi
-database_exists="$$(psql --no-password -h /var/run/postgresql -U "$$admin" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
-if [ "$$database_exists" != 1 ]; then
-  psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
-elif [ "$$role_created" = true ]; then
-  psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$$admin" -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
-fi
-PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1
-wait "$$postgres_pid"'''
-
 def generate(root, overrides=None):
  overrides = overrides or {}
  read = lambda path: overrides.get(str(path), (root/path).read_text() if (root/path).exists() else "")
@@ -238,7 +186,6 @@ def generate(root, overrides=None):
   suffix=api[3:] if api.startswith('api-') else ''
   tracker='traccar'+suffix;db='traccar-postgres'+suffix;bootstrap='traccar-bootstrap'+suffix
   bootstrap_source='\n'.join(('          '+line) if line else '' for line in bootstrap_program(root).splitlines())
-  postgres_command='\n'.join(('        '+line) if line else '' for line in traccar_postgres_command().splitlines())
   swarm='Docker/swarm/' in name
   optional='    deploy:\n      replicas: ${TRACCAR_REPLICAS:-0}\n' if swarm else '    profiles: [traccar]\n'
   restart='' if swarm else '    restart: unless-stopped\n'
@@ -285,19 +232,15 @@ def generate(root, overrides=None):
       POSTGRES_USER: traccar
       POSTGRES_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
       TRACCAR_DATABASE_PASSWORD: ${{TRACCAR_DATABASE_PASSWORD:-}}
-    entrypoint: ["/bin/bash", "-ec"]
-    command:
-      - |
-{postgres_command}
     volumes:
       - ${{ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}}:/var/lib/postgresql/data
     networks: [{network}]
     healthcheck:
-      test: ['CMD-SHELL', 'PGPASSWORD="$${{TRACCAR_DATABASE_PASSWORD}}" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT 1" | grep -qx 1']
+      test: ['CMD-SHELL', 'pg_isready -U "$${{POSTGRES_USER}}" -d "$${{POSTGRES_DB}}"']
       interval: 10s
       timeout: 5s
       retries: 15
-      start_period: 75s
+      start_period: 20s
   {bootstrap}:
 {bootstrap_optional}    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     pull_policy: always

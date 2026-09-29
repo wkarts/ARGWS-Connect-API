@@ -88,14 +88,24 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             services['mysql-fersoft-connect-production']['depends_on']['mysql-volume-init-fersoft-connect-production']['condition'],
             'service_healthy',
         )
+        traccar_postgres = services['traccar-postgres-fersoft-connect-production']
+        primary_postgres = services['postgres-fersoft-connect-production']
+        self.assertNotEqual(primary_postgres['volumes'], traccar_postgres['volumes'])
         self.assertEqual(
-            services['traccar-postgres-fersoft-connect-production']['entrypoint'],
-            ['/bin/bash', '-ec'],
+            primary_postgres['volumes'],
+            ['${ARGWS_CONNECT_POSTGRES_DATA_PATH:-./volumes/postgres}:/var/lib/postgresql/data'],
         )
         self.assertEqual(
-            services['traccar-postgres-fersoft-connect-production']['environment']['TRACCAR_DATABASE_PASSWORD'],
+            traccar_postgres['volumes'],
+            ['${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data'],
+        )
+        self.assertNotIn('entrypoint', traccar_postgres)
+        self.assertNotIn('command', traccar_postgres)
+        self.assertEqual(
+            traccar_postgres['environment']['TRACCAR_DATABASE_PASSWORD'],
             '${TRACCAR_DATABASE_PASSWORD:-}',
         )
+        self.assertIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']
         self.assertEqual(bootstrap['restart'], 'unless-stopped')
         self.assertIn('traccar-bootstrap-ready', command_text(bootstrap))

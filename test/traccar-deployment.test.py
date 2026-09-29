@@ -41,10 +41,21 @@ class TraccarDeployment(unittest.TestCase):
    self.assertIn("node - <<'NODE'",command,name);self.assertIn('Traccar interno validado.',command,name);self.assertIn('traccar-bootstrap-ready',command,name)
    self.assertIn('healthcheck',bootstrap[0],name)
    databases=[service for service_name,service in services.items() if service_name.startswith('traccar-postgres')]
-   self.assertEqual(len(databases),1,name);self.assertEqual(databases[0].get('entrypoint'),['/bin/bash','-ec'],name)
-   self.assertEqual(databases[0].get('environment',{}).get('TRACCAR_DATABASE_PASSWORD'),'${TRACCAR_DATABASE_PASSWORD:-}',f'{name}: bootstrap persistente requer a variavel interna')
-   database_command=databases[0].get('command');database_command=database_command[0] if isinstance(database_command,list) else database_command
-   self.assertIn('CREATE ROLE traccar LOGIN',database_command,name);self.assertIn('ALTER DATABASE traccar OWNER TO traccar',database_command,name)
+   self.assertEqual(len(databases),1,name);database=databases[0]
+   self.assertNotIn('entrypoint',database,name);self.assertNotIn('command',database,name)
+   environment=database.get('environment',{})
+   self.assertEqual(environment.get('POSTGRES_DB'),'traccar',name)
+   self.assertEqual(environment.get('POSTGRES_USER'),'traccar',name)
+   self.assertEqual(environment.get('POSTGRES_PASSWORD'),'${TRACCAR_DATABASE_PASSWORD:-}',name)
+   self.assertEqual(environment.get('TRACCAR_DATABASE_PASSWORD'),'${TRACCAR_DATABASE_PASSWORD:-}',name)
+   healthcheck=' '.join(database['healthcheck']['test'])
+   self.assertIn('pg_isready',healthcheck,name);self.assertNotIn('psql --no-password',healthcheck,name)
+   primary=[service for service_name,service in services.items() if service_name.startswith('postgres')]
+   if primary:
+    self.assertEqual(len(primary),1,name)
+    self.assertNotEqual(primary[0].get('volumes',[]),database.get('volumes',[]),name)
+   traccar_volumes=database.get('volumes',[])
+   self.assertTrue(any('traccar-postgres' in str(volume) for volume in traccar_volumes),name)
    self.assertNotIn('volumes',bootstrap[0],name)
    for service in services.values():
     for volume in service.get('volumes',[]):
