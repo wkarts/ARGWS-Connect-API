@@ -3,7 +3,6 @@ import importlib.util
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,11 +13,15 @@ spec.loader.exec_module(sync)
 for relative, api, agent, network, image, full in sync.CASES:
     compose = ROOT / relative
     directory = compose.parent
-    subprocess.run([sys.executable, str(directory / 'prepare-operations-env.py'), '--env-file', str(directory / '.env'), '--template', str(directory / 'env.example')], check=True, stdout=subprocess.DEVNULL)
     def model(enabled):
-        env = {**os.environ, 'OPERATIONS_ENABLED': str(enabled).lower(), 'COMPOSE_PROFILES': 'operations' if enabled else ''}
+        env = {
+            **os.environ,
+            'OPERATIONS_ENABLED': str(enabled).lower(),
+            'COMPOSE_PROFILES': 'operations' if enabled else '',
+            'OPERATIONS_INTERNAL_TOKEN': 'compose-contract-token-' + ('x' * 48),
+        }
         env.pop('COMPOSE_FILE', None)
-        command = ['docker', 'compose', '--project-directory', str(directory), '--env-file', str(directory / '.env'), '-f', str(compose), 'config', '--format', 'json']
+        command = ['docker', 'compose', '--project-directory', str(directory), '--env-file', str(directory / 'env.example'), '-f', str(compose), 'config', '--format', 'json']
         return json.loads(subprocess.check_output(command, env=env, text=True))
     enabled, disabled = model(True), model(False)
     assert agent in enabled['services'] and agent not in disabled['services'], relative

@@ -60,6 +60,7 @@ lerna-debug.log*
 # Local-template regression suites are part of the reviewed feature.
 !/test/local-templates.test.ts
 !/test/local-template.database.test.ts
+!/test/compose-env-only-deployments.test.py
 
 # Multi-device voice regression suites must travel with the dependency correction.
 !/test/zapo-voip-installer.test.cjs

@@ -535,22 +535,22 @@ services:
     - -ec
     command: |-
       prepare_directory() {
-        path="$1"
-        owner="$2"
-        label="$3"
-        mkdir -p "$path"
-        if [ -n "$(ls -A "$path")" ]; then
-          actual="$(stat -c '%u:%g' "$path")"
-          [ "$actual" = "$owner" ] || {
-            echo "$label contem dados e pertence a $actual; esperado $owner. Nenhum dado foi alterado." >&2
+        path="$$1"
+        owner="$$2"
+        label="$$3"
+        mkdir -p "$$path"
+        if [ -n "$$(ls -A "$$path")" ]; then
+          actual="$$(stat -c '%u:%g' "$$path")"
+          [ "$$actual" = "$$owner" ] || {
+            echo "$$label contem dados e pertence a $$actual; esperado $$owner. Nenhum dado foi alterado." >&2
             exit 23
           }
-          echo "$label preservado"
+          echo "$$label preservado"
           return
         fi
-        chown --no-dereference "$owner" "$path"
-        chmod u+rwx "$path"
-        echo "$label preparado"
+        chown --no-dereference "$$owner" "$$path"
+        chmod u+rwx "$$path"
+        echo "$$label preparado"
       }
       prepare_directory /prepared/zookeeper-data 1000:1000 zookeeper-data
       prepare_directory /prepared/zookeeper-log 1000:1000 zookeeper-log
