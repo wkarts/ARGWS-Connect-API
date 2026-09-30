@@ -337,6 +337,7 @@ export class FindHubStartupService {
 
   public async purgeProviderState(): Promise<void> {
     await this.closeClient();
+    // Older lifecycle adapters may not expose the optional Traccar binding model.
     const bindingRepository = (this.prisma as any).findHubTraccarBinding;
     const bindings = bindingRepository?.findMany
       ? await bindingRepository.findMany({ where: { instanceId: this.instance.id } }).catch(() => [])
