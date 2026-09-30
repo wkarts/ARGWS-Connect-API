@@ -19,6 +19,7 @@ test('Find Hub map complies with tile identification without changing platform p
  assert.match(source,/if \(tileError\.value\) return \[\]/);
  assert.match(source,/const hasPosition = computed/);
  assert.match(source,/positions\?: MapDevice\[\]/);
+ assert.match(source,/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png/);
  assert.doesNotMatch(source,/no-cache|cacheBust|Date.now\(\).*tile/);
  assert.match(source,/OpenStreetMap contributors/);
 });
