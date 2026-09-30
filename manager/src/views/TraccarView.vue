@@ -40,6 +40,14 @@ function status(item: any) {
   return item?.status ? String(item.status) : 'Sem estado'
 }
 
+function battery(item: any) {
+  const attributes = item?.position?.attributes || {}
+  const percentage = Number(attributes.batt ?? attributes.batteryLevel)
+  if (Number.isFinite(percentage) && percentage >= 0 && percentage <= 100) return `${percentage.toFixed(0)}%`
+  const tier = attributes.findhubBatteryTier
+  return tier ? `Faixa ${tier}` : 'Não informado'
+}
+
 async function reload() {
   busy.value = true
   error.value = ''
@@ -82,7 +90,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="summary-tiles">
         <div><b>{{ devices.length }}</b><span>Dispositivos</span></div>
-        <div><b>{{ onlineCount }}</b><span>Online</span></div>
+        <div><b>{{ onlineCount }}</b><span>Traccar online</span></div>
         <div><b>{{ positionedCount }}</b><span>Com posição</span></div>
         <div><b>{{ stamp(overview.refreshedAt) }}</b><span>Última atualização</span></div>
       </div>
@@ -102,24 +110,26 @@ onBeforeUnmount(() => {
             @click="selected = String(item.id)"
           >
             <span class="dot" :class="item.status === 'online' ? 'online' : 'offline'"></span>
-            <span><strong>{{ item.name || `Dispositivo ${item.id}` }}</strong><small>{{ status(item) }} · {{ stamp(item.position?.fixTime || item.position?.deviceTime) }}</small></span>
+            <span><strong>{{ item.name || `Dispositivo ${item.id}` }}</strong><small>{{ status(item) }} · bateria {{ battery(item) }} · {{ stamp(item.position?.fixTime || item.position?.deviceTime) }}</small></span>
             <AppIcon name="chevron" :size="16" />
           </button>
         </section>
 
         <section class="panel map-panel">
-          <div class="panel-heading"><div><h2>{{ device?.name || 'Selecione um dispositivo' }}</h2><p>{{ status(device) }}</p></div></div>
+          <div class="panel-heading"><div><h2>{{ device?.name || 'Selecione um dispositivo' }}</h2><p>{{ status(device) }} · bateria {{ battery(device) }}</p></div></div>
           <FindHubMap :position="device?.position" :device-name="device?.name" />
           <dl v-if="device?.position" class="position-details">
             <div><dt>Latitude</dt><dd>{{ coordinate(device.position.latitude) }}</dd></div>
             <div><dt>Longitude</dt><dd>{{ coordinate(device.position.longitude) }}</dd></div>
             <div><dt>Velocidade</dt><dd>{{ Number(device.position.speed || 0).toFixed(1) }} kn</dd></div>
             <div><dt>Recebida em</dt><dd>{{ stamp(device.position.serverTime || device.position.fixTime || device.position.deviceTime) }}</dd></div>
+            <div><dt>Faixa de bateria Find Hub</dt><dd>{{ device.position.attributes?.findhubBatteryTier || 'Não informada' }}</dd></div>
+            <div><dt>Percentual Traccar</dt><dd>{{ device.position.attributes?.batt ?? device.position.attributes?.batteryLevel ?? 'Não informado' }}</dd></div>
           </dl>
         </section>
       </div>
 
-      <p class="muted footnote">A tela usa somente a API interna do Traccar. A senha administrativa e a sessão dele permanecem no servidor; não há novo domínio, porta ou login no navegador.</p>
+      <p class="muted footnote">A tela usa somente a API interna do Traccar. A senha administrativa e a sessão dele permanecem no servidor; não há novo domínio, porta ou login no navegador. O estado nativo pode ficar “offline” entre relatórios HTTP; na página Find Hub, “Ponte Find Hub → Traccar” representa o último encaminhamento aceito e não confunde os dois estados.</p>
     </template>
   </AppShell>
 </template>

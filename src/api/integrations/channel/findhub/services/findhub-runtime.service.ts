@@ -56,6 +56,39 @@ function batteryTierFromProviderFlags(
   return value === 1 ? 'LOW' : value === 2 ? 'MEDIUM' : value === 3 ? 'HIGH' : undefined;
 }
 
+type TraccarBridgeStatus = 'online' | 'offline' | 'unknown' | 'unlinked';
+
+function traccarBridgeStatus(
+  device: FindHubDevice,
+  binding: any,
+  staleAfterSeconds: number,
+  lastForwardedAt?: number,
+  now = Date.now(),
+): TraccarBridgeStatus {
+  if (!binding?.enabled) return 'unlinked';
+  if (device.lastErrorCode === 'TRACCAR_FORWARD_FAILED') return 'offline';
+  if (!Number.isFinite(lastForwardedAt) || lastForwardedAt! <= 0) return 'unknown';
+  const age = now - lastForwardedAt!;
+  if (age <= staleAfterSeconds * 1000) return 'online';
+  if (age <= staleAfterSeconds * 3 * 1000) return 'unknown';
+  return 'offline';
+}
+
+function traccarDeviceAttributes(device: FindHubDevice, instanceId: string) {
+  return {
+    connectInstanceId: instanceId,
+    connectDeviceId: device.id,
+    findhubGoogleDeviceId: device.googleDeviceId,
+    findhubIdentifierType: device.identifierType,
+    findhubDeviceType: device.deviceType,
+    findhubManufacturer: device.manufacturer,
+    findhubModel: device.model,
+    findhubImei: device.imei,
+    findhubBatteryTier: device.batteryTier,
+    findhubBatteryTierSource: device.batteryTierSource,
+  };
+}
+
 export class FindHubStartupService {
   public readonly integration = FINDHUB_INTEGRATION;
   public readonly capabilities = Object.freeze({
@@ -112,6 +145,7 @@ export class FindHubStartupService {
   private readonly reconciliationStatus = new Map<string, any>();
   private readonly observationQueues = new Map<string, Promise<void>>();
   private readonly observationQueueSizes = new Map<string, number>();
+  private readonly traccarForwardedAt = new Map<string, number>();
   private tracking = new Map<string, NodeJS.Timeout>();
   private instance = { name: '', id: '', token: '', integration: FINDHUB_INTEGRATION };
 
@@ -303,8 +337,33 @@ export class FindHubStartupService {
 
   public async purgeProviderState(): Promise<void> {
     await this.closeClient();
+    const bindings = await (this.prisma as any).findHubTraccarBinding
+      .findMany({ where: { instanceId: this.instance.id } })
+      .catch(() => []);
+    const config = await this.storedTraccar().catch(() => ({ mode: 'disabled' as const }));
+    if (config.mode !== 'disabled' && bindings.length) {
+      try {
+        const client = new TraccarClient(config);
+        for (const binding of bindings) {
+          try {
+            await client.removeProvisioned(
+              this.instance.id,
+              binding.deviceId,
+              binding.traccarNumericId,
+              binding.traccarDeviceId,
+            );
+          } catch (error) {
+            // Instance deletion must remain possible, but never hide an orphan cleanup failure.
+            this.logger.error({ localError: 'traccar-device-delete', deviceId: binding.deviceId, error });
+          }
+        }
+      } catch (error) {
+        this.logger.error({ localError: 'traccar-client-delete', error });
+      }
+    }
     await this.authBroker.clear(this.instance.id);
     this.options = undefined;
+    this.traccarForwardedAt.clear();
     await (this.prisma as any).findHubDevice.deleteMany({ where: { instanceId: this.instance.id } });
   }
 
@@ -1392,7 +1451,17 @@ export class FindHubStartupService {
 
   public async removeTraccar(deviceId: string): Promise<void> {
     const device = await this.device(deviceId);
-    await (this.prisma as any).findHubTraccarBinding.deleteMany({
+    const db = this.prisma as any;
+    const binding = await db.findHubTraccarBinding.findFirst({
+      where: { deviceId: device.id, instanceId: this.instance.id },
+    });
+    if (!binding) return;
+    const config = await this.storedTraccar();
+    if (config.mode === 'disabled')
+      throw new Error('Não foi possível remover o dispositivo remoto: a conexão Traccar está desabilitada.');
+    const client = new TraccarClient(config);
+    await client.removeProvisioned(this.instance.id, device.id, binding.traccarNumericId, binding.traccarDeviceId);
+    await db.findHubTraccarBinding.deleteMany({
       where: { deviceId: device.id, instanceId: this.instance.id },
     });
   }
@@ -1578,7 +1647,12 @@ export class FindHubStartupService {
 
   public async snapshot(): Promise<any> {
     const settings = await this.settings();
-    const devices = (await this.devices()).map((device) => ({
+    const rows = await this.devices();
+    const bindings = await (this.prisma as any).findHubTraccarBinding.findMany({
+      where: { instanceId: this.instance.id },
+    });
+    const bindingsByDevice = new Map<string, any>(bindings.map((binding: any) => [binding.deviceId, binding]));
+    const devices = rows.map((device) => ({
       ...this.publicDevice(device),
       latestPosition: device.latestPosition,
       lastReceivedAt: device.lastReceivedAt,
@@ -1587,11 +1661,19 @@ export class FindHubStartupService {
       reconciliation: this.reconciliationStatus.get(device.id) || null,
       lastErrorCode: device.lastErrorCode,
       locationTimeoutMs: device.locationTimeoutMs || settings.timeoutMs,
-      availability: locationAvailability(
-        device.latestPosition,
+      availability: locationAvailability(device.latestPosition, settings.staleAfterSeconds),
+      traccarLinked: Boolean(bindingsByDevice.get(device.id)?.enabled),
+      traccarStatus: device.providerStatus || null,
+      traccarBridgeStatus: traccarBridgeStatus(
+        device,
+        bindingsByDevice.get(device.id),
         settings.staleAfterSeconds,
-        device.latestPosition?.source === 'TRACCAR' ? device.providerStatus : undefined,
+        this.traccarForwardedAt.get(device.id),
       ),
+      traccarLastForwardedAt: this.traccarForwardedAt.has(device.id)
+        ? new Date(this.traccarForwardedAt.get(device.id)!).toISOString()
+        : null,
+      traccarForwardError: device.lastErrorCode === 'TRACCAR_FORWARD_FAILED' ? device.lastErrorCode : null,
     }));
     const account = await (this.prisma as any).findHubAccount.findUnique({ where: { instanceId: this.instance.id } });
     return {
@@ -1774,11 +1856,26 @@ export class FindHubStartupService {
         probe.close();
       }
     }
+    const serverChanged = config.mode !== old.mode || config.url !== old.url || config.receiverUrl !== old.receiverUrl;
+    if (serverChanged && old.mode !== 'disabled') {
+      const bindings = await (this.prisma as any).findHubTraccarBinding.findMany({
+        where: { instanceId: this.instance.id },
+      });
+      const previous = new TraccarClient(old);
+      for (const binding of bindings) {
+        await previous.removeProvisioned(
+          this.instance.id,
+          binding.deviceId,
+          binding.traccarNumericId,
+          binding.traccarDeviceId,
+        );
+      }
+    }
     // Store the endpoint and invalidate bindings atomically; never reuse IDs from another server.
     const saved = { ...config, ...(config.mode === 'internal' ? { token: undefined } : {}) };
     const encryptedTraccar = new FindHubCredentialVault().encrypt(saved);
     await (this.prisma as any).$transaction(async (db: any) => {
-      if (config.mode !== old.mode || config.url !== old.url || config.receiverUrl !== old.receiverUrl) {
+      if (serverChanged) {
         await db.findHubTraccarBinding.deleteMany({ where: { instanceId: this.instance.id } });
       }
       await db.findHubAccount.update({ where: { instanceId: this.instance.id }, data: { encryptedTraccar } });
@@ -1791,7 +1888,12 @@ export class FindHubStartupService {
     const config = resolveTraccarConnection(await this.storedTraccar());
     if (config.mode === 'disabled') throw new Error('Configure o Traccar desta conta antes de vincular.');
     const client = new TraccarClient(config);
-    const remote = await client.provision(this.instance.id, deviceId, device.name);
+    const remote = await client.provision(
+      this.instance.id,
+      deviceId,
+      device.name,
+      traccarDeviceAttributes(device, this.instance.id),
+    );
     return (this.prisma as any).findHubTraccarBinding.upsert({
       where: { deviceId },
       create: {
@@ -1870,24 +1972,50 @@ export class FindHubStartupService {
   }
 
   private async forwardTraccar(device: FindHubDevice, position: FindHubPosition): Promise<void> {
-    const binding = await (this.prisma as any).findHubTraccarBinding.findUnique({
+    const db = this.prisma as any;
+    const binding = await db.findHubTraccarBinding.findUnique({
       where: { deviceId: device.id },
     });
     if (!binding?.enabled) return;
-    if (binding.traccarNumericId) {
-      const config = await this.storedTraccar();
-      if (config.mode !== 'disabled') await new TraccarClient(config).send(binding.traccarDeviceId, position);
-      return;
-    }
-    await this.traccar.send(
-      {
-        enabled: true,
-        url: binding.url,
-        deviceId: binding.traccarDeviceId,
+    const enriched = {
+      ...position,
+      batteryTier: device.batteryTier,
+      batteryTierSource: device.batteryTierSource,
+      attributes: {
+        ...traccarDeviceAttributes(device, this.instance.id),
+        findhubPositionSource: position.source,
+        findhubProviderStatus: device.providerStatus,
+        findhubProviderStatusAt: device.providerStatusAt,
       },
-      device,
-      position,
-    );
+    };
+    try {
+      if (binding.traccarNumericId) {
+        const config = await this.storedTraccar();
+        if (config.mode === 'disabled') throw new Error('A conexão Traccar está desabilitada.');
+        await new TraccarClient(config).send(binding.traccarDeviceId, enriched);
+      } else {
+        await this.traccar.send(
+          {
+            enabled: true,
+            url: binding.url,
+            deviceId: binding.traccarDeviceId,
+          },
+          device,
+          enriched,
+        );
+      }
+      await db.findHubDevice.updateMany({
+        where: { id: device.id, instanceId: this.instance.id },
+        data: { lastErrorCode: null },
+      });
+      this.traccarForwardedAt.set(device.id, Date.now());
+    } catch (error) {
+      await db.findHubDevice.updateMany({
+        where: { id: device.id, instanceId: this.instance.id },
+        data: { lastErrorCode: 'TRACCAR_FORWARD_FAILED' },
+      });
+      throw error;
+    }
   }
 
   private async setState(state: FindHubRuntimeState): Promise<void> {
@@ -2068,6 +2196,10 @@ export class FindHubStartupService {
       trackingEnabled: device.trackingEnabled,
       trackingIntervalSeconds: device.trackingIntervalSeconds,
       lastLocationAt: device.lastLocationAt,
+      lastReceivedAt: device.lastReceivedAt,
+      lastAttemptAt: device.lastAttemptAt,
+      lastErrorCode: device.lastErrorCode,
+      providerStatus: device.providerStatus,
     };
   }
 }

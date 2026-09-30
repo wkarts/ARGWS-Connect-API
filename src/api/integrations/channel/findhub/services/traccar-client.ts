@@ -72,6 +72,22 @@ export function traccarUniqueId(instanceId: string, deviceId: string): string {
   );
 }
 
+export type TraccarPositionMetadata = {
+  batteryLevel?: number;
+  batteryTier?: string;
+  batteryTierSource?: string;
+  charging?: boolean;
+  attributes?: Record<string, string | number | boolean | null | undefined>;
+};
+
+type TraccarSendPosition = {
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  accuracy?: number;
+  altitude?: number;
+} & TraccarPositionMetadata;
+
 /** REST/session and socket clients are backend-only. No Google or Traccar credentials are returned to the Manager. */
 export class TraccarClient {
   private cookie = '';
@@ -84,7 +100,13 @@ export class TraccarClient {
     this.config = resolveTraccarConnection(config);
   }
 
-  private async request(path: string, method = 'GET', payload?: unknown, form?: URLSearchParams): Promise<any> {
+  private async request(
+    path: string,
+    method = 'GET',
+    payload?: unknown,
+    form?: URLSearchParams,
+    allowNotFound = false,
+  ): Promise<any> {
     if (this.config.mode === 'disabled') throw new Error('Traccar desabilitado.');
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.cookie) headers.Cookie = this.cookie;
@@ -109,7 +131,13 @@ export class TraccarClient {
     } catch {
       throw new Error('Traccar indisponível ou timeout de conexão.');
     }
-    if (!response.ok) throw new Error(`Traccar recusou a operação (HTTP ${response.status}).`);
+    if (!response.ok) {
+      if (allowNotFound && response.status === 404) {
+        await response.body?.cancel();
+        return null;
+      }
+      throw new Error(`Traccar recusou a operação (HTTP ${response.status}).`);
+    }
     const cookies = response.headers.getSetCookie?.() || [response.headers.get('set-cookie') || ''];
     const sessionCookie = cookies.map((x) => x.split(';')[0]).find((x) => /^JSESSIONID=/.test(x));
     if (sessionCookie) this.cookie = sessionCookie;
@@ -160,8 +188,16 @@ export class TraccarClient {
     instanceId: string,
     deviceId: string,
     name: string,
+    attributes: Record<string, string | number | boolean | null | undefined> = {},
   ): Promise<{ id: number; uniqueId: string }> {
     const uniqueId = traccarUniqueId(instanceId, deviceId);
+    const remoteAttributes = {
+      connectInstanceId: instanceId,
+      connectDeviceId: deviceId,
+      ...Object.fromEntries(
+        Object.entries(attributes).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+      ),
+    };
     const existing = await this.request('/api/devices?uniqueId=' + encodeURIComponent(uniqueId));
     if (!Array.isArray(existing)) throw new Error('Catálogo Traccar inválido.');
     let remote = existing.find((x) => x.uniqueId === uniqueId);
@@ -170,7 +206,7 @@ export class TraccarClient {
         remote = await this.request('/api/devices', 'POST', {
           name,
           uniqueId,
-          attributes: { connectInstanceId: instanceId, connectDeviceId: deviceId },
+          attributes: remoteAttributes,
         });
       } catch {
         const retry = await this.request('/api/devices?uniqueId=' + encodeURIComponent(uniqueId));
@@ -185,7 +221,47 @@ export class TraccarClient {
       remote.attributes?.connectDeviceId !== deviceId
     )
       throw new Error('O dispositivo Traccar não pertence a esta vinculação.');
+    const currentAttributes = remote.attributes && typeof remote.attributes === 'object' ? remote.attributes : {};
+    const mergedAttributes = { ...currentAttributes, ...remoteAttributes };
+    const changed = Object.entries(remoteAttributes).some(([key, value]) => currentAttributes[key] !== value);
+    if (changed) {
+      await this.request('/api/devices/' + remote.id, 'PUT', {
+        id: remote.id,
+        name: remote.name || name,
+        uniqueId,
+        attributes: mergedAttributes,
+      });
+    }
     return { id: remote.id, uniqueId };
+  }
+
+  /** Delete only a device provably provisioned by this Connect|API instance. */
+  public async removeProvisioned(
+    instanceId: string,
+    deviceId: string,
+    numericId: number | null | undefined,
+    uniqueId: string,
+  ): Promise<void> {
+    if (!uniqueId || !/^connect-[a-f0-9]{40}$/.test(uniqueId))
+      throw new Error('Identificador Traccar da vinculação inválido.');
+    if (numericId !== null && numericId !== undefined && (!Number.isSafeInteger(numericId) || numericId < 1))
+      throw new Error('Dispositivo Traccar inválido.');
+    let remote = numericId ? await this.request('/api/devices/' + numericId, 'GET', undefined, undefined, true) : null;
+    if (!remote) {
+      const rows = await this.request('/api/devices?uniqueId=' + encodeURIComponent(uniqueId));
+      if (!Array.isArray(rows)) throw new Error('Catálogo Traccar inválido.');
+      remote = rows.find((candidate) => candidate?.uniqueId === uniqueId) || null;
+    }
+    if (!remote) return; // Idempotent: the remote device is already gone.
+    if (
+      !Number.isSafeInteger(remote.id) ||
+      remote.id < 1 ||
+      remote.uniqueId !== uniqueId ||
+      remote.attributes?.connectInstanceId !== instanceId ||
+      remote.attributes?.connectDeviceId !== deviceId
+    )
+      throw new Error('O dispositivo Traccar não pertence a esta vinculação; remoção bloqueada.');
+    await this.request('/api/devices/' + remote.id, 'DELETE', undefined, undefined, true);
   }
 
   public async latestPositions(deviceId: number): Promise<any[]> {
@@ -195,18 +271,25 @@ export class TraccarClient {
     return rows.filter((row) => row.deviceId === deviceId);
   }
 
-  public async send(
-    uniqueId: string,
-    position: { latitude: number; longitude: number; timestamp: string; accuracy?: number; altitude?: number },
-  ): Promise<void> {
+  public async send(uniqueId: string, position: TraccarSendPosition): Promise<void> {
     const body = new URLSearchParams({
       id: uniqueId,
+      valid: '1',
       lat: String(position.latitude),
       lon: String(position.longitude),
       timestamp: String(Date.parse(position.timestamp) / 1000),
     });
     if (position.accuracy !== undefined) body.set('accuracy', String(position.accuracy));
     if (position.altitude !== undefined) body.set('altitude', String(position.altitude));
+    if (Number.isFinite(position.batteryLevel) && position.batteryLevel! >= 0 && position.batteryLevel! <= 100)
+      body.set('batt', String(position.batteryLevel));
+    if (position.charging !== undefined) body.set('charge', String(position.charging));
+    if (position.batteryTier) body.set('findhubBatteryTier', position.batteryTier);
+    if (position.batteryTierSource) body.set('findhubBatteryTierSource', position.batteryTierSource);
+    for (const [key, value] of Object.entries(position.attributes || {})) {
+      if (!/^[A-Za-z0-9_.-]{1,64}$/.test(key) || value === undefined || value === null || value === '') continue;
+      body.set(key, String(value));
+    }
     try {
       const response = await fetch(this.config.receiverUrl!, {
         method: 'POST',

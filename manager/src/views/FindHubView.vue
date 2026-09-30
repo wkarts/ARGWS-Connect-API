@@ -123,6 +123,7 @@ const providerCapabilitiesLabel = (device: any) => Array.isArray(device?.provide
   ? device.providerCapabilities.map((item: any) => String(item?.actionField)+':'+String(item?.state)).join(' · ')
   : 'Não informado'
 const batteryTierLabel = (value: any) => value === 'HIGH' ? 'Alta' : value === 'MEDIUM' ? 'Média' : value === 'LOW' ? 'Baixa' : 'Não informado'
+const bridgeStatusLabel = (value: any) => value === 'online' ? 'Online · último envio aceito' : value === 'offline' ? 'Offline · envio ausente ou falhou' : value === 'unlinked' ? 'Sem vínculo' : 'Desconhecido · aguardando evidência'
 function soundOperationSupported(device: any, operation: 'start'|'stop') {
   const actionField = operation === 'start' ? 31 : 32
   const capabilities = Array.isArray(device?.providerCapabilities) ? device.providerCapabilities : []
@@ -368,6 +369,9 @@ onBeforeUnmount(() => { sequence++; stopStream() })
             <div><span>Mínimo para agregação de rede</span><strong>{{ device.networkAggregationMinReports ?? 'Não informado' }}</strong></div>
             <div><span>Último relatório de posição</span><strong>{{ stamp(device.lastLocationAt) }}</strong></div>
             <div><span>Rastreamento</span><strong>{{ device.trackingEnabled ? 'Habilitado' : 'Desabilitado' }}</strong></div>
+            <div><span>Ponte Find Hub → Traccar</span><strong>{{ bridgeStatusLabel(device.traccarBridgeStatus) }}</strong></div>
+            <div v-if="device.traccarLinked"><span>Estado nativo informado pelo Traccar</span><strong>{{ device.traccarStatus || 'Desconhecido' }}</strong></div>
+            <div v-if="device.traccarLinked"><span>Último encaminhamento aceito</span><strong>{{ stamp(device.traccarLastForwardedAt) }}</strong></div>
           </div>
           <details class="device-metadata top-gap">
             <summary>Identificadores e metadados completos</summary>
