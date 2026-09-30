@@ -102,7 +102,7 @@ onBeforeUnmount(() => {
         </div>
 
         <section class="traccar-console" aria-label="Console de mapas do Traccar">
-          <TraccarMap :devices="devices" :selected-id="selected === ALL_DEVICES ? undefined : selected" :tile-url="overview.map?.tileUrl" @select="selected = $event" />
+          <TraccarMap :devices="devices" :selected-id="selected === ALL_DEVICES ? undefined : selected" :tile-url="overview.map?.tileUrl" @select="selected = $event" @select-all="selected = ALL_DEVICES" />
           <aside v-if="selectedDevice" class="traccar-detail-card" aria-label="Detalhes do dispositivo selecionado">
             <header>
               <div class="detail-title"><span class="device-detail-dot" :class="selectedDevice.status === 'online' ? 'online' : 'offline'"></span><div><strong>{{ selectedDevice.name || `Dispositivo ${selectedDevice.id}` }}</strong><small>{{ selectedDevice.uniqueId || 'Sem identificador' }}</small></div></div>
