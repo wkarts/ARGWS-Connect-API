@@ -11,6 +11,7 @@ export type TraccarManagerOverview = {
   devices: unknown[];
   positions: unknown[];
   refreshedAt: string;
+  map: { tileUrl: string };
 };
 
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -115,6 +116,7 @@ export class TraccarManagerService {
       devices: Array.isArray(devices) ? devices : [],
       positions: Array.isArray(positions) ? positions : [],
       refreshedAt: new Date().toISOString(),
+      map: { tileUrl: process.env.FINDHUB_MAP_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' },
     };
   }
 

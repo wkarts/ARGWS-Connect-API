@@ -57,6 +57,15 @@ function runtimeHarness(globals={}) {
  return {runtime,db,row,other,positions,events,calls,emitter,account,diagnosticEvents};
 }
 test('runtime refuses a device belonging to a different account',async()=>{const h=runtimeHarness();await assert.rejects(h.runtime.device('d-b'),/not found/);assert.equal(h.calls[0][1].instanceId,'a')});
+test('device rehydrates the latest normalized history when JSON latestPosition is absent',async()=>{
+ const h=runtimeHarness();
+ h.row.lastLocationAt=new Date(now-1000);
+ h.positions.push({id:'history-a',instanceId:'a',deviceId:'d-a',latitude:-12.25,longitude:-38.75,accuracy:18,source:'NETWORK',ownReport:false,recordedAt:new Date(now-1000)});
+ const device=await h.runtime.device('d-a');
+ assert.equal(device.latestPosition.latitude,-12.25);
+ assert.equal(device.latestPosition.longitude,-38.75);
+ assert.equal(device.latestPosition.source,'NETWORK');
+});
 test('history is deduplicated and scoped; last position never regresses',async()=>{const h=runtimeHarness(),d=await h.runtime.device('d-a'),p={...position,deviceId:d.id,googleDeviceId:d.googleDeviceId};await h.runtime.persistPosition(d,p);await h.runtime.persistPosition(d,p);assert.equal(h.positions.length,1);const older={...p,timestamp:new Date(now-50000).toISOString(),latitude:-13};await h.runtime.persistPosition(d,older);assert.equal(h.row.latestPosition.latitude,p.latitude);assert.equal(h.positions.length,2);assert.equal(h.other.latestPosition,null);assert.ok(h.calls.filter(c=>c[0]==='update').every(c=>c[1].instanceId==='a'))});
 test('disabled historian keeps last position but adds no historical row',async()=>{const h=runtimeHarness();h.account.trackingSettings.historyEnabled=false;await h.runtime.persistPosition(await h.runtime.device('d-a'),position);assert.equal(h.positions.length,0);assert.equal(h.row.latestPosition.latitude,position.latitude)});
 test('retention 0 preserves all history; positive retention never deletes another account',async()=>{const h=runtimeHarness();h.account.trackingSettings.retentionDays=0;assert.equal(await h.runtime.pruneHistory(),0);h.account.trackingSettings.retentionDays=1;h.runtime.options=undefined;h.positions.push({id:'old-a',instanceId:'a',deviceId:'d-a',recordedAt:new Date(now-172800000)},{id:'old-b',instanceId:'b',deviceId:'d-b',recordedAt:new Date(now-172800000)});assert.equal(await h.runtime.pruneHistory(),1);assert.equal(h.positions[0].instanceId,'b')});
