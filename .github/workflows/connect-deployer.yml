@@ -1,0 +1,56 @@
+name: Connect|API Deployer
+
+on:
+  pull_request:
+    paths:
+      - 'tools/connect-deployer/**'
+      - 'deploy/**/compose.yaml'
+      - 'deploy/**/docker-compose.yml'
+      - 'deploy/**/env.example'
+      - '.github/workflows/connect-deployer.yml'
+  push:
+    branches: [develop, main]
+    paths:
+      - 'tools/connect-deployer/**'
+      - 'deploy/**/compose.yaml'
+      - 'deploy/**/docker-compose.yml'
+      - 'deploy/**/env.example'
+      - '.github/workflows/connect-deployer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test --prefix tools/connect-deployer
+
+  binaries:
+    if: github.event_name == 'push'
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - target: node22-linux-x64
+            suffix: linux-x64
+          - target: node22-win-x64
+            suffix: win-x64.exe
+          - target: node22-macos-x64
+            suffix: macos-x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/connect-deployer/build-assets.cjs
+      - run: npx --yes @yao-pkg/pkg@6.23.0 --no-signature tools/connect-deployer/index.cjs --targets ${{ matrix.target }} --output argws-connect-deployer-${{ matrix.suffix }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: argws-connect-deployer-${{ matrix.suffix }}-${{ github.sha }}
+          path: argws-connect-deployer-${{ matrix.suffix }}
