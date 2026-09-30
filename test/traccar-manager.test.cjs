@@ -124,7 +124,7 @@ test('Manager frontend has a gated native Traccar screen and never embeds admini
   const shell = fs.readFileSync(path.join(root, 'manager/src/layouts/AppShell.vue'), 'utf8');
   const router = fs.readFileSync(path.join(root, 'manager/src/router/index.ts'), 'utf8');
   const view = fs.readFileSync(path.join(root, 'manager/src/views/TraccarView.vue'), 'utf8');
-  const map = fs.readFileSync(path.join(root, 'manager/src/components/FindHubMap.vue'), 'utf8');
+  const map = fs.readFileSync(path.join(root, 'manager/src/components/TraccarMap.vue'), 'utf8');
   const current = fs.readFileSync(path.join(root, 'manager/src/services/current.ts'), 'utf8');
   const runtime = fs.readFileSync(path.join(root, 'src/api/routes/view.router.ts'), 'utf8');
 
@@ -133,11 +133,14 @@ test('Manager frontend has a gated native Traccar screen and never embeds admini
   assert.match(icons, /fleet: \[/);
   assert.match(router, /path: '\/traccar'.*feature: 'traccar'/);
   assert.match(view, /connect\.traccarOverview\(\)/);
-  assert.match(view, /FindHubMap/);
+  assert.match(view, /TraccarMap/);
+  assert.doesNotMatch(view, /FindHubMap/);
+  assert.match(view, /Frota Traccar/);
   assert.match(view, /Todos os dispositivos/);
-  assert.match(view, /:positions="mapDevices"/);
   assert.doesNotMatch(view, /<iframe|TRACCAR_ADMIN_PASSWORD|TRACCAR_ADMIN_EMAIL|TRACCAR_DATABASE_PASSWORD/);
-  assert.match(map, /positions\?: MapDevice\[\]/);
+  assert.match(map, /devices\?: TraccarDevice\[\]/);
+  assert.match(map, /traccar-device-drawer/);
+  assert.match(map, /@media\(max-width:560px\)/);
   assert.match(map, /<img v-for="tile in tiles"/);
   assert.doesNotMatch(map, /if \(!props\.position \|\| tileError\.value\)/);
   assert.match(current, /\/manager-api\/v1\/traccar\/overview/);
