@@ -21,7 +21,7 @@ const groups = [
   ]},
   { title: 'LOCALIZAÇÃO', items: [
     { label:'Google Find Hub', to:'/findhub', icon:'location', permission:'instances.read' },
-    { label:'Traccar', to:'/traccar', icon:'location', permission:'instances.read', feature:'traccar' },
+    { label:'Traccar', to:'/traccar', icon:'fleet', permission:'instances.read', feature:'traccar' },
   ] },
   { title: 'VOZ', items: [
     { label:'Chamadas', to:'/chamadas', icon:'phone', permission:'pbx.read', feature:'voice' },
