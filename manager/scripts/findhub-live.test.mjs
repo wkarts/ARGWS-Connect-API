@@ -29,7 +29,7 @@ test('Traccar has its own fleet map and responsive console',()=>{
  assert.match(view,/TraccarMap/);
  assert.doesNotMatch(view,/FindHubMap/);
  for(const value of ['Frota Traccar','Online no Traccar','Estado retornado pelo Traccar','Última posição','Bateria','Latitude','Longitude'])assert.match(view,new RegExp(value));
- for(const value of ['Dispositivos Traccar','Buscar dispositivo','Online','Offline','Enquadrar dispositivos','traccar-device-drawer','traccar-map-tools'])assert.match(map,new RegExp(value));
+ for(const value of ['Dispositivos Traccar','Todos os dispositivos','Buscar dispositivo','Online','Offline','Enquadrar dispositivos','traccar-device-drawer','traccar-map-tools'])assert.match(map,new RegExp(value));
  assert.match(map,/@media\(max-width:560px\)/);
  assert.match(map,/positions|devices/);
 });
