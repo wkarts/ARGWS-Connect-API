@@ -118,13 +118,16 @@ test('Manager reads the internal Traccar API without exposing its session', asyn
 });
 
 test('Manager frontend has a gated native Traccar screen and never embeds administrative credentials', () => {
+  const icons = fs.readFileSync(path.join(root, 'manager/src/components/AppIcon.vue'), 'utf8');
   const shell = fs.readFileSync(path.join(root, 'manager/src/layouts/AppShell.vue'), 'utf8');
   const router = fs.readFileSync(path.join(root, 'manager/src/router/index.ts'), 'utf8');
   const view = fs.readFileSync(path.join(root, 'manager/src/views/TraccarView.vue'), 'utf8');
   const current = fs.readFileSync(path.join(root, 'manager/src/services/current.ts'), 'utf8');
   const runtime = fs.readFileSync(path.join(root, 'src/api/routes/view.router.ts'), 'utf8');
 
-  assert.match(shell, /label:'Traccar'.*feature:'traccar'/);
+  assert.match(shell, /label:'Google Find Hub'.*icon:'location'/);
+  assert.match(shell, /label:'Traccar'.*icon:'fleet'.*feature:'traccar'/);
+  assert.match(icons, /fleet: \[/);
   assert.match(router, /path: '\/traccar'.*feature: 'traccar'/);
   assert.match(view, /connect\.traccarOverview\(\)/);
   assert.match(view, /FindHubMap/);
