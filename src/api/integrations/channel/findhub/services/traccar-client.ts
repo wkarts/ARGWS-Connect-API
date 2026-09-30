@@ -89,7 +89,7 @@ type TraccarSendPosition = {
 } & TraccarPositionMetadata;
 
 function safeTraccarDetail(value: unknown): string | undefined {
-  const normalized = String(value ?? '').replace(/\\s+/g, ' ').trim();
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
   if (
     !normalized ||
     normalized.startsWith('<') ||
