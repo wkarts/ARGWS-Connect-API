@@ -337,9 +337,10 @@ export class FindHubStartupService {
 
   public async purgeProviderState(): Promise<void> {
     await this.closeClient();
-    const bindings = await (this.prisma as any).findHubTraccarBinding
-      .findMany({ where: { instanceId: this.instance.id } })
-      .catch(() => []);
+    const bindingRepository = (this.prisma as any).findHubTraccarBinding;
+    const bindings = bindingRepository?.findMany
+      ? await bindingRepository.findMany({ where: { instanceId: this.instance.id } }).catch(() => [])
+      : [];
     const config = await this.storedTraccar().catch(() => ({ mode: 'disabled' as const }));
     if (config.mode !== 'disabled' && bindings.length) {
       try {
@@ -1648,9 +1649,10 @@ export class FindHubStartupService {
   public async snapshot(): Promise<any> {
     const settings = await this.settings();
     const rows = await this.devices();
-    const bindings = await (this.prisma as any).findHubTraccarBinding.findMany({
-      where: { instanceId: this.instance.id },
-    });
+    const bindingRepository = (this.prisma as any).findHubTraccarBinding;
+    const bindings = bindingRepository?.findMany
+      ? await bindingRepository.findMany({ where: { instanceId: this.instance.id } })
+      : [];
     const bindingsByDevice = new Map<string, any>(bindings.map((binding: any) => [binding.deviceId, binding]));
     const devices = rows.map((device) => ({
       ...this.publicDevice(device),
