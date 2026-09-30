@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
-import FindHubMap from '@/components/FindHubMap.vue'
-import PageHeader from '@/components/PageHeader.vue'
 import AppShell from '@/layouts/AppShell.vue'
-import { friendlyError } from '@/services/errors'
+import TraccarMap from '@/components/TraccarMap.vue'
 import { connect } from '@/services/connect'
+import { friendlyError } from '@/services/errors'
 
-const overview = ref<{ server: any; devices: any[]; positions: any[]; refreshedAt: string; map?: { tileUrl: string } } | null>(null)
+type TraccarOverview = { server: any; devices: any[]; positions: any[]; refreshedAt: string; map?: { tileUrl: string } }
+
 const ALL_DEVICES = '__all__'
+const overview = ref<TraccarOverview | null>(null)
 const selected = ref(ALL_DEVICES)
 const error = ref('')
 const busy = ref(false)
@@ -19,13 +20,9 @@ const devices = computed(() => (overview.value?.devices || []).map((device: any)
   ...device,
   position: positions.value.get(String(device.id)) || null,
 })))
-const device = computed(() => selected.value === ALL_DEVICES
-  ? null
-  : devices.value.find((item: any) => String(item.id) === selected.value) || devices.value[0] || null)
-const mapDevices = computed(() => selected.value === ALL_DEVICES ? devices.value : (device.value ? [device.value] : []))
-const onlineCount = computed(() => devices.value.filter((item: any) => item.status === 'online').length)
-const positionedCount = computed(() => devices.value.filter((item: any) => item.position).length)
-const selectedPositionedCount = computed(() => mapDevices.value.filter((item: any) => item.position).length)
+const selectedDevice = computed(() => selected.value === ALL_DEVICES ? null : devices.value.find((device: any) => String(device.id) === selected.value) || null)
+const onlineCount = computed(() => devices.value.filter((device: any) => device.status === 'online').length)
+const positionedCount = computed(() => devices.value.filter((device: any) => device.position).length)
 const serverName = computed(() => String(overview.value?.server?.server || overview.value?.server?.version || 'Traccar interno'))
 
 function stamp(value: unknown) {
@@ -39,18 +36,20 @@ function coordinate(value: unknown) {
   return Number.isFinite(numeric) ? numeric.toFixed(6) : '—'
 }
 
-function status(item: any) {
-  if (item?.status === 'online') return 'Online'
-  if (item?.status === 'offline') return 'Offline'
-  return item?.status ? String(item.status) : 'Sem estado'
+function statusLabel(device: any) {
+  if (device?.status === 'online') return 'Online'
+  if (device?.status === 'offline') return 'Offline'
+  return device?.status ? String(device.status) : 'Desconhecido'
 }
 
-function battery(item: any) {
-  const attributes = item?.position?.attributes || {}
+function battery(device: any) {
+  const attributes = device?.position?.attributes || {}
   const percentage = Number(attributes.batt ?? attributes.batteryLevel)
-  if (Number.isFinite(percentage) && percentage >= 0 && percentage <= 100) return `${percentage.toFixed(0)}%`
-  const tier = attributes.findhubBatteryTier
-  return tier ? `Faixa ${tier}` : 'Não informado'
+  return Number.isFinite(percentage) && percentage >= 0 && percentage <= 100 ? `${percentage.toFixed(0)}%` : 'Não informado'
+}
+
+function positionTime(device: any) {
+  return stamp(device?.position?.fixTime || device?.position?.deviceTime || device?.position?.serverTime || device?.lastUpdate)
 }
 
 async function reload() {
@@ -59,8 +58,7 @@ async function reload() {
   try {
     const next = await connect.traccarOverview()
     overview.value = next
-    if (selected.value !== ALL_DEVICES && !devices.value.some((item: any) => String(item.id) === selected.value))
-      selected.value = ALL_DEVICES
+    if (selected.value !== ALL_DEVICES && !devices.value.some((device: any) => String(device.id) === selected.value)) selected.value = ALL_DEVICES
   } catch (cause) {
     error.value = friendlyError(cause, 'Não foi possível consultar o Traccar interno.')
   } finally {
@@ -80,88 +78,59 @@ onBeforeUnmount(() => {
 
 <template>
   <AppShell>
-    <PageHeader
-      title="Traccar"
-      description="Monitoramento interno da frota, já autenticado pela sua sessão atual do painel."
-    >
-      <button class="btn ghost" :disabled="busy" @click="reload">
-        <AppIcon name="refresh" :size="16" />{{ busy ? 'Atualizando…' : 'Atualizar' }}
-      </button>
-    </PageHeader>
+    <div class="traccar-page">
+      <header class="traccar-heading">
+        <div class="heading-copy">
+          <div class="heading-kicker"><span class="connection-dot"></span><span>Traccar interno</span><span class="heading-separator">·</span><strong>{{ serverName }}</strong></div>
+          <h1>Frota Traccar</h1>
+          <p>Mapa, dispositivos e posições recebidas pelo Traccar.</p>
+        </div>
+        <div class="heading-actions">
+          <span v-if="overview" class="refresh-time">Atualizado {{ stamp(overview.refreshedAt) }}</span>
+          <button class="btn ghost" :disabled="busy" @click="reload"><AppIcon name="refresh" :size="16" />{{ busy ? 'Atualizando…' : 'Atualizar' }}</button>
+        </div>
+      </header>
 
-    <div v-if="error" class="alert error">{{ error }}</div>
-    <div v-else-if="!overview" class="loading">Consultando o Traccar interno…</div>
-    <template v-else>
-      <div class="summary-tiles">
-        <div><b>{{ devices.length }}</b><span>Dispositivos</span></div>
-        <div><b>{{ onlineCount }}</b><span>Traccar online</span></div>
-        <div><b>{{ positionedCount }}</b><span>Com posição</span></div>
-        <div><b>{{ stamp(overview.refreshedAt) }}</b><span>Última atualização</span></div>
-      </div>
+      <div v-if="error" class="alert error">{{ error }}</div>
+      <div v-else-if="!overview" class="loading">Consultando o Traccar interno…</div>
+      <template v-else>
+        <div class="traccar-stats" aria-label="Resumo da frota">
+          <div><strong>{{ devices.length }}</strong><span>Dispositivos</span></div>
+          <div><strong>{{ onlineCount }}</strong><span>Online no Traccar</span></div>
+          <div><strong>{{ positionedCount }}</strong><span>Com posição</span></div>
+          <div class="stats-context"><AppIcon name="fleet" :size="16" /><span>{{ selected === ALL_DEVICES ? 'Todos os dispositivos' : (selectedDevice?.name || 'Dispositivo selecionado') }}</span></div>
+        </div>
 
-      <div class="traccar-grid">
-        <section class="panel fleet-panel">
-          <div class="panel-heading">
-            <div><h2>Frota</h2><p>{{ serverName }}</p></div>
-          </div>
-          <div v-if="!devices.length" class="empty">Nenhum dispositivo cadastrado no Traccar.</div>
-          <button
-            v-else
-            class="device-row all-row"
-            :class="{ active: selected === ALL_DEVICES }"
-            type="button"
-            @click="selected = ALL_DEVICES"
-          >
-            <span class="dot fleet"></span>
-            <span><strong>Todos os dispositivos</strong><small>{{ selected === ALL_DEVICES ? 'Exibindo' : 'Exibir' }} {{ positionedCount }} de {{ devices.length }} com posição</small></span>
-            <AppIcon name="chevron" :size="16" />
-          </button>
-          <button
-            v-for="item in devices"
-            :key="item.id"
-            class="device-row"
-            :class="{ active: String(item.id) === String(device?.id) }"
-            type="button"
-            @click="selected = String(item.id)"
-          >
-            <span class="dot" :class="item.status === 'online' ? 'online' : 'offline'"></span>
-            <span><strong>{{ item.name || `Dispositivo ${item.id}` }}</strong><small>{{ status(item) }} · bateria {{ battery(item) }} · {{ stamp(item.position?.fixTime || item.position?.deviceTime) }}</small></span>
-            <AppIcon name="chevron" :size="16" />
-          </button>
+        <section class="traccar-console" aria-label="Console de mapas do Traccar">
+          <TraccarMap :devices="devices" :selected-id="selected === ALL_DEVICES ? undefined : selected" :tile-url="overview.map?.tileUrl" @select="selected = $event" @select-all="selected = ALL_DEVICES" />
+          <aside v-if="selectedDevice" class="traccar-detail-card" aria-label="Detalhes do dispositivo selecionado">
+            <header>
+              <div class="detail-title"><span class="device-detail-dot" :class="selectedDevice.status === 'online' ? 'online' : 'offline'"></span><div><strong>{{ selectedDevice.name || `Dispositivo ${selectedDevice.id}` }}</strong><small>{{ selectedDevice.uniqueId || 'Sem identificador' }}</small></div></div>
+              <button type="button" class="detail-close" aria-label="Exibir todos os dispositivos" @click="selected = ALL_DEVICES"><AppIcon name="close" :size="15" /></button>
+            </header>
+            <div class="detail-status"><strong>{{ statusLabel(selectedDevice) }}</strong><span>Estado retornado pelo Traccar</span></div>
+            <dl class="detail-grid">
+              <div><dt>Última posição</dt><dd>{{ positionTime(selectedDevice) }}</dd></div>
+              <div><dt>Bateria</dt><dd>{{ battery(selectedDevice) }}</dd></div>
+              <div><dt>Latitude</dt><dd>{{ coordinate(selectedDevice.position?.latitude) }}</dd></div>
+              <div><dt>Longitude</dt><dd>{{ coordinate(selectedDevice.position?.longitude) }}</dd></div>
+              <div><dt>Velocidade</dt><dd>{{ selectedDevice.position ? `${Number(selectedDevice.position.speed || 0).toFixed(1)} kn` : '—' }}</dd></div>
+              <div><dt>Direção</dt><dd>{{ selectedDevice.position?.course != null ? `${Number(selectedDevice.position.course).toFixed(0)}°` : '—' }}</dd></div>
+            </dl>
+          </aside>
         </section>
 
-        <section class="panel map-panel">
-          <div class="panel-heading"><div><h2>{{ selected === ALL_DEVICES ? 'Todos os dispositivos' : (device?.name || 'Selecione um dispositivo') }}</h2><p>{{ selected === ALL_DEVICES ? `${selectedPositionedCount} de ${devices.length} com posição` : `${status(device)} · bateria ${battery(device)}` }}</p></div></div>
-          <FindHubMap :positions="mapDevices" :position="selected === ALL_DEVICES ? null : device?.position" :tile-url="overview.map?.tileUrl" :device-name="device?.name" />
-          <dl v-if="device?.position" class="position-details">
-            <div><dt>Latitude</dt><dd>{{ coordinate(device.position.latitude) }}</dd></div>
-            <div><dt>Longitude</dt><dd>{{ coordinate(device.position.longitude) }}</dd></div>
-            <div><dt>Velocidade</dt><dd>{{ Number(device.position.speed || 0).toFixed(1) }} kn</dd></div>
-            <div><dt>Recebida em</dt><dd>{{ stamp(device.position.serverTime || device.position.fixTime || device.position.deviceTime) }}</dd></div>
-            <div><dt>Faixa de bateria Find Hub</dt><dd>{{ device.position.attributes?.findhubBatteryTier || 'Não informada' }}</dd></div>
-            <div><dt>Percentual Traccar</dt><dd>{{ device.position.attributes?.batt ?? device.position.attributes?.batteryLevel ?? 'Não informado' }}</dd></div>
-          </dl>
-        </section>
-      </div>
-
-      <p class="muted footnote">A tela usa somente a API interna do Traccar. A senha administrativa e a sessão dele permanecem no servidor; não há novo domínio, porta ou login no navegador. O estado nativo pode ficar “offline” entre relatórios HTTP; na página Find Hub, “Ponte Find Hub → Traccar” representa o último encaminhamento aceito e não confunde os dois estados.</p>
-    </template>
+        <p class="traccar-note">Esta tela consulta a API do Traccar pelo servidor da aplicação. O estado exibido é o estado nativo do Traccar e a posição é o último relatório recebido; o navegador não abre uma segunda sessão nem um endereço interno.</p>
+      </template>
+    </div>
   </AppShell>
 </template>
 
 <style scoped>
-.loading{padding:32px;color:var(--muted,#64748b)}
-.traccar-grid{display:grid;grid-template-columns:minmax(280px,.85fr) minmax(0,1.6fr);gap:18px;margin-top:18px}
-.panel{border:1px solid var(--border,#dbe4ef);border-radius:14px;background:var(--surface,#fff);overflow:hidden}
-.panel-heading{padding:18px;border-bottom:1px solid var(--border,#dbe4ef)}
-.panel-heading h2{margin:0;font-size:16px}.panel-heading p{margin:5px 0 0;color:var(--muted,#64748b);font-size:13px}
-.device-row{display:flex;width:100%;gap:11px;align-items:center;padding:14px 16px;border:0;border-bottom:1px solid var(--border,#dbe4ef);background:transparent;color:inherit;text-align:left;cursor:pointer}
-.device-row:hover,.device-row.active{background:var(--surface-2,#f7f9fc)}.device-row>span:nth-child(2){display:grid;gap:3px;flex:1;min-width:0}.device-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.device-row small{color:var(--muted,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.all-row{border-bottom:1px solid var(--border,#dbe4ef)}.dot{width:9px;height:9px;border-radius:99px;flex:0 0 auto}.dot.online{background:#16a34a}.dot.offline{background:#94a3b8}.dot.fleet{background:var(--primary,#2563eb)}
-.empty{padding:26px 18px;color:var(--muted,#64748b)}
-.map-panel :deep(.location-map){border:0;border-radius:0;height:430px}.map-panel :deep(.attribution){right:8px}.map-panel :deep(.map-empty){min-height:430px}
-.position-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;padding:16px;gap:14px;border-top:1px solid var(--border,#dbe4ef)}.position-details div{min-width:0}.position-details dt{font-size:12px;color:var(--muted,#64748b)}.position-details dd{margin:4px 0 0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.footnote{margin:14px 0 0;font-size:12px}
-@media(max-width:900px){.traccar-grid{grid-template-columns:1fr}.fleet-panel{max-height:360px;overflow:auto}}
-@media(max-width:560px){.position-details{grid-template-columns:1fr}.map-panel :deep(.location-map),.map-panel :deep(.map-empty){height:340px;min-height:340px}}
+.traccar-page{min-width:0}.traccar-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:15px}.heading-copy{min-width:0}.heading-kicker{display:flex;align-items:center;gap:7px;margin-bottom:6px;color:var(--muted);font-size:11px}.heading-kicker strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:650}.heading-separator{color:var(--border)}.connection-dot,.device-detail-dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px var(--success-soft)}.traccar-heading h1{margin:0;font-size:26px;letter-spacing:-.025em}.traccar-heading p{margin:4px 0 0;color:var(--muted);font-size:13px}.heading-actions{display:flex;align-items:center;gap:10px;flex:none}.refresh-time{color:var(--muted);font-size:11px;white-space:nowrap}.loading{padding:32px;color:var(--muted)}
+.traccar-stats{display:flex;align-items:center;gap:0;min-height:58px;margin-bottom:13px;padding:0 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow)}.traccar-stats>div{display:flex;align-items:baseline;gap:7px;padding:0 18px;border-right:1px solid var(--border)}.traccar-stats>div:first-child{padding-left:2px}.traccar-stats>div:last-child{border-right:0}.traccar-stats strong{font-size:19px;letter-spacing:-.02em}.traccar-stats span{color:var(--muted);font-size:11px;white-space:nowrap}.stats-context{margin-left:auto!important;max-width:34%;border-right:0!important;color:var(--primary)}.stats-context svg{flex:none}.stats-context span{overflow:hidden;text-overflow:ellipsis;color:var(--primary);font-weight:700}
+.traccar-console{position:relative;min-width:0}.traccar-detail-card{position:absolute;z-index:10;right:16px;bottom:16px;width:min(300px,calc(100% - 48px));padding:13px;border:1px solid #cbd5e1;border-radius:12px;background:color-mix(in srgb,var(--surface) 95%,transparent);box-shadow:0 8px 28px #0f172a2e;backdrop-filter:blur(10px)}.traccar-detail-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.detail-title{display:flex;align-items:center;gap:8px;min-width:0}.detail-title>div{display:grid;gap:2px;min-width:0}.detail-title strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.detail-title small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}.device-detail-dot{flex:none}.device-detail-dot.offline{background:#94a3b8;box-shadow:0 0 0 3px #e2e8f0}.detail-close{display:grid;place-items:center;width:25px;height:25px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--muted);flex:none}.detail-status{display:flex;align-items:baseline;gap:6px;margin:12px 0 9px;padding-bottom:9px;border-bottom:1px solid var(--border)}.detail-status strong{color:var(--success);font-size:12px}.detail-status span{color:var(--muted);font-size:10px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0}.detail-grid div{min-width:0}.detail-grid dt{color:var(--muted);font-size:9px}.detail-grid dd{margin:3px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.traccar-note{margin:10px 0 0;color:var(--muted);font-size:11px;line-height:1.45}
+@media(max-width:1050px){.traccar-stats>div{padding:0 12px}.stats-context{max-width:30%}.traccar-detail-card{right:12px;bottom:12px}}
+@media(max-width:760px){.traccar-heading{flex-direction:column;gap:12px}.heading-actions{width:100%;justify-content:space-between}.traccar-stats{align-items:stretch;flex-wrap:wrap;padding:7px 10px;gap:4px}.traccar-stats>div,.traccar-stats>div:first-child{flex:1 1 31%;justify-content:center;padding:6px 6px;border-right:0}.traccar-stats .stats-context{flex-basis:100%;justify-content:flex-start;max-width:none;padding:6px 2px;border-top:1px solid var(--border)}.refresh-time{font-size:10px}}
+@media(max-width:560px){.traccar-heading h1{font-size:23px}.heading-actions,.heading-actions .btn{width:100%}.heading-actions{align-items:stretch;flex-direction:column}.refresh-time{order:2}.traccar-detail-card{right:10px;bottom:10px;width:calc(100% - 20px)}.traccar-note{font-size:10px}}
 </style>
