@@ -190,6 +190,9 @@ export class TraccarClient {
     name: string,
     attributes: Record<string, string | number | boolean | null | undefined> = {},
   ): Promise<{ id: number; uniqueId: string }> {
+    // Traccar's REST catalog requires an authenticated session; Basic Auth alone is not
+    // sufficient for /api/devices on the internal server.
+    if (!this.cookie) await this.session();
     const uniqueId = traccarUniqueId(instanceId, deviceId);
     const remoteAttributes = {
       connectInstanceId: instanceId,
