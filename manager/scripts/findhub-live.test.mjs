@@ -23,6 +23,16 @@ test('Find Hub map complies with tile identification without changing platform p
  assert.doesNotMatch(source,/no-cache|cacheBust|Date.now\(\).*tile/);
  assert.match(source,/OpenStreetMap contributors/);
 });
+test('Traccar has its own fleet map and responsive console',()=>{
+ const view=readFileSync(new URL('../src/views/TraccarView.vue',import.meta.url),'utf8');
+ const map=readFileSync(new URL('../src/components/TraccarMap.vue',import.meta.url),'utf8');
+ assert.match(view,/TraccarMap/);
+ assert.doesNotMatch(view,/FindHubMap/);
+ for(const value of ['Frota Traccar','Online no Traccar','Estado retornado pelo Traccar','Última posição','Bateria','Latitude','Longitude'])assert.match(view,new RegExp(value));
+ for(const value of ['Dispositivos Traccar','Buscar dispositivo','Online','Offline','Enquadrar dispositivos','traccar-device-drawer','traccar-map-tools'])assert.match(map,new RegExp(value));
+ assert.match(map,/@media\(max-width:560px\)/);
+ assert.match(map,/positions|devices/);
+});
 test('linked Find Hub account retries transport, but AUTH_REQUIRED renews credentials in place',()=>{
  const source=readFileSync(new URL('../src/views/FindHubView.vue',import.meta.url),'utf8');
  assert.match(source,/const linked = computed\(\(\) => auth\.value\?\.linked === true\)/);
