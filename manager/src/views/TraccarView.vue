@@ -7,8 +7,9 @@ import AppShell from '@/layouts/AppShell.vue'
 import { friendlyError } from '@/services/errors'
 import { connect } from '@/services/connect'
 
-const overview = ref<{ server: any; devices: any[]; positions: any[]; refreshedAt: string } | null>(null)
-const selected = ref('')
+const overview = ref<{ server: any; devices: any[]; positions: any[]; refreshedAt: string; map?: { tileUrl: string } } | null>(null)
+const ALL_DEVICES = '__all__'
+const selected = ref(ALL_DEVICES)
 const error = ref('')
 const busy = ref(false)
 let refreshTimer: number | null = null
@@ -18,9 +19,13 @@ const devices = computed(() => (overview.value?.devices || []).map((device: any)
   ...device,
   position: positions.value.get(String(device.id)) || null,
 })))
-const device = computed(() => devices.value.find((item: any) => String(item.id) === selected.value) || devices.value[0] || null)
+const device = computed(() => selected.value === ALL_DEVICES
+  ? null
+  : devices.value.find((item: any) => String(item.id) === selected.value) || devices.value[0] || null)
+const mapDevices = computed(() => selected.value === ALL_DEVICES ? devices.value : (device.value ? [device.value] : []))
 const onlineCount = computed(() => devices.value.filter((item: any) => item.status === 'online').length)
 const positionedCount = computed(() => devices.value.filter((item: any) => item.position).length)
+const selectedPositionedCount = computed(() => mapDevices.value.filter((item: any) => item.position).length)
 const serverName = computed(() => String(overview.value?.server?.server || overview.value?.server?.version || 'Traccar interno'))
 
 function stamp(value: unknown) {
@@ -54,9 +59,8 @@ async function reload() {
   try {
     const next = await connect.traccarOverview()
     overview.value = next
-    if (!devices.value.some((item: any) => String(item.id) === selected.value)) {
-      selected.value = String(devices.value[0]?.id || '')
-    }
+    if (selected.value !== ALL_DEVICES && !devices.value.some((item: any) => String(item.id) === selected.value))
+      selected.value = ALL_DEVICES
   } catch (cause) {
     error.value = friendlyError(cause, 'Não foi possível consultar o Traccar interno.')
   } finally {
@@ -102,6 +106,17 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="!devices.length" class="empty">Nenhum dispositivo cadastrado no Traccar.</div>
           <button
+            v-else
+            class="device-row all-row"
+            :class="{ active: selected === ALL_DEVICES }"
+            type="button"
+            @click="selected = ALL_DEVICES"
+          >
+            <span class="dot fleet"></span>
+            <span><strong>Todos os dispositivos</strong><small>{{ selected === ALL_DEVICES ? 'Exibindo' : 'Exibir' }} {{ positionedCount }} de {{ devices.length }} com posição</small></span>
+            <AppIcon name="chevron" :size="16" />
+          </button>
+          <button
             v-for="item in devices"
             :key="item.id"
             class="device-row"
@@ -116,8 +131,8 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="panel map-panel">
-          <div class="panel-heading"><div><h2>{{ device?.name || 'Selecione um dispositivo' }}</h2><p>{{ status(device) }} · bateria {{ battery(device) }}</p></div></div>
-          <FindHubMap :position="device?.position" :device-name="device?.name" />
+          <div class="panel-heading"><div><h2>{{ selected === ALL_DEVICES ? 'Todos os dispositivos' : (device?.name || 'Selecione um dispositivo') }}</h2><p>{{ selected === ALL_DEVICES ? `${selectedPositionedCount} de ${devices.length} com posição` : `${status(device)} · bateria ${battery(device)}` }}</p></div></div>
+          <FindHubMap :positions="mapDevices" :position="selected === ALL_DEVICES ? null : device?.position" :tile-url="overview.map?.tileUrl" :device-name="device?.name" />
           <dl v-if="device?.position" class="position-details">
             <div><dt>Latitude</dt><dd>{{ coordinate(device.position.latitude) }}</dd></div>
             <div><dt>Longitude</dt><dd>{{ coordinate(device.position.longitude) }}</dd></div>
@@ -142,7 +157,7 @@ onBeforeUnmount(() => {
 .panel-heading h2{margin:0;font-size:16px}.panel-heading p{margin:5px 0 0;color:var(--muted,#64748b);font-size:13px}
 .device-row{display:flex;width:100%;gap:11px;align-items:center;padding:14px 16px;border:0;border-bottom:1px solid var(--border,#dbe4ef);background:transparent;color:inherit;text-align:left;cursor:pointer}
 .device-row:hover,.device-row.active{background:var(--surface-2,#f7f9fc)}.device-row>span:nth-child(2){display:grid;gap:3px;flex:1;min-width:0}.device-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.device-row small{color:var(--muted,#64748b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dot{width:9px;height:9px;border-radius:99px;flex:0 0 auto}.dot.online{background:#16a34a}.dot.offline{background:#94a3b8}
+.all-row{border-bottom:1px solid var(--border,#dbe4ef)}.dot{width:9px;height:9px;border-radius:99px;flex:0 0 auto}.dot.online{background:#16a34a}.dot.offline{background:#94a3b8}.dot.fleet{background:var(--primary,#2563eb)}
 .empty{padding:26px 18px;color:var(--muted,#64748b)}
 .map-panel :deep(.location-map){border:0;border-radius:0;height:430px}.map-panel :deep(.attribution){right:8px}.map-panel :deep(.map-empty){min-height:430px}
 .position-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;padding:16px;gap:14px;border-top:1px solid var(--border,#dbe4ef)}.position-details div{min-width:0}.position-details dt{font-size:12px;color:var(--muted,#64748b)}.position-details dd{margin:4px 0 0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

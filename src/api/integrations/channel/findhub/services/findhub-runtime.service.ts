@@ -477,7 +477,7 @@ export class FindHubStartupService {
       where: { instanceId: this.instance.id },
       orderBy: { name: 'asc' },
     });
-    return rows.map((row: any) => this.toDevice(row));
+    return await Promise.all(rows.map((row: any) => this.hydrateLatestPosition(row)));
   }
 
   public async device(deviceId: string): Promise<FindHubDevice> {
@@ -485,7 +485,7 @@ export class FindHubStartupService {
       where: { id: deviceId, instanceId: this.instance.id },
     });
     if (!row) throw new Error('Find Hub device not found');
-    return this.toDevice(row);
+    return await this.hydrateLatestPosition(row);
   }
 
   public async setDeviceAvatar(deviceId: string, avatar: unknown): Promise<FindHubDevice> {
@@ -1897,7 +1897,7 @@ export class FindHubStartupService {
       device.name,
       traccarDeviceAttributes(device, this.instance.id),
     );
-    return (this.prisma as any).findHubTraccarBinding.upsert({
+    const binding = await (this.prisma as any).findHubTraccarBinding.upsert({
       where: { deviceId },
       create: {
         instanceId: this.instance.id,
@@ -1909,6 +1909,13 @@ export class FindHubStartupService {
       },
       update: { enabled: true, url: config.receiverUrl, traccarDeviceId: remote.uniqueId, traccarNumericId: remote.id },
     });
+    if (device.latestPosition && validPosition(device.latestPosition)) {
+      await this.forwardTraccar(device, device.latestPosition, client).catch(async () => {
+        await this.emit(FINDHUB_EVENTS.ERROR, { deviceId, operation: 'traccar', code: 'TRACCAR_FORWARD_FAILED' });
+      });
+    }
+    client.close();
+    return binding;
   }
   private async connectTraccar(): Promise<void> {
     this.traccarClient?.close();
@@ -1969,12 +1976,38 @@ export class FindHubStartupService {
         if (this.traccarClient === client) {
           this.traccarState = state;
           void this.emit(FINDHUB_EVENTS.TRACKING_UPDATE, { traccarState: state }).catch(() => undefined);
+          if (state === 'connected') void this.forwardStoredTraccarPositions(client).catch(() => undefined);
         }
       },
     );
   }
 
-  private async forwardTraccar(device: FindHubDevice, position: FindHubPosition): Promise<void> {
+  /** Send the last known Find Hub fix after a Traccar reconnect. */
+  private async forwardStoredTraccarPositions(client: TraccarClient): Promise<void> {
+    const repository = (this.prisma as any).findHubTraccarBinding;
+    if (!repository?.findMany || this.traccarClient !== client) return;
+    const bindings = await repository.findMany({ where: { instanceId: this.instance.id, enabled: true } });
+    for (const binding of Array.isArray(bindings) ? bindings.slice(0, 1000) : []) {
+      if (this.traccarClient !== client) return;
+      try {
+        const device = await this.device(binding.deviceId);
+        if (device.latestPosition && validPosition(device.latestPosition))
+          await this.forwardTraccar(device, device.latestPosition, client);
+      } catch {
+        await this.emit(FINDHUB_EVENTS.ERROR, {
+          deviceId: binding.deviceId,
+          operation: 'traccar',
+          code: 'TRACCAR_FORWARD_FAILED',
+        });
+      }
+    }
+  }
+
+  private async forwardTraccar(
+    device: FindHubDevice,
+    position: FindHubPosition,
+    transport?: TraccarClient,
+  ): Promise<void> {
     const db = this.prisma as any;
     const binding = await db.findHubTraccarBinding.findUnique({
       where: { deviceId: device.id },
@@ -1995,7 +2028,12 @@ export class FindHubStartupService {
       if (binding.traccarNumericId) {
         const config = await this.storedTraccar();
         if (config.mode === 'disabled') throw new Error('A conexão Traccar está desabilitada.');
-        await new TraccarClient(config).send(binding.traccarDeviceId, enriched);
+        const sender = transport || new TraccarClient(config);
+        try {
+          await sender.send(binding.traccarDeviceId, enriched);
+        } finally {
+          if (!transport) sender.close();
+        }
       } else {
         await this.traccar.send(
           {
@@ -2085,6 +2123,47 @@ export class FindHubStartupService {
       instanceId: this.instance.id,
       instanceName: this.instance.name,
     });
+  }
+
+  /**
+   * Older rows can have a null/invalid JSON latestPosition even though the
+   * normalized history table already contains a valid report. The Manager and
+   * the Traccar bridge must use that last persisted report instead of showing
+   * an empty map until the next Google callback arrives.
+   */
+  private async hydrateLatestPosition(row: any): Promise<FindHubDevice> {
+    const device = this.toDevice(row);
+    if (device.latestPosition && validPosition(device.latestPosition)) return device;
+    // A row with no lastLocationAt has never persisted a fix, so avoid an
+    // extra history query on the hot locate/tracking path.
+    if (!row.lastLocationAt) return device;
+    const repository = (this.prisma as any).findHubPosition;
+    if (!repository?.findMany) return device;
+    const rows = await repository.findMany({
+      where: { instanceId: this.instance.id, deviceId: row.id },
+      orderBy: { recordedAt: 'desc' },
+      take: 1,
+    });
+    const latest = Array.isArray(rows) ? rows[0] : null;
+    if (!latest) return device;
+    const timestamp = latest.recordedAt?.toISOString?.() || String(latest.recordedAt || '');
+    const position: FindHubPosition = {
+      deviceId: row.id,
+      googleDeviceId: row.googleDeviceId,
+      latitude: Number(latest.latitude),
+      longitude: Number(latest.longitude),
+      altitude: latest.altitude == null ? undefined : Number(latest.altitude),
+      accuracy: latest.accuracy == null ? undefined : Number(latest.accuracy),
+      timestamp,
+      source: ['RECENT', 'NETWORK', 'LAST_KNOWN', 'CROWDSOURCED', 'AGGREGATED', 'TRACCAR', 'UNKNOWN'].includes(
+        String(latest.source),
+      )
+        ? latest.source
+        : 'UNKNOWN',
+      semanticLocation: latest.semanticLocation || undefined,
+      ownReport: Boolean(latest.ownReport),
+    };
+    return validPosition(position) ? { ...device, latestPosition: position } : device;
   }
 
   private toDevice(row: any): FindHubDevice {

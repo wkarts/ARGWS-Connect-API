@@ -97,6 +97,7 @@ test('Manager reads the internal Traccar API without exposing its session', asyn
       TRACCAR_INTERNAL_URL: `http://127.0.0.1:${port}`,
       TRACCAR_ADMIN_EMAIL: 'admin@example.invalid',
       TRACCAR_ADMIN_PASSWORD: 'server-only-password',
+      FINDHUB_MAP_TILE_URL: 'https://tiles.example.invalid/{z}/{x}/{y}.png',
     };
     const { TraccarManagerService, traccarManagerPortalEnabled } = loadService(env);
     assert.equal(traccarManagerPortalEnabled(env), true);
@@ -107,6 +108,7 @@ test('Manager reads the internal Traccar API without exposing its session', asyn
     assert.equal(loginCount, 1);
     assert.deepEqual(overview.devices, [{ id: 7, name: 'Frota 01', status: 'online', positionId: 70 }]);
     assert.deepEqual(overview.positions, [{ id: 70, deviceId: 7, latitude: -12.97, longitude: -38.51, speed: 0, fixTime: '2026-09-29T00:00:00.000Z' }]);
+    assert.equal(overview.map.tileUrl, env.FINDHUB_MAP_TILE_URL);
     assert.equal(JSON.stringify(overview).includes(env.TRACCAR_ADMIN_PASSWORD), false);
     assert.deepEqual(cookies, ['JSESSIONID=internal-session', 'JSESSIONID=internal-session', 'JSESSIONID=internal-session']);
 
@@ -122,6 +124,7 @@ test('Manager frontend has a gated native Traccar screen and never embeds admini
   const shell = fs.readFileSync(path.join(root, 'manager/src/layouts/AppShell.vue'), 'utf8');
   const router = fs.readFileSync(path.join(root, 'manager/src/router/index.ts'), 'utf8');
   const view = fs.readFileSync(path.join(root, 'manager/src/views/TraccarView.vue'), 'utf8');
+  const map = fs.readFileSync(path.join(root, 'manager/src/components/FindHubMap.vue'), 'utf8');
   const current = fs.readFileSync(path.join(root, 'manager/src/services/current.ts'), 'utf8');
   const runtime = fs.readFileSync(path.join(root, 'src/api/routes/view.router.ts'), 'utf8');
 
@@ -131,7 +134,12 @@ test('Manager frontend has a gated native Traccar screen and never embeds admini
   assert.match(router, /path: '\/traccar'.*feature: 'traccar'/);
   assert.match(view, /connect\.traccarOverview\(\)/);
   assert.match(view, /FindHubMap/);
+  assert.match(view, /Todos os dispositivos/);
+  assert.match(view, /:positions="mapDevices"/);
   assert.doesNotMatch(view, /<iframe|TRACCAR_ADMIN_PASSWORD|TRACCAR_ADMIN_EMAIL|TRACCAR_DATABASE_PASSWORD/);
+  assert.match(map, /positions\?: MapDevice\[\]/);
+  assert.match(map, /<img v-for="tile in tiles"/);
+  assert.doesNotMatch(map, /if \(!props\.position \|\| tileError\.value\)/);
   assert.match(current, /\/manager-api\/v1\/traccar\/overview/);
   assert.match(runtime, /features: \{ \.\.\.managerFeatures\(\), traccar: traccarManagerPortalEnabled\(\) \}/);
 });
