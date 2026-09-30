@@ -88,6 +88,38 @@ type TraccarSendPosition = {
   altitude?: number;
 } & TraccarPositionMetadata;
 
+function safeTraccarDetail(value: unknown): string | undefined {
+  const normalized = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (
+    !normalized ||
+    normalized.startsWith('<') ||
+    /(?:password|authorization|cookie|set-cookie|token|secret)/i.test(normalized)
+  )
+    return undefined;
+  return normalized.slice(0, 240);
+}
+
+async function readTraccarErrorDetail(response: Response): Promise<string | undefined> {
+  try {
+    const body = await response.text();
+    if (!body.trim()) return undefined;
+    try {
+      const parsed = JSON.parse(body);
+      for (const value of [parsed?.message, parsed?.error, parsed?.detail, parsed?.title, parsed?.exception]) {
+        const detail = safeTraccarDetail(value);
+        if (detail) return detail;
+      }
+    } catch {
+      // Some Traccar errors are plain text; sanitize that fallback below.
+    }
+    return safeTraccarDetail(body);
+  } catch {
+    return undefined;
+  }
+}
+
 /** REST/session and socket clients are backend-only. No Google or Traccar credentials are returned to the Manager. */
 export class TraccarClient {
   private cookie = '';
@@ -136,7 +168,9 @@ export class TraccarClient {
         await response.body?.cancel();
         return null;
       }
-      throw new Error(`Traccar recusou a operação (HTTP ${response.status}).`);
+      const detail = await readTraccarErrorDetail(response);
+      const operation = `${method} ${path.split('?')[0]}`;
+      throw new Error(`Traccar recusou ${operation} (HTTP ${response.status})${detail ? `: ${detail}` : ''}.`);
     }
     const cookies = response.headers.getSetCookie?.() || [response.headers.get('set-cookie') || ''];
     const sessionCookie = cookies.map((x) => x.split(';')[0]).find((x) => /^JSESSIONID=/.test(x));
@@ -204,6 +238,7 @@ export class TraccarClient {
     const existing = await this.request('/api/devices?uniqueId=' + encodeURIComponent(uniqueId));
     if (!Array.isArray(existing)) throw new Error('Catálogo Traccar inválido.');
     let remote = existing.find((x) => x.uniqueId === uniqueId);
+    let creationError: Error | undefined;
     if (!remote) {
       try {
         remote = await this.request('/api/devices', 'POST', {
@@ -211,11 +246,18 @@ export class TraccarClient {
           uniqueId,
           attributes: remoteAttributes,
         });
-      } catch {
-        const retry = await this.request('/api/devices?uniqueId=' + encodeURIComponent(uniqueId));
-        remote = Array.isArray(retry) ? retry.find((x) => x.uniqueId === uniqueId) : null;
+      } catch (error) {
+        creationError = error instanceof Error ? error : new Error('Falha ao criar o dispositivo no Traccar.');
+        try {
+          const retry = await this.request('/api/devices?uniqueId=' + encodeURIComponent(uniqueId));
+          remote = Array.isArray(retry) ? retry.find((x) => x.uniqueId === uniqueId) : null;
+        } catch {
+          // Preserve the original create response; the retry is only an idempotency check.
+          remote = null;
+        }
       }
     }
+    if (!remote && creationError) throw creationError;
     if (
       !Number.isSafeInteger(remote?.id) ||
       remote.id < 1 ||
