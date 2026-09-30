@@ -99,6 +99,81 @@ Não use um proxy de subcaminho para tentar incorporar a interface web nativa do
 Traccar: ela usa assets e endpoints `/api` na raiz e colidiria com a API do
 Connect. A tela nativa do Manager evita essa colisão e mantém o Traccar privado.
 
+### Como usar no Manager
+
+O uso normal não exige domínio, porta ou login adicionais do Traccar:
+
+1. Abra `https://<host-da-API>/manager`, autentique-se no Manager e escolha o
+   item **Traccar**. A tela nativa exibe dispositivos, estado informado pelo
+   Traccar, últimas posições, mapa, latitude, longitude e horário da posição.
+   É possível selecionar **Todos os dispositivos** ou um dispositivo específico.
+2. Para uma conta Find Hub, abra a conta no Manager, entre em
+   **Integrações → Traccar**, escolha **Traccar interno** e salve. Depois
+   selecione o dispositivo e use **Vincular automaticamente**. O backend
+   provisiona o dispositivo no Traccar e encaminha as posições pelo receptor
+   OsmAnd.
+3. Para desfazer a associação, use **Remover vínculo e excluir do Traccar**.
+   A ação remove somente o dispositivo criado pela integração e o vínculo
+   correspondente; não apaga o histórico local do Find Hub.
+
+A tela do Manager chama somente a fachada administrativa da Connect|API:
+
+| Finalidade | Rota |
+| --- | --- |
+| Verificar se a ponte interna está disponível | `GET /manager-api/v1/traccar/status` |
+| Ler servidor, dispositivos, posições e fonte de tiles | `GET /manager-api/v1/traccar/overview` |
+
+Essas rotas são administrativas e protegidas pelo mesmo contexto autorizado do
+Manager. O navegador não chama `http://traccar:8082` nem
+`http://traccar:5055`: a API abre a sessão `JSESSIONID` no backend, consulta
+o Traccar pela rede Docker e entrega ao Manager apenas o resultado permitido.
+
+O mapa usa a fonte configurada em `FINDHUB_MAP_TILE_URL` (por padrão,
+OpenStreetMap) e a mesma configuração de tiles é reaproveitada pelas telas de
+mapa do Manager. O provedor de tiles recebe apenas a área cartográfica; não
+recebe credenciais Traccar.
+
+### Interpretando online, offline e última posição
+
+Não force o Traccar para “online”. O painel separa quatro sinais:
+
+- **Find Hub:** estado do provedor Google, como online/operando;
+- **Traccar:** estado nativo do dispositivo e do receptor conforme o último
+  evento/relatório aceito;
+- **Última posição recebida:** horário real do último ponto encaminhado e
+  persistido;
+- **Erro de encaminhamento:** falha explícita do POST OsmAnd, quando houver.
+
+O receptor OsmAnd é HTTP: ele recebe `id`, latitude, longitude e timestamp
+quando chega um novo relatório. Por isso um aparelho pode estar **online no
+Find Hub** e aparecer **offline no Traccar** entre relatórios, sem que isso
+prove perda da integração. Para avaliar a operação, confira primeiro a hora da
+última posição e o estado da ponte; não substitua esses dados por um “online”
+fabricado.
+
+### Diagnóstico rápido
+
+- `status.available=false`: confirme `TRACCAR_ENABLED=true`,
+  `TRACCAR_MODE=internal`, `TRACCAR_ADMIN_EMAIL`,
+  `TRACCAR_ADMIN_PASSWORD` e o profile `traccar` no `.env`; recrie a API
+  após alterar variáveis.
+- `overview` retorna indisponibilidade: verifique a saúde do serviço
+  `traccar`, do PostgreSQL dedicado do Traccar e a conectividade interna
+  `traccar:8082`. Não publique a porta administrativa para corrigir isso.
+- A frota aparece sem pontos: confirme que o dispositivo foi vinculado e que
+  o receptor interno `traccar:5055` está aceitando o encaminhamento.
+- Há posição recente, mas o status nativo é offline: trate como diferença de
+  semântica HTTP/OsmAnd; a posição e o horário são a evidência operacional.
+- O mapa não carrega: valide `FINDHUB_MAP_TILE_URL`, HTTPS/CSP e a atribuição
+  visível do provedor. O mapa não depende de expor a interface web nativa do
+  Traccar.
+
+A interface web original do Traccar continua privada. Não a monte em
+`/manager/traccar`: os assets e as rotas `/api` e `/socket` usam a raiz e
+podem colidir com a Connect|API. Para a operação desta stack, a tela nativa do
+Manager e as fachadas acima são o caminho suportado.
+
+
 O Traccar tem banco PostgreSQL separado e volumes próprios. Não há dependência `depends_on` da API sobre ele. **Nenhuma porta Traccar é publicada no host por padrão**. Em um volume vazio, o PostgreSQL usa o bootstrap oficial da imagem. Em um volume legado, o entrypoint incorporado ao Compose preserva o cluster e segue duas rotas seguras: usa a administração `postgres` quando ela existe; quando o próprio PostgreSQL comprova que não existem nem `postgres` nem `traccar`, executa uma recuperação local em modo single-user, cria somente a role ausente `traccar`, cria ou atribui seu banco dedicado e remove imediatamente os privilégios temporários de recuperação. Ele não remove dados, não reinicializa o volume e não altera a senha de uma role já existente. Se houver uma identidade existente incompatível, ele interrompe com diagnóstico em vez de alterar credenciais ou roles desconhecidas. O health check do banco só fica verde após autenticar a role `traccar` com `TRACCAR_DATABASE_PASSWORD`, evitando que o Traccar seja iniciado contra uma identidade incompleta. O bootstrap cria o administrador somente em um banco novo, valida as credenciais existentes e desabilita registro público; nunca redefine senhas. Ambos permanecem saudáveis em execução após a validação, evitando que o Dockge marque a stack como encerrada por um job concluído. Seu código é incorporado ao próprio Compose: depois de preparar o `.env`, o runtime não requer nem monta um arquivo `traccar-bootstrap.cjs` externo. Para acesso direto de um rastreador físico externo, publicar um receptor seguro é uma decisão adicional de infraestrutura; não exponha a administração indiscriminadamente.
 
 O inventário completo dos nove Compose e defaults está em `docs/deployment/traccar-inventory.json`. Os geradores existentes de operações e Find Hub foram integrados ao gerador Traccar; `--check` detecta divergências sem editar arquivos.
