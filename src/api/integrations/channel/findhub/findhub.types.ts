@@ -114,6 +114,12 @@ export interface FindHubPosition {
   source: 'RECENT' | 'NETWORK' | 'LAST_KNOWN' | 'CROWDSOURCED' | 'AGGREGATED' | 'TRACCAR' | 'UNKNOWN';
   semanticLocation?: string;
   ownReport: boolean;
+  /** Optional transport metadata; these fields are forwarded to Traccar and are not persisted as Google facts. */
+  batteryLevel?: number;
+  batteryTier?: FindHubBatteryTier;
+  batteryTierSource?: string;
+  charging?: boolean;
+  attributes?: Record<string, string | number | boolean | null | undefined>;
 }
 
 export interface FindHubAasCredentials {
