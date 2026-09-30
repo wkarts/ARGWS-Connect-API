@@ -16,7 +16,9 @@ test('Find Hub map complies with tile identification without changing platform p
  const source=readFileSync(new URL('../src/components/FindHubMap.vue',import.meta.url),'utf8');
  assert.match(source,/referrerpolicy="strict-origin"/);
  assert.match(source,/@error="tileError=true"/);
- assert.match(source,/!props.position \|\| tileError.value/);
+ assert.match(source,/if \(tileError\.value\) return \[\]/);
+ assert.match(source,/const hasPosition = computed/);
+ assert.match(source,/positions\?: MapDevice\[\]/);
  assert.doesNotMatch(source,/no-cache|cacheBust|Date.now\(\).*tile/);
  assert.match(source,/OpenStreetMap contributors/);
 });
