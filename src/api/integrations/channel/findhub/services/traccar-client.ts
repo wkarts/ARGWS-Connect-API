@@ -89,7 +89,9 @@ type TraccarSendPosition = {
 } & TraccarPositionMetadata;
 
 function safeTraccarDetail(value: unknown): string | undefined {
-  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const normalized = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (
     !normalized ||
     normalized.startsWith('<') ||
@@ -168,9 +170,7 @@ export class TraccarClient {
       }
       const detail = await readTraccarErrorDetail(response);
       const operation = `${method} ${path.split('?')[0]}`;
-      throw new Error(
-        `Traccar recusou ${operation} (HTTP ${response.status})${detail ? `: ${detail}` : ''}.`,
-      );
+      throw new Error(`Traccar recusou ${operation} (HTTP ${response.status})${detail ? `: ${detail}` : ''}.`);
     }
     const cookies = response.headers.getSetCookie?.() || [response.headers.get('set-cookie') || ''];
     const sessionCookie = cookies.map((x) => x.split(';')[0]).find((x) => /^JSESSIONID=/.test(x));
