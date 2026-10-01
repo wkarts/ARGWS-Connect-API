@@ -412,19 +412,27 @@ jobs:
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
           $ErrorActionPreference = 'Stop'
-          $project = 'tools/connect-deployer/native/Cargo.toml'
-          cargo +1.90.0 test --manifest-path $project
-          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer tests failed' }
-          cargo +1.90.0 build --manifest-path $project --release --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer build failed' }
+          $cliProject = 'tools/connect-deployer/native/Cargo.toml'
+          $guiProject = 'tools/connect-deployer/gui/Cargo.toml'
+          cargo +1.90.0 test --manifest-path $cliProject
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer CLI tests failed' }
+          cargo +1.90.0 test --manifest-path $guiProject
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer GUI tests failed' }
+          cargo +1.90.0 build --manifest-path $cliProject --release --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer CLI build failed' }
+          cargo +1.90.0 build --manifest-path $guiProject --release --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer GUI build failed' }
           New-Item -ItemType Directory -Force connect-deployer-dist | Out-Null
           Copy-Item tools\connect-deployer\native\target\x86_64-pc-windows-msvc\release\argws-connect-deployer.exe connect-deployer-dist\argws-connect-deployer-win-x64.exe
+          Copy-Item tools\connect-deployer\gui\target\x86_64-pc-windows-msvc\release\argws-connect-deployer-gui.exe connect-deployer-dist\argws-connect-deployer-gui-win-x64.exe
       - name: Generate checksum
         working-directory: connect-deployer-dist
         shell: pwsh
         run: |
-          $hash = (Get-FileHash argws-connect-deployer-win-x64.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  argws-connect-deployer-win-x64.exe" | Out-File SHA256SUMS.txt -Encoding utf8
+          Get-ChildItem *.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Out-File SHA256SUMS.txt -Encoding utf8
       - name: Generate build provenance
         working-directory: connect-deployer-dist
         env:
@@ -438,6 +446,7 @@ jobs:
             "version": "$env:RELEASE_VERSION",
             "sourceRevision": "$env:SOURCE_REVISION",
             "binary": "argws-connect-deployer-win-x64.exe",
+            "guiBinary": "argws-connect-deployer-gui-win-x64.exe",
             "runtime": "rust-native",
             "iconSource": "browser-extensions/findhub-auth/icons/icon-16.png,icon-32.png,icon-48.png,icon-128.png"
           }
@@ -522,7 +531,7 @@ jobs:
           if [[ -f "$notes" ]]; then
             notes_args=(--notes-file "$notes")
           fi
-          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/Connect-FindHub-Auth-Assistant-*.exe extension-dist/extension-release.json extension-dist/SHA256SUMS.txt connect-deployer-dist/argws-connect-deployer-win-x64.exe connect-deployer-dist/connect-deployer-release.json connect-deployer-dist/SHA256SUMS.txt \
+          gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/Connect-FindHub-Auth-Assistant-*.exe extension-dist/extension-release.json extension-dist/SHA256SUMS.txt connect-deployer-dist/*.exe connect-deployer-dist/connect-deployer-release.json connect-deployer-dist/SHA256SUMS.txt \
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
             "${notes_args[@]}"

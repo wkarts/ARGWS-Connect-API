@@ -2,6 +2,14 @@
 
 Executável Windows x64 nativo em Rust para preparar e validar uma stack do Connect|API. O `.exe` não contém Node.js, Python, WebView ou download de runtime. Ele usa o mesmo conjunto de ícones PNG do `Connect-FindHub-Auth-Assistant`.
 
+Há dois artefatos complementares, publicados juntos:
+
+- `argws-connect-deployer-win-x64.exe`: CLI atual, preservada sem alteração de fluxo;
+- `argws-connect-deployer-gui-win-x64.exe`: interface gráfica nativa Windows, usando o mesmo núcleo Rust validado pela CLI.
+
+A GUI não substitui nem remove a CLI. Ambas preparam e validam os mesmos
+arquivos, com as mesmas regras de segurança.
+
 O executável roda na máquina do operador e entrega somente:
 
 - `compose.yaml`
@@ -11,7 +19,7 @@ O servidor de destino continua precisando apenas de Docker Compose, das imagens 
 
 ## Uso rapido
 
-Com o binário Windows baixado da pré-release `connect-api-develop` ou de uma release estável:
+Com o binário CLI Windows baixado da pré-release `connect-api-develop` ou de uma release estável:
 
 ```powershell
 .\argws-connect-deployer-win-x64.exe list
@@ -27,6 +35,12 @@ Com o binário Windows baixado da pré-release `connect-api-develop` ou de uma r
 ```
 
 Os mesmos comandos funcionam no `index.cjs` apenas para testes de compatibilidade no repositório; ele não é o binário distribuído.
+
+Para operadores que preferem a interface gráfica, abra
+`argws-connect-deployer-gui-win-x64.exe`. Escolha o flavor, módulos, pasta de
+saída e modo de autenticação do Traccar; depois use **Preparar stack** e
+**Validar pasta**. O modo seguro não substitui arquivos existentes sem marcar
+explicitamente a opção de substituição.
 
 `--modules` aceita `operations`, `nats`, `kafka`, `extended`, `mysql` e `traccar`. `extended` habilita NATS e Kafka; para uma stack somente com a infraestrutura base use `--modules none`.
 
