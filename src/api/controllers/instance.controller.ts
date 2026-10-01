@@ -376,10 +376,14 @@ export class InstanceController {
       const settings: wa.LocalSettings = {
         rejectCall: instanceData.rejectCall === true,
         msgCall: instanceData.msgCall || '',
-        groupsIgnore: instanceData.groupsIgnore === true,
+        // New instances start with groups and status/broadcast traffic
+        // ignored. Operators can explicitly opt into another policy later in
+        // the instance settings screen without making creation expensive or
+        // filling the database with unsolicited status media.
+        groupsIgnore: true,
         alwaysOnline: instanceData.alwaysOnline === true,
         readMessages: instanceData.readMessages === true,
-        readStatus: instanceData.readStatus === true,
+        readStatus: false,
         syncFullHistory: instanceData.syncFullHistory === true,
         voipMaxConcurrentCalls:
           instanceData.voipMaxConcurrentCalls !== undefined

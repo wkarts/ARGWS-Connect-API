@@ -25,6 +25,45 @@ export type ManagerEmbeddingSettings = {
   updatedAt?: string | null
 }
 
+export type ManagerStorageResource = {
+  key: string
+  label: string
+  objectCount: number
+  mediaCount: number
+  bytes: number
+  cleanable: boolean
+  note?: string
+}
+
+export type ManagerStorageOverview = {
+  enabled: boolean
+  bucket: string | null
+  managedPrefix: string
+  generatedAt: string
+  truncated: boolean
+  objectCount: number
+  totalBytes: number
+  managedObjectCount: number
+  managedBytes: number
+  untrackedObjectCount: number
+  untrackedBytes: number
+  databaseMediaCount: number
+  missingObjectCount: number
+  resources: ManagerStorageResource[]
+  instances: Array<{
+    id: string
+    name: string
+    databaseMediaCount: number
+    objectCount: number
+    bytes: number
+    missingObjectCount: number
+  }>
+  cleanup: {
+    supportedResources: Array<{ key: string; label: string; safe: boolean }>
+    policy: string
+  }
+}
+
 export type Session = {
   account: Account
   permissions: string[]

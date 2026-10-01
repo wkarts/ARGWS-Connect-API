@@ -9,15 +9,10 @@ on:
       - 'deploy/**/env.example'
       - '.github/workflows/connect-deployer.yml'
   push:
-    branches: [develop, main]
+    branches: [develop]
     tags:
       - 'v*'
-    paths:
-      - 'tools/connect-deployer/**'
-      - 'deploy/**/compose.yaml'
-      - 'deploy/**/docker-compose.yml'
-      - 'deploy/**/env.example'
-      - '.github/workflows/connect-deployer.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,7 +28,7 @@ jobs:
       - run: npm test --prefix tools/connect-deployer
 
   binaries:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: test
     strategy:
       matrix:
@@ -68,6 +63,12 @@ jobs:
       - name: Generate checksum
         working-directory: release
         run: sha256sum argws-connect-deployer-win-x64.exe > SHA256SUMS.txt
+      - name: Generate build provenance
+        working-directory: release
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: node -e "require('fs').writeFileSync('connect-deployer-release.json', JSON.stringify({channel:'stable', version:process.env.RELEASE_VERSION, sourceRevision:process.env.SOURCE_REVISION, binary:'argws-connect-deployer-win-x64.exe'}, null, 2)+'\\n')"
       - name: Publish Windows binary to the tag release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,11 +78,60 @@ jobs:
           asset="release/argws-connect-deployer-win-x64.exe"
           checksum="release/SHA256SUMS.txt"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$asset" "$checksum" \
+            gh release upload "$GITHUB_REF_NAME" "$asset" "$checksum" release/connect-deployer-release.json \
               --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$asset" "$checksum" \
+            gh release create "$GITHUB_REF_NAME" "$asset" "$checksum" release/connect-deployer-release.json \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Connect|API Deployer $GITHUB_REF_NAME" \
               --generate-notes
+
+  publish-develop:
+    if: >-
+      github.ref == 'refs/heads/develop' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/download-artifact@v5
+        with:
+          name: argws-connect-deployer-win-x64.exe-${{ github.sha }}
+          path: release
+      - name: Generate checksum
+        working-directory: release
+        run: sha256sum argws-connect-deployer-win-x64.exe > SHA256SUMS.txt
+      - name: Generate build provenance
+        working-directory: release
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: node -e "require('fs').writeFileSync('connect-deployer-release.json', JSON.stringify({channel:'develop', sourceRevision:process.env.SOURCE_REVISION, binary:'argws-connect-deployer-win-x64.exe'}, null, 2)+'\\n')"
+      - name: Publish the moving development prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Do not let a delayed runner overwrite a newer develop build.
+          current="$(git ls-remote origin refs/heads/develop | awk '{print $1}')"
+          test "$current" = "$GITHUB_SHA"
+          tag="connect-api-develop"
+          title="Connect|API develop (pré-release contínua)"
+          notes="Pré-release contínua do Connect|API para develop. Os binários são substituídos a cada build válido e a versão oficial só é criada em uma release vX.Y.Z."
+          asset="release/argws-connect-deployer-win-x64.exe"
+          checksum="release/SHA256SUMS.txt"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --prerelease --latest=false
+          else
+            if ! gh release create "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --prerelease --latest=false --title "$title" --notes "$notes"; then
+              gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
+              gh release upload "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --clobber
+            fi
           fi

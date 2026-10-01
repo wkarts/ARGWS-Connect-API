@@ -229,9 +229,42 @@ const requestOverrides = {
       '503': { description: 'Configuração temporariamente indisponível.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
     },
   },
+  'GET /manager-api/v1/storage/overview': {
+    summary: 'Consultar uso do armazenamento MinIO',
+    description: 'Relatório administrativo somente leitura do bucket S3/MinIO e das mídias persistidas. Com `instanceId`, os totais de mídia e objetos gerenciados ficam restritos à instância; objetos fora do prefixo proprietário continuam apenas como diagnóstico. Exige exclusivamente a API key global.',
+    parameters: [{ name: 'instanceId', in: 'query', required: false, schema: { type: 'string', minLength: 1 }, description: 'ID da instância para o relatório individual.' }],
+    responses: {
+      '200': { description: 'Uso global ou individual do armazenamento.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerStorageOverview' } } } },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '404': { $ref: '#/components/responses/NotFound' },
+      '503': { description: 'MinIO temporariamente indisponível.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
+  'POST /manager-api/v1/storage/cleanup/preview': {
+    summary: 'Pré-visualizar limpeza segura de status',
+    description: 'Prepara um plano efêmero, sem apagar nada. A única categoria automatizável é `status-broadcast`; mensagens, mídia gerenciada e escopo da instância são revalidados na execução.',
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerStorageCleanupPreviewRequest' } } } },
+    responses: {
+      '200': { description: 'Plano de limpeza com candidatos e prazo de expiração.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerStorageCleanupPreview' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '409': { description: 'Recurso não suportado para limpeza automática.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
+  'POST /manager-api/v1/storage/cleanup': {
+    summary: 'Executar limpeza segura confirmada',
+    description: 'Executa somente um plano ainda válido e confirmado explicitamente. Nunca apaga objetos não referenciados, sessões ou recursos que não sejam `status-broadcast`.',
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerStorageCleanupRequest' } } } },
+    responses: {
+      '200': { description: 'Resultado detalhado da limpeza.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ManagerStorageCleanupResult' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '403': { description: 'Acesso administrativo necessário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      '409': { description: 'Plano expirado ou inválido.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
   'POST /instance/create': {
     summary: 'Criar instância',
-    description: 'Cria uma nova instância e retorna token, estado e QR/pairing quando solicitado.',
+    description: 'Cria uma nova instância e retorna token, estado e QR/pairing quando solicitado. Em providers WhatsApp, grupos e status/broadcast começam ignorados (`groupsIgnore=true`, `readStatus=false`); a política pode ser alterada depois no Manager. Instâncias existentes não são reescritas.',
     requestBody: {
       required: true,
       content: {
@@ -422,7 +455,7 @@ function nativeSpec(routes, version) {
       { name: 'Storage', description: 'Mídia e armazenamento S3/MinIO.' }, { name: 'Chatbots', description: 'Integrações de chatbot/automação.' }, { name: 'Channels', description: 'Rotas específicas de canais/providers.' },
       { name: 'Meta Compatible Admin', description: 'Identidade e configuração opcional de webhook da fachada Meta Compatible.' },
       { name: 'Diagnostics', description: 'Diagnóstico técnico nativo, histórico e download privado sem conversas. Exige exclusivamente a chave global de administração.' },
-      { name: 'Manager', description: 'Configuração administrativa global do Manager, incluindo a allowlist persistida de origens de iframe.' },
+      { name: 'Manager', description: 'Recursos administrativos globais do Manager, incluindo a allowlist persistida de origens de iframe e a observabilidade protegida do armazenamento MinIO.' },
     ],
     paths,
     components: {
@@ -458,6 +491,36 @@ function nativeSpec(routes, version) {
             allowedOrigins: { type: 'array', maxItems: 12, items: { type: 'string', format: 'uri' } },
           },
         },
+        ManagerStorageResource: {
+          type: 'object',
+          required: ['key', 'label', 'objectCount', 'mediaCount', 'bytes', 'cleanable'],
+          properties: {
+            key: { type: 'string' }, label: { type: 'string' }, objectCount: { type: 'integer', minimum: 0 },
+            mediaCount: { type: 'integer', minimum: 0 }, bytes: { type: 'integer', minimum: 0 }, cleanable: { type: 'boolean' }, note: { type: 'string' },
+          },
+        },
+        ManagerStorageOverview: {
+          type: 'object',
+          required: ['enabled', 'bucket', 'managedPrefix', 'generatedAt', 'truncated', 'objectCount', 'totalBytes', 'managedObjectCount', 'managedBytes', 'untrackedObjectCount', 'untrackedBytes', 'databaseMediaCount', 'missingObjectCount', 'resources', 'instances', 'cleanup'],
+          properties: {
+            enabled: { type: 'boolean' }, bucket: { type: ['string', 'null'] }, managedPrefix: { type: 'string' }, generatedAt: { type: 'string', format: 'date-time' }, truncated: { type: 'boolean' },
+            objectCount: { type: 'integer', minimum: 0 }, totalBytes: { type: 'integer', minimum: 0 }, managedObjectCount: { type: 'integer', minimum: 0 }, managedBytes: { type: 'integer', minimum: 0 },
+            untrackedObjectCount: { type: 'integer', minimum: 0 }, untrackedBytes: { type: 'integer', minimum: 0 }, databaseMediaCount: { type: 'integer', minimum: 0 }, missingObjectCount: { type: 'integer', minimum: 0 },
+            resources: { type: 'array', items: { $ref: '#/components/schemas/ManagerStorageResource' } },
+            instances: { type: 'array', items: { type: 'object', required: ['id', 'name', 'databaseMediaCount', 'objectCount', 'bytes', 'missingObjectCount'], properties: { id: { type: 'string' }, name: { type: 'string' }, databaseMediaCount: { type: 'integer' }, objectCount: { type: 'integer' }, bytes: { type: 'integer' }, missingObjectCount: { type: 'integer' } } } },
+            cleanup: { type: 'object', required: ['supportedResources', 'policy'], properties: { supportedResources: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, label: { type: 'string' }, safe: { type: 'boolean' } } } }, policy: { type: 'string' } } },
+          },
+        },
+        ManagerStorageCleanupPreviewRequest: {
+          type: 'object', additionalProperties: false,
+          properties: { scope: { type: 'string', enum: ['global', 'instance'], default: 'global' }, instanceId: { type: 'string' }, resource: { type: 'string', enum: ['status-broadcast'], default: 'status-broadcast' }, olderThanDays: { type: 'integer', minimum: 0, maximum: 3650, default: 1 }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 } },
+        },
+        ManagerStorageCleanupPreview: {
+          type: 'object', required: ['planId', 'expiresAt', 'scope', 'resource', 'count', 'bytes', 'candidates', 'warning'],
+          properties: { planId: { type: 'string' }, expiresAt: { type: 'string', format: 'date-time' }, scope: { type: 'string' }, instanceId: { type: ['string', 'null'] }, resource: { type: 'string' }, count: { type: 'integer' }, bytes: { type: 'integer' }, candidates: { type: 'array', items: { type: 'object', additionalProperties: true } }, warning: { type: 'string' } },
+        },
+        ManagerStorageCleanupRequest: { type: 'object', additionalProperties: false, required: ['planId', 'confirm'], properties: { planId: { type: 'string', minLength: 1 }, confirm: { type: 'boolean', const: true } } },
+        ManagerStorageCleanupResult: { type: 'object', required: ['status', 'requested', 'removed', 'skipped', 'failed', 'freedBytes', 'failures'], properties: { status: { type: 'string', enum: ['completed', 'partial'] }, requested: { type: 'integer' }, removed: { type: 'integer' }, skipped: { type: 'integer' }, failed: { type: 'integer' }, freedBytes: { type: 'integer' }, failures: { type: 'array', items: { type: 'string' } } } },
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
