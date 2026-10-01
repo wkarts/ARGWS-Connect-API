@@ -14,8 +14,10 @@ permissions:
   packages: write
 
 concurrency:
-  group: argws-connect-develop-images
-  cancel-in-progress: true
+  # A publication belongs to a specific commit. Do not cancel a valid
+  # post-merge publication because another develop run was queued or retried.
+  group: argws-connect-develop-images-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   guard:
