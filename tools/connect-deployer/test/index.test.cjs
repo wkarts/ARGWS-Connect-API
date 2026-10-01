@@ -46,7 +46,9 @@ test('gera somente compose.yaml e .env e valida a saida', () => {
   assert.deepEqual(fs.readdirSync(directory).sort(), ['.env', 'compose.yaml']);
   execFileSync(process.execPath, [tool, 'validate', '--directory', directory], { stdio: 'pipe' });
   const envMode = fs.statSync(path.join(directory, '.env')).mode & 0o777;
-  assert.equal(envMode, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal(envMode, 0o600);
+  }
 });
 
 test('importa env sem reordenar linhas', () => {
