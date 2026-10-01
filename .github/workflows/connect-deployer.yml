@@ -7,6 +7,7 @@ on:
       - 'deploy/**/compose.yaml'
       - 'deploy/**/docker-compose.yml'
       - 'deploy/**/env.example'
+      - 'browser-extensions/findhub-auth/icons/**'
       - '.github/workflows/connect-deployer.yml'
   push:
     branches: [develop]
@@ -19,6 +20,7 @@ permissions:
 
 jobs:
   test:
+    name: Testar geradores e validadores
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,27 +28,72 @@ jobs:
         with:
           node-version: 22
       - run: npm test --prefix tools/connect-deployer
+      - name: Testar o binario Rust nativo
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.90.0
+          target: x86_64-unknown-linux-gnu
+      - run: cargo test --manifest-path tools/connect-deployer/native/Cargo.toml
 
   binaries:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: test
-    strategy:
-      matrix:
-        include:
-          - target: node22-win-x64
-            suffix: win-x64.exe
-    runs-on: ubuntu-latest
+    runs-on: windows-2022
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: node tools/connect-deployer/build-assets.cjs
-      - run: npx --yes @yao-pkg/pkg@6.23.0 --no-signature tools/connect-deployer/index.cjs --targets ${{ matrix.target }} --output argws-connect-deployer-${{ matrix.suffix }}
+          persist-credentials: false
+      - name: Preparar toolchain Rust nativo
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.90.0
+          target: x86_64-pc-windows-msvc
+          components: rustfmt
+      - name: Localizar compilador de recursos do Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter rc.exe -Recurse |
+            Where-Object { $_.FullName -match '\\x64\\rc.exe$' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$rc) { throw 'Windows SDK resource compiler missing' }
+          "RC_EXE=$($rc.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Testar e compilar executavel Rust x64
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = 'tools/connect-deployer/native/Cargo.toml'
+          cargo +1.90.0 test --manifest-path $project
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer tests failed' }
+          cargo +1.90.0 build --manifest-path $project --release --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer build failed' }
+          New-Item -ItemType Directory -Force build\connect-deployer | Out-Null
+          Copy-Item tools\connect-deployer\native\target\x86_64-pc-windows-msvc\release\argws-connect-deployer.exe build\connect-deployer\argws-connect-deployer-win-x64.exe
+      - name: Validar PE x64 e fluxo prepare/validate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path build\connect-deployer\argws-connect-deployer-win-x64.exe).Path
+          $bytes = [System.IO.File]::ReadAllBytes($exe)
+          if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw 'Deployer nao e um PE Windows valido' }
+          $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($pe -lt 0 -or $pe + 6 -gt $bytes.Length -or $bytes[$pe] -ne 0x50 -or $bytes[$pe + 1] -ne 0x45 -or $bytes[$pe + 2] -ne 0 -or $bytes[$pe + 3] -ne 0 -or [BitConverter]::ToUInt16($bytes, $pe + 4) -ne 0x8664) { throw 'Deployer nao e x64' }
+          & $exe plan --flavor develop --modules operations,traccar --json
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer plan failed' }
+          $out = Join-Path $env:RUNNER_TEMP 'argws-connect-deployer-smoke'
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          & $exe generate --flavor develop --modules operations,traccar --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer generate failed' }
+          & $exe validate --directory $out
+          if ($LASTEXITCODE -ne 0) { throw 'Rust deployer validate failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: argws-connect-deployer-${{ matrix.suffix }}-${{ github.sha }}
-          path: argws-connect-deployer-${{ matrix.suffix }}
+          name: argws-connect-deployer-win-x64-${{ github.sha }}
+          path: build/connect-deployer/argws-connect-deployer-win-x64.exe
+          if-no-files-found: error
           retention-days: 30
 
   release:
@@ -58,18 +105,19 @@ jobs:
     steps:
       - uses: actions/download-artifact@v5
         with:
-          name: argws-connect-deployer-win-x64.exe-${{ github.sha }}
+          name: argws-connect-deployer-win-x64-${{ github.sha }}
           path: release
-      - name: Generate checksum
-        working-directory: release
-        run: sha256sum argws-connect-deployer-win-x64.exe > SHA256SUMS.txt
-      - name: Generate build provenance
+      - name: Gerar checksum e proveniencia
         working-directory: release
         env:
           SOURCE_REVISION: ${{ github.sha }}
           RELEASE_VERSION: ${{ github.ref_name }}
-        run: node -e "require('fs').writeFileSync('connect-deployer-release.json', JSON.stringify({channel:'stable', version:process.env.RELEASE_VERSION, sourceRevision:process.env.SOURCE_REVISION, binary:'argws-connect-deployer-win-x64.exe'}, null, 2)+'\\n')"
-      - name: Publish Windows binary to the tag release
+        run: |
+          sha256sum argws-connect-deployer-win-x64.exe > SHA256SUMS.txt
+          cat > connect-deployer-release.json <<EOF
+          {"channel":"stable","version":"${RELEASE_VERSION}","sourceRevision":"${SOURCE_REVISION}","binary":"argws-connect-deployer-win-x64.exe","runtime":"rust-native","iconSource":"browser-extensions/findhub-auth/icons/icon-16.png,icon-32.png,icon-48.png,icon-128.png"}
+          EOF
+      - name: Publicar o binario nativo na release da tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -78,13 +126,10 @@ jobs:
           asset="release/argws-connect-deployer-win-x64.exe"
           checksum="release/SHA256SUMS.txt"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$asset" "$checksum" release/connect-deployer-release.json \
-              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$asset" "$checksum" release/connect-deployer-release.json \
-              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Connect|API Deployer $GITHUB_REF_NAME" \
-              --generate-notes
+            gh release create "$GITHUB_REF_NAME" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Connect|API $GITHUB_REF_NAME" --generate-notes
+          fi
 
   publish-develop:
     if: >-
@@ -99,38 +144,38 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+          persist-credentials: false
       - uses: actions/download-artifact@v5
         with:
-          name: argws-connect-deployer-win-x64.exe-${{ github.sha }}
+          name: argws-connect-deployer-win-x64-${{ github.sha }}
           path: release
-      - name: Generate checksum
-        working-directory: release
-        run: sha256sum argws-connect-deployer-win-x64.exe > SHA256SUMS.txt
-      - name: Generate build provenance
+      - name: Gerar checksum e proveniencia
         working-directory: release
         env:
           SOURCE_REVISION: ${{ github.sha }}
-        run: node -e "require('fs').writeFileSync('connect-deployer-release.json', JSON.stringify({channel:'develop', sourceRevision:process.env.SOURCE_REVISION, binary:'argws-connect-deployer-win-x64.exe'}, null, 2)+'\\n')"
-      - name: Publish the moving development prerelease
+        run: |
+          sha256sum argws-connect-deployer-win-x64.exe > SHA256SUMS.txt
+          cat > connect-deployer-release.json <<EOF
+          {"channel":"develop","sourceRevision":"${SOURCE_REVISION}","binary":"argws-connect-deployer-win-x64.exe","runtime":"rust-native","iconSource":"browser-extensions/findhub-auth/icons/icon-16.png,icon-32.png,icon-48.png,icon-128.png"}
+          EOF
+      - name: Publicar na pre-release continua connect-api-develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          # Do not let a delayed runner overwrite a newer develop build.
           current="$(git ls-remote origin refs/heads/develop | awk '{print $1}')"
           test "$current" = "$GITHUB_SHA"
           tag="connect-api-develop"
           title="Connect|API develop (pré-release contínua)"
-          notes="Pré-release contínua do Connect|API para develop. Os binários são substituídos a cada build válido e a versão oficial só é criada em uma release vX.Y.Z."
+          notes="Pré-release contínua do Connect|API para develop. O Deployer é um executável Windows nativo Rust, sem Node.js; o ícone é o mesmo do Auth Assistant. O asset é substituído a cada build válido e não cria tags por componente."
           asset="release/argws-connect-deployer-win-x64.exe"
           checksum="release/SHA256SUMS.txt"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --prerelease --latest=false
           else
-            if ! gh release create "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" --prerelease --latest=false --title "$title" --notes "$notes"; then
+            if ! gh release create "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title "$title" --notes "$notes"; then
               gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
               gh release upload "$tag" "$asset" "$checksum" release/connect-deployer-release.json --repo "$GITHUB_REPOSITORY" --clobber
             fi
