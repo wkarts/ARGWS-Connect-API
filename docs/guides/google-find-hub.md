@@ -237,9 +237,9 @@ O diagnóstico de 22/09/2026 foi correlacionado com o mapa de fontes da versão 
 - `node scripts/build-findhub-extension.cjs` gera o ZIP determinístico servido pela própria API em `/findhub/auth/extension/:instanceName`; permanece no diretório `public` incluído na imagem. `--check` verifica sincronização.
 - `node scripts/build-findhub-distribution.cjs --revision <SHA completo> --channel candidate|develop|stable` prepara o ICO do instalador com os PNGs oficiais, ZIP versionado, versão e proveniência. O ícone original é `public/branding/connect-api/core/connect-api-app-icon-dark.png`; os derivados 16/32/48/128 permanecem os aprovados.
 - O workflow reutilizável `findhub-extension-build.yml` compila um instalador Windows nativo com NSIS 3.11 fixado e verifica o SHA-256 do compilador. Executa instalação, atualização, conservação de ID/pasta, remoção e verificação de que políticas do navegador não mudaram em um runner descartável.
-- PRs produzem **artefatos de teste**, sem release. Pushes em `develop` produzem prerelease imutável `findhub-extension-<versão>-develop-<SHA12>`, sem alterar `latest` ou versão da aplicação.
-- O release existente de `main` aguarda explicitamente o build Windows e anexa ZIP, EXE, `extension-release.json` e `SHA256SUMS.txt` à **mesma release da aplicação**. Não depende de um evento `release` secundário disparado por `GITHUB_TOKEN`.
-- O `extension-release.json` vincula arquivos, hash, versão do helper e commit de origem. A versão da extensão é independente da versão semântica da Connect|API. Nenhuma chave privada de assinatura é empacotada.
+- PRs produzem **artefatos de teste**, sem release. Pushes em `develop` produzem/atualizam a única pré-release móvel `connect-api-develop`, compartilhada com o Deployer Windows; os assets da extensão são substituídos somente depois da validação do commit atual, sem alterar `latest` ou a versão da aplicação.
+- O release existente de `main` aguarda explicitamente os builds Windows do Find Hub e do Deployer e anexa ZIP, EXE, `extension-release.json`, proveniências e `SHA256SUMS.txt` à **mesma release da aplicação**. Não depende de um evento `release` secundário disparado por `GITHUB_TOKEN`.
+- O `extension-release.json` vincula arquivos, hash, versão do helper e commit de origem. A versão da extensão é independente da versão semântica da Connect|API e só muda quando o componente da extensão muda; builds de API/deployer não forçam bump do complemento. Nenhuma chave privada de assinatura é empacotada.
 
 ### Instalar ou atualizar no Windows
 

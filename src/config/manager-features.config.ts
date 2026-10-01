@@ -19,6 +19,7 @@ export const MANAGER_FEATURE_DEFAULTS = {
   security: ['MANAGER_FEATURE_SECURITY', false],
   updates: ['MANAGER_FEATURE_UPDATES', true],
   settings: ['MANAGER_FEATURE_SETTINGS', true],
+  storage: ['MANAGER_FEATURE_STORAGE', true],
 } as const;
 
 export function managerFeatures(env: Record<string, string | undefined> = process.env) {

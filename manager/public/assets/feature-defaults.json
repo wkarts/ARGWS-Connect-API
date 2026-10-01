@@ -66,5 +66,9 @@
   "settings": [
     "MANAGER_FEATURE_SETTINGS",
     true
+  ],
+  "storage": [
+    "MANAGER_FEATURE_STORAGE",
+    true
   ]
 }

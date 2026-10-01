@@ -8,6 +8,7 @@ const routes = [
   { path: '/findhub', component: () => import('@/views/findhub/FindHubAccountsView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
   { path: '/findhub/:id/:section(conta|dispositivos|mapa|configuracao|historico|integracoes|protocol-lab|eventos)?', component: () => import('@/views/FindHubView.vue'), meta: { permission: 'instances.read', channel: 'findhub' } },
   { path: '/traccar', component: () => import('@/views/TraccarView.vue'), meta: { permission: 'instances.read', feature: 'traccar' } },
+  { path: '/armazenamento', component: () => import('@/views/StorageView.vue'), meta: { permission: 'audit.read', feature: 'storage' } },
   { path: '/login', component: () => import('@/views/auth/LoginView.vue'), meta: { public: true } },
   { path: '/primeiro-acesso', component: () => import('@/views/auth/SetupView.vue'), meta: { public: true, feature: 'users' } },
   { path: '/confirmacao', component: () => import('@/views/auth/VerifyView.vue'), meta: { public: true, feature: 'security' } },

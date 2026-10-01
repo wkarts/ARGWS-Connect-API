@@ -36,7 +36,7 @@ const missingRequirement = computed(() => {
 })
 
 function defaults(key: InstanceConfigKey) {
-  if (key === 'settings') return { rejectCall:false, groupsIgnore:false, alwaysOnline:false, readMessages:false, readStatus:false, syncFullHistory:false, msgCall:'', voipMaxConcurrentCalls:undefined, voipMaxConcurrentCallsLimit:4 }
+  if (key === 'settings') return { rejectCall:false, groupsIgnore:true, alwaysOnline:false, readMessages:false, readStatus:false, syncFullHistory:false, msgCall:'', voipMaxConcurrentCalls:undefined, voipMaxConcurrentCallsLimit:4 }
   if (key === 'proxy') return { enabled:false, host:'', port:'', protocol:'http', username:'', password:'' }
   if (key === 'webhook') return { enabled:false, url:'', headers:{}, byEvents:false, base64:false, events:[] }
   if (['websocket','rabbitmq','nats','sqs','kafka'].includes(key)) return { enabled:false, events:[] }

@@ -66,4 +66,4 @@ O gerador não rotaciona valores já preenchidos. Ele só cria valores onde enco
 
 ## Binários
 
-O workflow `.github/workflows/connect-deployer.yml` testa o gerador em cada PR e, em `develop`/`main`, empacota o binário Windows usando `pkg`. Em uma tag `v*`, o mesmo executável Windows e o `SHA256SUMS.txt` são anexados à Release correspondente. A etapa de empacotamento cria um módulo temporário com os templates oficiais; o stack gerado continua independente desses arquivos.
+O workflow `.github/workflows/connect-deployer.yml` testa o gerador em cada PR e empacota o binário Windows usando `pkg`. Cada build válido de `develop` atualiza a única pré-release móvel `connect-api-develop`, compartilhada com os binários Find Hub; os assets são substituídos com `--clobber`, sem criar uma tag por componente. Uma release `v*` é imutável e recebe o mesmo executável Windows, o `SHA256SUMS.txt` e a proveniência junto dos demais assets da Connect|API. A etapa de empacotamento cria um módulo temporário com os templates oficiais; o stack gerado continua independente desses arquivos.
