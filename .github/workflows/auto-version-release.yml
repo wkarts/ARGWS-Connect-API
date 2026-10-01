@@ -493,6 +493,12 @@ jobs:
           test "$(jq -r '.sourceRevision' extension-release.json)" = "${{ needs.version-source.outputs.release_sha }}"
           cd ../connect-deployer-dist
           sha256sum --check SHA256SUMS.txt
+      - name: Prepare uniquely named release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp extension-dist/SHA256SUMS.txt extension-dist/Connect-FindHub-Auth-SHA256SUMS.txt
+          cp connect-deployer-dist/SHA256SUMS.txt connect-deployer-dist/Connect-API-Deployer-SHA256SUMS.txt
       - name: Create immutable tag
         shell: bash
         run: |
@@ -531,7 +537,7 @@ jobs:
           if [[ -f "$notes" ]]; then
             notes_args=(--notes-file "$notes")
           fi
-              gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/Connect-FindHub-Auth-Assistant-*.exe extension-dist/extension-release.json extension-dist/SHA256SUMS.txt connect-deployer-dist/argws-connect-deployer-win-x64.exe connect-deployer-dist/argws-connect-deployer-gui-win-x64.exe connect-deployer-dist/connect-deployer-release.json connect-deployer-dist/SHA256SUMS.txt \
+              gh release create "${{ needs.plan-version.outputs.tag }}" IMAGE-DIGESTS.txt extension-dist/Connect-FindHub-Auth-*.zip extension-dist/Connect-FindHub-Auth-Setup-*.exe extension-dist/Connect-FindHub-Auth-Assistant-*.exe extension-dist/extension-release.json extension-dist/Connect-FindHub-Auth-SHA256SUMS.txt connect-deployer-dist/argws-connect-deployer-win-x64.exe connect-deployer-dist/argws-connect-deployer-gui-win-x64.exe connect-deployer-dist/connect-deployer-release.json connect-deployer-dist/Connect-API-Deployer-SHA256SUMS.txt \
             --target "${{ needs.version-source.outputs.release_sha }}" \
             --title "Connect|API ${{ needs.plan-version.outputs.tag }}" \
             "${notes_args[@]}"
