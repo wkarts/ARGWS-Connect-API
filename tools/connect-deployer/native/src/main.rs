@@ -122,10 +122,6 @@ struct BuildResult {
     traccar_authentication: String,
 }
 
-fn fail(message: impl Into<String>) -> Result<(), String> {
-    Err(message.into())
-}
-
 fn valid_name(value: &str) -> bool {
     let mut chars = value.chars();
     match chars.next() {
@@ -646,14 +642,14 @@ fn ensure_safe_output(directory: &Path, force: bool) -> Result<(), String> {
 
 fn write_env(path: &Path, content: &str) -> Result<(), String> {
     #[cfg(unix)]
-    let mut options = {
+    let options = {
         use std::os::unix::fs::OpenOptionsExt;
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true).mode(0o600);
         options
     };
     #[cfg(not(unix))]
-    let mut options = {
+    let options = {
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
         options
