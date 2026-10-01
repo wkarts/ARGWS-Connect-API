@@ -1,4 +1,4 @@
-import { defineWaClientPlugin } from '@innovatorssoft/zapo-js';
+import { defineWaClientPlugin } from 'zapo-js';
 
 import type { VoipEvents } from './engine/events.js';
 import { WaVoipCoordinator, type WaVoipCoordinatorOptions } from './engine/WaVoipCoordinator.js';

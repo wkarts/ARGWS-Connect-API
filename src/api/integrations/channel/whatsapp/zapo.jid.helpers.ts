@@ -7,7 +7,7 @@ import {
   normalizeRecipientJid,
   splitJid,
   toUserJid,
-} from '@innovatorssoft/zapo-js';
+} from 'zapo-js';
 
 /**
  * ZAPO-native JID helpers used only by the ZAPO provider adapter.

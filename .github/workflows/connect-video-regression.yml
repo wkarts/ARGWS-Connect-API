@@ -19,10 +19,10 @@ jobs:
         with:
           node-version: 22.x
           cache: npm
-      - name: Install dependencies with existing voice correction
+      - name: Install pinned official Zapo dependencies
         run: npm ci --no-audit --no-fund
-      - name: Verify original voice package remains homologated
-        run: node scripts/apply-zapo-voip-patch.cjs --check
+      - name: Validate official runtime dependencies
+        run: npm run runtime:deps:check
       - name: Test video engine, call isolation and private gateway
         run: npm run test:video
       - name: Lint owned JavaScript video engine

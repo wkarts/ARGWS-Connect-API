@@ -16,8 +16,8 @@ const loaded = new Module(filename, module);
 loaded.filename = filename;
 loaded.paths = module.paths;
 loaded.require = request => {
-  if (request === '@innovatorssoft/zapo-js') return { defineWaClientPlugin: definition => definition };
-  if (request === '@innovatorssoft/voip') return { voipPlugin() { throw new Error('Factory injection required'); } };
+  if (request === 'zapo-js') return { defineWaClientPlugin: definition => definition };
+  if (request === '@zapo-js/voip') return { voipPlugin() { throw new Error('Factory injection required'); } };
   if (request === './connect-voip.plugin') return { connectVoipPlugin() { throw new Error('Factory injection required'); } };
   return module.require(request);
 };
@@ -350,7 +350,7 @@ test('engine/capability markers are immutable', t => {
 });
 
 test('the real native public plugin produces identical voice ACK bytes when wrapped beside video', async t => {
-  const { voipPlugin } = require('@innovatorssoft/voip');
+  const { voipPlugin } = require('@zapo-js/voip');
   const { createNoopLogger } = require('zapo-js');
   const { encodeBinaryNodeStanza } = require('zapo-js/transport');
   function host() {

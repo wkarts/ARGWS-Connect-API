@@ -1,6 +1,6 @@
 # Gerador de deploy do Connect|API
 
-O repositório agora possui um gerador portátil em `tools/connect-deployer`. Ele centraliza a preparação dos deploys para que o operador escolha o flavor e os módulos e receba um stack pronto para o Docker Compose.
+O repositório agora possui um gerador portátil em `tools/connect-deployer`. O artefato distribuído é `argws-connect-deployer-win-x64.exe`, compilado nativamente em Rust e sem Node.js embutido. Ele centraliza a preparação dos deploys para que o operador escolha o flavor e os módulos e receba um stack pronto para o Docker Compose.
 
 O fluxo recomendado é:
 
@@ -12,3 +12,5 @@ O fluxo recomendado é:
 O gerador mantém a ordem do `.env` importado e não depende de scripts auxiliares no servidor. Em instalações novas ele gera segredos fortes. Em instalações existentes ele preserva credenciais preenchidas e não toca nos volumes.
 
 O padrão do Traccar é autenticação administrativa interna. Portanto `TRACCAR_TOKEN` permanece vazio. A chave `AUTHENTICATION_API_KEY` do Connect|API nunca deve ser copiada para `TRACCAR_TOKEN`; o gerador bloqueia essa combinação.
+
+O binário reutiliza os quatro PNGs de ícone do `Connect-FindHub-Auth-Assistant` ao montar o recurso Windows. A pré-release contínua `connect-api-develop` substitui o executável a cada build de `develop`; não são criadas tags separadas para o componente.

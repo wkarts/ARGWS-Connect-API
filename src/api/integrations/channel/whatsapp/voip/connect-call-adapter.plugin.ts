@@ -1,5 +1,4 @@
-import { voipPlugin } from '@innovatorssoft/voip';
-import { defineWaClientPlugin, type WaClientPluginContext } from '@innovatorssoft/zapo-js';
+import { defineWaClientPlugin, type WaClientPluginContext } from 'zapo-js';
 
 import { connectVoipPlugin, type ConnectVoipPluginOptions } from './connect-voip.plugin';
 
@@ -52,7 +51,7 @@ function contextView<T extends object>(original: T, overrides: Partial<T>): T {
 export function createConnectCallAdapter(
   ctx: WaClientPluginContext,
   options: ConnectVoipPluginOptions = {},
-  factories: { voice: Factory; video: Factory } = { voice: voipPlugin, video: connectVoipPlugin },
+  factories: { voice: Factory; video: Factory } = { voice: connectVoipPlugin, video: connectVoipPlugin },
 ) {
   const videoEnabled = options.videoEnabled !== false;
   const maxConcurrentCalls = options.maxConcurrentCalls ?? 1;
