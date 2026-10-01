@@ -6,7 +6,7 @@ const { execFileSync } = require('node:child_process');
 const test = require('node:test');
 
 const tool = path.resolve(__dirname, '..', 'index.cjs');
-const { build, parseEnv, parseModules, validate } = require(tool);
+const { build, parseEnv, parseModules, hasComposeEnvFile, hasComposeServices, validate } = require(tool);
 
 test('seleciona modulos sem ativar extended acidentalmente', () => {
   const result = build({
@@ -53,4 +53,12 @@ test('importa env sem reordenar linhas', () => {
   const input = '# cabecalho\nFOO=um\n\nBAR=dois\n';
   const result = require(tool).setEnv(input, { FOO: 'tres', NEW_VALUE: 'quatro' });
   assert.equal(result, '# cabecalho\nFOO=tres\n\nBAR=dois\nNEW_VALUE=quatro\n');
+});
+
+test('valida secoes Compose sem regex ambigua', () => {
+  assert.equal(hasComposeServices('name: app\nservices:\n  api:\n'), true);
+  assert.equal(hasComposeServices('name: app\nvolumes:\n'), false);
+  assert.equal(hasComposeEnvFile('services:\n  api:\n    env_file: [.env]\n'), true);
+  assert.equal(hasComposeEnvFile('services:\n  api:\n    env_file:\n      - .env\n'), true);
+  assert.equal(hasComposeEnvFile('services:\n  api:\n    environment:\n      FOO: bar\n'), false);
 });

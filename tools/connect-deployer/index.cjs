@@ -352,10 +352,23 @@ function validate({ compose, env, modules = [], flavor = 'unknown' }) {
     errors.push('TRACCAR_TOKEN nao pode reutilizar AUTHENTICATION_API_KEY');
   }
   if (modules.includes('traccar') && !/traccar[-:]|traccar\b/i.test(compose)) errors.push('compose nao contem o servico Traccar');
-  if (!/services:\s*\n/.test(compose)) errors.push('compose.yaml nao contem services');
-  if (!/env_file:\s*\[?\.env/.test(compose) && !/env_file:\s*\n\s*- \.env/.test(compose)) errors.push('compose.yaml nao referencia .env');
+  if (!hasComposeServices(compose)) errors.push('compose.yaml nao contem services');
+  if (!hasComposeEnvFile(compose)) errors.push('compose.yaml nao referencia .env');
   if (errors.length) fail(`validacao falhou para ${flavor}:\n- ${errors.join('\n- ')}`);
   return { valid: true, requiredSecrets: required };
+}
+
+function hasComposeServices(compose) {
+  return compose.split(/\r?\n/).some((line) => line.trim() === 'services:');
+}
+
+function hasComposeEnvFile(compose) {
+  const lines = compose.split(/\r?\n/);
+  return lines.some((line, index) => {
+    const value = line.trim();
+    if (value === 'env_file: [.env]' || value.startsWith('env_file: [.env,')) return true;
+    return value === 'env_file:' && lines[index + 1]?.trim() === '- .env';
+  });
 }
 
 function plan(result) {
@@ -445,5 +458,7 @@ module.exports = {
   parseEnv,
   parseModules,
   setEnv,
+  hasComposeEnvFile,
+  hasComposeServices,
   validate,
 };
