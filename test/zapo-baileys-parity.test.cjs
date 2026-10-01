@@ -12,7 +12,7 @@ const recovery = fs.readFileSync('src/api/integrations/channel/whatsapp/zapo.med
 const channel = fs.readFileSync('src/api/integrations/channel/channel.controller.ts', 'utf8');
 const baileys = fs.readFileSync('src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts', 'utf8');
 const metaStatus = fs.readFileSync('src/api/compat/meta-cloud/meta-cloud-status.mapper.ts', 'utf8');
-const sdk = require('@innovatorssoft/zapo-js');
+const sdk = require('zapo-js');
 
 function loadTs(relativePath) {
   const absolute = path.resolve(relativePath);
