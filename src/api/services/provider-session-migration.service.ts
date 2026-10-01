@@ -281,13 +281,16 @@ export class ProviderSessionMigrationService {
     }
 
     const [{ createStore }, { createPostgresStore }] = await Promise.all([
-      import('@innovatorssoft/zapo-js'),
-      import('@innovatorssoft/store-postgres'),
+      import('zapo-js'),
+      import('@zapo-js/store-postgres'),
     ]);
     const pool = new Pool({ connectionString: database.CONNECTION.URI });
     const tablePrefix = this.zapoTablePrefix();
     const backend = createPostgresStore({ pool, tablePrefix });
-    const store = createStore({
+    // Keep the lazy provider boundary compatible with the official backend
+    // bundle; its runtime domain map is complete, but cannot be inferred from
+    // this dynamic import by TypeScript's overload resolver.
+    const store = (createStore as (options: any) => any)({
       backends: { pg: backend },
       providers: {
         auth: 'pg',

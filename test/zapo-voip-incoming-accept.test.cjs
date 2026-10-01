@@ -12,7 +12,7 @@ const { pathToFileURL } = require('node:url');
 // encryption are simulated: this is a signaling regression, not a real call test.
 const packageRoot = process.env.ARGWS_VOIP_PACKAGE_ROOT
   ? path.resolve(process.env.ARGWS_VOIP_PACKAGE_ROOT)
-  : path.resolve(path.dirname(require.resolve('@innovatorssoft/voip')), '..');
+  : path.resolve(__dirname, '../.generated/connect-voip');
 const dist = path.join(packageRoot, 'dist');
 
 class MediaRelay extends EventEmitter {
@@ -118,7 +118,7 @@ for (const format of ['cjs', 'esm']) {
           assert.deepEqual(accept.content.find(node => node.tag === 'audio').attrs, { enc: 'opus', rate: '16000' });
           assert.deepEqual(accept.content.find(node => node.tag === 'net').attrs, { medium: '2' });
           assert.deepEqual(accept.content.find(node => node.tag === 'encopt').attrs, { keygen: '2' });
-          if (video) assert.deepEqual(accept.content.find(node => node.tag === 'video').attrs, { enc: 'vp8' });
+          if (video) assert.deepEqual(accept.content.find(node => node.tag === 'video').attrs, { enc: 'h.264' });
           assert.equal(accept.content.some(node => ['enc', 'device-identity'].includes(node.tag)), false);
           assert.deepEqual(callKey, new Uint8Array(32).fill(0x5a), 'the offer key remains available for SRTP');
         });

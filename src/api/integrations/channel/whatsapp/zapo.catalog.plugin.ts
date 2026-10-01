@@ -1,4 +1,4 @@
-import type { WaClientPluginContext, WaClientPluginDefinition } from '@innovatorssoft/zapo-js';
+import type { WaClientPluginContext, WaClientPluginDefinition } from 'zapo-js';
 
 type CatalogNode = Parameters<WaClientPluginContext['queryWithContext']>[1];
 type Query = WaClientPluginContext['queryWithContext'];

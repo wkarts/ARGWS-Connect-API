@@ -1,0 +1,17 @@
+[package]
+name = "argws-connect-deployer-gui"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+build = "build.rs"
+
+[dependencies]
+argws-connect-deployer = { path = "../native" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true
+panic = "abort"

@@ -1,4 +1,11 @@
-# Correção de chamadas entre dispositivos — Zapo VoIP 1.0.0
+# Registro histórico de correção de chamadas entre dispositivos
+
+> Este documento registra a migração e as correções de sinalização que deram
+> origem ao engine sob controle da Connect. A dependência arbitrária citada no
+> histórico não é instalada atualmente. O runtime usa os pacotes oficiais
+> `zapo-js` 1.9.0 e `@zapo-js/store-postgres` 1.2.0, com o engine de chamadas
+> sob controle da Connect;
+> nenhum patch de `node_modules` é executado.
 
 ## Problema e evidência
 
@@ -11,15 +18,15 @@ O pacote npm `@innovatorssoft/voip@1.0.0` consumido pela Connect API apresenta f
 - ignora `reject` e não guarda os destinatários da oferta para encerramento anterior ao ACK;
 - publica estados que o adaptador não reconhecia, como `incoming_ringing`, `connecting` e `active`.
 
-A oferta existente já consulta os dispositivos e distribui a chave cifrada para cada destino. Essa implementação foi preservada. O patch não troca biblioteca, não cria fork e não altera banco, instâncias, pareamento, HUB ou endpoints.
+A oferta existente já consulta os dispositivos e distribui a chave cifrada para cada destino. Essa implementação foi preservada. A migração não altera banco, instâncias, pareamento, HUB ou endpoints.
 
 ## Implementação
 
-`patches/zapo-voip-1.0.0.json` contém substituições exatas para os módulos CJS e ESM da dependência instalada. `scripts/apply-zapo-voip-patch.cjs` verifica versão e SHA-256 de cada arquivo antes de qualquer escrita. Uma compilação desconhecida provoca erro explícito; o script não tenta adaptar automaticamente outra versão.
+As correções de sinalização foram incorporadas ao código sob controle da
+Connect. A validação atual confere as versões oficiais instaladas e rejeita a
+presença da linha arbitrária anterior e dos pacotes WAM opcionais.
 
-O `postinstall` aplica o patch. `npm run runtime:deps:check` exige que os oito arquivos tenham o hash corrigido. O Docker copia manifesto e script antes de `npm ci` e conserva ambos na imagem final. Instalações com `--ignore-scripts` precisam executar `npm run patch:zapo-voip` antes do build.
-
-A resolução PN/LID usa `signalDeviceSync.resolveUserJidPair`, método existente no Zapo 1.6.3, com cache por sessão e timeout de 5 segundos. Credenciais PN e LID reconhecem a própria conta. O número do device só é comparado depois de comprovada a identidade da conta; ausência de `:device` equivale ao device zero. Relação PN/LID desconhecida não autoriza desligar um possível vencedor.
+A resolução PN/LID usa `signalDeviceSync.resolveUserJidPair`, método existente no Zapo oficial 1.9.0, com cache por sessão e timeout de 5 segundos. Credenciais PN e LID reconhecem a própria conta. O número do device só é comparado depois de comprovada a identidade da conta; ausência de `:device` equivale ao device zero. Relação PN/LID desconhecida não autoriza desligar um possível vencedor.
 
 Os aliases servem para comparar identidades. O JID original do `accept` permanece no signaling, SSRC e derivação SRTP, preservando o contrato de mídia. Os demais destinos permanecem os JIDs reais da oferta/relay.
 
@@ -77,7 +84,8 @@ Os testes reproduzem os ciclos com sessões, roteadores e builders reais do paco
 
 ## Instalação e validação
 
-Use o código desta correção nas instâncias participantes e gere uma nova imagem pelo fluxo habitual do projeto. Apenas reiniciar a imagem antiga não aplica o patch.
+Use a imagem gerada pelo fluxo habitual do projeto. Apenas reiniciar uma imagem
+antiga não atualiza as dependências.
 
 ```bash
 npm ci
@@ -108,8 +116,8 @@ Registre `callId`, direção, estado e motivo nos dois lados, sem tokens. Se per
 
 ## Reversibilidade
 
-Se a homologação falhar, reimplante a imagem anterior mantendo os volumes. Não use reset de branch, restauração do banco, exclusão de instâncias, `down -v` ou despareamento como parte desta correção. Para remover o patch no código, reverta somente seus arquivos e reinstale a dependência pelo lockfile.
+Se a homologação falhar, reimplante a imagem anterior mantendo os volumes. Não use reset de branch, restauração do banco, exclusão de instâncias, `down -v` ou despareamento como parte desta correção.
 
 ## Origem
 
-Pacote inspecionado: `@innovatorssoft/voip@1.0.0`, npm shasum `a4d1c64560bc0a0cc394b8cc93765719244da486`. Dependência base: `@innovatorssoft/zapo-js@1.6.3`. O patch conserva as licenças e o código não relacionado. A referência de fonte é o repositório do fornecedor em `innovatorssoft/zapo`, commit `194fa04b1d49484546941c5589f9c60a13941dd7`.
+O histórico de origem e hashes permanece em `third-party/connect-voip/PROVENANCE.json`; ele é somente atribuição, não uma fonte de runtime. A referência de vídeo oficial continua sendo o PR #274 em `vinikjkkj/zapo`.

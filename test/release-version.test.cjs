@@ -89,7 +89,7 @@ test('release workflow retains main-only publication, three components and scope
   assert.doesNotMatch(source, /git push[^\n]*(?:--force|\s-f(?:\s|$))/);
 });
 
-test('release synchronization dispatches only development image workflows after publication', () => {
+test('release synchronization dispatches only development workflows after publication', () => {
   const source = fs.readFileSync(path.join(root, '.github/workflows/auto-version-release.yml'), 'utf8');
   assert.ok(source.includes('needs: [plan-version, version-source, release]'));
   assert.ok(source.includes('node .github/scripts/sync-release-version.mjs'));
@@ -97,6 +97,26 @@ test('release synchronization dispatches only development image workflows after 
   assert.ok(source.includes('gh workflow run ghcr-publish-docs.yml --ref develop'));
   assert.ok(source.includes('actions: write'));
   assert.doesNotMatch(source, /git push[^\n]*(?:--force|\s-f(?:\s|$))/);
+});
+
+test('development binaries use one moving prerelease and stable release bundles them together', () => {
+  const extension = fs.readFileSync(path.join(root, '.github/workflows/findhub-extension-release.yml'), 'utf8');
+  const deployer = fs.readFileSync(path.join(root, '.github/workflows/connect-deployer.yml'), 'utf8');
+  const stable = fs.readFileSync(path.join(root, '.github/workflows/auto-version-release.yml'), 'utf8');
+
+  assert.match(extension, /tag="connect-api-develop"/);
+  assert.match(extension, /--clobber/);
+  assert.match(extension, /--prerelease --latest=false/);
+  assert.doesNotMatch(extension, /findhub-extension-\$\{version\}-develop-\$\{GITHUB_SHA/);
+  assert.match(deployer, /tag="connect-api-develop"/);
+  assert.match(deployer, /workflow_dispatch:/);
+  assert.match(deployer, /connect-deployer-release\.json/);
+  assert.match(deployer, /--clobber/);
+  assert.match(stable, /name: connect-deployer-distribution/);
+  assert.match(stable, /connect-deployer-dist\/argws-connect-deployer-win-x64\.exe/);
+  assert.match(stable, /connect-deployer-dist\/connect-deployer-release\.json/);
+  assert.match(stable, /extension-dist\/Connect-FindHub-Auth-\*\.zip/);
+  assert.match(stable, /gh workflow run connect-deployer\.yml --ref develop/);
 });
 
 function git(dir, ...args) {

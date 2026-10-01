@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const typescript = require('typescript');
-const sdk = require('@innovatorssoft/zapo-js');
+const sdk = require('zapo-js');
 const root = path.resolve(__dirname, '..');
 function loadTs(relative) {
   const absolute = path.join(root, relative);
@@ -25,7 +25,7 @@ const service = fs.readFileSync(path.join(root, 'src/api/integrations/channel/wh
 // without constructing WhatsApp, Prisma, media or external services.
 const method = service.match(/private detectMessageType\(message: any\): string \{([\s\S]*?)\n  \}/);
 assert.ok(method, 'Production message detector must be present');
-assert.match(service, /import \{ getContentType \} from '@innovatorssoft\/zapo-js'/);
+assert.match(service, /import \{ getContentType \} from 'zapo-js'/);
 const detect = new Function('getContentType', `return function(message) {${method[1]}\n}`)(sdk.getContentType);
 const senderKey = { groupId: '123456789-987654@g.us', axolotlSenderKeyDistributionMessage: Buffer.from([1]) };
 test('group media and extended text are not discarded as sender-key messages', () => {

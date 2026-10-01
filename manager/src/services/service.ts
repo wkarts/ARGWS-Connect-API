@@ -1,6 +1,6 @@
 import { request, setCsrf, clearCsrf } from './http'
 import * as normalize from './normalizers'
-import type { AuditItem, ConnectionItem, Conversation, ManagerEmbeddingSettings, Message, Overview, Session, UserItem } from '@/types/domain'
+import type { AuditItem, ConnectionItem, Conversation, ManagerEmbeddingSettings, ManagerStorageOverview, Message, Overview, Session, UserItem } from '@/types/domain'
 
 export const connect = {
   async status() { return request<any>('/status') },
@@ -48,4 +48,7 @@ export const connect = {
   async audit(): Promise<AuditItem[]> { return normalize.audit(await request<any>('/audit', { params: { limit: 200 } })) },
   async health() { return request<any>('/system/health') },
   async updates() { return request<any>('/updates') },
+  async storageOverview(instanceId?: string): Promise<ManagerStorageOverview> { return request<ManagerStorageOverview>('/storage/overview', { params: instanceId ? { instanceId } : undefined }) },
+  async storageCleanupPreview(data: any) { return request<any>('/storage/cleanup/preview', { method: 'POST', data }) },
+  async storageCleanup(data: any) { return request<any>('/storage/cleanup', { method: 'POST', data }) },
 }

@@ -62,3 +62,30 @@ isolados e preservados.
 
 O Manager e as DOCs integradas continuam na API, em `/manager` e
 `/manager/docs`; não exigem um arquivo ou service externo no host.
+
+## Gerador portátil
+
+Para preparar uma instalação sem depender de scripts auxiliares no servidor,
+baixe o `argws-connect-deployer-win-x64.exe` (CLI) ou o
+`argws-connect-deployer-gui-win-x64.exe` (interface gráfica) da pré-release
+`connect-api-develop` ou da release estável. A CLI pode ser executada na
+máquina do operador:
+
+```powershell
+.\argws-connect-deployer-win-x64.exe plan `
+  --flavor develop `
+  --modules operations,traccar
+.\argws-connect-deployer-win-x64.exe generate `
+  --flavor develop `
+  --modules operations,traccar `
+  --output .\out\argws-connect-develop
+.\argws-connect-deployer-win-x64.exe validate `
+  --directory .\out\argws-connect-develop
+```
+
+O resultado contém somente `compose.yaml` e `.env`. O modo padrão do Traccar
+usa as credenciais administrativas internas e deixa `TRACCAR_TOKEN` vazio. A
+ferramenta recusa reutilizar `AUTHENTICATION_API_KEY` como token do Traccar,
+que foi a causa do incidente de provisionamento. O `.exe` é Rust nativo e não
+embute Node.js; os testes `index.cjs` permanecem apenas como contrato de
+compatibilidade no repositório.

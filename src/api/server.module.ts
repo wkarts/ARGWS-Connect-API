@@ -53,6 +53,7 @@ import { PrismaRepository } from './repository/repository.service';
 import { CacheService } from './services/cache.service';
 import { LocalTemplateService } from './services/local-template.service';
 import { ManagerEmbeddingService } from './services/manager-embedding.service';
+import { ManagerStorageService } from './services/manager-storage.service';
 import { WAMonitoringService } from './services/monitor.service';
 import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
@@ -80,6 +81,7 @@ if (configService.get<ProviderSession>('PROVIDER').ENABLED) {
 export const prismaRepository = new PrismaRepository(configService);
 export const statusBroadcastRetentionService = new StatusBroadcastRetentionService(prismaRepository);
 export const managerEmbeddingService = new ManagerEmbeddingService(prismaRepository);
+export const managerStorageService = new ManagerStorageService(prismaRepository);
 export const traccarManagerService = new TraccarManagerService();
 export const localTemplateService = new LocalTemplateService(prismaRepository);
 export const metaCloudIdentityResolver = new MetaCloudIdentityResolver(prismaRepository);

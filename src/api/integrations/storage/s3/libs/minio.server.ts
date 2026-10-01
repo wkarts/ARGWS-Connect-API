@@ -27,6 +27,75 @@ const minioClient = (() => {
 
 const bucketName = BUCKET.BUCKET_NAME;
 
+export type StoredObjectSummary = {
+  key: string;
+  size: number;
+  lastModified: string | null;
+  etag?: string;
+};
+
+/**
+ * The application only owns objects that are explicitly written through the
+ * `argws-connect-api/` prefix. Other prefixes may belong to backups or an
+ * external integration and are deliberately reported but never cleaned by
+ * the Manager storage tools.
+ */
+export const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
+const MAX_OBJECTS_PER_SCAN = 100_000;
+
+export const minioEnabled = () => Boolean(minioClient && BUCKET?.ENABLE && bucketName);
+
+const listBucketObjects = async (): Promise<{ objects: StoredObjectSummary[]; truncated: boolean }> => {
+  if (!minioEnabled()) return { objects: [], truncated: false };
+
+  return await new Promise((resolve, reject) => {
+    const objects: StoredObjectSummary[] = [];
+    let truncated = false;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve({ objects, truncated });
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const stream = minioClient.listObjectsV2(bucketName, '', true);
+
+    stream.on('data', (item: MinIo.BucketItem) => {
+      if (objects.length >= MAX_OBJECTS_PER_SCAN) {
+        truncated = true;
+        stream.destroy?.();
+        return;
+      }
+      const key = String(item?.name || '');
+      if (!key) return;
+      objects.push({
+        key,
+        size: Number.isFinite(Number(item?.size)) ? Number(item.size) : 0,
+        lastModified: item?.lastModified ? new Date(item.lastModified).toISOString() : null,
+        etag: item?.etag ? String(item.etag) : undefined,
+      });
+    });
+    stream.on('error', fail);
+    stream.on('end', finish);
+    stream.on('close', () => {
+      // Destroying the stream at the safety limit can emit close without end.
+      if (truncated) finish();
+    });
+  });
+};
+
+export const managedObjectKey = (fileName: string): string | null => {
+  const value = String(fileName || '')
+    .replace(/\\/g, '/')
+    .trim();
+  if (!value || value.includes('\0') || value.startsWith('/') || value.split('/').includes('..')) return null;
+  return `${MANAGED_OBJECT_PREFIX}${value.replace(/^\.\//, '')}`;
+};
+
 const bucketExists = async () => {
   if (minioClient) {
     try {
@@ -165,4 +234,14 @@ const deleteStoredFile = async (fileName: string): Promise<boolean> => {
   }
 };
 
-export { BUCKET, deleteFile, deleteStoredFile, getObjectStream, getObjectUrl, uploadFile, uploadTempFile };
+export {
+  BUCKET,
+  bucketName,
+  deleteFile,
+  deleteStoredFile,
+  getObjectStream,
+  getObjectUrl,
+  listBucketObjects,
+  uploadFile,
+  uploadTempFile,
+};

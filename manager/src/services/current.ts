@@ -13,6 +13,7 @@ import type {
   IntegrationSummary,
   InstanceConfigKey,
   ManagerEmbeddingSettings,
+  ManagerStorageOverview,
   Message,
   Overview,
   ProviderMigrationResult,
@@ -816,6 +817,15 @@ export const current = {
   },
   async traccarOverview(): Promise<{ server: any; devices: any[]; positions: any[]; refreshedAt: string; map?: { tileUrl: string } }> {
     return api<{ server: any; devices: any[]; positions: any[]; refreshedAt: string; map?: { tileUrl: string } }>('/manager-api/v1/traccar/overview')
+  },
+  async storageOverview(instanceId?: string): Promise<ManagerStorageOverview> {
+    return api<ManagerStorageOverview>('/manager-api/v1/storage/overview', { params: instanceId ? { instanceId } : undefined })
+  },
+  async storageCleanupPreview(data: { scope: 'global' | 'instance'; instanceId?: string; resource: string; olderThanDays: number; limit?: number }) {
+    return api<any>('/manager-api/v1/storage/cleanup/preview', { method: 'POST', data, timeout: 60000 })
+  },
+  async storageCleanup(data: { planId: string; confirm: boolean }) {
+    return api<any>('/manager-api/v1/storage/cleanup', { method: 'POST', data, timeout: 120000 })
   },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },

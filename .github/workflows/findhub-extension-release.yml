@@ -16,7 +16,9 @@ permissions:
   actions: write
   contents: read
 concurrency:
-  group: findhub-extension-${{ github.ref }}
+  # One moving development channel. A commit must update this release rather
+  # than creating another component-specific tag for every build.
+  group: findhub-extension-${{ github.ref_name }}
   cancel-in-progress: false
 jobs:
   build:
@@ -38,25 +40,34 @@ jobs:
         with:
           name: findhub-extension-distribution
           path: extension-dist
-      - name: Publish immutable prerelease, never change latest or application version
+      - name: Publish the moving development prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/develop
+          current="$(git ls-remote origin refs/heads/develop | awk '{print $1}')"
+          test "$current" = "$GITHUB_SHA"
           cd extension-dist
           sha256sum --check SHA256SUMS.txt
           test "$(jq -r '.sourceRevision' extension-release.json)" = "$GITHUB_SHA"
           version="$(jq -r '.version' extension-release.json)"
-          tag="findhub-extension-${version}-develop-${GITHUB_SHA:0:12}"
+          tag="connect-api-develop"
+          title="Connect|API develop (pré-release contínua)"
+          notes="Pré-release contínua do Connect|API para develop. Os binários são substituídos a cada build válido e a versão oficial só é criada em uma release vX.Y.Z. A versão ${version} da extensão só muda quando o componente da extensão muda; a revisão do código fica registrada em extension-release.json."
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release immutable already exists: $tag"
+            gh release upload "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes" --prerelease --latest=false
           else
-            gh release create "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
+            if ! gh release create "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
               --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title "Find Hub Auth ${version} - develop ${GITHUB_SHA:0:12}" \
-              --notes "Extensão e instalador Windows por usuário. É necessária confirmação manual no navegador. Binário sem assinatura Authenticode. Fonte: ${GITHUB_SHA}. Homologação Google real não está implícita no build."
+              --title "$title" --notes "$notes"; then
+              gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
+              gh release upload "$tag" Connect-FindHub-Auth-*.zip Connect-FindHub-Auth-Setup-*.exe Connect-FindHub-Auth-Assistant-*.exe extension-release.json SHA256SUMS.txt \
+                --repo "$GITHUB_REPOSITORY" --clobber
+            fi
           fi
 
   protected-retention:

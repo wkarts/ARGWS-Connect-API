@@ -10,7 +10,7 @@ const { test } = require('node:test');
 // crypto and stanza builders. Only native media and the network are simulated.
 const packageRoot = process.env.ARGWS_VOIP_PACKAGE_ROOT
   ? path.resolve(process.env.ARGWS_VOIP_PACKAGE_ROOT)
-  : path.resolve(path.dirname(require.resolve('@innovatorssoft/voip')), '..');
+  : path.resolve(__dirname, '../.generated/connect-voip');
 const dist = path.join(packageRoot, 'dist');
 
 class MediaRelay extends EventEmitter {

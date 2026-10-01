@@ -1,6 +1,6 @@
 # Revisão dos guias ZAPO: envios brutos e JIDs
 
-Base consultada: https://zapo.to/pt-br/guides/raw-sends e https://zapo.to/pt-br/reference/jid-helpers, comparadas aos exports e código da dependência fixada @innovatorssoft/zapo-js 1.6.3.
+Base consultada: https://zapo.to/pt-br/guides/raw-sends e https://zapo.to/pt-br/reference/jid-helpers, comparadas aos exports e código da dependência oficial fixada `zapo-js` 1.9.0.
 
 ## Conteúdo bruto não depende de builder tipado
 

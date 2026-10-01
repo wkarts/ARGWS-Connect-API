@@ -105,8 +105,8 @@ for (const action of ['endCall', 'rejectCall']) {
   });
 }
 
-test('actual VoIP 1.0.0 lifecycle states reach Manager with meaningful nonterminal status', () => {
-  // Values from @innovatorssoft/voip 1.0.0 CallState; retain its raw stateData.
+test('Connect VoIP lifecycle states reach Manager with meaningful nonterminal status', () => {
+  // Values from the Connect-owned CallState; retain its raw stateData.
   for (const [state, expected] of [
     ['initiating', 'ringing'],
     ['ringing', 'ringing'],
