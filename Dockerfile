@@ -21,7 +21,6 @@ COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
 COPY ./scripts ./scripts
-COPY ./patches ./patches
 
 # A versão do package.json é materializada pelo pipeline antes do docker build.
 # O Dockerfile não tenta versionar novamente: apenas instala exatamente o lockfile.
@@ -69,14 +68,13 @@ COPY --from=builder /argws-connect/prisma ./prisma
 COPY --from=builder /argws-connect/manager/dist ./manager/dist
 COPY --from=builder /argws-connect/public ./public
 COPY --from=builder /argws-connect/scripts ./scripts
-COPY --from=builder /argws-connect/patches ./patches
 COPY --from=builder /argws-connect/operations-agent ./operations-agent
 COPY --from=builder /argws-connect/Docker ./Docker
 COPY --from=builder /argws-connect/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /argws-connect/tsup.config.ts ./tsup.config.ts
 
-# Validate the exact Zapo module path required by the published stores/VOIP packages
-# in the same final filesystem that will run in production.
+# Validate the exact official Zapo module paths in the same final filesystem
+# that will run in production.
 RUN npm run runtime:deps:check
 
 EXPOSE 8080

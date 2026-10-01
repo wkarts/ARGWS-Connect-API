@@ -254,7 +254,7 @@ test('suppression buckets accept only fixed signaling values and never leak arbi
 });
 
 test('the diagnostic taxonomy preserves every state, direction and end reason of the installed VOIP provider', () => {
-  const { CallState, CallDirection, EndCallReason } = require('../node_modules/@innovatorssoft/voip/dist/types.js');
+  const { CallState, CallDirection, EndCallReason } = require('../node_modules/@zapo-js/voip/dist/types.js');
   for (const state of Object.values(CallState)) {
     assert.equal(sanitizeDiagnostic({ code: 'call.state', state }).details.state, state);
   }

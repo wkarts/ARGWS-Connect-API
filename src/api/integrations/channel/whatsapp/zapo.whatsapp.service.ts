@@ -19,10 +19,9 @@ import { Events, Integration, wa } from '@api/types/wa.types';
 import { Chatwoot, ConfigService, ConfigSessionPhone, Database, QrCode } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
-import { createPostgresStore } from '@innovatorssoft/store-postgres';
-import { getContentType } from '@innovatorssoft/zapo-js';
 import { createJid } from '@utils/createJid';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
+import { createPostgresStore } from '@zapo-js/store-postgres';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
@@ -32,6 +31,7 @@ import { Pool } from 'pg';
 import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import sharp from 'sharp';
 import { PassThrough } from 'stream';
+import { getContentType } from 'zapo-js';
 
 import { diagnostics } from '../../../../diagnostics/diagnostics.service';
 import { getConnectVideoConfig, getConnectVoipEngine } from './voip/connect-voip.config';
@@ -761,12 +761,15 @@ export class ZapoStartupService extends ChannelStartupService {
     }
 
     // Provider modules are loaded lazily so Baileys/Meta startup remains independent from Zapo/VoIP.
-    const { ConsoleLogger, createStore, WaClient } = await import('@innovatorssoft/zapo-js');
+    const { ConsoleLogger, createStore, WaClient } = await import('zapo-js');
     const engine = getConnectVoipEngine();
 
     this.storeBackend = getSharedZapoPostgresBackend(database.CONNECTION.URI);
 
-    this.store = createStore({
+    // The official store backend exposes the complete domain bundle at runtime;
+    // keep the dynamic provider boundary explicit because TypeScript cannot
+    // infer its generic map through the lazy import.
+    this.store = (createStore as (options: any) => any)({
       backends: { pg: this.storeBackend },
       providers: {
         auth: 'pg',
@@ -801,7 +804,7 @@ export class ZapoStartupService extends ChannelStartupService {
           maxVideoFrameBytes: video.maxFrameBytes, maxVideoFps: video.maxFps,
         }));
       } else {
-        const { voipPlugin } = await import('@innovatorssoft/voip');
+        const { voipPlugin } = await import('@zapo-js/voip');
         plugins.push(voipPlugin({ maxConcurrentCalls, logLevel: 'warn' }));
       }
     }
@@ -1249,7 +1252,7 @@ export class ZapoStartupService extends ChannelStartupService {
         .filter(Boolean),
     );
 
-    const { proto } = await import('@innovatorssoft/zapo-js');
+    const { proto } = await import('zapo-js');
     const pageSize = 1000;
     let offset = 0;
     while (true) {

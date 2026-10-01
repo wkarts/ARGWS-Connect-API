@@ -29,10 +29,11 @@ call interoperability checks.
 
 ## Attribution
 
-The initial 21 runtime modules and 21 declaration modules were derived from the
-MIT-licensed `@innovatorssoft/voip@1.0.0`, published from
-`https://github.com/innovatorssoft/zapo/tree/main/packages/voip`. The upstream
-copyright notice is preserved verbatim in `LICENSE`.
+The initial 21 runtime modules and 21 declaration modules retain their
+historical MIT attribution recorded in `PROVENANCE.json`. That historical
+reference is not an installed dependency: the runtime now uses the official
+`zapo-js` 1.9.0, `@zapo-js/voip` 1.1.0 and `@zapo-js/store-postgres` 1.2.0
+packages. The upstream copyright notice is preserved verbatim in `LICENSE`.
 
 `PROVENANCE.json` records hashes of the initial port, including the Connect
 corrections already deployed in version 1.1.3. These hashes document origin;
@@ -40,11 +41,11 @@ they do not lock later Connect-owned video changes. Subsequent changes are
 reviewed and versioned with this repository. The surrounding Connect project
 continues under its existing Apache-2.0 license.
 
-The video implementation does not edit `node_modules`. The pre-existing native
-audio dependency correction remains in place to preserve its homologated
-behavior; video adds no new dependency patch and does not replace that engine.
-The parent adapter assigns each call to exactly one engine and filters incoming
-handlers so an audio call cannot be processed by the video coordinator.
+The Connect-owned voice/video implementation does not edit `node_modules`.
+No postinstall patch or optional WAM/analytics package is installed or
+imported. The parent adapter assigns each call to exactly one engine and
+filters incoming handlers so an audio call cannot be processed by the video
+coordinator.
 
 ## Video media contract
 

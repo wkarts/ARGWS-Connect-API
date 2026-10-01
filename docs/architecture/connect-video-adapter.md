@@ -2,11 +2,11 @@
 
 ## Escopo e preservação de voz
 
-O adapter adiciona chamadas de vídeo à Connect|API. Chamadas `isVideo=false` (ou sem o campo) continuam no plugin `@innovatorssoft/voip` 1.0.0 já homologado, com a correção de atendimento ao dispositivo originador da versão 1.1.3. O pipeline PCM, `/voice/media`, os contratos de voz e o patch existente são preservados.
+O adapter adiciona chamadas de vídeo à Connect|API. Chamadas `isVideo=false` (ou sem o campo) continuam no engine de chamadas sob controle da Connect, apoiado pelo core oficial `zapo-js` 1.9.0. O pipeline PCM, `/voice/media` e os contratos de voz são preservados; nenhum patch de `node_modules` é aplicado.
 
 O novo engine atende **somente chamadas de vídeo**, incluindo a trilha de áudio dessas chamadas. Seu código está em `src/api/integrations/channel/whatsapp/voip/engine`, sob controle da Connect. Não há novo patch da biblioteca para vídeo, importação de classes privadas de `node_modules` ou troca automática de engine após uma falha.
 
-A orientação posterior do usuário de manter o áudio homologado prevalece sobre a migração completa do core descrita no material de planejamento. A remoção do patch de voz e a migração do áudio não fazem parte desta entrega.
+O áudio e o vídeo utilizam o engine sob controle da Connect por meio das interfaces públicas do core oficial. Nenhum pacote de voz arbitrário é carregado no caminho de produção.
 
 ## Fronteira pública
 

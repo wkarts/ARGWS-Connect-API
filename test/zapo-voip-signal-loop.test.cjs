@@ -10,7 +10,7 @@ const { test } = require('node:test');
 // media and network delivery are simulated. This does not validate a live call.
 const packageRoot = process.env.ARGWS_VOIP_PACKAGE_ROOT
   ? path.resolve(process.env.ARGWS_VOIP_PACKAGE_ROOT)
-  : path.resolve(path.dirname(require.resolve('@innovatorssoft/voip')), '..');
+  : path.resolve(__dirname, '../.generated/connect-voip');
 const dist = path.join(packageRoot, 'dist');
 
 class MediaRelay extends EventEmitter {

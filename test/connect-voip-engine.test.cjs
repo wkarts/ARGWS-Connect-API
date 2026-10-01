@@ -29,7 +29,7 @@ test('builds Connect source without any installed VoIP dependency', t => {
 
 test('build preserves installed dependency bytes and never invokes its scripts', t => {
   const item = fixture(t);
-  const dependency = path.join(item.root, 'node_modules/@innovatorssoft/voip');
+  const dependency = path.join(item.root, 'node_modules/@zapo-js/voip');
   fs.mkdirSync(dependency, { recursive: true });
   const marker = path.join(dependency, 'sentinel.js');
   fs.writeFileSync(marker, 'export const untouched = true;\n');
@@ -88,12 +88,18 @@ test('source symlinks cannot copy content from outside the owned engine', t => {
   assert.throws(item.build, /symbolic links/);
 });
 
-test('video adapter migration preserves the homologated voice install hook', () => {
+test('the runtime uses official Zapo packages without vendor patch hooks', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
-  assert.equal(pkg.scripts.postinstall, 'npm run patch:zapo-voip');
-  assert.equal(pkg.scripts['patch:zapo-voip'], 'node scripts/apply-zapo-voip-patch.cjs');
-  assert.ok(fs.existsSync(path.join(projectRoot, 'scripts/apply-zapo-voip-patch.cjs')));
-  assert.ok(fs.existsSync(path.join(projectRoot, 'patches/zapo-voip-1.0.0.json')));
+  const lock = fs.readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8');
+  assert.equal(pkg.dependencies['zapo-js'], '1.9.0');
+  assert.equal(pkg.dependencies['@zapo-js/voip'], '1.1.0');
+  assert.equal(pkg.dependencies['@zapo-js/store-postgres'], '1.2.0');
+  assert.doesNotMatch(lock, /@innovatorssoft\/(?:zapo-js|voip|store-postgres|wam)/);
+  assert.doesNotMatch(lock, /@zapo-js\/wam/);
+  assert.equal(Object.hasOwn(pkg.scripts, 'postinstall'), false);
+  assert.equal(Object.hasOwn(pkg.scripts, 'patch:zapo-voip'), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'scripts/apply-zapo-voip-patch.cjs')), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'patches/zapo-voip-1.0.0.json')), false);
 });
 
 test('the port keeps its upstream MIT notice and source provenance', () => {
@@ -112,7 +118,8 @@ test('engine runtime never imports the external VoIP implementation or private Z
       if (entry.isDirectory()) visit(filename);
       else if (entry.name.endsWith('.js')) {
         const content = fs.readFileSync(filename, 'utf8');
-        assert.doesNotMatch(content, /(?:from\s*|import\s*\(|require\s*\()\s*['"]@innovatorssoft\/voip/);
+        assert.doesNotMatch(content, /@innovatorssoft\/(?:zapo-js|voip|store-postgres|wam)/);
+        assert.doesNotMatch(content, /@zapo-js\/wam/);
         assert.doesNotMatch(content, /(?:from\s*|import\s*\(|require\s*\()\s*['"](?:@innovatorssoft\/)?zapo-js\/(?:dist|src|internal)/);
       }
     }
@@ -120,11 +127,11 @@ test('engine runtime never imports the external VoIP implementation or private Z
   visit(source);
 });
 
-test('voice regression fixtures keep the native engine default and allow isolated parity comparisons', () => {
+test('voice regression fixtures keep the Connect-owned engine default and allow isolated parity comparisons', () => {
   for (const filename of ['zapo-voip-signaling.test.cjs', 'zapo-voip-signal-loop.test.cjs', 'zapo-voip-incoming-accept.test.cjs']) {
     const content = fs.readFileSync(path.join(projectRoot, 'test', filename), 'utf8');
     assert.match(content, /ARGWS_VOIP_PACKAGE_ROOT/);
-    assert.match(content, /require\.resolve\('@innovatorssoft\/voip'\)/);
+    assert.match(content, /\.generated\/connect-voip/);
   }
 });
 
@@ -136,8 +143,9 @@ test('the Connect plugin owns a separate plugin identifier and exposes the exist
   assert.match(wrapper, /coordinator\.dispose\(\)/);
 });
 
-test('VoIP CI retains the homologated voice patch check', () => {
+test('VoIP CI validates the official runtime contract', () => {
   const workflow = fs.readFileSync(path.join(projectRoot, '.github/workflows/zapo-voip-regression.yml'), 'utf8');
   assert.match(workflow, /npm run test:voip/);
-  assert.match(workflow, /apply-zapo-voip-patch/);
+  assert.match(workflow, /npm run runtime:deps:check/);
+  assert.doesNotMatch(workflow, /apply-zapo-voip-patch/);
 });

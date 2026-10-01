@@ -53,7 +53,7 @@
   "videoReference": {
     "pullRequest": "https://github.com/vinikjkkj/zapo/pull/274",
     "headCommit": "062098645ad99e9caeb04e751f58d5ac50639e63",
-    "repository": "https://github.com/mmhospedagem/zapo",
+    "repository": "https://github.com/vinikjkkj/zapo",
     "license": "MIT",
     "paths": [
       "packages/voip/src/media/h264.ts",
