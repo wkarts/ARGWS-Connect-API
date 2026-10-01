@@ -66,4 +66,4 @@ O gerador não rotaciona valores já preenchidos. Ele só cria valores onde enco
 
 ## Binários
 
-O workflow `.github/workflows/connect-deployer.yml` testa o gerador em cada PR e, em `develop`/`main`, empacota binários Linux, Windows e macOS usando `pkg`. A etapa de empacotamento cria um módulo temporário com os templates oficiais; o stack gerado continua independente desses arquivos.
+O workflow `.github/workflows/connect-deployer.yml` testa o gerador em cada PR e, em `develop`/`main`, empacota o binário Windows usando `pkg`. Em uma tag `v*`, o mesmo executável Windows e o `SHA256SUMS.txt` são anexados à Release correspondente. A etapa de empacotamento cria um módulo temporário com os templates oficiais; o stack gerado continua independente desses arquivos.
