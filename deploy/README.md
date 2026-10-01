@@ -66,8 +66,10 @@ O Manager e as DOCs integradas continuam na API, em `/manager` e
 ## Gerador portátil
 
 Para preparar uma instalação sem depender de scripts auxiliares no servidor,
-baixe o `argws-connect-deployer-win-x64.exe` da pré-release `connect-api-develop`
-ou da release estável e execute na máquina do operador:
+baixe o `argws-connect-deployer-win-x64.exe` (CLI) ou o
+`argws-connect-deployer-gui-win-x64.exe` (interface gráfica) da pré-release
+`connect-api-develop` ou da release estável. A CLI pode ser executada na
+máquina do operador:
 
 ```powershell
 .\argws-connect-deployer-win-x64.exe plan `

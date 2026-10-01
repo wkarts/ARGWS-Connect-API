@@ -5,7 +5,7 @@
   "description": "Testes de compatibilidade do gerador nativo Rust do Connect|API",
   "scripts": {
     "test": "node --test test/index.test.cjs",
-    "native:test": "cargo test --manifest-path native/Cargo.toml"
+    "native:test": "cargo test --manifest-path native/Cargo.toml && cargo test --manifest-path gui/Cargo.toml"
   },
   "engines": {
     "node": ">=18"
