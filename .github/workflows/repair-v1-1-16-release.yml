@@ -1,0 +1,99 @@
+name: Repair stable v1.1.16 publication
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ contains(github.event.head_commit.message, '[release repair]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v5
+        with:
+          ref: 9cd21773f6bee70f6bb6ba797f11bd45324c8773
+          fetch-depth: 0
+
+      - name: Download release reports
+        uses: actions/download-artifact@v5
+        with:
+          pattern: manifest-*
+          path: release-digests
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36828857967
+
+      - name: Download Find Hub distribution
+        uses: actions/download-artifact@v5
+        with:
+          name: findhub-extension-distribution
+          path: extension-dist
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36828857967
+
+      - name: Download Connect|API Deployer distribution
+        uses: actions/download-artifact@v5
+        with:
+          name: connect-deployer-distribution
+          path: connect-deployer-dist
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36828857967
+
+      - name: Verify and disambiguate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd extension-dist && sha256sum --check SHA256SUMS.txt)
+          (cd connect-deployer-dist && sha256sum --check SHA256SUMS.txt)
+          cp extension-dist/SHA256SUMS.txt extension-dist/Connect-FindHub-Auth-SHA256SUMS.txt
+          cp connect-deployer-dist/SHA256SUMS.txt connect-deployer-dist/Connect-API-Deployer-SHA256SUMS.txt
+          {
+            echo "Connect|API 1.1.16"
+            echo
+            echo "ghcr.io/wkarts/argws-connect-api:1.1.16"
+            echo "ghcr.io/wkarts/argws-connect-manager:1.1.16"
+            echo "ghcr.io/wkarts/argws-connect-docs:1.1.16"
+            echo
+            for f in release-digests/*.txt; do
+              echo "===== $(basename "$f") ====="
+              cat "$f"
+              echo
+            done
+          } > IMAGE-DIGESTS.txt
+
+      - name: Publish stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.16 >/dev/null 2>&1; then
+            echo 'v1.1.16 already exists; nothing to do.'
+            exit 0
+          fi
+          notes_args=(--generate-notes)
+          if [[ -f docs/releases/1.1.16.md ]]; then
+            notes_args=(--notes-file docs/releases/1.1.16.md)
+          fi
+          gh release create v1.1.16 \
+            IMAGE-DIGESTS.txt \
+            extension-dist/Connect-FindHub-Auth-*.zip \
+            extension-dist/Connect-FindHub-Auth-Setup-*.exe \
+            extension-dist/Connect-FindHub-Auth-Assistant-*.exe \
+            extension-dist/extension-release.json \
+            extension-dist/Connect-FindHub-Auth-SHA256SUMS.txt \
+            connect-deployer-dist/argws-connect-deployer-win-x64.exe \
+            connect-deployer-dist/argws-connect-deployer-gui-win-x64.exe \
+            connect-deployer-dist/connect-deployer-release.json \
+            connect-deployer-dist/Connect-API-Deployer-SHA256SUMS.txt \
+            --target 9cd21773f6bee70f6bb6ba797f11bd45324c8773 \
+            --title "Connect|API v1.1.16" \
+            "${notes_args[@]}"
