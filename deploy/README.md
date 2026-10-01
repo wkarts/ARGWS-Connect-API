@@ -62,3 +62,25 @@ isolados e preservados.
 
 O Manager e as DOCs integradas continuam na API, em `/manager` e
 `/manager/docs`; não exigem um arquivo ou service externo no host.
+
+## Gerador portátil
+
+Para preparar uma instalação sem depender de scripts auxiliares no servidor,
+use `tools/connect-deployer` na máquina do operador:
+
+```bash
+node tools/connect-deployer/index.cjs plan \
+  --flavor develop \
+  --modules operations,traccar
+node tools/connect-deployer/index.cjs generate \
+  --flavor develop \
+  --modules operations,traccar \
+  --output ./out/argws-connect-develop
+node tools/connect-deployer/index.cjs validate \
+  --directory ./out/argws-connect-develop
+```
+
+O resultado contém somente `compose.yaml` e `.env`. O modo padrão do Traccar
+usa as credenciais administrativas internas e deixa `TRACCAR_TOKEN` vazio. A
+ferramenta recusa reutilizar `AUTHENTICATION_API_KEY` como token do Traccar,
+que foi a causa do incidente de provisionamento.

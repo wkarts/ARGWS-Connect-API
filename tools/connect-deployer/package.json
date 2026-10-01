@@ -1,0 +1,16 @@
+{
+  "name": "@wkarts/argws-connect-deployer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gerador portatil de deploys do Connect|API",
+  "bin": {
+    "argws-connect-deployer": "index.cjs"
+  },
+  "scripts": {
+    "test": "node --test test/index.test.cjs",
+    "prepare-assets": "node build-assets.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
