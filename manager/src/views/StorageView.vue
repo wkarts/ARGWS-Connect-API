@@ -168,7 +168,7 @@ onMounted(reload)
         </PanelCard>
       </div>
 
-      <PanelCard title="Uso por instância" description="Selecione uma instância para abrir o relatório individual sem sair do Manager.">
+      <PanelCard title="Uso por instância" description="Selecione uma instância para abrir o relatório individual sem sair desta tela.">
         <div v-if="detailLoading" class="loading-line">Consultando o escopo individual…</div>
         <div v-else class="instance-usage-table"><div class="instance-usage-head"><span>Instância</span><span>Mídias no banco</span><span>Objetos</span><span>Uso</span><span>Sem objeto</span><span></span></div><button v-for="item in overview?.instances || []" :key="item.id" type="button" class="instance-usage-row" @click="selectInstance(item.id)"><strong>{{ item.name }}</strong><span>{{ item.databaseMediaCount }}</span><span>{{ item.objectCount }}</span><span>{{ bytes(item.bytes) }}</span><span>{{ item.missingObjectCount }}</span><AppIcon name="chevron" :size="16" /></button></div>
       </PanelCard>

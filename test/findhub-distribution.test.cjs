@@ -19,7 +19,7 @@ test('installer is per-user, cannot silently grant browser permissions, and uses
 });
 test('application release explicitly waits for Windows build and attaches binaries despite GITHUB_TOKEN trigger limitations',()=>{
  const release=read('.github/workflows/auto-version-release.yml');
- assert.match(release,/needs: \[plan-version, version-source, publish-manifests, findhub-extension\]/);
+ assert.match(release,/needs: \[plan-version, version-source, publish-manifests, findhub-extension, connect-deployer\]/);
  assert.match(release,/extension-dist\/Connect-FindHub-Auth-Setup-\*\.exe/);
  assert.match(release,/source_ref: \$\{\{ needs.version-source.outputs.release_sha \}\}/);
  assert.match(read('.github/workflows/findhub-extension-release.yml'),/--prerelease --latest=false/);
