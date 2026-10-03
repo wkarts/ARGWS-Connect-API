@@ -206,6 +206,21 @@ async function withInstance<T>(ref: string, fn: (item: any, name: string, token:
   return fn(item, name, token)
 }
 
+function statusForm(data: any, file?: File, number?: string) {
+  const form = new FormData()
+  if (number) form.append('number', number)
+  for (const key of ['type', 'content', 'caption', 'backgroundColor', 'font']) {
+    const value = data?.[key]
+    if (value !== undefined && value !== null && value !== '') form.append(key, String(value))
+  }
+  if (data?.allContacts !== undefined) form.append('allContacts', String(Boolean(data.allContacts)))
+  if (Array.isArray(data?.statusJidList) && data.statusJidList.length) {
+    form.append('statusJidList', JSON.stringify(data.statusJidList))
+  }
+  if (file) form.append('file', file, file.name)
+  return form
+}
+
 function integrationId(item: any, key: IntegrationKey) {
   return String(
     item?.id ||
@@ -371,6 +386,15 @@ export const current = {
   async sendText(id: string, number: string, text: string) {
     return withInstance(id, async (_item, name, token) => api(`/message/sendText/${encodeURIComponent(name)}`, {
       method: 'POST', token, data: { number: whatsappDestination(number), text },
+    }))
+  },
+
+  async sendStatus(id: string, data: any, file?: File) {
+    return withInstance(id, async (item, name, token) => api(`/message/sendStatus/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      token,
+      timeout: 180000,
+      data: statusForm(data, file, String(item?.number || item?.ownerJid || '').split('@', 1)[0].replace(/\D/g, '')),
     }))
   },
 

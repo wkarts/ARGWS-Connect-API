@@ -12,6 +12,7 @@ const FAILED = 'transcription.failed';
 
 type EnqueueInput = {
   messageId?: string;
+  instanceId?: string;
   language?: string;
   model?: string;
 };
@@ -20,6 +21,7 @@ type UploadInput = {
   buffer: Buffer;
   fileName?: string;
   mimeType?: string;
+  instanceId?: string;
   language?: string;
   model?: string;
 };
@@ -233,6 +235,9 @@ export class TranscriptionService {
       select: { fileName: true, mimetype: true, instanceId: true },
     });
     if (!media) throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
+    if (input.instanceId && String(media.instanceId || '') !== String(input.instanceId)) {
+      throw new TranscriptionServiceError('A mídia não pertence à instância autenticada.', 404);
+    }
     const mimetype = normalizeTranscriptionAudioMime(media.mimetype, media.fileName);
     if (!mimetype.startsWith('audio/')) {
       throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
@@ -291,7 +296,7 @@ export class TranscriptionService {
       }
       return await this.createAndPublish(
         {
-          instanceId: null,
+          instanceId: input.instanceId || null,
           messageId: null,
           sourceKey,
           sourceMimeType: mimeType,
@@ -307,19 +312,25 @@ export class TranscriptionService {
     }
   }
 
-  public async get(jobId: string) {
+  public async get(jobId: string, instanceId?: string) {
     const id = String(jobId || '').trim();
     if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
     const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
     if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
+    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
+      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
+    }
     return this.publicJob(job);
   }
 
-  public async retry(jobId: string) {
+  public async retry(jobId: string, instanceId?: string) {
     const id = String(jobId || '').trim();
     if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
     const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
     if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
+    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
+      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
+    }
     if (job.status !== 'failed') {
       throw new TranscriptionServiceError('Somente jobs com falha podem ser reenfileirados.', 409);
     }

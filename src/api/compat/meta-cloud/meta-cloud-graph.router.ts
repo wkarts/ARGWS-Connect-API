@@ -8,9 +8,18 @@ import { metaCloudMetrics } from './meta-cloud.metrics';
 import { MetaCloudRateLimiter } from './meta-cloud-rate-limiter';
 import { isMetaGraphVersion } from './meta-cloud-version';
 
+function transcriptionUploadLimit(): number {
+  const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
+  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
+}
+
 export class MetaCloudGraphRouter {
   public readonly router = Router();
   private readonly upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+  private readonly transcriptionUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: transcriptionUploadLimit(), files: 1 },
+  });
   private readonly limiter = new MetaCloudRateLimiter();
   private readonly mediaContentPath = '/:version/:mediaId/content';
 
@@ -51,6 +60,70 @@ export class MetaCloudGraphRouter {
             req.headers.authorization,
             (req as any).file,
             req.body?.type,
+          ),
+        );
+      }),
+    );
+
+    this.router.post(
+      '/:version/:phoneNumberId/status',
+      (req, res, next) => this.statusUploadMiddleware(req, res, next),
+      this.wrap(async (req, res) => {
+        res.json(
+          await metaCloudGraphController.publishStatus(
+            req.params.version,
+            req.params.phoneNumberId,
+            req.headers.authorization,
+            req.body,
+            this.uploadedFile(req, ['file', 'media']),
+          ),
+        );
+      }),
+    );
+
+    this.router.post(
+      '/:version/:phoneNumberId/transcriptions',
+      (req, res, next) => this.transcriptionUploadMiddleware(req, res, next),
+      this.wrap(async (req, res) => {
+        res
+          .status(202)
+          .json(
+            await metaCloudGraphController.transcribe(
+              req.params.version,
+              req.params.phoneNumberId,
+              req.headers.authorization,
+              req.body,
+              this.uploadedFile(req, ['audio', 'file']),
+            ),
+          );
+      }),
+    );
+
+    this.router.post(
+      '/:version/:phoneNumberId/transcriptions/:jobId/retry',
+      this.wrap(async (req, res) => {
+        res
+          .status(202)
+          .json(
+            await metaCloudGraphController.retryTranscription(
+              req.params.version,
+              req.params.phoneNumberId,
+              req.headers.authorization,
+              req.params.jobId,
+            ),
+          );
+      }),
+    );
+
+    this.router.get(
+      '/:version/:phoneNumberId/transcriptions/:jobId',
+      this.wrap(async (req, res) => {
+        res.json(
+          await metaCloudGraphController.getTranscription(
+            req.params.version,
+            req.params.phoneNumberId,
+            req.headers.authorization,
+            req.params.jobId,
           ),
         );
       }),
@@ -109,6 +182,43 @@ export class MetaCloudGraphRouter {
     });
   }
 
+  private statusUploadMiddleware(req: Request, res: Response, next: NextFunction) {
+    this.upload.fields([
+      { name: 'file', maxCount: 1 },
+      { name: 'media', maxCount: 1 },
+    ])(req, res, (error: any) => {
+      if (!error) return next();
+      const message =
+        error?.code === 'LIMIT_FILE_SIZE'
+          ? 'Status media file exceeds the 100 MB compatibility limit.'
+          : 'Invalid multipart status payload.';
+      return this.handleError(new MetaCloudGraphError(400, message), res, next);
+    });
+  }
+
+  private transcriptionUploadMiddleware(req: Request, res: Response, next: NextFunction) {
+    this.transcriptionUpload.fields([
+      { name: 'audio', maxCount: 1 },
+      { name: 'file', maxCount: 1 },
+    ])(req, res, (error: any) => {
+      if (!error) return next();
+      const message =
+        error?.code === 'LIMIT_FILE_SIZE'
+          ? 'Audio file exceeds the configured transcription limit.'
+          : 'Invalid multipart transcription payload.';
+      return this.handleError(new MetaCloudGraphError(400, message), res, next);
+    });
+  }
+
+  private uploadedFile(req: Request, names: string[]) {
+    const files = (req as any).files as Record<string, any[]> | undefined;
+    for (const name of names) {
+      const file = files?.[name]?.[0];
+      if (file) return file;
+    }
+    return undefined;
+  }
+
   private wrap(handler: (req: Request, res: Response) => Promise<void | Response>) {
     return async (req: Request, res: Response, next: NextFunction) => {
       try {
@@ -124,14 +234,15 @@ export class MetaCloudGraphRouter {
     if (res.headersSent) return next(error);
 
     const status = Number(error?.status);
-    if ([400, 401, 404, 409].includes(status)) {
+    if ([400, 401, 404, 409, 413, 415, 422].includes(status)) {
+      const graphStatus = [413, 415, 422].includes(status) ? 400 : status;
       const graphError = new MetaCloudGraphError(
-        status,
+        graphStatus,
         this.safeNativeMessage(error, status),
         status === 401 ? 190 : 100,
         status === 401 ? 'OAuthException' : 'GraphMethodException',
       );
-      return res.status(status).json(graphError.toBody());
+      return res.status(graphStatus).json(graphError.toBody());
     }
 
     const safe = new MetaCloudGraphError(500, 'Internal provider error.');

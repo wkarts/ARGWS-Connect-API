@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-03T04:51:20.992Z",
+  "generatedAt": "2026-10-03T06:18:45.912Z",
   "version": "1.1.15",
-  "sourceDigest": "bf015c69af3999c44f86683a9c66c9b9d3a64109bed6949ecf6c09d3dc76a14f",
+  "sourceDigest": "2ff32d4b84afb6a5b3f16b8e2380c6cdc8a58d6adc2b863b8848e1f29edd6d75",
   "operations": [
     {
       "method": "GET",
@@ -1343,6 +1343,26 @@
     {
       "method": "POST",
       "path": "/graph/{version}/{phoneNumberId}/messages",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/status",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions/{jobId}",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions/{jobId}/retry",
       "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
     }
   ]

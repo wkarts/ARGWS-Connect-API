@@ -155,6 +155,8 @@ export const metaCloudGraphController = new MetaCloudGraphController(
   metaCloudMessageAdapter,
   metaCloudMediaService,
   metaCloudTemplateService,
+  sendMessageController,
+  transcriptionService,
 );
 export const metaCloudWebhookSerializer = new MetaCloudWebhookSerializer(
   metaCloudIdentityResolver,

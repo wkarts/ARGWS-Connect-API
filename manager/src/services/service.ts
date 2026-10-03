@@ -2,6 +2,20 @@ import { request, setCsrf, clearCsrf } from './http'
 import * as normalize from './normalizers'
 import type { AuditItem, ConnectionItem, Conversation, ManagerEmbeddingSettings, ManagerStorageOverview, Message, Overview, Session, TranscriptionJob, UserItem } from '@/types/domain'
 
+function statusForm(data: any, file?: File) {
+  const form = new FormData()
+  for (const key of ['type', 'content', 'caption', 'backgroundColor', 'font']) {
+    const value = data?.[key]
+    if (value !== undefined && value !== null && value !== '') form.append(key, String(value))
+  }
+  if (data?.allContacts !== undefined) form.append('allContacts', String(Boolean(data.allContacts)))
+  if (Array.isArray(data?.statusJidList) && data.statusJidList.length) {
+    form.append('statusJidList', JSON.stringify(data.statusJidList))
+  }
+  if (file) form.append('file', file, file.name)
+  return form
+}
+
 export const connect = {
   async status() { return request<any>('/status') },
   async setup(data: { name: string; email: string; password: string }, setupToken: string) {
@@ -38,6 +52,7 @@ export const connect = {
   async conversations(id: string): Promise<Conversation[]> { return normalize.conversations(await request<any>(`/instances/${encodeURIComponent(id)}/chats`)) },
   async messages(id: string, ref: string): Promise<Message[]> { return normalize.messages(await request<any>(`/instances/${encodeURIComponent(id)}/messages`, { params: { remoteJid: ref } })) },
   async sendText(id: string, number: string, text: string) { return request(`/instances/${encodeURIComponent(id)}/messages/text`, { method: 'POST', data: { number, text } }) },
+  async sendStatus(id: string, data: any, file?: File) { return request(`/instances/${encodeURIComponent(id)}/status`, { method: 'POST', data: statusForm(data, file), timeout: 180000 }) },
   async calls(id: string) { return request<any>(`/instances/${encodeURIComponent(id)}/calls`) },
   async callAction(id: string, action: string, data: any = {}) { return request(`/instances/${encodeURIComponent(id)}/calls/${encodeURIComponent(action)}`, { method: 'POST', data }) },
   async users(): Promise<UserItem[]> { return normalize.users(await request<any>('/users')) },

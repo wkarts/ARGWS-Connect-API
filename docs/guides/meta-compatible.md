@@ -106,6 +106,62 @@ GET /graph/{version}/{mediaId}
 
 O `mediaId` corresponde ao ID real da mensagem/provider usado na correlação. A resolução usa metadata existente e devolve URL segura/presigned quando disponível.
 
+## Transcrição de áudio
+
+A transcrição pelo contrato Meta Compatible é assíncrona e usa o worker local da
+instalação. Não há dependência de OpenAI. O job fica escopado à instância do
+`phoneNumberId` autenticado.
+
+Para transcrever um áudio já persistido em uma mensagem:
+
+```bash
+curl -X POST 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/transcriptions' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"messaging_product":"whatsapp","message_id":"REAL_AUDIO_MESSAGE_ID","language":"pt"}'
+```
+
+Para enviar um arquivo diretamente, use `multipart/form-data` com o campo
+`audio` (o alias `file` também é aceito). Os formatos aceitos dependem da
+instalação, normalmente OGG/Opus, MP3, M4A, WAV, WEBM e AMR.
+
+```text
+POST /graph/{version}/{phoneNumberId}/transcriptions
+GET  /graph/{version}/{phoneNumberId}/transcriptions/{jobId}
+POST /graph/{version}/{phoneNumberId}/transcriptions/{jobId}/retry
+```
+
+O POST retorna `202` e o estado inicial do job. Consulte o `id` retornado até
+`status=completed` ou `status=failed`; a resposta nunca expõe credenciais nem
+permite consultar job de outra instância.
+
+## Publicar Status do WhatsApp
+
+Status não é ativado implicitamente ao criar uma instância. A publicação é uma
+ação explícita pelo Manager ou pela rota Meta Compatible, e somente providers
+WhatsApp Web com suporte nativo (Baileys/ZAPO) aceitam essa operação. Business
+retorna erro de capacidade, sem tentar um fallback.
+
+Texto para todos os contatos:
+
+```bash
+curl -X POST 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/status' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "messaging_product":"whatsapp",
+    "type":"text",
+    "text":{"body":"Aviso importante","background_color":"#1d4ed8","font":1},
+    "all_contacts":true
+  }'
+```
+
+Para uma lista controlada, troque `all_contacts` por
+`status_jid_list:["5575999999999"]`. Imagem, vídeo e áudio podem ser enviados
+como `multipart/form-data` no campo `file`, ou referenciados por `link`/`id`.
+O retorno confirma apenas o aceite pelo provider e contém o identificador real
+do envio em `messages[0].id`; não promete entrega ao aparelho.
+
 ## Templates
 
 ```text
