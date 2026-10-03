@@ -18289,35 +18289,17 @@
       }
     },
     "/v1/transcriptions/upload": {
-      "description": "Recebe um arquivo de áudio em multipart/form-data, armazena-o no MinIO privado e cria um job para o worker local. Nenhum provedor externo é chamado.",
+      "tags": [
+        "Core"
+      ],
+      "summary": "Enviar áudio para transcrição",
       "operationId": "post_v1_transcriptions_upload",
-      "requestBody": {
-        "required": true,
-        "content": {
-          "multipart/form-data": {
-            "schema": {
-              "type": "object",
-              "required": [
-                "audio"
-              ],
-              "properties": {
-                "audio": {
-                  "type": "string",
-                  "format": "binary"
-                },
-                "language": {
-                  "type": "string",
-                  "example": "pt"
-                },
-                "model": {
-                  "type": "string",
-                  "example": "Xenova/whisper-small"
-                }
-              }
-            }
-          }
+      "description": "Recebe um arquivo de áudio em multipart/form-data, armazena-o no MinIO privado e cria um job para o worker local. Nenhum provedor externo é chamado.",
+      "security": [
+        {
+          "apiKey": []
         }
-      },
+      ],
       "responses": {
         "202": {
           "description": "Áudio aceito e job criado.",
@@ -18345,16 +18327,34 @@
           "description": "MinIO, fila ou worker indisponível."
         }
       },
-      "security": [
-        {
-          "apiKey": []
+      "x-source-file": "src/api/routes/transcription.router.ts",
+      "requestBody": {
+        "required": true,
+        "content": {
+          "multipart/form-data": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "audio"
+              ],
+              "properties": {
+                "audio": {
+                  "type": "string",
+                  "format": "binary"
+                },
+                "language": {
+                  "type": "string",
+                  "example": "pt"
+                },
+                "model": {
+                  "type": "string",
+                  "example": "Xenova/whisper-small"
+                }
+              }
+            }
+          }
         }
-      ],
-      "summary": "Enviar áudio para transcrição",
-      "tags": [
-        "Core"
-      ],
-      "x-source-file": "src/api/routes/transcription.router.ts"
+      }
     },
     "/verify-creds": {
       "post": {
