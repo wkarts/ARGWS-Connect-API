@@ -46,11 +46,65 @@ const supportedAudio = new Set([
   'audio/mp3',
   'audio/mp4',
   'audio/x-m4a',
+  'audio/aac',
   'audio/wav',
   'audio/wave',
+  'audio/x-wav',
   'audio/webm',
   'audio/amr',
 ]);
+
+const audioMimeByExtension: Record<string, string> = {
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.wav': 'audio/wav',
+  '.webm': 'audio/webm',
+  '.amr': 'audio/amr',
+};
+
+const audioMimeAliases: Record<string, string> = {
+  'audio/ogg': 'audio/ogg',
+  'audio/opus': 'audio/opus',
+  'audio/mpeg': 'audio/mpeg',
+  'audio/mp3': 'audio/mpeg',
+  'audio/mp4': 'audio/mp4',
+  'audio/m4a': 'audio/mp4',
+  'audio/x-m4a': 'audio/mp4',
+  'audio/aac': 'audio/aac',
+  'audio/wav': 'audio/wav',
+  'audio/wave': 'audio/wav',
+  'audio/x-wav': 'audio/wav',
+  'audio/webm': 'audio/webm',
+  'video/webm': 'audio/webm',
+  'audio/amr': 'audio/amr',
+};
+
+/**
+ * Browsers are inconsistent about recordings created with MediaRecorder.
+ * Chrome/ChatGPT can report `audio/webm;codecs=opus`, `video/webm` or even an
+ * empty MIME while the filename is still `.webm`. Store one canonical audio
+ * MIME and let ffmpeg validate the actual stream in the worker.
+ */
+export function normalizeTranscriptionAudioMime(value: unknown, fileName?: string): string {
+  const declared = String(value || '')
+    .split(';', 1)[0]
+    .trim()
+    .toLowerCase();
+  const alias = audioMimeAliases[declared];
+  if (alias && supportedAudio.has(alias)) return alias;
+
+  const extension = path.extname(String(fileName || '')).toLowerCase();
+  const byExtension = audioMimeByExtension[extension];
+  if (byExtension && (declared === '' || declared === 'application/octet-stream' || declared === 'video/webm')) {
+    return byExtension;
+  }
+  return '';
+}
 
 function enabledValue(value: unknown, fallback = false): boolean {
   if (value === undefined || value === null) return fallback;
@@ -104,6 +158,7 @@ function uploadExtension(fileName: string, mimeType: string): string {
     'audio/mp3': '.mp3',
     'audio/mp4': '.m4a',
     'audio/x-m4a': '.m4a',
+    'audio/aac': '.aac',
     'audio/wav': '.wav',
     'audio/wave': '.wav',
     'audio/webm': '.webm',
@@ -178,9 +233,7 @@ export class TranscriptionService {
       select: { fileName: true, mimetype: true, instanceId: true },
     });
     if (!media) throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
-    const mimetype = String(media.mimetype || '')
-      .trim()
-      .toLowerCase();
+    const mimetype = normalizeTranscriptionAudioMime(media.mimetype, media.fileName);
     if (!mimetype.startsWith('audio/')) {
       throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
     }
@@ -217,9 +270,7 @@ export class TranscriptionService {
     if (input.buffer.length > maxUploadBytes()) {
       throw new TranscriptionServiceError('O áudio excede o limite configurado para transcrição.', 413);
     }
-    const mimeType = String(input.mimeType || '')
-      .trim()
-      .toLowerCase();
+    const mimeType = normalizeTranscriptionAudioMime(input.mimeType, input.fileName);
     if (!supportedAudio.has(mimeType)) {
       throw new TranscriptionServiceError(
         'Formato de áudio não suportado. Use OGG, Opus, MP3, M4A, WAV, WEBM ou AMR.',

@@ -28,6 +28,7 @@ function objectKey(sourceKey) {
 }
 
 function extensionFor(mimetype, sourceKey) {
+  const normalizedMime = String(mimetype || '').split(';', 1)[0].trim().toLowerCase();
   const byMime = {
     'audio/ogg': '.ogg',
     'audio/opus': '.opus',
@@ -35,12 +36,14 @@ function extensionFor(mimetype, sourceKey) {
     'audio/mp3': '.mp3',
     'audio/mp4': '.m4a',
     'audio/x-m4a': '.m4a',
+    'audio/aac': '.aac',
     'audio/wav': '.wav',
     'audio/wave': '.wav',
     'audio/webm': '.webm',
     'audio/amr': '.amr',
   };
-  if (byMime[String(mimetype || '').toLowerCase()]) return byMime[String(mimetype).toLowerCase()];
+  if (normalizedMime === 'video/webm') return '.webm';
+  if (byMime[normalizedMime]) return byMime[normalizedMime];
   const ext = path.extname(String(sourceKey || '')).toLowerCase();
   return /^[.][a-z0-9]{1,8}$/.test(ext) ? ext : '.audio';
 }

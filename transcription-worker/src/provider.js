@@ -1,13 +1,14 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
+const fsp = require('node:fs').promises;
 
 let pipelinePromise = null;
 
 function decodeAudio(filePath) {
   return new Promise((resolve, reject) => {
     const child = spawn('ffmpeg', [
-      '-hide_banner', '-loglevel', 'error', '-i', filePath,
+      '-hide_banner', '-loglevel', 'error', '-i', filePath, '-vn',
       '-f', 'f32le', '-ac', '1', '-ar', '16000', 'pipe:1',
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     const chunks = [];
@@ -34,7 +35,7 @@ function decodeAudio(filePath) {
 
 async function createPipeline(config) {
   if (!pipelinePromise) {
-    pipelinePromise = import('@huggingface/transformers').then(({ env, pipeline }) => {
+    pipelinePromise = fsp.mkdir(config.local.cacheDir, { recursive: true }).then(() => import('@huggingface/transformers')).then(({ env, pipeline }) => {
       env.cacheDir = config.local.cacheDir;
       env.allowRemoteModels = true;
       env.allowLocalModels = true;
