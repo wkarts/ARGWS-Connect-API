@@ -13,11 +13,12 @@ ARGWS Connect API segue Semantic Versioning a partir de `1.0.0`.
 Cada push ou merge em `develop`:
 
 1. executa os gates de qualidade, segurança, banco e deployment;
-2. constrói a imagem multi-arquitetura da API;
+2. constrói as imagens multi-arquitetura da API, Manager, DOCs e do worker de transcrição;
 3. sobrescreve exclusivamente:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
+ghcr.io/wkarts/argws-connect-transcription-worker:develop
 ```
 
 A branch `develop` não cria tag SemVer, `latest` ou GitHub Release. Depois de uma release estável, ela recebe automaticamente a mesma versão publicada na `main`, sem produzir uma segunda release.
@@ -63,7 +64,7 @@ O workflow executa, em ordem:
 9. publicação dos manifests multi-arquitetura no GHCR;
 10. Git tag imutável;
 11. GitHub Release com release notes e digests;
-12. sincronização da versão de `develop` e disparo das imagens API, Manager e DOCs `:develop`.
+12. sincronização da versão de `develop` e disparo das imagens API, Manager, DOCs e worker `:develop`.
 
 A imagem precisa reportar em runtime a mesma versão SemVer publicada no GHCR. A release não é criada se validação ou build falhar.
 
@@ -125,7 +126,7 @@ As políticas oficiais são:
 
 ```text
 deploy/production  → :latest
-deploy/develop     → :develop
+deploy/develop     → :develop (API, Manager, DOCs e worker)
 deploy/canonical   → :X.Y.Z
 ```
 
@@ -151,6 +152,7 @@ COMPOSE_PROJECT_NAME=argws-connect-develop
 SERVER_URL=https://d.api.connect.argws.com.br
 ARGWS_CONNECT_API_HOST_PORT=38082
 ARGWS_CONNECT_API_IMAGE=ghcr.io/wkarts/argws-connect-api:develop
+ghcr.io/wkarts/argws-connect-transcription-worker:develop
 ```
 
 ### Canonical
@@ -193,4 +195,4 @@ Os workflows de imagens de `develop` usam `contents: read` e `packages: write`. 
 
 ## Connect|API DOCs
 
-A release de `main` publica `ghcr.io/wkarts/argws-connect-docs` com a mesma SemVer da API, incluindo `X.Y.Z`, `X.Y`, `X` e `latest`. O `deploy/canonical` mantém API e DOCs pinados na mesma versão.
+A release de `main` publica `ghcr.io/wkarts/argws-connect-docs` e `ghcr.io/wkarts/argws-connect-transcription-worker` com a mesma SemVer da API, incluindo `X.Y.Z`, `X.Y`, `X` e `latest`. O `deploy/canonical` mantém API e DOCs pinados na mesma versão.
