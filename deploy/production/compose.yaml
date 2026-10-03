@@ -780,6 +780,10 @@ services:
     networks: [argws-connect-production-net]
   # END COMPOSE MYSQL VOLUME INIT
 
+volumes:
+  argws-connect-transcription-models:
+    name: ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_VOLUME_NAME:-argws-connect-transcription-models}
+
 networks:
   argws-connect-production-net:
     name: ${ARGWS_CONNECT_NETWORK_NAME:-argws-connect-production-net}

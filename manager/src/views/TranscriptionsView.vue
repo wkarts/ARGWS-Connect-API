@@ -145,7 +145,7 @@ onBeforeUnmount(() => { if (timer !== null) window.clearInterval(timer) })
       <PageHeader title="Transcrição de áudio" description="Converta áudios em texto com o motor local da instalação, sem enviar conteúdo a provedores externos.">
         <button class="btn ghost" :disabled="loading" @click="load"><AppIcon name="refresh" :size="16" />{{ loading ? 'Atualizando…' : 'Atualizar' }}</button>
       </PageHeader>
-      <section class="privacy-note"><AppIcon name="shield" :size="21" /><div><strong>Processamento privado</strong><p>O arquivo fica no MinIO privado e é processado pelo worker local. O Manager recebe apenas o estado do job e o texto resultante.</p></div></section>
+      <section class="privacy-note"><AppIcon name="shield" :size="21" /><div><strong>Processamento privado</strong><p>O arquivo fica no MinIO privado e é processado pelo worker local. O painel recebe apenas o estado do job e o texto resultante.</p></div></section>
       <p v-if="error" class="notice error" role="alert">{{ error }}</p>
       <p v-if="success" class="notice success" role="status">{{ success }}</p>
 

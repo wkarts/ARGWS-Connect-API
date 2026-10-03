@@ -140,11 +140,6 @@ services:
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
       TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -508,6 +503,10 @@ services:
       - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/prepared/mysql
     networks: [argws-connect-dev-net]
   # END COMPOSE MYSQL VOLUME INIT
+
+volumes:
+  argws-connect-transcription-models:
+    name: ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_VOLUME_NAME:-argws-connect-transcription-models}
 
 networks:
   argws-connect-dev-net:

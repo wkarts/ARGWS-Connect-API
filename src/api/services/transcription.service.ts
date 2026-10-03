@@ -1,8 +1,4 @@
-import {
-  deleteStoredFile,
-  minioEnabled,
-  uploadFile,
-} from '@api/integrations/storage/s3/libs/minio.server';
+import { deleteStoredFile, minioEnabled, uploadFile } from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
@@ -96,7 +92,10 @@ function maxUploadBytes(): number {
 }
 
 function uploadExtension(fileName: string, mimeType: string): string {
-  const extension = path.extname(String(fileName || '')).toLowerCase().replace(/[^a-z0-9.]/g, '');
+  const extension = path
+    .extname(String(fileName || ''))
+    .toLowerCase()
+    .replace(/[^a-z0-9.]/g, '');
   if (/^\.[a-z0-9]{1,8}$/.test(extension)) return extension;
   const byMime: Record<string, string> = {
     'audio/ogg': '.ogg',
@@ -179,7 +178,9 @@ export class TranscriptionService {
       select: { fileName: true, mimetype: true, instanceId: true },
     });
     if (!media) throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
-    const mimetype = String(media.mimetype || '').trim().toLowerCase();
+    const mimetype = String(media.mimetype || '')
+      .trim()
+      .toLowerCase();
     if (!mimetype.startsWith('audio/')) {
       throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
     }
@@ -216,9 +217,14 @@ export class TranscriptionService {
     if (input.buffer.length > maxUploadBytes()) {
       throw new TranscriptionServiceError('O áudio excede o limite configurado para transcrição.', 413);
     }
-    const mimeType = String(input.mimeType || '').trim().toLowerCase();
+    const mimeType = String(input.mimeType || '')
+      .trim()
+      .toLowerCase();
     if (!supportedAudio.has(mimeType)) {
-      throw new TranscriptionServiceError('Formato de áudio não suportado. Use OGG, Opus, MP3, M4A, WAV, WEBM ou AMR.', 415);
+      throw new TranscriptionServiceError(
+        'Formato de áudio não suportado. Use OGG, Opus, MP3, M4A, WAV, WEBM ou AMR.',
+        415,
+      );
     }
 
     await this.ready();
@@ -226,18 +232,23 @@ export class TranscriptionService {
     const model = safeModel(input.model);
     const sourceKey = `transcriptions/${randomUUID()}/audio${uploadExtension(String(input.fileName || ''), mimeType)}`;
     try {
-      const stored = await uploadFile(sourceKey, input.buffer, input.buffer.length, { 'Content-Type': mimeType } as any);
+      const stored = await uploadFile(sourceKey, input.buffer, input.buffer.length, {
+        'Content-Type': mimeType,
+      } as any);
       if (stored instanceof Error) {
         throw stored;
       }
-      return await this.createAndPublish({
-        instanceId: null,
-        messageId: null,
+      return await this.createAndPublish(
+        {
+          instanceId: null,
+          messageId: null,
+          sourceKey,
+          sourceMimeType: mimeType,
+          language,
+          model,
+        },
         sourceKey,
-        sourceMimeType: mimeType,
-        language,
-        model,
-      }, sourceKey);
+      );
     } catch (error) {
       await deleteStoredFile(sourceKey).catch(() => false);
       if (error instanceof TranscriptionServiceError) throw error;
@@ -355,7 +366,8 @@ export class TranscriptionService {
 
   private async ready() {
     await this.init();
-    if (!this.channel) throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
+    if (!this.channel)
+      throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
   }
 
   private async connect() {
@@ -379,7 +391,13 @@ export class TranscriptionService {
     await this.channel.bindQueue(queue, exchange, REQUESTED);
     await this.channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     for (const key of [PROCESSING, COMPLETED, FAILED]) await this.channel.bindQueue(resultQueue, exchange, key);
-    await this.channel.consume(resultQueue, (message) => { if (message) void this.consumeResult(message); }, { noAck: false });
+    await this.channel.consume(
+      resultQueue,
+      (message) => {
+        if (message) void this.consumeResult(message);
+      },
+      { noAck: false },
+    );
     this.logger.info('Transcription queue - ON (' + queue + ')');
   }
 
@@ -406,8 +424,13 @@ export class TranscriptionService {
     try {
       const payload = JSON.parse(message.content.toString('utf8')) as WorkerResult;
       const jobId = String(payload.jobId || '').trim();
-      if (!jobId) { this.channel.ack(message); return; }
-      const status = ['processing', 'completed', 'failed'].includes(String(payload.status)) ? String(payload.status) : 'failed';
+      if (!jobId) {
+        this.channel.ack(message);
+        return;
+      }
+      const status = ['processing', 'completed', 'failed'].includes(String(payload.status))
+        ? String(payload.status)
+        : 'failed';
       const data: any = { status, updatedAt: new Date() };
       if (status === 'processing') data.startedAt = new Date();
       else if (status === 'completed') {

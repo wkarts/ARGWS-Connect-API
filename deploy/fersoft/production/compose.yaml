@@ -774,6 +774,9 @@ services:
     - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/prepared/mysql
     networks:
     - fersoft-connect-production-net
+volumes:
+  argws-connect-transcription-models:
+    name: ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_VOLUME_NAME:-argws-connect-transcription-models}
 networks:
   fersoft-connect-production-net:
     name: ${ARGWS_CONNECT_NETWORK_NAME:-fersoft-connect-production-net}

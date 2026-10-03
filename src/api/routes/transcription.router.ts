@@ -26,7 +26,10 @@ export class TranscriptionRouter {
       uploadAudio.single('audio')(req, res, (error: any) => {
         if (error) {
           const status = error?.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-          res.status(status).json({ status, error: status === 413 ? 'O áudio excede o limite configurado.' : 'Upload de áudio inválido.' });
+          res.status(status).json({
+            status,
+            error: status === 413 ? 'O áudio excede o limite configurado.' : 'Upload de áudio inválido.',
+          });
           return;
         }
         void this.upload(req, res);
