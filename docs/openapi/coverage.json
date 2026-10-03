@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-10-01T03:51:19.911Z",
   "version": "1.1.15",
-  "sourceDigest": "201d4d7acf84214d4eea5e94f2f1b791fcda4cd02498d5854397b623c0c38179",
+  "sourceDigest": "7b63708115b755095d9c59ab8f9a48f20af7b7598fb27844be4e7d6332584cfd",
   "operations": [
     {
       "method": "GET",
@@ -1262,6 +1262,21 @@
       "method": "PUT",
       "path": "/typebot/update/{typebotId}/{instanceName}",
       "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/transcriptions/{jobId}",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/transcription.router.ts"
     },
     {
       "method": "POST",
