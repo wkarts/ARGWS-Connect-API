@@ -4058,6 +4058,21 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async deleteMessage(del: DeleteMessage) {
     try {
+      if (del.remoteJid === STATUS_BROADCAST_JID) {
+        const publishedStatus = await this.prismaRepository.message.findFirst({
+          where: {
+            instanceId: this.instanceId,
+            status: { not: 'DELETED' },
+            key: { path: prismaJsonPath('id'), equals: String(del.id || '') },
+          },
+        });
+        const statusKey = typeof publishedStatus?.key === 'object' && publishedStatus.key !== null
+          ? (publishedStatus.key as Record<string, any>)
+          : {};
+        if (!publishedStatus || statusKey.remoteJid !== STATUS_BROADCAST_JID || statusKey.fromMe !== true) {
+          throw new NotFoundException('Published Status not found for this instance');
+        }
+      }
       const response = await this.client.sendMessage(del.remoteJid, { delete: del });
       if (response) {
         const messageId = response.message?.protocolMessage?.key?.id;
@@ -4119,6 +4134,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
       return response;
     } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) throw error;
       throw new InternalServerErrorException('Error while deleting message for everyone', error?.toString());
     }
   }
