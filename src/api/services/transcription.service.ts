@@ -377,18 +377,21 @@ export class TranscriptionService {
     if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
-    const canRetry = job.status === 'failed' || (['queued', 'processing'].includes(String(job.status)) && this.isStaleJob(job));
+    const canRetry =
+      job.status === 'failed' || (['queued', 'processing'].includes(String(job.status)) && this.isStaleJob(job));
     if (!canRetry) {
-      throw new TranscriptionServiceError('O job ainda está em processamento. Aguarde ou remova-o antes de repetir.', 409);
+      throw new TranscriptionServiceError(
+        'O job ainda está em processamento. Aguarde ou remova-o antes de repetir.',
+        409,
+      );
     }
     if (!job.messageId && this.isOwnedUploadKey(job.sourceKey) && !(await storedFileExists(String(job.sourceKey)))) {
       throw new TranscriptionServiceError('O áudio temporário deste job já expirou e não pode ser reenfileirado.', 410);
     }
 
     await this.ready();
-    const updateWhere: any = job.status === 'failed'
-      ? { id, status: 'failed' }
-      : { id, status: job.status, updatedAt: job.updatedAt };
+    const updateWhere: any =
+      job.status === 'failed' ? { id, status: 'failed' } : { id, status: job.status, updatedAt: job.updatedAt };
     const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
       where: updateWhere,
       data: {
@@ -401,7 +404,10 @@ export class TranscriptionService {
       },
     });
     if (!Number(updatedCount?.count)) {
-      throw new TranscriptionServiceError('O job mudou enquanto era reenfileirado. Atualize a lista e tente novamente.', 409);
+      throw new TranscriptionServiceError(
+        'O job mudou enquanto era reenfileirado. Atualize a lista e tente novamente.',
+        409,
+      );
     }
     const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
     if (!updated) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
@@ -632,7 +638,9 @@ export class TranscriptionService {
         data.errorMessage = String(payload.errorMessage || 'Falha no worker.').slice(0, 2000);
         data.completedAt = new Date();
       }
-      const attempts = Number.isFinite(Number(payload.attempts)) ? Math.max(1, Math.floor(Number(payload.attempts))) : null;
+      const attempts = Number.isFinite(Number(payload.attempts))
+        ? Math.max(1, Math.floor(Number(payload.attempts)))
+        : null;
       let updateWhere: any;
       if (attempts === null) {
         // Older workers did not include the attempt number. Accept one of
@@ -642,7 +650,9 @@ export class TranscriptionService {
         const current = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: jobId } });
         const currentAttempts = Number(current?.attempts || 0);
         if (!current || !['queued', 'processing'].includes(String(current.status)) || currentAttempts > 1) {
-          this.logger.debug('Resultado legado de transcrição ignorado para job ausente, terminal ou repetido: ' + jobId);
+          this.logger.debug(
+            'Resultado legado de transcrição ignorado para job ausente, terminal ou repetido: ' + jobId,
+          );
           this.channel.ack(message);
           return;
         }

@@ -2667,7 +2667,11 @@ export class BaileysStartupService extends ChannelStartupService {
       // Outgoing statuses must remain in the instance history so the Manager
       // and API can list/delete them. The readStatus setting only suppresses
       // incoming status broadcasts.
-      if (messageRaw.key?.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus && !messageRaw.key?.fromMe) {
+      if (
+        messageRaw.key?.remoteJid === STATUS_BROADCAST_JID &&
+        !this.localSettings.readStatus &&
+        !messageRaw.key?.fromMe
+      ) {
         return messageRaw;
       }
 
@@ -4066,9 +4070,10 @@ export class BaileysStartupService extends ChannelStartupService {
             key: { path: prismaJsonPath('id'), equals: String(del.id || '') },
           },
         });
-        const statusKey = typeof publishedStatus?.key === 'object' && publishedStatus.key !== null
-          ? (publishedStatus.key as Record<string, any>)
-          : {};
+        const statusKey =
+          typeof publishedStatus?.key === 'object' && publishedStatus.key !== null
+            ? (publishedStatus.key as Record<string, any>)
+            : {};
         if (!publishedStatus || statusKey.remoteJid !== STATUS_BROADCAST_JID || statusKey.fromMe !== true) {
           throw new NotFoundException('Published Status not found for this instance');
         }

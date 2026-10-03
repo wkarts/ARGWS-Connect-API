@@ -243,10 +243,16 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
 
       const storedMessage = await this.findStoredMessage(messageId);
       if (jid === 'status@broadcast') {
-        const statusKey = typeof storedMessage?.key === 'object' && storedMessage.key !== null
-          ? (storedMessage.key as Record<string, any>)
-          : {};
-        if (!storedMessage || storedMessage.status === 'DELETED' || statusKey.remoteJid !== 'status@broadcast' || statusKey.fromMe !== true) {
+        const statusKey =
+          typeof storedMessage?.key === 'object' && storedMessage.key !== null
+            ? (storedMessage.key as Record<string, any>)
+            : {};
+        if (
+          !storedMessage ||
+          storedMessage.status === 'DELETED' ||
+          statusKey.remoteJid !== 'status@broadcast' ||
+          statusKey.fromMe !== true
+        ) {
           throw new NotFoundException('Published Status not found for this instance');
         }
       }
@@ -268,7 +274,8 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       if (storedMessage && jid === 'status@broadcast') {
         const removed = await this.statusBroadcastRetention.removeMessage(storedMessage.id);
         if (!removed) {
-          const existingKey = typeof storedMessage.key === 'object' && storedMessage.key !== null ? storedMessage.key : {};
+          const existingKey =
+            typeof storedMessage.key === 'object' && storedMessage.key !== null ? storedMessage.key : {};
           webhookMessage = await this.prismaRepository.message.update({
             where: { id: storedMessage.id },
             data: { key: { ...existingKey, deleted: true }, status: 'DELETED' },

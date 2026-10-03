@@ -1,5 +1,5 @@
-import { SendMessageController } from '@api/controllers/sendMessage.controller';
 import type { ChatController } from '@api/controllers/chat.controller';
+import { SendMessageController } from '@api/controllers/sendMessage.controller';
 import type { SendStatusDto } from '@api/dto/sendMessage.dto';
 import { TranscriptionService } from '@api/services/transcription.service';
 import { Logger } from '@config/logger.config';
@@ -103,12 +103,7 @@ export class MetaCloudGraphController {
     };
   }
 
-  public async deleteStatus(
-    version: string,
-    phoneNumberId: string,
-    authorization: any,
-    statusId: string,
-  ) {
+  public async deleteStatus(version: string, phoneNumberId: string, authorization: any, statusId: string) {
     const identity = await this.resolvePhone(phoneNumberId, authorization);
     this.assertStatusProvider(identity);
     const normalizedId = String(statusId || '').trim();

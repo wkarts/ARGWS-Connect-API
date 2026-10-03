@@ -101,15 +101,10 @@ export class MetaCloudGraphRouter {
         res.set('Cache-Control', 'no-store');
         const phoneNumberId = graphPhoneNumberId(req.params.phoneNumberId);
         res.json(
-          await metaCloudGraphController.listStatuses(
-            req.params.version,
-            phoneNumberId,
-            req.headers.authorization,
-            {
-              page: boundedQueryInteger(req.query.page, 1, 10000),
-              limit: boundedQueryInteger(req.query.limit, 50, 500),
-            },
-          ),
+          await metaCloudGraphController.listStatuses(req.params.version, phoneNumberId, req.headers.authorization, {
+            page: boundedQueryInteger(req.query.page, 1, 10000),
+            limit: boundedQueryInteger(req.query.limit, 50, 500),
+          }),
         );
       }),
     );
