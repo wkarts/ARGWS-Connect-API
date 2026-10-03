@@ -307,8 +307,8 @@ export class TranscriptionService {
     if (!this.channel) throw new Error('RabbitMQ channel indisponível.');
     const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
     const accepted = this.channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(payload)), {
-        persistent: true,
-        contentType: 'application/json',
+      persistent: true,
+      contentType: 'application/json',
       messageId: String(payload.jobId || ''),
     });
     if (!accepted) await new Promise((resolve) => this.channel.once('drain', resolve));
