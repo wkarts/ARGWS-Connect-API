@@ -42,6 +42,14 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
+Para usar a transcrição local, `TRANSCRIPTION_ENABLED=true` precisa vir junto
+com o perfil `transcription`:
+
+```dotenv
+COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar,transcription
+TRANSCRIPTION_PROVIDER=local
+```
+
 Kafka e ZooKeeper dependem do service interno `volume-init`. Ele fica saudável
 em execução depois de preparar apenas diretórios vazios, por isso não deixa a
 stack como encerrada no Dockge. Diretórios com dados e proprietário incompatível

@@ -15,6 +15,10 @@ MYSQL_SERVICE_ENABLED=true
 TRACCAR_ENABLED=true
 ```
 
+No `develop`, o gerador também inclui `transcription` e ativa o worker local
+quando `TRANSCRIPTION_ENABLED=true`. Em instalações existentes, preserve os
+perfis atuais e acrescente `transcription` antes de recriar somente o worker.
+
 Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
 O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos
 de runtime já pertencem às imagens dos services.

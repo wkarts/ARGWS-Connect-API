@@ -126,6 +126,13 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertEqual(bootstrap['restart'], 'unless-stopped')
         self.assertIn('traccar-bootstrap-ready', command_text(bootstrap))
 
+    def test_develop_transcription_is_enabled_with_its_compose_profile(self):
+        environment = env_values(ROOT / 'deploy/develop/env.example')
+        profiles = [item.strip() for item in environment['COMPOSE_PROFILES'].split(',') if item.strip()]
+        self.assertIn('transcription', profiles)
+        self.assertEqual(environment['TRANSCRIPTION_ENABLED'], 'true')
+        self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
+
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')
         self.assertIn('traccar-bootstrap-fersoft-connect-production:', raw)
