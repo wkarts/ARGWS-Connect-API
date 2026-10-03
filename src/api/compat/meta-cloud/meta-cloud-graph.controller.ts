@@ -192,7 +192,7 @@ export class MetaCloudGraphController {
       messaging_product: 'whatsapp',
       id: result.id,
       deleted: true,
-      cancelled: result.cancelled,
+      ...(typeof result.cancelled === 'boolean' ? { cancelled: result.cancelled } : {}),
       source_removed: result.sourceRemoved,
       source_retained: result.sourceRetained,
     };
