@@ -79,6 +79,7 @@ services:
     logging: *default-logging
 
   transcription-worker:
+    profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
     pull_policy: always
     container_name: argws_connect_transcription_worker

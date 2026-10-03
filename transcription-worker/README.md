@@ -15,6 +15,20 @@ TRANSCRIPTION_MODEL_CACHE_DIR=/home/node/.cache/huggingface
 
 O primeiro job baixa o modelo configurado para o volume de cache. O volume deve ser persistente para que recriações do container não repitam o download.
 
+## Compose
+
+O serviço pertence ao perfil opcional `transcription`. Em uma stack que já usa
+outros perfis, acrescente `transcription` à lista existente:
+
+```dotenv
+COMPOSE_PROFILES=operations,extended,traccar,mysql,transcription
+TRANSCRIPTION_ENABLED=true
+TRANSCRIPTION_PROVIDER=local
+```
+
+O perfil controla a criação do container; `TRANSCRIPTION_ENABLED` controla o
+consumo da fila dentro dele. Não configure `openai` como provider deste worker.
+
 ## Contrato
 
 - `POST /v1/transcriptions` continua aceitando `messageId` para áudios já recebidos por uma instância.

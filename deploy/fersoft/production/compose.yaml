@@ -138,6 +138,8 @@ services:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: ${DOCKER_LOG_MAX_FILE:-5}
   transcription-worker-fersoft-connect-production:
+    profiles:
+    - transcription
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
     pull_policy: always
     container_name: transcription-worker-fersoft-connect-production
