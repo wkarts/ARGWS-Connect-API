@@ -60,37 +60,6 @@ services:
       start_period: 60s
     logging: *default-logging
 
-  transcription-volume-init-argws-connect-canonical:
-    profiles: ["transcription"]
-    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
-    pull_policy: always
-    container_name: transcription-volume-init-argws-connect-canonical
-    restart: unless-stopped
-    user: "0:0"
-    entrypoint: ["/bin/sh", "-ec"]
-    command:
-      - |
-        mkdir -p /prepared/model-cache/Xenova
-        chown --no-dereference --recursive 1000:1000 /prepared/model-cache
-        chmod u+rwx /prepared/model-cache /prepared/model-cache/Xenova
-        touch /tmp/transcription-volume-init-ready
-        exec tail -f /dev/null
-    cap_drop: [ALL]
-    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
-    security_opt: [no-new-privileges:true]
-    read_only: true
-    tmpfs: [/tmp]
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/transcription-volume-init-ready"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 20s
-    volumes:
-      - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/prepared/model-cache
-    networks: [argws-connect-canonical-net]
-    logging: *default-logging
-
   transcription-worker-argws-connect-canonical:
     profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:1.0.21}
@@ -108,7 +77,10 @@ services:
       TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
-      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
+      TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
+      TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-86400}
+      TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://argws_connect:CHANGE_ME_RABBITMQ_PASSWORD@rabbitmq-argws-connect-canonical:5672/argws_connect}
       RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME:-argws_connect}
       S3_ENDPOINT: ${S3_ENDPOINT:-minio-argws-connect-canonical}
@@ -117,13 +89,10 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-argws_connect}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-argws-connect-canonical}
-      OPENAI_API_KEY_GLOBAL: ${OPENAI_API_KEY_GLOBAL:-}
     depends_on:
       rabbitmq-argws-connect-canonical:
         condition: service_healthy
       minio-argws-connect-canonical:
-        condition: service_healthy
-      transcription-volume-init-argws-connect-canonical:
         condition: service_healthy
     read_only: true
     cap_drop: [ALL]
@@ -132,8 +101,6 @@ services:
     cpus: ${TRANSCRIPTION_WORKER_CPUS:-1.00}
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
-    volumes:
-      - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/home/node/.cache/huggingface
     networks: [argws-connect-canonical-net]
     healthcheck:
       test: ["CMD", "node", "-e", "process.exit(require('fs').existsSync('/tmp/transcription-worker.ready') ? 0 : 1)"]

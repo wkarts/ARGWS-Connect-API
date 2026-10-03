@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-03T06:18:45.912Z",
+  "generatedAt": "2026-10-03T11:42:36.216Z",
   "version": "1.1.15",
-  "sourceDigest": "2ff32d4b84afb6a5b3f16b8e2380c6cdc8a58d6adc2b863b8848e1f29edd6d75",
+  "sourceDigest": "2c17e8015686deb065d00774696963fa88f4a5428a37c7748774fd24f00a61ef",
   "operations": [
     {
       "method": "GET",
@@ -1281,6 +1281,11 @@
     {
       "method": "POST",
       "path": "/v1/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/cleanup",
       "source": "src/api/routes/transcription.router.ts"
     },
     {

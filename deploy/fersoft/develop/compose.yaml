@@ -48,7 +48,10 @@ services:
       TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
-      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
+      TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
+      TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-86400}
+      TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
       ARGWS_CONNECT_DOCS_INTERNAL_URL: ${ARGWS_CONNECT_DOCS_INTERNAL_URL:-http://docs-fersoft-connect-develop:8080}
       ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH: ${ARGWS_CONNECT_DOCS_INTERNAL_BASE_PATH:-/manager/docs}
       OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}
@@ -137,52 +140,6 @@ services:
       options:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: ${DOCKER_LOG_MAX_FILE:-5}
-  transcription-volume-init-fersoft-connect-develop:
-    profiles:
-    - transcription
-    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
-    pull_policy: always
-    container_name: transcription-volume-init-fersoft-connect-develop
-    restart: unless-stopped
-    user: 0:0
-    entrypoint:
-    - /bin/sh
-    - -ec
-    command:
-    - 'mkdir -p /prepared/model-cache/Xenova
-
-      chown --no-dereference --recursive 1000:1000 /prepared/model-cache
-
-      chmod u+rwx /prepared/model-cache /prepared/model-cache/Xenova
-
-      touch /tmp/transcription-volume-init-ready
-
-      exec tail -f /dev/null
-
-      '
-    cap_drop:
-    - ALL
-    cap_add:
-    - CHOWN
-    - FOWNER
-    - DAC_OVERRIDE
-    security_opt:
-    - no-new-privileges:true
-    read_only: true
-    tmpfs:
-    - /tmp
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - test -f /tmp/transcription-volume-init-ready
-      interval: 5s
-      timeout: 3s
-      retries: 12
-      start_period: 5s
-    volumes:
-    - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/prepared/model-cache
-    networks:
-    - fersoft-connect-develop-net
   transcription-worker-fersoft-connect-develop:
     profiles:
     - transcription
@@ -201,13 +158,12 @@ services:
       TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
-      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
+      TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
     depends_on:
       rabbitmq-fersoft-connect-develop:
         condition: service_healthy
       minio-fersoft-connect-develop:
-        condition: service_healthy
-      transcription-volume-init-fersoft-connect-develop:
         condition: service_healthy
     read_only: true
     cap_drop:
@@ -219,8 +175,6 @@ services:
     pids_limit: 128
     tmpfs:
     - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
-    volumes:
-    - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/home/node/.cache/huggingface
     networks:
     - fersoft-connect-develop-net
     healthcheck:

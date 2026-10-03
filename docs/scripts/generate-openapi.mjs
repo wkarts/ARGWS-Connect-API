@@ -233,6 +233,32 @@ const requestOverrides = {
       '503': { description: 'MinIO, fila ou worker indisponível.' },
     },
   },
+  'POST /v1/transcriptions/cleanup': {
+    summary: 'Limpar áudios temporários expirados',
+    description: 'Remove somente objetos de áudio e registros/resultado de jobs enviados diretamente para a API que já passaram da retenção. Mídias e jobs de mensagens existentes não são removidos. Exige confirm=true no corpo para evitar exclusão acidental.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['confirm'],
+            properties: {
+              confirm: { type: 'boolean', enum: [true] },
+              olderThanSeconds: { type: 'integer', minimum: 1, maximum: 31536000, example: 86400 },
+              limit: { type: 'integer', minimum: 1, maximum: 1000, example: 250 },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      '200': { description: 'Resumo da limpeza executada.' },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '503': { description: 'MinIO ou banco indisponível.' },
+    },
+  },
   'POST /v1/transcriptions': {
     summary: 'Enfileirar transcrição de áudio',
     description: 'Cria um job assíncrono para uma mídia de áudio já persistida pelo Connect|API. Exige a API key global e o messageId da mensagem.',

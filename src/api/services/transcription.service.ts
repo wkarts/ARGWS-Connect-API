@@ -1,4 +1,10 @@
-import { deleteStoredFile, minioEnabled, uploadFile } from '@api/integrations/storage/s3/libs/minio.server';
+import {
+  deleteStoredFile,
+  listBucketObjects,
+  minioEnabled,
+  storedFileExists,
+  uploadFile,
+} from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
@@ -9,6 +15,8 @@ const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
 const COMPLETED = 'transcription.completed';
 const FAILED = 'transcription.failed';
+const TRANSCRIPTION_SOURCE_PREFIX = 'transcriptions/';
+const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
 
 type EnqueueInput = {
   messageId?: string;
@@ -189,6 +197,8 @@ export class TranscriptionService {
   private channel: any = null;
   private initializing: Promise<void> | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private sourceCleanupTimer: NodeJS.Timeout | null = null;
+  private sourceCleanupInFlight = false;
 
   constructor(private readonly prismaRepository: PrismaRepository) {}
 
@@ -197,7 +207,9 @@ export class TranscriptionService {
   }
 
   public async init(): Promise<void> {
-    if (!this.isEnabled() || !enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
+    if (!this.isEnabled()) return;
+    this.startSourceCleanup();
+    if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
     if (this.initializing) return this.initializing;
     this.initializing = this.connect()
       .catch((error) => {
@@ -333,6 +345,9 @@ export class TranscriptionService {
     }
     if (job.status !== 'failed') {
       throw new TranscriptionServiceError('Somente jobs com falha podem ser reenfileirados.', 409);
+    }
+    if (!job.messageId && this.isOwnedUploadKey(job.sourceKey) && !(await storedFileExists(String(job.sourceKey)))) {
+      throw new TranscriptionServiceError('O áudio temporário deste job já expirou e não pode ser reenfileirado.', 410);
     }
 
     await this.ready();
@@ -531,6 +546,167 @@ export class TranscriptionService {
     } catch (error) {
       this.logger.error('Resultado de transcrição inválido: ' + (error?.message || error));
       this.channel.nack(message, false, false);
+    }
+  }
+
+  public async cleanupExpiredUploads(input: { olderThanSeconds?: number; limit?: number } = {}) {
+    if (!minioEnabled()) {
+      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
+    }
+
+    const configuredRetention = this.sourceRetentionSeconds();
+    const requestedRetention =
+      input.olderThanSeconds === undefined ? configuredRetention : Number(input.olderThanSeconds);
+    if (!Number.isFinite(requestedRetention) || requestedRetention <= 0) {
+      throw new TranscriptionServiceError('Informe uma retenção positiva para limpar os áudios temporários.', 400);
+    }
+    const retentionSeconds = Math.min(Math.floor(requestedRetention), 31_536_000);
+    const limitValue = Number(input.limit);
+    const limit = Number.isFinite(limitValue) ? Math.min(Math.max(Math.floor(limitValue), 1), 1000) : 250;
+    const cutoff = Date.now() - retentionSeconds * 1000;
+
+    const jobs = (await (this.prismaRepository.transcriptionJob as any).findMany({
+      where: { sourceKey: { startsWith: TRANSCRIPTION_SOURCE_PREFIX } },
+      select: {
+        id: true,
+        sourceKey: true,
+        messageId: true,
+        status: true,
+        completedAt: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    })) as Array<{
+      id: string;
+      sourceKey: string;
+      messageId: string | null;
+      status: string;
+      completedAt: Date | null;
+      updatedAt: Date;
+      createdAt: Date;
+    }>;
+
+    const protectedKeys = new Set<string>();
+    const expiredKeys = new Set<string>();
+    const expiredJobIdsBySource = new Map<string, string[]>();
+    for (const job of jobs) {
+      const sourceKey = String(job.sourceKey || '');
+      if (job.messageId || !this.isOwnedUploadKey(sourceKey)) continue;
+      if (job.status === 'queued' || job.status === 'processing') {
+        protectedKeys.add(sourceKey);
+        continue;
+      }
+      if (!['completed', 'failed'].includes(String(job.status))) continue;
+      const terminalDate = job.completedAt || job.updatedAt || job.createdAt;
+      if (terminalDate && terminalDate.getTime() <= cutoff) {
+        expiredKeys.add(sourceKey);
+        const ids = expiredJobIdsBySource.get(sourceKey) || [];
+        ids.push(job.id);
+        expiredJobIdsBySource.set(sourceKey, ids);
+      }
+    }
+    for (const protectedKey of protectedKeys) {
+      expiredKeys.delete(protectedKey);
+      expiredJobIdsBySource.delete(protectedKey);
+    }
+
+    const bucketListing = await listBucketObjects(MANAGED_OBJECT_PREFIX + TRANSCRIPTION_SOURCE_PREFIX);
+    const objects = bucketListing.objects;
+    const objectBySourceKey = new Map<string, { size: number; lastModified: string | null }>();
+    for (const object of objects) {
+      if (!object.key.startsWith(MANAGED_OBJECT_PREFIX + TRANSCRIPTION_SOURCE_PREFIX)) continue;
+      const sourceKey = object.key.slice(MANAGED_OBJECT_PREFIX.length);
+      objectBySourceKey.set(sourceKey, object);
+      if (!bucketListing.truncated && !protectedKeys.has(sourceKey) && !expiredKeys.has(sourceKey)) {
+        const lastModified = object.lastModified ? Date.parse(object.lastModified) : NaN;
+        if (Number.isFinite(lastModified) && lastModified <= cutoff) expiredKeys.add(sourceKey);
+      }
+    }
+
+    const candidates = [...expiredKeys].slice(0, limit);
+    let removed = 0;
+    let failed = 0;
+    let freedBytes = 0;
+    let jobsRemoved = 0;
+    let jobsFailed = 0;
+    for (const sourceKey of candidates) {
+      if (await deleteStoredFile(sourceKey)) {
+        removed += 1;
+        freedBytes += objectBySourceKey.get(sourceKey)?.size || 0;
+        const jobIds = expiredJobIdsBySource.get(sourceKey) || [];
+        if (jobIds.length) {
+          try {
+            const deleted = await (this.prismaRepository.transcriptionJob as any).deleteMany({
+              where: { id: { in: jobIds } },
+            });
+            jobsRemoved += Number(deleted?.count || 0);
+            jobsFailed += Math.max(0, jobIds.length - Number(deleted?.count || 0));
+          } catch (error) {
+            jobsFailed += jobIds.length;
+            this.logger.warn(
+              'Transcrição: não foi possível remover o resultado expirado: ' + (error?.message || error),
+            );
+          }
+        }
+      } else {
+        failed += 1;
+      }
+    }
+
+    return {
+      status: failed || jobsFailed ? 'partial' : 'completed',
+      retentionSeconds,
+      cutoff: new Date(cutoff).toISOString(),
+      candidates: candidates.length,
+      removed,
+      failed,
+      freedBytes,
+      jobsRemoved,
+      jobsFailed,
+    };
+  }
+
+  private isOwnedUploadKey(value: unknown): boolean {
+    const key = String(value || '').trim();
+    return key.startsWith(TRANSCRIPTION_SOURCE_PREFIX) && !key.includes('..');
+  }
+
+  private sourceRetentionSeconds(): number {
+    const value = Number.parseInt(process.env.TRANSCRIPTION_SOURCE_RETENTION_SECONDS || '', 10);
+    if (!Number.isFinite(value)) return 86_400;
+    return Math.min(Math.max(value, 0), 31_536_000);
+  }
+
+  private sourceCleanupIntervalSeconds(): number {
+    const value = Number.parseInt(process.env.TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS || '', 10);
+    if (!Number.isFinite(value)) return 900;
+    return Math.min(Math.max(value, 60), 86_400);
+  }
+
+  private startSourceCleanup() {
+    if (this.sourceCleanupTimer || this.sourceRetentionSeconds() <= 0) return;
+    const interval = this.sourceCleanupIntervalSeconds();
+    this.sourceCleanupTimer = setInterval(() => void this.runSourceCleanup(), interval * 1000);
+    this.sourceCleanupTimer.unref?.();
+    void this.runSourceCleanup();
+  }
+
+  private async runSourceCleanup() {
+    if (this.sourceCleanupInFlight || this.sourceRetentionSeconds() <= 0) return;
+    this.sourceCleanupInFlight = true;
+    try {
+      const result = await this.cleanupExpiredUploads({
+        olderThanSeconds: this.sourceRetentionSeconds(),
+      });
+      if (result.removed || result.failed) {
+        this.logger.info(
+          `Transcrição: limpeza removeu ${result.removed} objeto(s) e ${result.jobsRemoved} resultado(s); falhas=${result.failed + result.jobsFailed}.`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn('Transcrição: limpeza de áudios temporários indisponível: ' + (error?.message || error));
+    } finally {
+      this.sourceCleanupInFlight = false;
     }
   }
 }

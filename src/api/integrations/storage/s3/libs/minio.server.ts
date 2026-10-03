@@ -45,7 +45,7 @@ const MAX_OBJECTS_PER_SCAN = 100_000;
 
 export const minioEnabled = () => Boolean(minioClient && BUCKET?.ENABLE && bucketName);
 
-const listBucketObjects = async (): Promise<{ objects: StoredObjectSummary[]; truncated: boolean }> => {
+const listBucketObjects = async (prefix = ''): Promise<{ objects: StoredObjectSummary[]; truncated: boolean }> => {
   if (!minioEnabled()) return { objects: [], truncated: false };
 
   return await new Promise((resolve, reject) => {
@@ -62,7 +62,7 @@ const listBucketObjects = async (): Promise<{ objects: StoredObjectSummary[]; tr
       settled = true;
       reject(error);
     };
-    const stream = minioClient.listObjectsV2(bucketName, '', true);
+    const stream = minioClient.listObjectsV2(bucketName, prefix, true);
 
     stream.on('data', (item: MinIo.BucketItem) => {
       if (objects.length >= MAX_OBJECTS_PER_SCAN) {
@@ -234,6 +234,17 @@ const deleteStoredFile = async (fileName: string): Promise<boolean> => {
   }
 };
 
+const storedFileExists = async (fileName: string): Promise<boolean> => {
+  if (!minioClient) return false;
+
+  try {
+    await minioClient.statObject(bucketName, join('argws-connect-api', fileName));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export {
   BUCKET,
   bucketName,
@@ -242,6 +253,7 @@ export {
   getObjectStream,
   getObjectUrl,
   listBucketObjects,
+  storedFileExists,
   uploadFile,
   uploadTempFile,
 };

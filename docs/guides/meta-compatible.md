@@ -135,6 +135,15 @@ O POST retorna `202` e o estado inicial do job. Consulte o `id` retornado até
 `status=completed` ou `status=failed`; a resposta nunca expõe credenciais nem
 permite consultar job de outra instância.
 
+Arquivos enviados diretamente para esse recurso são armazenados no bucket
+privado da aplicação e têm retenção configurável por
+`TRANSCRIPTION_SOURCE_RETENTION_SECONDS` (24 horas por padrão). Após o job
+terminar, o ciclo de vida remove o objeto e o registro/resultado expirados; mídia
+e jobs já pertencentes a uma mensagem da instância não são apagados. Quando a limpeza automática estiver
+desligada (`0`), um administrador pode executar a limpeza manual pela API nativa
+com `POST /v1/transcriptions/cleanup`, enviando `{"confirm":true}` e, se
+necessário, `olderThanSeconds` e `limit`.
+
 ## Publicar Status do WhatsApp
 
 Status não é ativado implicitamente ao criar uma instância. A publicação é uma

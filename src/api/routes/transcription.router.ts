@@ -22,6 +22,7 @@ export class TranscriptionRouter {
     this.router.use(guard);
     this.router.get('/', (req, res) => void this.list(req, res));
     this.router.post('/', (req, res) => void this.create(req, res));
+    this.router.post('/cleanup', (req, res) => void this.cleanup(req, res));
     this.router.post('/upload', (req, res) => {
       uploadAudio.single('audio')(req, res, (error: any) => {
         if (error) {
@@ -69,6 +70,27 @@ export class TranscriptionRouter {
         model: req.body?.model,
       });
       res.status(202).json(job);
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async cleanup(req: any, res: Response) {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      if (body.confirm !== true) {
+        throw new TranscriptionServiceError(
+          'A limpeza exige confirm=true para evitar remoção acidental de áudios temporários.',
+          400,
+        );
+      }
+      res.set('Cache-Control', 'no-store');
+      res.json(
+        await this.service.cleanupExpiredUploads({
+          olderThanSeconds: body.olderThanSeconds,
+          limit: body.limit,
+        }),
+      );
     } catch (error) {
       this.fail(error, res);
     }

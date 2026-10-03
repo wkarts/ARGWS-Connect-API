@@ -3,8 +3,8 @@ FROM ${NODE_IMAGE} AS runtime
 
 ENV NODE_ENV=production \
     NODE_OPTIONS=--enable-source-maps \
-    TRANSFORMERS_CACHE=/home/node/.cache/huggingface \
-    HF_HOME=/home/node/.cache/huggingface
+    TRANSFORMERS_CACHE=/tmp/argws-connect-transcription-model-cache \
+    HF_HOME=/tmp/argws-connect-transcription-model-cache
 
 WORKDIR /opt/argws-connect-transcription-worker
 
@@ -16,8 +16,8 @@ RUN apt-get update \
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY src ./src
-RUN mkdir -p /tmp /home/node/.cache/huggingface \
-  && chown -R node:node /opt/argws-connect-transcription-worker /home/node/.cache
+RUN mkdir -p /tmp/argws-connect-transcription-model-cache \
+  && chown -R node:node /opt/argws-connect-transcription-worker /tmp/argws-connect-transcription-model-cache
 
 USER node
 
