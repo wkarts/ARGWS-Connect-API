@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BrandMark from '@/components/BrandMark.vue'
 import AppIcon from '@/components/AppIcon.vue'
@@ -8,7 +8,38 @@ import { useUiStore } from '@/stores/ui'
 import { applicationVersionLabel, featureEnabled } from '@/config/runtime'
 
 const route = useRoute(), router = useRouter(), session = useSessionStore(), ui = useUiStore()
-onMounted(() => ui.applyTheme())
+const sidebarNav = ref<HTMLElement | null>(null)
+let restoringSidebarScroll = false
+
+function restoreSidebarScroll() {
+  const nav = sidebarNav.value
+  if (!nav) return
+  restoringSidebarScroll = true
+  const scrollTop = ui.sidebarScrollTop
+  nav.scrollTop = scrollTop
+  requestAnimationFrame(() => {
+    nav.scrollTop = scrollTop
+    requestAnimationFrame(() => {
+      nav.scrollTop = scrollTop
+      restoringSidebarScroll = false
+    })
+  })
+}
+
+function rememberSidebarScroll(event: Event) {
+  if (restoringSidebarScroll) return
+  const nav = event.currentTarget as HTMLElement | null
+  if (nav) ui.rememberSidebarScrollTop(nav.scrollTop)
+}
+
+function handleSidebarClick(event: MouseEvent) {
+  // Pointer navigation should not leave focus on the link that is recreated
+  // by the next view; Chromium would otherwise scroll the new sidebar to it.
+  if (event.detail > 0 && event.currentTarget instanceof HTMLElement) event.currentTarget.blur()
+  ui.closeSidebar()
+}
+
+onMounted(() => { ui.applyTheme(); restoreSidebarScroll() })
 const props = defineProps<{ navigationGroups?: Array<{ title: string; items: Array<{ label: string; to: string; icon: string; permission?: string; feature?: string }> }> }>()
 const groups = [
   { title: 'PRINCIPAL', items: [{ label:'Visão Geral', to:'/', icon:'home' }] },
@@ -58,10 +89,10 @@ async function logout(){ await session.logout(); router.push('/login') }
   <div class="app-shell" :class="{ 'sidebar-open': ui.sidebarOpen }">
     <aside class="sidebar">
       <RouterLink to="/" class="sidebar-brand" @click="ui.closeSidebar"><BrandMark :inverse="true" /></RouterLink>
-      <nav class="sidebar-nav">
+      <nav ref="sidebarNav" class="sidebar-nav" @scroll="rememberSidebarScroll">
         <section v-for="group in visibleGroups" :key="group.title" class="nav-group">
           <h4>{{ group.title }}</h4>
-          <RouterLink v-for="item in group.items" :key="item.to" :to="item.to" class="nav-link" @click="ui.closeSidebar"><AppIcon :name="item.icon" :size="18"/><span>{{ item.label }}</span></RouterLink>
+          <RouterLink v-for="item in group.items" :key="item.to" :to="item.to" class="nav-link" @click="handleSidebarClick"><AppIcon :name="item.icon" :size="18"/><span>{{ item.label }}</span></RouterLink>
         </section>
       </nav>
       <div class="sidebar-version" aria-label="Versão instalada">Connect|API <strong>{{ applicationVersionLabel() }}</strong></div>
