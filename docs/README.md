@@ -161,7 +161,7 @@ O workflow `Docs Integrity` também constrói a imagem `docs/Dockerfile`, valida
 
 ## Deploy automático de desenvolvimento
 
-A pipeline `GHCR - Publish Development Images`, disparada por push em `develop`, publica API, Manager e DOCs para amd64/arm64. O canal de documentação é:
+A pipeline `GHCR - Publish Development Images`, disparada por push em `develop`, publica API, Manager, DOCs e o worker de transcrição para amd64/arm64. O canal de documentação é:
 
 ```text
 ghcr.io/wkarts/argws-connect-docs:develop
