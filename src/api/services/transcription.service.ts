@@ -118,7 +118,9 @@ export class TranscriptionService {
     });
 
     if (!media) throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
-    const mimetype = String(media.mimetype || '').trim().toLowerCase();
+    const mimetype = String(media.mimetype || '')
+      .trim()
+      .toLowerCase();
     if (!mimetype.startsWith('audio/')) {
       throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
     }
@@ -138,7 +140,9 @@ export class TranscriptionService {
         messageId,
         sourceKey: String(media.fileName),
         sourceMimeType: mimetype,
-        provider: String(process.env.TRANSCRIPTION_PROVIDER || 'openai').trim().toLowerCase(),
+        provider: String(process.env.TRANSCRIPTION_PROVIDER || 'openai')
+          .trim()
+          .toLowerCase(),
         model,
         language,
         status: 'queued',
@@ -281,9 +285,13 @@ export class TranscriptionService {
     for (const key of [PROCESSING, COMPLETED, FAILED]) {
       await this.channel.bindQueue(resultQueue, exchange, key);
     }
-    await this.channel.consume(resultQueue, (message) => {
-      if (message) void this.consumeResult(message);
-    }, { noAck: false });
+    await this.channel.consume(
+      resultQueue,
+      (message) => {
+        if (message) void this.consumeResult(message);
+      },
+      { noAck: false },
+    );
     this.logger.info('Transcription queue - ON (' + queue + ')');
   }
 
@@ -298,16 +306,11 @@ export class TranscriptionService {
   private async publish(routingKey: string, payload: Record<string, unknown>) {
     if (!this.channel) throw new Error('RabbitMQ channel indisponível.');
     const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
-    const accepted = this.channel.publish(
-      exchange,
-      routingKey,
-      Buffer.from(JSON.stringify(payload)),
-      {
+    const accepted = this.channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(payload)), {
         persistent: true,
         contentType: 'application/json',
-        messageId: String(payload.jobId || ''),
-      },
-    );
+      messageId: String(payload.jobId || ''),
+    });
     if (!accepted) await new Promise((resolve) => this.channel.once('drain', resolve));
   }
 
