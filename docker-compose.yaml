@@ -47,6 +47,12 @@ services:
       DATABASE_MIGRATION_MAX_ATTEMPTS: ${DATABASE_MIGRATION_MAX_ATTEMPTS:-60}
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
+      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-openai}
+      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
+      TRANSCRIPTION_OPENAI_MODEL: ${TRANSCRIPTION_OPENAI_MODEL:-whisper-1}
+      TRANSCRIPTION_OPENAI_TIMEOUT_MS: ${TRANSCRIPTION_OPENAI_TIMEOUT_MS:-120000}
+      TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +74,47 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+    logging: *default-logging
+
+  transcription-worker:
+    profiles: ["transcription"]
+    image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
+    pull_policy: always
+    container_name: argws_connect_transcription_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-openai}
+      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
+      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
+      TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
+      TRANSCRIPTION_OPENAI_MODEL: ${TRANSCRIPTION_OPENAI_MODEL:-whisper-1}
+      TRANSCRIPTION_OPENAI_TIMEOUT_MS: ${TRANSCRIPTION_OPENAI_TIMEOUT_MS:-120000}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${TRANSCRIPTION_WORKER_MEMORY:-2g}
+    cpus: "${TRANSCRIPTION_WORKER_CPUS:-1.00}"
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
+    networks:
+      argws-connect-net:
+        aliases:
+          - transcription-worker
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/transcription-worker.ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     logging: *default-logging
 
   operations:
