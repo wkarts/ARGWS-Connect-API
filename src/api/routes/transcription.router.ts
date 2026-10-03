@@ -4,7 +4,10 @@ import { RequestHandler, Response, Router } from 'express';
 export class TranscriptionRouter {
   public readonly router = Router();
 
-  constructor(private readonly service: TranscriptionService, guard: RequestHandler) {
+  constructor(
+    private readonly service: TranscriptionService,
+    guard: RequestHandler,
+  ) {
     this.router.use(guard);
     this.router.post('/', (req, res) => void this.create(req, res));
     this.router.get('/:jobId', (req, res) => void this.read(req, res));
