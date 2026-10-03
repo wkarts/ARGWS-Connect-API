@@ -9,7 +9,7 @@ import { findHubChannelBoundary } from '@api/integrations/channel/findhub/findhu
 import { ChatbotRouter } from '@api/integrations/chatbot/chatbot.router';
 import { EventRouter } from '@api/integrations/event/event.router';
 import { StorageRouter } from '@api/integrations/storage/storage.router';
-import { managerEmbeddingService, managerStorageService, traccarManagerService, waMonitor } from '@api/server.module';
+import { managerEmbeddingService, managerStorageService, transcriptionService, traccarManagerService, waMonitor } from '@api/server.module';
 import { observeOperations } from '@api/services/operations.service';
 import { configService, ConfigSessionPhone, Database, Facebook } from '@config/env.config';
 import { fetchLatestWaWebVersion } from '@utils/fetchLatestWaWebVersion';
@@ -34,6 +34,7 @@ import { ProxyRouter } from './proxy.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
 import { TemplateRouter } from './template.router';
+import { TranscriptionRouter } from './transcription.router';
 import { ViewsRouter } from './view.router';
 
 const router: Router = Router();
@@ -221,6 +222,7 @@ router
   .use('/localTemplate', new LocalTemplateRouter(...guards).router)
   .use('/template', new TemplateRouter(configService, ...guards).router)
   .use('/settings', new SettingsRouter(...guards).router)
+  .use('/v1/transcriptions', new TranscriptionRouter(transcriptionService, authGuard['apikey']).router)
   .use('/proxy', new ProxyRouter(...guards).router)
   .use('/label', new LabelRouter(...guards).router)
   .use('', new ChannelRouter(configService, ...guards).router)
