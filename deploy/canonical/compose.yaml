@@ -100,7 +100,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
     volumes:
-      - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-argws-connect-transcription-models}:/home/node/.cache/huggingface
+      - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/home/node/.cache/huggingface
     networks: [argws-connect-canonical-net]
     healthcheck:
       test: ["CMD", "node", "-e", "process.exit(require('fs').existsSync('/tmp/transcription-worker.ready') ? 0 : 1)"]
@@ -710,10 +710,6 @@ services:
       - ${ARGWS_CONNECT_MYSQL_DATA_PATH:-./volumes/mysql}:/prepared/mysql
     networks: [argws-connect-canonical-net]
   # END COMPOSE MYSQL VOLUME INIT
-
-volumes:
-  argws-connect-transcription-models:
-    name: ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_VOLUME_NAME:-argws-connect-transcription-models}
 
 networks:
   argws-connect-canonical-net:
