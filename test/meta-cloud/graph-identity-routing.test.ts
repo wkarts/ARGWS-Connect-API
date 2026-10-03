@@ -257,6 +257,10 @@ export async function runGraphIdentityRoutingRegression() {
           calls.push({ operation: 'retry', jobId, instanceId });
           return transcriptionJob;
         },
+        delete: async (jobId: string, instanceId: string) => {
+          calls.push({ operation: 'delete', jobId, instanceId });
+          return { id: jobId, deleted: true, sourceRemoved: false, sourceRetained: true };
+        },
       } as any,
     );
 
@@ -296,6 +300,16 @@ export async function runGraphIdentityRoutingRegression() {
     });
     await controller.getTranscription('v20.0', phone, 'Bearer hub-instance-token', 'TRANSCRIPTION_JOB');
     await controller.retryTranscription('v20.0', phone, 'Bearer hub-instance-token', 'TRANSCRIPTION_JOB');
+    assert.deepEqual(
+      await controller.deleteTranscription('v20.0', phone, 'Bearer hub-instance-token', 'TRANSCRIPTION_JOB'),
+      {
+        messaging_product: 'whatsapp',
+        id: 'TRANSCRIPTION_JOB',
+        deleted: true,
+        source_removed: false,
+        source_retained: true,
+      },
+    );
     assert.deepEqual(calls[0], { operation: 'status', data: {
       number: phone,
       type: 'text',
@@ -311,6 +325,7 @@ export async function runGraphIdentityRoutingRegression() {
       { operation: 'message', instanceId: hubInstance.id, messageId: 'AUDIO_MESSAGE' },
       { operation: 'get', jobId: 'TRANSCRIPTION_JOB', instanceId: hubInstance.id },
       { operation: 'retry', jobId: 'TRANSCRIPTION_JOB', instanceId: hubInstance.id },
+      { operation: 'delete', jobId: 'TRANSCRIPTION_JOB', instanceId: hubInstance.id },
     ]);
   });
 

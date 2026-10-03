@@ -380,6 +380,55 @@ export class TranscriptionService {
     return this.publicJob(updated);
   }
 
+  /**
+   * Remove an individual terminal transcription job.
+   *
+   * Direct uploads own a temporary MinIO object, so that object is removed as
+   * part of the operation. A transcription requested for a persisted message
+   * never owns the message media; only its transcription result row is
+   * removed. Queued/processing jobs are deliberately protected from races with
+   * the worker and must finish before they can be deleted.
+   */
+  public async delete(jobId: string, instanceId?: string) {
+    const id = String(jobId || '').trim();
+    if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
+
+    const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
+    if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
+    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
+      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
+    }
+    if (job.status === 'queued' || job.status === 'processing') {
+      throw new TranscriptionServiceError('Aguarde o processamento terminar antes de remover este job.', 409);
+    }
+    if (!['completed', 'failed'].includes(String(job.status))) {
+      throw new TranscriptionServiceError('Somente jobs concluídos ou com falha podem ser removidos.', 409);
+    }
+
+    const ownsTemporarySource = !job.messageId && this.isOwnedUploadKey(job.sourceKey);
+    if (ownsTemporarySource) {
+      // S3/MinIO removeObject is idempotent: an object already removed by its
+      // lifecycle rule is considered successfully removed here.
+      if (!minioEnabled() || !(await deleteStoredFile(String(job.sourceKey)))) {
+        throw new TranscriptionServiceError('Não foi possível remover o áudio temporário do MinIO.', 503);
+      }
+    }
+
+    try {
+      await (this.prismaRepository.transcriptionJob as any).delete({ where: { id } });
+    } catch (error) {
+      this.logger.warn('Transcrição: não foi possível remover o resultado: ' + (error?.message || error));
+      throw new TranscriptionServiceError('Não foi possível remover o resultado da transcrição.', 503);
+    }
+
+    return {
+      id,
+      deleted: true,
+      sourceRemoved: ownsTemporarySource,
+      sourceRetained: !ownsTemporarySource,
+    };
+  }
+
   private async createAndPublish(data: any, cleanupKey?: string) {
     const job = await (this.prismaRepository.transcriptionJob as any).create({
       data: {

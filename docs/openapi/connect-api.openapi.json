@@ -18203,6 +18203,87 @@
       }
     },
     "/v1/transcriptions/{jobId}": {
+      "delete": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Excluir transcrição individual",
+        "operationId": "delete_v1_transcriptions_jobid",
+        "description": "Exclui um job de transcrição já concluído ou com falha. Em uploads diretos, remove também o áudio temporário do MinIO; em mídias de mensagens, remove somente o resultado e preserva a mídia original. Jobs em fila ou processamento não podem ser excluídos.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transcrição excluída.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "deleted",
+                    "sourceRemoved",
+                    "sourceRetained"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "sourceRemoved": {
+                      "type": "boolean"
+                    },
+                    "sourceRetained": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "description": "MinIO ou banco indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/transcription.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "Core"

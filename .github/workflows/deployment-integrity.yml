@@ -178,7 +178,7 @@ jobs:
               transcription_worker = full['services'][f'transcription-worker-{suffix}']
               assert transcription_worker.get('profiles') == ['transcription'], f'{stack}: worker de transcricao deve ser opcional'
               assert not any('transcription-models' in str(mount) or '/home/node/.cache/huggingface' in str(mount) for mount in transcription_worker.get('volumes', [])), f'{stack}: worker nao pode montar cache de modelo no host'
-              assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == '${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
+              assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == 'transcription-models', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
 
               volume_init = full['services'][f'volume-init-{suffix}']
               assert volume_init.get('profiles') == ['kafka', 'extended'], f'{stack}: volume-init deve acompanhar Kafka'

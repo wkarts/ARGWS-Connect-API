@@ -303,6 +303,33 @@ const requestOverrides = {
       '409': { $ref: '#/components/responses/Conflict' },
     },
   },
+  'DELETE /v1/transcriptions/{jobId}': {
+    summary: 'Excluir transcrição individual',
+    description: 'Exclui um job de transcrição já concluído ou com falha. Em uploads diretos, remove também o áudio temporário do MinIO; em mídias de mensagens, remove somente o resultado e preserva a mídia original. Jobs em fila ou processamento não podem ser excluídos.',
+    responses: {
+      '200': {
+        description: 'Transcrição excluída.',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['id', 'deleted', 'sourceRemoved', 'sourceRetained'],
+              properties: {
+                id: { type: 'string' },
+                deleted: { type: 'boolean' },
+                sourceRemoved: { type: 'boolean' },
+                sourceRetained: { type: 'boolean' },
+              },
+            },
+          },
+        },
+      },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+      '409': { $ref: '#/components/responses/Conflict' },
+      '503': { description: 'MinIO ou banco indisponível.' },
+    },
+  },
   ...localTemplateOperations,
   ...diagnosticOperations,
   ...videoCallOperations,
@@ -766,6 +793,11 @@ function graphSpec(version) {
           tags: ['Transcription'], summary: 'Consultar job de transcrição', operationId: 'meta_get_transcription', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }, { name: 'jobId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: { '200': { description: 'Estado atual do job.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTranscriptionJob' } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' } },
+        },
+        delete: {
+          tags: ['Transcription'], summary: 'Excluir job de transcrição', operationId: 'meta_delete_transcription', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }, { name: 'jobId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Job excluído.', content: { 'application/json': { schema: { type: 'object', properties: { messaging_product: { type: 'string', example: 'whatsapp' }, id: { type: 'string' }, deleted: { type: 'boolean' }, source_removed: { type: 'boolean' }, source_retained: { type: 'boolean' } }, required: ['messaging_product', 'id', 'deleted'] } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' }, '503': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{phoneNumberId}/transcriptions/{jobId}/retry': {

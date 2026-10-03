@@ -129,6 +129,20 @@ export class MetaCloudGraphRouter {
       }),
     );
 
+    this.router.delete(
+      '/:version/:phoneNumberId/transcriptions/:jobId',
+      this.wrap(async (req, res) => {
+        res.json(
+          await metaCloudGraphController.deleteTranscription(
+            req.params.version,
+            req.params.phoneNumberId,
+            req.headers.authorization,
+            req.params.jobId,
+          ),
+        );
+      }),
+    );
+
     this.router.get(
       '/:version/:businessAccountId/message_templates',
       this.wrap(async (req, res) => {

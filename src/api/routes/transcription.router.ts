@@ -38,6 +38,7 @@ export class TranscriptionRouter {
     });
     this.router.get('/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/:jobId/retry', (req, res) => void this.retry(req, res));
+    this.router.delete('/:jobId', (req, res) => void this.remove(req, res));
   }
 
   private async list(req: any, res: Response) {
@@ -108,6 +109,15 @@ export class TranscriptionRouter {
   private async retry(req: any, res: Response) {
     try {
       res.status(202).json(await this.service.retry(req.params.jobId));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async remove(req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.json(await this.service.delete(req.params.jobId));
     } catch (error) {
       this.fail(error, res);
     }

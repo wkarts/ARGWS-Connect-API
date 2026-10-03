@@ -868,6 +868,9 @@ export const current = {
   async retryTranscription(jobId: string): Promise<TranscriptionJob> {
     return api<TranscriptionJob>(`/v1/transcriptions/${encodeURIComponent(jobId)}/retry`, { method: 'POST' })
   },
+  async deleteTranscription(jobId: string): Promise<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }> {
+    return api<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }>(`/v1/transcriptions/${encodeURIComponent(jobId)}`, { method: 'DELETE' })
+  },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },
   async verify() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },

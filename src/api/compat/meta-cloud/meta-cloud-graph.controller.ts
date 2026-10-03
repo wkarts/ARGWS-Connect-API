@@ -120,6 +120,21 @@ export class MetaCloudGraphController {
     return job;
   }
 
+  public async deleteTranscription(version: string, phoneNumberId: string, authorization: any, jobId: string) {
+    const identity = await this.resolvePhone(phoneNumberId, authorization);
+    if (!this.transcription) throw new MetaCloudGraphError(503, 'Transcription is temporarily unavailable.');
+    const result = await this.transcription.delete(jobId, identity.instanceId);
+    this.log(identity, version, 'transcription-delete', result.id);
+    metaCloudMetrics.increment('connect_meta_compat_transcription_requests_total');
+    return {
+      messaging_product: 'whatsapp',
+      id: result.id,
+      deleted: true,
+      source_removed: result.sourceRemoved,
+      source_retained: result.sourceRetained,
+    };
+  }
+
   public async getMedia(version: string, mediaId: string, authorization: any) {
     const located = await this.media.locate(mediaId);
     const identity = this.resolver.identityFromInstance(located.instance);

@@ -46,6 +46,7 @@ const icons: Record<string, string[]> = {
   warning: ['M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0z','M12 9v4','M12 17h.01'],
   pause: ['M8 5v14','M16 5v14'],
   stop: ['M6 6h12v12H6z'],
+  trash: ['M4 7h16','M10 11v6','M14 11v6','M6 7l1 13h10l1-13','M9 7V4h6v3','M3 7h18'],
 }
 </script>
 
