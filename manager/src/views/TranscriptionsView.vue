@@ -18,11 +18,13 @@ type TranscriptionJob = {
   provider?: string | null
   errorMessage?: string | null
   createdAt?: string
+  updatedAt?: string
   completedAt?: string | null
   attempts?: number
 }
 
 const jobs = ref<TranscriptionJob[]>([])
+const workerHealth = ref<any>(null)
 const selectedFile = ref<File | null>(null)
 const language = ref('pt')
 const busy = ref(false)
@@ -77,7 +79,16 @@ function statusLabel(status: string) {
 }
 
 function canDelete(job?: TranscriptionJob | null) {
-  return !!job && ['completed', 'failed'].includes(job.status)
+  return !!job
+}
+
+function canRetry(job?: TranscriptionJob | null) {
+  if (!job) return false
+  if (job.status === 'failed') return true
+  if (!['queued', 'processing'].includes(job.status)) return false
+  const staleSeconds = Number(workerHealth.value?.staleJobSeconds || 1800)
+  const updatedAt = new Date(job.updatedAt || job.createdAt || 0).getTime()
+  return Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt >= Math.max(60, staleSeconds) * 1000
 }
 
 function clearPreview() {
@@ -230,6 +241,7 @@ async function load() {
   loading.value = true
   try {
     jobs.value = await connect.transcriptionList()
+    await loadWorkerHealth()
     if (!selectedId.value && jobs.value[0]) selectedId.value = jobs.value[0].id
   } catch (cause) {
     error.value = friendlyError(cause, 'Não foi possível consultar as transcrições.')
@@ -239,6 +251,10 @@ async function load() {
   schedulePolling()
 }
 
+async function loadWorkerHealth() {
+  try { workerHealth.value = await connect.transcriptionHealth() } catch { /* status is best effort */ }
+}
+
 function schedulePolling() {
   if (timer !== null) window.clearInterval(timer)
   timer = active.value ? window.setInterval(() => void refreshActive(), 3000) : null
@@ -246,6 +262,7 @@ function schedulePolling() {
 
 async function refreshActive() {
   const pending = jobs.value.filter((job) => ['queued', 'processing'].includes(job.status))
+  await loadWorkerHealth()
   if (!pending.length) { schedulePolling(); return }
   await Promise.all(pending.map(async (job) => {
     try {
@@ -279,7 +296,7 @@ async function upload() {
 }
 
 async function retry() {
-  if (!selected.value || selected.value.status !== 'failed') return
+  if (!canRetry(selected.value)) return
   busy.value = true
   error.value = ''
   try {
@@ -295,7 +312,10 @@ async function retry() {
 async function removeSelected() {
   const job = selected.value
   if (!canDelete(job)) return
-  if (!window.confirm('Excluir esta transcrição e, quando aplicável, o áudio temporário do MinIO?')) return
+  const activeJob = ['queued', 'processing'].includes(job.status)
+  if (!window.confirm(activeJob
+    ? 'Cancelar e excluir esta transcrição agora? O áudio temporário será removido do MinIO quando aplicável e um resultado atrasado será ignorado.'
+    : 'Excluir esta transcrição e, quando aplicável, o áudio temporário do MinIO?')) return
   busy.value = true
   error.value = ''
   success.value = ''
@@ -333,6 +353,8 @@ onBeforeUnmount(() => {
       <section class="privacy-note"><AppIcon name="shield" :size="21" /><div><strong>Processamento privado</strong><p>O arquivo fica no MinIO privado e é processado pelo worker local. O painel recebe apenas o estado do job e o texto resultante.</p></div></section>
       <p v-if="error" class="notice error" role="alert">{{ error }}</p>
       <p v-if="success" class="notice success" role="status">{{ success }}</p>
+      <p v-if="workerHealth && !workerHealth.workerReady" class="notice error" role="alert">O worker local não está consumindo a fila. Ative o perfil <code>transcription</code> no <code>COMPOSE_PROFILES</code> e recrie somente o container do worker.</p>
+      <p v-else-if="workerHealth" class="notice worker-ready" role="status">Worker local ativo · {{ workerHealth.consumerCount }} consumidor(es) · {{ workerHealth.messageCount || 0 }} áudio(s) na fila</p>
 
       <div class="transcription-layout">
         <PanelCard title="Novo áudio" description="Envie uma gravação para iniciar uma transcrição.">
@@ -370,7 +392,7 @@ onBeforeUnmount(() => {
       </div>
 
       <PanelCard v-if="selected" title="Resultado" :description="statusLabel(selected.status) + ' · ' + (selected.provider === 'local' ? 'motor local' : (selected.provider || 'worker'))">
-        <template #actions><button v-if="selected.status === 'failed'" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />Tentar novamente</button><button v-if="selected.text" class="btn ghost compact" :disabled="busy" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button><button v-if="canDelete(selected)" class="btn ghost compact danger-button" :disabled="busy" @click="removeSelected"><AppIcon name="trash" :size="14" />Excluir</button></template>
+        <template #actions><button v-if="canRetry(selected)" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />{{ selected.status === 'failed' ? 'Tentar novamente' : 'Reenfileirar' }}</button><button v-if="selected.text" class="btn ghost compact" :disabled="busy" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button><button v-if="canDelete(selected)" class="btn ghost compact danger-button" :disabled="busy" @click="removeSelected"><AppIcon name="trash" :size="14" />{{ ['queued', 'processing'].includes(selected.status) ? 'Cancelar e excluir' : 'Excluir' }}</button></template>
         <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div><strong>{{ statusLabel(selected.status) }}</strong><p>O worker local está processando o áudio. Esta tela atualiza automaticamente.</p></div></div>
         <div v-else-if="selected.status === 'failed'" class="result-error"><AppIcon name="warning" :size="19" /><div><strong>Não foi possível concluir</strong><p>{{ selected.errorMessage || 'O worker retornou uma falha sem detalhes.' }}</p></div></div>
         <div v-else class="result-body"><p>{{ selected.text || 'A transcrição terminou sem texto reconhecido.' }}</p><footer><span>Idioma: {{ selected.detectedLanguage || selected.language || 'detectado automaticamente' }}</span><span>Duração: {{ duration(selected.durationMs) }}</span><span>Concluída: {{ stamp(selected.completedAt) }}</span></footer></div>

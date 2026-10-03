@@ -53,6 +53,8 @@ export const connect = {
   async messages(id: string, ref: string): Promise<Message[]> { return normalize.messages(await request<any>(`/instances/${encodeURIComponent(id)}/messages`, { params: { remoteJid: ref } })) },
   async sendText(id: string, number: string, text: string) { return request(`/instances/${encodeURIComponent(id)}/messages/text`, { method: 'POST', data: { number, text } }) },
   async sendStatus(id: string, data: any, file?: File) { return request(`/instances/${encodeURIComponent(id)}/status`, { method: 'POST', data: statusForm(data, file), timeout: 180000 }) },
+  async statuses(id: string): Promise<Message[]> { return request<Message[]>(`/instances/${encodeURIComponent(id)}/statuses`) },
+  async deleteStatus(id: string, statusId: string) { return request(`/instances/${encodeURIComponent(id)}/statuses/${encodeURIComponent(statusId)}`, { method: 'DELETE' }) },
   async calls(id: string) { return request<any>(`/instances/${encodeURIComponent(id)}/calls`) },
   async callAction(id: string, action: string, data: any = {}) { return request(`/instances/${encodeURIComponent(id)}/calls/${encodeURIComponent(action)}`, { method: 'POST', data }) },
   async users(): Promise<UserItem[]> { return normalize.users(await request<any>('/users')) },
@@ -67,6 +69,7 @@ export const connect = {
   async storageCleanupPreview(data: any) { return request<any>('/storage/cleanup/preview', { method: 'POST', data }) },
   async storageCleanup(data: any) { return request<any>('/storage/cleanup', { method: 'POST', data }) },
   async transcriptionList(): Promise<TranscriptionJob[]> { return request<TranscriptionJob[]>('/transcriptions') },
+  async transcriptionHealth(): Promise<any> { return request<any>('/transcriptions/health') },
   async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
     const data = new FormData()
     data.append('audio', file, file.name)

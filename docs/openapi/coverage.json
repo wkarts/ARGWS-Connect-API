@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-03T12:03:16.662Z",
+  "generatedAt": "2026-10-03T21:05:52.551Z",
   "version": "1.1.15",
-  "sourceDigest": "4c714602aee18ccb39b224158f3e624d5238cea8d1c6a7241ccabc6e5f1bc1af",
+  "sourceDigest": "58c7a5cc69a81f24acd12129049dc397145cf3b43ff04e1c2a20b5fe9eb71a15",
   "operations": [
     {
       "method": "GET",
@@ -119,6 +119,11 @@
       "source": "src/api/routes/chat.router.ts"
     },
     {
+      "method": "DELETE",
+      "path": "/chat/deleteStatus/{instanceName}/{statusId}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/chat/fetchBusinessProfile/{instanceName}",
       "source": "src/api/routes/chat.router.ts"
@@ -156,6 +161,11 @@
     {
       "method": "POST",
       "path": "/chat/findMessages/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/findPublishedStatuses/{instanceName}",
       "source": "src/api/routes/chat.router.ts"
     },
     {
@@ -1294,6 +1304,11 @@
       "source": "src/api/routes/transcription.router.ts"
     },
     {
+      "method": "GET",
+      "path": "/v1/transcriptions/health",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/v1/transcriptions/upload",
       "source": "src/api/routes/transcription.router.ts"
@@ -1358,6 +1373,16 @@
     {
       "method": "POST",
       "path": "/graph/{version}/{phoneNumberId}/status",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{phoneNumberId}/statuses",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/graph/{version}/{phoneNumberId}/statuses/{statusId}",
       "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
     },
     {

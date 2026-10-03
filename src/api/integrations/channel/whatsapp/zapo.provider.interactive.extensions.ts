@@ -398,6 +398,25 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         statusSetting,
       });
 
+      // Zapo does not emit an outgoing status echo when readStatus is off.
+      // Keep a JSON-safe history row so the Manager/API can list and revoke
+      // the exact status without storing the binary payload in PostgreSQL.
+      if (result?.id) {
+        const persistedMessage = type === 'text'
+          ? content
+          : { type, caption: data.caption || null, mimetype: content.mimetype || null };
+        await this.prismaRepository.message.create({
+          data: {
+            key: { id: String(result.id), remoteJid: 'status@broadcast', fromMe: true },
+            messageType: `status${type}`,
+            message: { status: persistedMessage },
+            messageTimestamp: Math.floor(Date.now() / 1000),
+            source: 'web',
+            instanceId: this.instanceId,
+          },
+        }).catch((error) => this.logger.warn('Unable to persist outgoing Zapo status: ' + (error?.message || error)));
+      }
+
       return {
         key: { id: result?.id, remoteJid: 'status@broadcast', fromMe: true },
         statusJidList: recipients,

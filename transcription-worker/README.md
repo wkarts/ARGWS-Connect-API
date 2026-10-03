@@ -85,6 +85,7 @@ o áudio mesmo quando o contêiner WebM declara uma trilha de vídeo auxiliar.
 - `POST /v1/transcriptions` continua aceitando `messageId` para áudios já recebidos por uma instância.
 - `POST /v1/transcriptions/upload` recebe `multipart/form-data` com o campo `audio`, além de `language` opcional.
 - `GET /v1/transcriptions` lista os jobs recentes.
+- `GET /v1/transcriptions/health` informa se a fila tem um consumidor ativo; é somente leitura.
 - `GET /v1/transcriptions/:jobId` consulta o estado e o texto.
 - `POST /v1/transcriptions/:jobId/retry` reenfileira uma falha.
 - `POST /v1/transcriptions/cleanup` remove uploads temporários expirados após `confirm=true`.

@@ -21,6 +21,7 @@ export class TranscriptionRouter {
   ) {
     this.router.use(guard);
     this.router.get('/', (req, res) => void this.list(req, res));
+    this.router.get('/health', (req, res) => void this.health(req, res));
     this.router.post('/', (req, res) => void this.create(req, res));
     this.router.post('/cleanup', (req, res) => void this.cleanup(req, res));
     this.router.post('/upload', (req, res) => {
@@ -45,6 +46,15 @@ export class TranscriptionRouter {
     try {
       res.set('Cache-Control', 'no-store');
       res.json(await this.service.list(req.query?.limit));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async health(_req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.json(await this.service.health());
     } catch (error) {
       this.fail(error, res);
     }

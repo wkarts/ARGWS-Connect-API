@@ -36,6 +36,7 @@ type UploadInput = {
 
 type WorkerResult = {
   jobId?: string;
+  attempts?: number;
   status?: string;
   text?: string;
   language?: string | null;
@@ -199,6 +200,8 @@ export class TranscriptionService {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private sourceCleanupTimer: NodeJS.Timeout | null = null;
   private sourceCleanupInFlight = false;
+  private staleRecoveryTimer: NodeJS.Timeout | null = null;
+  private staleRecoveryInFlight = false;
 
   constructor(private readonly prismaRepository: PrismaRepository) {}
 
@@ -209,6 +212,7 @@ export class TranscriptionService {
   public async init(): Promise<void> {
     if (!this.isEnabled()) return;
     this.startSourceCleanup();
+    this.startStaleRecovery();
     if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
     if (this.initializing) return this.initializing;
     this.initializing = this.connect()
@@ -230,6 +234,36 @@ export class TranscriptionService {
       orderBy: { createdAt: 'desc' },
     });
     return jobs.map((job: any) => this.publicJob(job));
+  }
+
+  /**
+   * Read-only queue diagnostics for the Manager and operators. This endpoint
+   * deliberately never publishes, retries or deletes a job.
+   */
+  public async health() {
+    const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
+    const result: any = {
+      enabled: this.isEnabled(),
+      queue,
+      connected: false,
+      consumerCount: 0,
+      workerReady: false,
+      staleJobSeconds: this.staleJobSeconds(),
+    };
+    if (!this.isEnabled() || !enabledValue(process.env.RABBITMQ_ENABLED, true)) return result;
+
+    await this.init();
+    if (!this.channel) return result;
+    result.connected = true;
+    try {
+      const state = await this.channel.checkQueue(queue);
+      result.consumerCount = Number(state?.consumerCount || 0);
+      result.workerReady = result.consumerCount > 0;
+      result.messageCount = Number(state?.messageCount || 0);
+    } catch (error) {
+      this.logger.debug('Transcrição: diagnóstico da fila indisponível: ' + (error?.message || error));
+    }
+    return result;
   }
 
   public async enqueue(input: EnqueueInput) {
@@ -343,16 +377,20 @@ export class TranscriptionService {
     if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
-    if (job.status !== 'failed') {
-      throw new TranscriptionServiceError('Somente jobs com falha podem ser reenfileirados.', 409);
+    const canRetry = job.status === 'failed' || (['queued', 'processing'].includes(String(job.status)) && this.isStaleJob(job));
+    if (!canRetry) {
+      throw new TranscriptionServiceError('O job ainda está em processamento. Aguarde ou remova-o antes de repetir.', 409);
     }
     if (!job.messageId && this.isOwnedUploadKey(job.sourceKey) && !(await storedFileExists(String(job.sourceKey)))) {
       throw new TranscriptionServiceError('O áudio temporário deste job já expirou e não pode ser reenfileirado.', 410);
     }
 
     await this.ready();
-    const updated = await (this.prismaRepository.transcriptionJob as any).update({
-      where: { id },
+    const updateWhere: any = job.status === 'failed'
+      ? { id, status: 'failed' }
+      : { id, status: job.status, updatedAt: job.updatedAt };
+    const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
+      where: updateWhere,
       data: {
         status: 'queued',
         errorCode: null,
@@ -362,12 +400,17 @@ export class TranscriptionService {
         attempts: { increment: 1 },
       },
     });
+    if (!Number(updatedCount?.count)) {
+      throw new TranscriptionServiceError('O job mudou enquanto era reenfileirado. Atualize a lista e tente novamente.', 409);
+    }
+    const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
+    if (!updated) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
 
     try {
       await this.publish(REQUESTED, this.jobPayload(updated));
     } catch (error) {
-      await (this.prismaRepository.transcriptionJob as any).update({
-        where: { id },
+      await (this.prismaRepository.transcriptionJob as any).updateMany({
+        where: { id, attempts: updated.attempts, status: 'queued' },
         data: {
           status: 'failed',
           errorCode: 'QUEUE_UNAVAILABLE',
@@ -381,13 +424,13 @@ export class TranscriptionService {
   }
 
   /**
-   * Remove an individual terminal transcription job.
+   * Remove an individual transcription job.
    *
    * Direct uploads own a temporary MinIO object, so that object is removed as
    * part of the operation. A transcription requested for a persisted message
    * never owns the message media; only its transcription result row is
-   * removed. Queued/processing jobs are deliberately protected from races with
-   * the worker and must finish before they can be deleted.
+   * removed. Active jobs are cancelled by deleting their durable row; a late
+   * worker result is acknowledged and ignored by consumeResult.
    */
   public async delete(jobId: string, instanceId?: string) {
     const id = String(jobId || '').trim();
@@ -398,13 +441,6 @@ export class TranscriptionService {
     if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
-    if (job.status === 'queued' || job.status === 'processing') {
-      throw new TranscriptionServiceError('Aguarde o processamento terminar antes de remover este job.', 409);
-    }
-    if (!['completed', 'failed'].includes(String(job.status))) {
-      throw new TranscriptionServiceError('Somente jobs concluídos ou com falha podem ser removidos.', 409);
-    }
-
     const ownsTemporarySource = !job.messageId && this.isOwnedUploadKey(job.sourceKey);
     if (ownsTemporarySource) {
       // S3/MinIO removeObject is idempotent: an object already removed by its
@@ -424,6 +460,7 @@ export class TranscriptionService {
     return {
       id,
       deleted: true,
+      cancelled: ['queued', 'processing'].includes(String(job.status)),
       sourceRemoved: ownsTemporarySource,
       sourceRetained: !ownsTemporarySource,
     };
@@ -464,6 +501,7 @@ export class TranscriptionService {
       source: { key: job.sourceKey, mimeType: job.sourceMimeType },
       language: job.language,
       model: job.model,
+      attempts: job.attempts,
     };
   }
 
@@ -541,6 +579,10 @@ export class TranscriptionService {
       { noAck: false },
     );
     this.logger.info('Transcription queue - ON (' + queue + ')');
+    // Recover abandoned jobs as soon as a real worker consumer is present;
+    // waiting for the periodic timer would leave old `processing` rows visible
+    // in the Manager for another full interval after a deploy.
+    void this.recoverStaleJobs();
   }
 
   private scheduleReconnect() {
@@ -590,7 +632,30 @@ export class TranscriptionService {
         data.errorMessage = String(payload.errorMessage || 'Falha no worker.').slice(0, 2000);
         data.completedAt = new Date();
       }
-      await (this.prismaRepository.transcriptionJob as any).update({ where: { id: jobId }, data });
+      const attempts = Number.isFinite(Number(payload.attempts)) ? Math.max(1, Math.floor(Number(payload.attempts))) : null;
+      let updateWhere: any;
+      if (attempts === null) {
+        // Older workers did not include the attempt number. Accept one of
+        // their results only for an active first-attempt job; once a retry
+        // has advanced the durable counter, a late legacy result cannot
+        // overwrite the newer execution.
+        const current = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: jobId } });
+        const currentAttempts = Number(current?.attempts || 0);
+        if (!current || !['queued', 'processing'].includes(String(current.status)) || currentAttempts > 1) {
+          this.logger.debug('Resultado legado de transcrição ignorado para job ausente, terminal ou repetido: ' + jobId);
+          this.channel.ack(message);
+          return;
+        }
+        updateWhere = { id: jobId, status: { in: ['queued', 'processing'] }, attempts: currentAttempts };
+      } else {
+        updateWhere = { id: jobId, attempts };
+      }
+      const updated = await (this.prismaRepository.transcriptionJob as any).updateMany({ where: updateWhere, data });
+      if (!Number(updated?.count)) {
+        // The job may have been deliberately removed, or this is a late result
+        // from an older retry attempt. It must not poison the durable queue.
+        this.logger.debug('Resultado de transcrição ignorado para job ausente ou tentativa antiga: ' + jobId);
+      }
       this.channel.ack(message);
     } catch (error) {
       this.logger.error('Resultado de transcrição inválido: ' + (error?.message || error));
@@ -730,6 +795,81 @@ export class TranscriptionService {
     const value = Number.parseInt(process.env.TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS || '', 10);
     if (!Number.isFinite(value)) return 900;
     return Math.min(Math.max(value, 60), 86_400);
+  }
+
+  private staleJobSeconds(): number {
+    const value = Number.parseInt(process.env.TRANSCRIPTION_STALE_JOB_SECONDS || '', 10);
+    if (!Number.isFinite(value)) return 1800;
+    return Math.min(Math.max(value, 60), 86_400);
+  }
+
+  private staleRecoveryIntervalSeconds(): number {
+    const value = Number.parseInt(process.env.TRANSCRIPTION_STALE_RECOVERY_INTERVAL_SECONDS || '', 10);
+    if (!Number.isFinite(value)) return 60;
+    return Math.min(Math.max(value, 30), 3600);
+  }
+
+  private isStaleJob(job: any): boolean {
+    if (!['queued', 'processing'].includes(String(job?.status))) return false;
+    const updatedAt = new Date(job?.updatedAt || job?.createdAt || 0).getTime();
+    return Number.isFinite(updatedAt) && Date.now() - updatedAt >= this.staleJobSeconds() * 1000;
+  }
+
+  private startStaleRecovery() {
+    if (this.staleRecoveryTimer || this.staleJobSeconds() <= 0) return;
+    const interval = this.staleRecoveryIntervalSeconds();
+    this.staleRecoveryTimer = setInterval(() => void this.recoverStaleJobs(), interval * 1000);
+    this.staleRecoveryTimer.unref?.();
+    void this.recoverStaleJobs();
+  }
+
+  private async recoverStaleJobs() {
+    if (this.staleRecoveryInFlight || !this.channel) return;
+    this.staleRecoveryInFlight = true;
+    try {
+      const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
+      const state = await this.channel.checkQueue(queue);
+      if (!Number(state?.consumerCount)) return;
+      const cutoff = new Date(Date.now() - this.staleJobSeconds() * 1000);
+      const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
+        where: { status: { in: ['queued', 'processing'] }, updatedAt: { lt: cutoff } },
+        orderBy: { updatedAt: 'asc' },
+        take: 100,
+      });
+      for (const job of jobs) {
+        const changed = await (this.prismaRepository.transcriptionJob as any).updateMany({
+          where: { id: job.id, status: job.status, updatedAt: job.updatedAt },
+          data: {
+            status: 'queued',
+            errorCode: null,
+            errorMessage: null,
+            startedAt: null,
+            completedAt: null,
+            attempts: { increment: 1 },
+          },
+        });
+        if (!Number(changed?.count)) continue;
+        const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: job.id } });
+        if (!updated) continue;
+        try {
+          await this.publish(REQUESTED, this.jobPayload(updated));
+        } catch (error) {
+          await (this.prismaRepository.transcriptionJob as any).updateMany({
+            where: { id: updated.id, attempts: updated.attempts, status: 'queued' },
+            data: {
+              status: 'failed',
+              errorCode: 'QUEUE_UNAVAILABLE',
+              errorMessage: String(error?.message || error).slice(0, 2000),
+              completedAt: new Date(),
+            },
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.warn('Transcrição: recuperação de jobs abandonados indisponível: ' + (error?.message || error));
+    } finally {
+      this.staleRecoveryInFlight = false;
+    }
   }
 
   private startSourceCleanup() {

@@ -7,7 +7,7 @@ import { featureEnabled } from '@/config/runtime'
 import { useSessionStore } from '@/stores/session'
 
 const props = defineProps<{ instanceId: string; instanceName: string; provider: string; connected: boolean }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; published: [] }>()
 const session = useSessionStore()
 const type = ref<'text' | 'image' | 'video' | 'audio'>('text')
 const content = ref('')
@@ -58,6 +58,7 @@ async function publish() {
       statusJidList: allContacts.value ? undefined : recipientList.value.filter((item) => /^\d{8,15}$/u.test(item)),
     }, file.value || undefined)
     feedback.value = 'Status enviado para o provider. A entrega depende da conexão e das regras do WhatsApp.'
+    emit('published')
     content.value = ''
     caption.value = ''
     file.value = null

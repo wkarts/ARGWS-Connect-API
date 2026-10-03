@@ -103,6 +103,7 @@ function messagePreview(value: any): string {
   if (value.body && typeof value.body === 'string') return value.body
   if (value.content && typeof value.content === 'string') return value.content
   if (value.conversation && typeof value.conversation === 'string') return value.conversation
+  if (value.content && typeof value.content === 'object') return messagePreview(value.content)
   if (value.extendedTextMessage?.text) return str(value.extendedTextMessage.text)
   if (value.imageMessage) return str(value.imageMessage.caption || 'Imagem')
   if (value.videoMessage) return str(value.videoMessage.caption || 'Vídeo')
@@ -110,6 +111,9 @@ function messagePreview(value: any): string {
   if (value.stickerMessage) return 'Figurinha'
   if (value.documentMessage) return str(value.documentMessage.caption || value.documentMessage.fileName || 'Documento')
   if (value.documentWithCaptionMessage) return messagePreview(value.documentWithCaptionMessage.message)
+  // ZAPO stores an outgoing Status in a small JSON-safe `status` envelope so
+  // the Manager can list/revoke it even when the provider emits no echo.
+  if (value.status) return messagePreview(value.status)
   if (value.contactMessage) return str(value.contactMessage.displayName || 'Contato')
   if (value.contactsArrayMessage) return 'Contatos'
   if (value.locationMessage || value.liveLocationMessage) return 'Localização'

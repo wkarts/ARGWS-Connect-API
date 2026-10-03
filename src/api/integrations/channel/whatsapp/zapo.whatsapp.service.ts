@@ -82,7 +82,7 @@ function getSharedZapoPostgresBackend(connectionString: string) {
  * plugin; the public call adapter delegates only video calls to Connect's engine.
  */
 export class ZapoStartupService extends ChannelStartupService {
-  private readonly statusBroadcastRetention: StatusBroadcastRetentionService;
+  protected readonly statusBroadcastRetention: StatusBroadcastRetentionService;
 
   constructor(
     public readonly configService: ConfigService,

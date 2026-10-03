@@ -81,6 +81,35 @@ export class MetaCloudGraphRouter {
       }),
     );
 
+    this.router.get(
+      '/:version/:phoneNumberId/statuses',
+      this.wrap(async (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.json(
+          await metaCloudGraphController.listStatuses(
+            req.params.version,
+            req.params.phoneNumberId,
+            req.headers.authorization,
+            req.query,
+          ),
+        );
+      }),
+    );
+
+    this.router.delete(
+      '/:version/:phoneNumberId/statuses/:statusId',
+      this.wrap(async (req, res) => {
+        res.json(
+          await metaCloudGraphController.deleteStatus(
+            req.params.version,
+            req.params.phoneNumberId,
+            req.headers.authorization,
+            req.params.statusId,
+          ),
+        );
+      }),
+    );
+
     this.router.post(
       '/:version/:phoneNumberId/transcriptions',
       (req, res, next) => this.transcriptionUploadMiddleware(req, res, next),

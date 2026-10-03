@@ -398,6 +398,20 @@ export const current = {
     }))
   },
 
+  async statuses(id: string): Promise<Message[]> {
+    return withInstance(id, async (_item, name, token) => normalize.messages(await api(`/chat/findPublishedStatuses/${encodeURIComponent(name)}`, {
+      token,
+      params: { page: 1, offset: 100 },
+    })))
+  },
+
+  async deleteStatus(id: string, statusId: string) {
+    return withInstance(id, async (_item, name, token) => api(`/chat/deleteStatus/${encodeURIComponent(name)}/${encodeURIComponent(statusId)}`, {
+      method: 'DELETE',
+      token,
+    }))
+  },
+
   async testMessageContacts(id: string, page = 1): Promise<{ items: ContactItem[]; hasMore: boolean }> {
     if (!featureEnabled('testMessageContacts', false)) throw new CurrentApiError('Seleção de contatos desabilitada.', 403)
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new CurrentApiError('Página inválida.', 400)
@@ -855,6 +869,9 @@ export const current = {
   },
   async transcriptionList(): Promise<TranscriptionJob[]> {
     return api<TranscriptionJob[]>('/v1/transcriptions')
+  },
+  async transcriptionHealth(): Promise<any> {
+    return api<any>('/v1/transcriptions/health')
   },
   async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
     const data = new FormData()

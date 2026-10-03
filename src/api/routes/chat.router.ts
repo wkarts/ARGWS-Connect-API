@@ -19,6 +19,7 @@ import {
 import { InstanceDto } from '@api/dto/instance.dto';
 import { Query } from '@api/repository/repository.service';
 import { chatController } from '@api/server.module';
+import { STATUS_BROADCAST_JID } from '@api/services/status-broadcast-retention.service';
 import { Contact, Message, MessageUpdate } from '@prisma/client';
 import {
   archiveChatSchema,
@@ -181,6 +182,32 @@ export class ChatRouter extends RouterBroker {
           execute: (instance, data) => chatController.fetchMessages(instance, data),
         });
 
+        return res.status(HttpStatus.OK).json(response);
+      })
+      .get(this.routerPath('findPublishedStatuses'), ...guards, async (req, res) => {
+        const instance = req.params as unknown as InstanceDto;
+        const page = Math.min(Math.max(Number.parseInt(String(req.query?.page || '1'), 10) || 1, 1), 10000);
+        const offset = Math.min(Math.max(Number.parseInt(String(req.query?.offset || '50'), 10) || 50, 1), 500);
+        const response = await chatController.fetchMessages(instance, {
+          where: { key: { remoteJid: STATUS_BROADCAST_JID, fromMe: true }, status: { not: 'DELETED' } } as any,
+          sort: 'desc',
+          page,
+          offset,
+        } as Query<Message>);
+        res.set('Cache-Control', 'no-store');
+        return res.status(HttpStatus.OK).json(response);
+      })
+      .delete('/deleteStatus/:instanceName/:statusId', ...guards, async (req, res) => {
+        const statusId = String(req.params.statusId || '').trim();
+        if (!/^[A-Za-z0-9._:-]{1,128}$/.test(statusId)) {
+          return res.status(HttpStatus.BAD_REQUEST).json({ error: 'statusId inválido' });
+        }
+        const instance = req.params as unknown as InstanceDto;
+        const response = await chatController.deleteMessage(instance, {
+          id: statusId,
+          fromMe: true,
+          remoteJid: STATUS_BROADCAST_JID,
+        });
         return res.status(HttpStatus.OK).json(response);
       })
       .post(this.routerPath('findStatusMessage'), ...guards, async (req, res) => {

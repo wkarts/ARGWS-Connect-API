@@ -145,11 +145,15 @@ desligada (`0`), um administrador pode executar a limpeza manual pela API nativa
 com `POST /v1/transcriptions/cleanup`, enviando `{"confirm":true}` e, se
 necessário, `olderThanSeconds` e `limit`.
 
-Para remover um job individual já concluído ou com falha, use o `DELETE` acima.
+Para remover um job individual, use o `DELETE` acima. Jobs na fila ou em
+processamento são cancelados pela remoção do registro; qualquer resultado
+atrasado do worker é ignorado. O `DELETE` também é idempotentemente protegido
+contra a mídia temporária já removida pelo ciclo de vida.
 Em uploads diretos, o áudio temporário também é removido do MinIO; quando o job
 foi criado a partir de uma mensagem, somente o resultado da transcrição é
-removido e a mídia original permanece intacta. Jobs na fila ou em processamento
-respondem `409` e precisam terminar antes da exclusão.
+removido e a mídia original permanece intacta. Para repetir uma transcrição
+falha, use o endpoint `retry`; jobs ativos só podem ser reenfileirados depois do
+limite de abandono configurado, evitando duas execuções concorrentes.
 
 ## Publicar Status do WhatsApp
 
@@ -177,6 +181,22 @@ Para uma lista controlada, troque `all_contacts` por
 como `multipart/form-data` no campo `file`, ou referenciados por `link`/`id`.
 O retorno confirma apenas o aceite pelo provider e contém o identificador real
 do envio em `messages[0].id`; não promete entrega ao aparelho.
+
+Para consultar e excluir os Status publicados por uma instância:
+
+```bash
+curl 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/statuses?limit=50' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>'
+
+curl -X DELETE 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/statuses/<STATUS_ID>' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>'
+```
+
+Essas rotas retornam somente Status enviados pela própria instância
+(`status@broadcast`, `from_me=true`). A exclusão solicita o revoke ao provider
+e remove o registro e a mídia local; se o provider já tiver removido o Status,
+a limpeza local ainda pode ser concluída. Status recebidos não são expostos por
+essas rotas de gerenciamento.
 
 ## Templates
 
