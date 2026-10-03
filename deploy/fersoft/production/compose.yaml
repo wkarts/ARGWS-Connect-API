@@ -182,7 +182,6 @@ services:
       options:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: ${DOCKER_LOG_MAX_FILE:-5}
-
   operations-fersoft-connect-production:
     container_name: operations-fersoft-connect-production
     profiles:
