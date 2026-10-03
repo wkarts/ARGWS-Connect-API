@@ -76,7 +76,7 @@ jobs:
               },
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
-          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'volume-init')
+          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'transcription-worker', 'volume-init')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
