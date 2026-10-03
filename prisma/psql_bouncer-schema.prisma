@@ -427,7 +427,6 @@ model Media {
   Instance   Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   instanceId String
 }
-
 model TranscriptionJob {
   id                String    @id @default(cuid())
   instanceId        String?
