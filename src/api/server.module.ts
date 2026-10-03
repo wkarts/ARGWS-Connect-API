@@ -59,8 +59,8 @@ import { ProxyService } from './services/proxy.service';
 import { SettingsService } from './services/settings.service';
 import { StatusBroadcastRetentionService } from './services/status-broadcast-retention.service';
 import { TemplateService } from './services/template.service';
-import { TranscriptionService } from './services/transcription.service';
 import { TraccarManagerService } from './services/traccar-manager.service';
+import { TranscriptionService } from './services/transcription.service';
 import { VideoMediaService } from './services/video-media.service';
 import { VoiceMediaService } from './services/voice-media.service';
 
