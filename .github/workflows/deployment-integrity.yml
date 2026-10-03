@@ -76,7 +76,7 @@ jobs:
               },
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
-          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'transcription-volume-init', 'transcription-worker', 'volume-init')
+          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'transcription-worker', 'volume-init')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
@@ -90,7 +90,6 @@ jobs:
               'traccar': 'ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine',
               'traccar-postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'traccar-bootstrap': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
-              'transcription-volume-init': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
               'volume-init': 'ghcr.io/wkarts/argws-connect-node:22-bookworm-slim',
           }
 
@@ -176,15 +175,10 @@ jobs:
               assert set(mysql_volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: mysql-volume-init recebeu capabilities indevidas'
               assert mysql.get('depends_on', {})[f'mysql-volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: MySQL deve aguardar mysql-volume-init'
 
-              transcription_init = full['services'][f'transcription-volume-init-{suffix}']
-              assert transcription_init.get('profiles') == ['transcription'], f'{stack}: transcription-volume-init deve acompanhar o worker'
-              assert transcription_init.get('restart') == 'unless-stopped', f'{stack}: transcription-volume-init deve permanecer saudavel no Dockge'
-              assert transcription_init.get('read_only') is True and not transcription_init.get('privileged'), f'{stack}: transcription-volume-init deve ser limitado'
-              assert 'ALL' in transcription_init.get('cap_drop', []), f'{stack}: transcription-volume-init deve remover capabilities por padrao'
-              assert set(transcription_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: transcription-volume-init recebeu capabilities indevidas'
               transcription_worker = full['services'][f'transcription-worker-{suffix}']
               assert transcription_worker.get('profiles') == ['transcription'], f'{stack}: worker de transcricao deve ser opcional'
-              assert transcription_worker.get('depends_on', {})[f'transcription-volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: worker deve aguardar o cache local'
+              assert not any('transcription-models' in str(mount) or '/home/node/.cache/huggingface' in str(mount) for mount in transcription_worker.get('volumes', [])), f'{stack}: worker nao pode montar cache de modelo no host'
+              assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == 'transcription-models', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
 
               volume_init = full['services'][f'volume-init-{suffix}']
               assert volume_init.get('profiles') == ['kafka', 'extended'], f'{stack}: volume-init deve acompanhar Kafka'

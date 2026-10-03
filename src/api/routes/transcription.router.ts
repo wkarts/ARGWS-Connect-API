@@ -22,6 +22,7 @@ export class TranscriptionRouter {
     this.router.use(guard);
     this.router.get('/', (req, res) => void this.list(req, res));
     this.router.post('/', (req, res) => void this.create(req, res));
+    this.router.post('/cleanup', (req, res) => void this.cleanup(req, res));
     this.router.post('/upload', (req, res) => {
       uploadAudio.single('audio')(req, res, (error: any) => {
         if (error) {
@@ -37,6 +38,7 @@ export class TranscriptionRouter {
     });
     this.router.get('/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/:jobId/retry', (req, res) => void this.retry(req, res));
+    this.router.delete('/:jobId', (req, res) => void this.remove(req, res));
   }
 
   private async list(req: any, res: Response) {
@@ -74,6 +76,27 @@ export class TranscriptionRouter {
     }
   }
 
+  private async cleanup(req: any, res: Response) {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      if (body.confirm !== true) {
+        throw new TranscriptionServiceError(
+          'A limpeza exige confirm=true para evitar remoção acidental de áudios temporários.',
+          400,
+        );
+      }
+      res.set('Cache-Control', 'no-store');
+      res.json(
+        await this.service.cleanupExpiredUploads({
+          olderThanSeconds: body.olderThanSeconds,
+          limit: body.limit,
+        }),
+      );
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
   private async read(req: any, res: Response) {
     try {
       res.set('Cache-Control', 'no-store');
@@ -86,6 +109,15 @@ export class TranscriptionRouter {
   private async retry(req: any, res: Response) {
     try {
       res.status(202).json(await this.service.retry(req.params.jobId));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async remove(req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.json(await this.service.delete(req.params.jobId));
     } catch (error) {
       this.fail(error, res);
     }

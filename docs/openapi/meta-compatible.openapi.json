@@ -417,6 +417,93 @@
             "$ref": "#/components/responses/GraphError"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Excluir job de transcrição",
+        "operationId": "meta_delete_transcription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job excluído.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messaging_product": {
+                      "type": "string",
+                      "example": "whatsapp"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "source_removed": {
+                      "type": "boolean"
+                    },
+                    "source_retained": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "messaging_product",
+                    "id",
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "503": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
       }
     },
     "/{version}/{phoneNumberId}/transcriptions/{jobId}/retry": {

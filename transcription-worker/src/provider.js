@@ -3,6 +3,7 @@
 const { spawn } = require('node:child_process');
 const fsp = require('node:fs').promises;
 const path = require('node:path');
+const { createClient, restoreModelCache, persistModelCache } = require('./storage');
 
 let pipelinePromise = null;
 
@@ -38,29 +39,51 @@ async function prepareModelCache(config) {
   const cacheDir = path.resolve(config.local.cacheDir);
   const namespace = String(config.local.model || '').split('/').filter(Boolean)[0];
 
-  // A bind mount hides the directory baked into the image. Transformers.js
-  // creates the model namespace lazily, so create both levels before the
-  // dynamic import; otherwise its first download fails with ENOENT
-  // `/home/node/.cache/huggingface/Xenova`.
+  // The cache is ephemeral inside the worker. Its durable copy lives in the
+  // application MinIO bucket, so container recreation never depends on a
+  // host bind mount.
   await fsp.mkdir(cacheDir, { recursive: true });
   if (namespace) await fsp.mkdir(path.join(cacheDir, namespace), { recursive: true });
+  if (config.s3?.bucket && config.modelStoragePrefix) {
+    const client = createClient(config.s3);
+    await restoreModelCache(
+      client,
+      config.s3.bucket,
+      config.modelStoragePrefix,
+      config.local.model,
+      cacheDir,
+    );
+  }
   return cacheDir;
 }
 
 async function createPipeline(config) {
   if (!pipelinePromise) {
-    pipelinePromise = prepareModelCache(config).then(() => import('@huggingface/transformers')).then(({ env, pipeline }) => {
-      env.cacheDir = path.resolve(config.local.cacheDir);
-      env.allowRemoteModels = true;
-      env.allowLocalModels = true;
-      return pipeline('automatic-speech-recognition', config.local.model, {
-        device: config.local.device,
-        dtype: config.local.dtype,
+    pipelinePromise = prepareModelCache(config)
+      .then((cacheDir) => import('@huggingface/transformers').then(({ env, pipeline }) => {
+        env.cacheDir = cacheDir;
+        env.allowRemoteModels = true;
+        env.allowLocalModels = true;
+        return pipeline('automatic-speech-recognition', config.local.model, {
+          device: config.local.device,
+          dtype: config.local.dtype,
+        });
+      }))
+      .then(async (transcriber) => {
+        const client = createClient(config.s3);
+        await persistModelCache(
+          client,
+          config.s3.bucket,
+          config.modelStoragePrefix,
+          config.local.model,
+          path.resolve(config.local.cacheDir),
+        );
+        return transcriber;
+      })
+      .catch((error) => {
+        pipelinePromise = null;
+        throw error;
       });
-    }).catch((error) => {
-      pipelinePromise = null;
-      throw error;
-    });
   }
   return pipelinePromise;
 }

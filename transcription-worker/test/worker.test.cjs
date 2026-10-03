@@ -37,11 +37,12 @@ test('configuração local não exige OPENAI_API_KEY_GLOBAL', () => {
     local: { model: 'Xenova/whisper-small', device: 'cpu', dtype: 'q8' },
     rabbitmq: { uri: 'amqp://rabbitmq', exchange: 'argws_connect' },
     s3: { accessKey: 'key', secretKey: 'secret', bucket: 'bucket' },
+    modelStoragePrefix: 'transcription-models',
   };
   assert.doesNotThrow(() => validateConfig(config));
 });
 
-test('prepara o namespace Xenova em cache bind-mounted antes do primeiro download', async () => {
+test('prepara o namespace Xenova no cache efêmero antes do primeiro download', async () => {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'argws-transcription-cache-'));
   try {
     const cacheDir = await prepareModelCache({

@@ -14,6 +14,12 @@ function integer(name, fallback, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function durationSeconds(name, fallback, maximum = 31_536_000) {
+  const value = Number.parseInt(process.env[name] || '', 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(maximum, Math.max(0, value));
+}
+
 function endpoint(value) {
   return String(value || 'minio')
     .trim()
@@ -41,8 +47,13 @@ function loadConfig() {
       model: String(process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim(),
       device: String(process.env.TRANSCRIPTION_LOCAL_DEVICE || 'cpu').trim().toLowerCase(),
       dtype: String(process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q8').trim().toLowerCase(),
-      cacheDir: String(process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/home/node/.cache/huggingface').trim(),
+      cacheDir: String(process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/tmp/argws-connect-transcription-model-cache').trim(),
     },
+    sourceRetentionSeconds: durationSeconds('TRANSCRIPTION_SOURCE_RETENTION_SECONDS', 0),
+    sourceCleanupIntervalSeconds: durationSeconds('TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS', 900, 86_400),
+    modelStoragePrefix: String(process.env.TRANSCRIPTION_MODEL_STORAGE_PREFIX || 'transcription-models')
+      .trim()
+      .replace(/^\/+|\/+$/g, ''),
     rabbitmq: {
       uri: String(process.env.RABBITMQ_URI || '').trim(),
       exchange: String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim(),
@@ -68,6 +79,9 @@ function validateConfig(config) {
   if (!config.s3.accessKey) missing.push('S3_ACCESS_KEY');
   if (!config.s3.secretKey) missing.push('S3_SECRET_KEY');
   if (!config.s3.bucket) missing.push('S3_BUCKET');
+  if (!config.modelStoragePrefix || config.modelStoragePrefix.includes('..')) {
+    missing.push('TRANSCRIPTION_MODEL_STORAGE_PREFIX');
+  }
   if (!config.local.model || config.local.model.length > 180 || /[\u0000\r\n]/.test(config.local.model)) {
     missing.push('TRANSCRIPTION_LOCAL_MODEL');
   }

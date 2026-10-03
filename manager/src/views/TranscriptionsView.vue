@@ -76,6 +76,10 @@ function statusLabel(status: string) {
   return ({ queued: 'Na fila', processing: 'Transcrevendo', completed: 'Concluída', failed: 'Falhou' } as Record<string, string>)[status] || status
 }
 
+function canDelete(job?: TranscriptionJob | null) {
+  return !!job && ['completed', 'failed'].includes(job.status)
+}
+
 function clearPreview() {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   previewUrl.value = ''
@@ -288,6 +292,24 @@ async function retry() {
   } finally { busy.value = false }
 }
 
+async function removeSelected() {
+  const job = selected.value
+  if (!canDelete(job)) return
+  if (!window.confirm('Excluir esta transcrição e, quando aplicável, o áudio temporário do MinIO?')) return
+  busy.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    await connect.deleteTranscription(job.id)
+    jobs.value = jobs.value.filter((item) => item.id !== job.id)
+    selectedId.value = jobs.value[0]?.id || ''
+    success.value = 'Transcrição excluída com segurança.'
+    schedulePolling()
+  } catch (cause) {
+    error.value = friendlyError(cause, 'Não foi possível excluir a transcrição.')
+  } finally { busy.value = false }
+}
+
 async function copyText() {
   if (!selected.value?.text) return
   await navigator.clipboard?.writeText(selected.value.text)
@@ -348,7 +370,7 @@ onBeforeUnmount(() => {
       </div>
 
       <PanelCard v-if="selected" title="Resultado" :description="statusLabel(selected.status) + ' · ' + (selected.provider === 'local' ? 'motor local' : (selected.provider || 'worker'))">
-        <template #actions><button v-if="selected.status === 'failed'" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />Tentar novamente</button><button v-if="selected.text" class="btn ghost compact" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button></template>
+        <template #actions><button v-if="selected.status === 'failed'" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />Tentar novamente</button><button v-if="selected.text" class="btn ghost compact" :disabled="busy" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button><button v-if="canDelete(selected)" class="btn ghost compact danger-button" :disabled="busy" @click="removeSelected"><AppIcon name="trash" :size="14" />Excluir</button></template>
         <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div><strong>{{ statusLabel(selected.status) }}</strong><p>O worker local está processando o áudio. Esta tela atualiza automaticamente.</p></div></div>
         <div v-else-if="selected.status === 'failed'" class="result-error"><AppIcon name="warning" :size="19" /><div><strong>Não foi possível concluir</strong><p>{{ selected.errorMessage || 'O worker retornou uma falha sem detalhes.' }}</p></div></div>
         <div v-else class="result-body"><p>{{ selected.text || 'A transcrição terminou sem texto reconhecido.' }}</p><footer><span>Idioma: {{ selected.detectedLanguage || selected.language || 'detectado automaticamente' }}</span><span>Duração: {{ duration(selected.durationMs) }}</span><span>Concluída: {{ stamp(selected.completedAt) }}</span></footer></div>

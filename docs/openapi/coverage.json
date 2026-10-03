@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-03T06:18:45.912Z",
+  "generatedAt": "2026-10-03T12:03:16.662Z",
   "version": "1.1.15",
-  "sourceDigest": "2ff32d4b84afb6a5b3f16b8e2380c6cdc8a58d6adc2b863b8848e1f29edd6d75",
+  "sourceDigest": "4c714602aee18ccb39b224158f3e624d5238cea8d1c6a7241ccabc6e5f1bc1af",
   "operations": [
     {
       "method": "GET",
@@ -1274,6 +1274,11 @@
       "source": "src/api/routes/transcription.router.ts"
     },
     {
+      "method": "DELETE",
+      "path": "/v1/transcriptions/{jobId}",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
       "method": "GET",
       "path": "/v1/transcriptions/{jobId}",
       "source": "src/api/routes/transcription.router.ts"
@@ -1281,6 +1286,11 @@
     {
       "method": "POST",
       "path": "/v1/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/cleanup",
       "source": "src/api/routes/transcription.router.ts"
     },
     {
@@ -1353,6 +1363,11 @@
     {
       "method": "POST",
       "path": "/graph/{version}/{phoneNumberId}/transcriptions",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions/{jobId}",
       "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
     },
     {

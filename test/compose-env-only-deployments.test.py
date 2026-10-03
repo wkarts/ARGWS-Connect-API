@@ -61,7 +61,6 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'postgres-fersoft-connect-production', 'redis-fersoft-connect-production',
             'rabbitmq-fersoft-connect-production', 'minio-fersoft-connect-production',
             'operations-fersoft-connect-production', 'transcription-worker-fersoft-connect-production', 'nats-fersoft-connect-production',
-            'transcription-volume-init-fersoft-connect-production',
             'mysql-fersoft-connect-production', 'zookeeper-fersoft-connect-production',
             'kafka-fersoft-connect-production', 'traccar-fersoft-connect-production',
             'traccar-postgres-fersoft-connect-production',
@@ -114,6 +113,12 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertEqual(
             traccar_postgres['environment']['TRACCAR_DATABASE_PASSWORD'],
             '${TRACCAR_DATABASE_PASSWORD:-}',
+        )
+        transcription_worker = services['transcription-worker-fersoft-connect-production']
+        self.assertFalse(any('transcription-models' in str(volume) for volume in transcription_worker.get('volumes', [])))
+        self.assertEqual(
+            transcription_worker['environment']['TRANSCRIPTION_MODEL_CACHE_DIR'],
+            '${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}',
         )
         self.assertIn('psql --no-password', ' '.join(traccar_postgres['healthcheck']['test']))
         self.assertNotIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))

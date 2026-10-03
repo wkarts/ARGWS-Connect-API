@@ -75,4 +75,5 @@ export const connect = {
   },
   async transcription(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/transcriptions/${encodeURIComponent(jobId)}`) },
   async retryTranscription(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/transcriptions/${encodeURIComponent(jobId)}/retry`, { method: 'POST' }) },
+  async deleteTranscription(jobId: string): Promise<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }> { return request<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }>(`/transcriptions/${encodeURIComponent(jobId)}`, { method: 'DELETE' }) },
 }

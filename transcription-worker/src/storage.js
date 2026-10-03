@@ -27,6 +27,93 @@ function objectKey(sourceKey) {
   return value.startsWith('argws-connect-api/') ? value : 'argws-connect-api/' + value;
 }
 
+function modelCachePrefix(storagePrefix, model) {
+  const prefix = String(storagePrefix || 'transcription-models')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  const modelPath = String(model || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.replace(/[^A-Za-z0-9._-]/g, '_'))
+    .join('/');
+  if (!prefix || !modelPath || prefix.includes('..') || modelPath.includes('..')) {
+    throw new Error('Prefixo ou modelo inválido para o cache persistente.');
+  }
+  return `${prefix}/${modelPath}/`;
+}
+
+async function listObjectNames(client, bucket, prefix) {
+  return await new Promise((resolve, reject) => {
+    const names = [];
+    const stream = client.listObjectsV2(bucket, prefix, true);
+    stream.on('data', (item) => {
+      const name = String(item?.name || '');
+      if (name) names.push(name);
+    });
+    stream.on('error', reject);
+    stream.on('end', () => resolve(names));
+  });
+}
+
+function safeCachePath(cacheDir, relativePath) {
+  const root = path.resolve(cacheDir);
+  const target = path.resolve(root, relativePath);
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    throw new Error('Caminho de cache fora do diretório permitido.');
+  }
+  return target;
+}
+
+async function restoreModelCache(client, bucket, storagePrefix, model, cacheDir) {
+  const remotePrefix = objectKey(modelCachePrefix(storagePrefix, model));
+  const names = await listObjectNames(client, bucket, remotePrefix);
+  let restored = 0;
+  for (const name of names) {
+    const relativePath = name.slice(remotePrefix.length);
+    if (!relativePath || relativePath.endsWith('/')) continue;
+    const target = safeCachePath(cacheDir, relativePath);
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    const source = await client.getObject(bucket, name);
+    await pipeline(source, fs.createWriteStream(target, { flags: 'w', mode: 0o600 }));
+    restored += 1;
+  }
+  return restored;
+}
+
+async function listFiles(root, relative = '') {
+  const directory = safeCachePath(root, relative || '.');
+  const entries = await fsp.readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const childRelative = relative ? path.posix.join(relative, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...await listFiles(root, childRelative));
+    } else if (entry.isFile()) {
+      files.push(childRelative.replace(/\\/g, '/'));
+    }
+  }
+  return files;
+}
+
+async function persistModelCache(client, bucket, storagePrefix, model, cacheDir) {
+  const localFiles = await listFiles(cacheDir);
+  const remotePrefix = modelCachePrefix(storagePrefix, model);
+  for (const relativePath of localFiles) {
+    const sourcePath = safeCachePath(cacheDir, relativePath);
+    const stat = await fsp.stat(sourcePath);
+    await client.putObject(
+      bucket,
+      objectKey(remotePrefix + relativePath),
+      fs.createReadStream(sourcePath),
+      stat.size,
+      { 'Content-Type': 'application/octet-stream' },
+    );
+  }
+  return localFiles.length;
+}
+
 function extensionFor(mimetype, sourceKey) {
   const normalizedMime = String(mimetype || '').split(';', 1)[0].trim().toLowerCase();
   const byMime = {
@@ -78,4 +165,12 @@ async function cleanup(directory) {
   await fsp.rm(directory, { recursive: true, force: true }).catch(() => {});
 }
 
-module.exports = { createClient, objectKey, downloadObjectToFile, cleanup };
+module.exports = {
+  createClient,
+  objectKey,
+  modelCachePrefix,
+  restoreModelCache,
+  persistModelCache,
+  downloadObjectToFile,
+  cleanup,
+};

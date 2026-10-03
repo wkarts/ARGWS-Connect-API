@@ -67,6 +67,7 @@ export const connect = {
   uploadTranscription: (file: File, language = ''): Promise<TranscriptionJob> => invoke('uploadTranscription', file, language),
   transcription: (jobId: string): Promise<TranscriptionJob> => invoke('transcription', jobId),
   retryTranscription: (jobId: string): Promise<TranscriptionJob> => invoke('retryTranscription', jobId),
+  deleteTranscription: (jobId: string): Promise<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }> => invoke('deleteTranscription', jobId),
   security: (): Promise<SecurityState> => invoke('security'),
   beginTwoStep: (password: string): Promise<any> => invoke('beginTwoStep', password),
   confirmTwoStep: (code: string): Promise<{ session: Session; recoveryCodes: string[] }> => invoke('confirmTwoStep', code),

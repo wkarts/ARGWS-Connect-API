@@ -129,11 +129,27 @@ instalação, normalmente OGG/Opus, MP3, M4A, WAV, WEBM e AMR.
 POST /graph/{version}/{phoneNumberId}/transcriptions
 GET  /graph/{version}/{phoneNumberId}/transcriptions/{jobId}
 POST /graph/{version}/{phoneNumberId}/transcriptions/{jobId}/retry
+DELETE /graph/{version}/{phoneNumberId}/transcriptions/{jobId}
 ```
 
 O POST retorna `202` e o estado inicial do job. Consulte o `id` retornado até
 `status=completed` ou `status=failed`; a resposta nunca expõe credenciais nem
 permite consultar job de outra instância.
+
+Arquivos enviados diretamente para esse recurso são armazenados no bucket
+privado da aplicação e têm retenção configurável por
+`TRANSCRIPTION_SOURCE_RETENTION_SECONDS` (24 horas por padrão). Após o job
+terminar, o ciclo de vida remove o objeto e o registro/resultado expirados; mídia
+e jobs já pertencentes a uma mensagem da instância não são apagados. Quando a limpeza automática estiver
+desligada (`0`), um administrador pode executar a limpeza manual pela API nativa
+com `POST /v1/transcriptions/cleanup`, enviando `{"confirm":true}` e, se
+necessário, `olderThanSeconds` e `limit`.
+
+Para remover um job individual já concluído ou com falha, use o `DELETE` acima.
+Em uploads diretos, o áudio temporário também é removido do MinIO; quando o job
+foi criado a partir de uma mensagem, somente o resultado da transcrição é
+removido e a mídia original permanece intacta. Jobs na fila ou em processamento
+respondem `409` e precisam terminar antes da exclusão.
 
 ## Publicar Status do WhatsApp
 
