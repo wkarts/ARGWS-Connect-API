@@ -2,6 +2,7 @@ import { Button, SendButtonsDto, SendListDto, SendStatusDto, TypeButton } from '
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
+import { normalizeStatusRecipient, selectStatusRecipientJids } from '@utils/status-recipient.utils';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import { randomUUID } from 'crypto';
@@ -14,6 +15,13 @@ import { ZapoGroupStartupService } from './zapo.provider.group.extensions';
 type ResolvedBinaryMedia = {
   buffer: Buffer;
   mimetype: string;
+};
+
+type StatusRecipientLookup = {
+  queriedJid?: string;
+  phoneJid?: string;
+  lidJid?: string | null;
+  exists?: boolean;
 };
 
 /**
@@ -201,20 +209,57 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         ),
       ];
       if (recipients.length === 0) throw new BadRequestException('Contacts not found');
-      return { recipients, statusSetting: 'contacts' };
+
+      const resolved = await this.resolveStatusRecipientLids(recipients);
+      return { recipients: resolved.length > 0 ? resolved : recipients, statusSetting: 'contacts' };
     }
 
     if (!data.statusJidList?.length) throw new BadRequestException('StatusJidList is required');
-    const resolved = await this.whatsappNumber({ numbers: data.statusJidList });
-    const recipients = [
-      ...new Set(
-        resolved
-          .filter((entry) => entry?.exists === true && typeof entry.jid === 'string')
-          .map((entry) => entry.jid as string),
-      ),
-    ];
+    const recipients = await this.resolveStatusRecipientLids(data.statusJidList);
     if (recipients.length === 0) throw new BadRequestException('No valid status recipients found');
     return { recipients, statusSetting: 'allowlist' };
+  }
+
+  /**
+   * Status distribution now expects the native LID form whenever WhatsApp
+   * exposes one. The old generic number helper intentionally applies legacy
+   * Brazilian-number shortening and only returned a `lid: 'lid'` marker, so
+   * passing its phone JID to Zapo made the publish fan-out reach WhatsApp with
+   * an incomplete identity and receive a server-side 400 NACK.
+   */
+  private async resolveStatusRecipientLids(values: readonly unknown[]): Promise<string[]> {
+    const normalizedValues = values
+      .map((value) => normalizeStatusRecipient(value))
+      .filter((value): value is string => Boolean(value));
+    if (normalizedValues.length === 0) return [];
+
+    const phoneJids = [
+      ...new Set(normalizedValues.filter((value) => value.endsWith('@s.whatsapp.net')).map((value) => value)),
+    ];
+    const profile = this.interactiveClient().profile;
+    const lookup = profile?.getLidsByPhoneNumbers;
+
+    if (phoneJids.length > 0 && typeof lookup === 'function') {
+      const lookups: StatusRecipientLookup[] = [];
+      try {
+        // Keep usync payloads bounded when “all contacts” is used.
+        for (let offset = 0; offset < phoneJids.length; offset += 100) {
+          const chunk = phoneJids.slice(offset, offset + 100).map((jid) => jid.split('@', 1)[0]);
+          const result = await lookup.call(profile, chunk);
+          if (Array.isArray(result)) lookups.push(...result);
+        }
+        return selectStatusRecipientJids(normalizedValues, lookups);
+      } catch (error) {
+        this.logger.warn(
+          `Zapo Status LID lookup failed; using canonical phone JIDs: ${(error as Error)?.message ?? error}`,
+        );
+      }
+    }
+
+    // Compatibility fallback for an older provider client without the native
+    // LID lookup. This is intentionally limited to the already-normalized
+    // values and never re-enters the legacy Brazil-number formatter.
+    return selectStatusRecipientJids(normalizedValues);
   }
 
   public buttonMessage(): never;

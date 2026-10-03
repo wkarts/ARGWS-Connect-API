@@ -428,8 +428,24 @@ export class TranscriptionService {
 
   private async ready() {
     await this.init();
-    if (!this.channel)
+    if (!this.channel) {
       throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
+    }
+
+    const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
+    try {
+      const state = await this.channel.checkQueue(queue);
+      if (!Number(state?.consumerCount)) {
+        throw new TranscriptionServiceError(
+          'O worker local de transcrição não está ativo. Inclua o perfil transcription no Compose e tente novamente.',
+          503,
+        );
+      }
+    } catch (error) {
+      if (error instanceof TranscriptionServiceError) throw error;
+      this.logger.warn('Não foi possível confirmar o consumidor da fila de transcrição: ' + (error?.message || error));
+      throw new TranscriptionServiceError('O worker local de transcrição está temporariamente indisponível.', 503);
+    }
   }
 
   private async connect() {
