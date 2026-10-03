@@ -18,6 +18,13 @@ test('normaliza um job de áudio sem credencial externa', () => {
   assert.equal(job.sourceMimeType, 'audio/ogg');
 });
 
+test('aceita MIME de gravações WebM do navegador', () => {
+  const withCodec = normalizeJob({ jobId: 'job-webm-1', source: { key: 'audio/test.webm', mimeType: 'audio/webm;codecs=opus' } });
+  const browserVideoMime = normalizeJob({ jobId: 'job-webm-2', source: { key: 'audio/test.webm', mimeType: 'video/webm' } });
+  assert.equal(withCodec.sourceMimeType, 'audio/webm');
+  assert.equal(browserVideoMime.sourceMimeType, 'audio/webm');
+});
+
 test('configuração local não exige OPENAI_API_KEY_GLOBAL', () => {
   const config = {
     enabled: true,

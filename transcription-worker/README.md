@@ -13,7 +13,18 @@ TRANSCRIPTION_LOCAL_DTYPE=q8
 TRANSCRIPTION_MODEL_CACHE_DIR=/home/node/.cache/huggingface
 ```
 
-O primeiro job baixa o modelo configurado para o volume de cache. O volume deve ser persistente para que recriações do container não repitam o download.
+O primeiro job baixa o modelo configurado para o cache local. Na stack oficial, o
+cache é um bind mount para `./volumes/transcription-models`, preparado pelo
+serviço `transcription-volume-init`. Ele não é um volume nomeado e não é
+apagado por recriação de containers nem por `docker compose down -v`; só é
+removido se o diretório do host for apagado manualmente. O serviço de init cria
+`./volumes/transcription-models/Xenova` e ajusta a permissão para o usuário do
+worker antes do consumo da fila.
+
+Os áudios enviados e os resultados continuam no MinIO privado da aplicação.
+O MinIO não é usado como cache do modelo: o runtime local do Transformers.js
+precisa de um diretório de arquivos para carregar os pesos com segurança e sem
+refazer o download a cada job.
 
 ## Compose
 
@@ -28,6 +39,15 @@ TRANSCRIPTION_PROVIDER=local
 
 O perfil controla a criação do container; `TRANSCRIPTION_ENABLED` controla o
 consumo da fila dentro dele. Não configure `openai` como provider deste worker.
+Por compatibilidade, o valor legado `openai` é normalizado para `local`, mas a
+configuração recomendada é declarar `local` explicitamente.
+
+O Manager também pode gravar pelo microfone usando `MediaRecorder`. A gravação
+é limitada a 60 minutos, pode ser pausada, retomada ou descartada, e mostra o
+nível RMS aproximado em decibéis em tempo real. O navegador costuma produzir
+`audio/webm;codecs=opus` ou `video/webm`; a API normaliza esses MIME types para
+`audio/webm` antes de publicar o job, e o worker usa `ffmpeg -vn` para extrair
+o áudio mesmo quando o contêiner WebM declara uma trilha de vídeo auxiliar.
 
 ## Contrato
 

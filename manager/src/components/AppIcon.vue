@@ -44,6 +44,8 @@ const icons: Record<string, string[]> = {
   copy: ['M8 8h11v11H8z','M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1'],
   check: ['m5 12 4 4L19 6'],
   warning: ['M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0z','M12 9v4','M12 17h.01'],
+  pause: ['M8 5v14','M16 5v14'],
+  stop: ['M6 6h12v12H6z'],
 }
 </script>
 

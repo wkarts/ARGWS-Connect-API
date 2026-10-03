@@ -61,6 +61,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'postgres-fersoft-connect-production', 'redis-fersoft-connect-production',
             'rabbitmq-fersoft-connect-production', 'minio-fersoft-connect-production',
             'operations-fersoft-connect-production', 'transcription-worker-fersoft-connect-production', 'nats-fersoft-connect-production',
+            'transcription-volume-init-fersoft-connect-production',
             'mysql-fersoft-connect-production', 'zookeeper-fersoft-connect-production',
             'kafka-fersoft-connect-production', 'traccar-fersoft-connect-production',
             'traccar-postgres-fersoft-connect-production',

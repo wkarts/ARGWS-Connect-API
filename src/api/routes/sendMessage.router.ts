@@ -42,6 +42,23 @@ function normalizeRequestBody(req: Request) {
   req.body = normalizeMessagePayload(req.body);
 }
 
+function normalizeStatusRequestBody(req: Request) {
+  normalizeRequestBody(req);
+  const body = req.body || {};
+  for (const field of ['statusJidList']) {
+    if (typeof body[field] !== 'string') continue;
+    try {
+      body[field] = JSON.parse(body[field]);
+    } catch {
+      body[field] = body[field].split(/[\s,;\n]+/u).filter(Boolean);
+    }
+  }
+  if (typeof body.allContacts === 'string') {
+    body.allContacts = ['true', '1', 'yes', 'on'].includes(body.allContacts.trim().toLowerCase());
+  }
+  if (typeof body.font === 'string' && body.font.trim()) body.font = Number(body.font);
+}
+
 export class MessageRouter extends RouterBroker {
   constructor(...guards: RequestHandler[]) {
     super();
@@ -102,9 +119,8 @@ export class MessageRouter extends RouterBroker {
 
         return res.status(HttpStatus.CREATED).json(response);
       })
-      // TODO: Revisar funcionamento do envio de Status
       .post(this.routerPath('sendStatus'), ...guards, upload.single('file'), async (req, res) => {
-        normalizeRequestBody(req);
+        normalizeStatusRequestBody(req);
         const response = await this.dataValidate<SendStatusDto>({
           request: req,
           schema: statusMessageSchema,

@@ -15,15 +15,18 @@ function normalizeJob(value) {
   const jobId = String(value.jobId || '').trim();
   const source = value.source && typeof value.source === 'object' ? value.source : {};
   const sourceKey = String(source.key || '').trim();
-  const sourceMimeType = String(source.mimeType || '').trim().toLowerCase();
+  const sourceMimeType = String(source.mimeType || '').split(';', 1)[0].trim().toLowerCase();
+  const normalizedMimeType = sourceMimeType === 'video/webm' && /\.webm$/i.test(sourceKey)
+    ? 'audio/webm'
+    : sourceMimeType;
   if (!jobId || jobId.length > 128) throw new Error('jobId inválido.');
-  if (!sourceKey || !sourceMimeType.startsWith('audio/')) throw new Error('Origem de áudio inválida.');
+  if (!sourceKey || !normalizedMimeType.startsWith('audio/')) throw new Error('Origem de áudio inválida.');
   return {
     jobId,
     messageId: value.messageId ? String(value.messageId) : null,
     instanceId: value.instanceId ? String(value.instanceId) : null,
     sourceKey,
-    sourceMimeType,
+    sourceMimeType: normalizedMimeType,
     language: value.language ? String(value.language) : null,
     model: value.model ? String(value.model) : null,
   };

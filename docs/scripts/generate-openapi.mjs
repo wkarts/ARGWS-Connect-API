@@ -701,7 +701,7 @@ function graphSpec(version) {
       ].join('\n'),
     },
     servers: [{ url: 'https://d.api.connect.argws.com.br/graph', description: 'Develop / homologação' }, { url: 'http://localhost:38080/graph', description: 'Docker local' }],
-    tags: [{ name: 'Messages' }, { name: 'Media' }, { name: 'Templates' }],
+    tags: [{ name: 'Messages' }, { name: 'Media' }, { name: 'Status' }, { name: 'Transcription' }, { name: 'Templates' }],
     paths: {
       '/{version}/{phoneNumberId}/messages': {
         post: {
@@ -717,6 +717,36 @@ function graphSpec(version) {
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: { required: true, content: { 'multipart/form-data': { schema: { $ref: '#/components/schemas/MetaMediaUploadRequest' } } } },
           responses: { '200': { description: 'Mídia recebida para uso temporário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaMediaUploadResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
+      '/{version}/{phoneNumberId}/status': {
+        post: {
+          tags: ['Status'], summary: 'Publicar Status do WhatsApp', operationId: 'meta_publish_status', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaStatusRequest' } }, 'multipart/form-data': { schema: { $ref: '#/components/schemas/MetaStatusRequest' } } } },
+          responses: { '200': { description: 'Status aceito pelo provider.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaStatusResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
+      '/{version}/{phoneNumberId}/transcriptions': {
+        post: {
+          tags: ['Transcription'], summary: 'Solicitar transcrição assíncrona de áudio', operationId: 'meta_create_transcription', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTranscriptionRequest' } }, 'multipart/form-data': { schema: { $ref: '#/components/schemas/MetaTranscriptionUploadRequest' } } } },
+          responses: { '202': { description: 'Job de transcrição criado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTranscriptionResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '415': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
+      '/{version}/{phoneNumberId}/transcriptions/{jobId}': {
+        get: {
+          tags: ['Transcription'], summary: 'Consultar job de transcrição', operationId: 'meta_get_transcription', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }, { name: 'jobId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Estado atual do job.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTranscriptionJob' } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
+      '/{version}/{phoneNumberId}/transcriptions/{jobId}/retry': {
+        post: {
+          tags: ['Transcription'], summary: 'Reenfileirar job de transcrição com falha', operationId: 'meta_retry_transcription', security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }, { name: 'jobId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '202': { description: 'Job reenfileirado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaTranscriptionJob' } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{businessAccountId}/message_templates': {

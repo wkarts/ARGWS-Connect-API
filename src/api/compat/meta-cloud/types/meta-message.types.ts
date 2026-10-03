@@ -28,3 +28,27 @@ export interface MetaCloudMessageRequest {
   status?: 'read';
   message_id?: string;
 }
+
+export type MetaCloudStatusType = 'text' | 'image' | 'video' | 'audio';
+
+export interface MetaCloudStatusRequest {
+  messaging_product?: string;
+  type?: MetaCloudStatusType;
+  content?: string;
+  text?: { body?: string; background_color?: string; font?: number };
+  image?: { link?: string; id?: string; caption?: string; mime_type?: string };
+  video?: { link?: string; id?: string; caption?: string; mime_type?: string };
+  audio?: { link?: string; id?: string; mime_type?: string };
+  caption?: string;
+  background_color?: string;
+  font?: number;
+  status_jid_list?: string[] | string;
+  all_contacts?: boolean | string;
+}
+
+export interface MetaCloudTranscriptionRequest {
+  messaging_product?: string;
+  message_id?: string;
+  language?: string;
+  model?: string;
+}

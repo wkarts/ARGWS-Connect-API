@@ -31,6 +31,23 @@ const error = ref('')
 const success = ref('')
 const selectedId = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const previewUrl = ref('')
+const recording = ref(false)
+const recordingPaused = ref(false)
+const recordingSeconds = ref(0)
+const recordingLevel = ref(0)
+const recordingDb = ref(-60)
+const recordingSupported = computed(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined')
+const MAX_RECORDING_SECONDS = 60 * 60
+let recorder: MediaRecorder | null = null
+let recordingStream: MediaStream | null = null
+let recordingChunks: Blob[] = []
+let recordingMimeType = ''
+let discardRecording = false
+let recordingTimer: number | null = null
+let meterFrame: number | null = null
+let audioContext: AudioContext | null = null
+let analyser: AnalyserNode | null = null
 let timer: number | null = null
 
 const selected = computed(() => jobs.value.find((job) => job.id === selectedId.value) || jobs.value[0] || null)
@@ -50,18 +67,160 @@ function duration(value?: number | null) {
   return String(Math.floor(seconds / 60)) + ':' + String(seconds % 60).padStart(2, '0')
 }
 
+function clock(value: number) {
+  const seconds = Math.max(0, Math.floor(value))
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+}
+
 function statusLabel(status: string) {
   return ({ queued: 'Na fila', processing: 'Transcrevendo', completed: 'Concluída', failed: 'Falhou' } as Record<string, string>)[status] || status
 }
 
+function clearPreview() {
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+}
+
+function setSelectedFile(file: File | null) {
+  clearPreview()
+  selectedFile.value = file
+  if (file) previewUrl.value = URL.createObjectURL(file)
+}
+
 function selectFile(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0] || null
-  selectedFile.value = file
+  setSelectedFile(file)
   error.value = ''
   success.value = ''
 }
 
 function openPicker() { fileInput.value?.click() }
+
+function recordingType() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+  return candidates.find((value) => typeof MediaRecorder.isTypeSupported !== 'function' || MediaRecorder.isTypeSupported(value)) || ''
+}
+
+function stopMeter() {
+  if (meterFrame !== null) window.cancelAnimationFrame(meterFrame)
+  meterFrame = null
+  analyser = null
+  if (audioContext) void audioContext.close().catch(() => undefined)
+  audioContext = null
+  recordingLevel.value = 0
+  recordingDb.value = -60
+}
+
+function startMeter(stream: MediaStream) {
+  const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AudioContextCtor) return
+  audioContext = new AudioContextCtor()
+  const source = audioContext.createMediaStreamSource(stream)
+  analyser = audioContext.createAnalyser()
+  analyser.fftSize = 1024
+  source.connect(analyser)
+  const values = new Uint8Array(analyser.fftSize)
+  const tick = () => {
+    if (!analyser) return
+    analyser.getByteTimeDomainData(values)
+    let sum = 0
+    for (const value of values) {
+      const sample = (value - 128) / 128
+      sum += sample * sample
+    }
+    const rms = Math.sqrt(sum / values.length)
+    const db = 20 * Math.log10(Math.max(rms, 0.00001))
+    recordingDb.value = Math.max(-60, Math.min(0, Math.round(db)))
+    recordingLevel.value = Math.max(0, Math.min(1, (db + 60) / 60))
+    meterFrame = window.requestAnimationFrame(tick)
+  }
+  tick()
+}
+
+function clearRecordingTimer() {
+  if (recordingTimer !== null) window.clearInterval(recordingTimer)
+  recordingTimer = null
+}
+
+function stopRecordingResources() {
+  clearRecordingTimer()
+  stopMeter()
+  recordingStream?.getTracks().forEach((track) => track.stop())
+  recordingStream = null
+  recorder = null
+  recordingPaused.value = false
+  recording.value = false
+}
+
+function finishRecording() {
+  const chunks = recordingChunks
+  const mimeType = recordingMimeType || 'audio/webm'
+  const shouldDiscard = discardRecording
+  recordingChunks = []
+  stopRecordingResources()
+  if (shouldDiscard || !chunks.length) return
+  const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm'
+  const blob = new Blob(chunks, { type: mimeType })
+  setSelectedFile(new File([blob], `gravacao-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`, { type: mimeType.split(';')[0] }))
+  success.value = 'Gravação concluída. Confira o áudio e envie para transcrever.'
+}
+
+async function startRecording() {
+  if (recording.value) return
+  if (!recordingSupported.value) {
+    error.value = 'Este navegador não permite gravação de áudio. Use HTTPS ou localhost e autorize o microfone.'
+    return
+  }
+  error.value = ''
+  success.value = ''
+  setSelectedFile(null)
+  if (fileInput.value) fileInput.value.value = ''
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    })
+    recordingMimeType = recordingType()
+    const options: MediaRecorderOptions = { audioBitsPerSecond: 32000 }
+    if (recordingMimeType) options.mimeType = recordingMimeType
+    recorder = new MediaRecorder(recordingStream, options)
+    recordingChunks = []
+    discardRecording = false
+    recorder.ondataavailable = (event) => { if (event.data.size) recordingChunks.push(event.data) }
+    recorder.onerror = () => { error.value = 'O navegador interrompeu a gravação. Tente novamente.'; discardRecording = true }
+    recorder.onstop = finishRecording
+    recorder.start(1000)
+    recording.value = true
+    recordingPaused.value = false
+    recordingSeconds.value = 0
+    startMeter(recordingStream)
+    recordingTimer = window.setInterval(() => {
+      recordingSeconds.value += 1
+      if (recordingSeconds.value >= MAX_RECORDING_SECONDS) stopRecording(false)
+    }, 1000)
+  } catch (cause) {
+    stopRecordingResources()
+    error.value = friendlyError(cause, 'Não foi possível acessar o microfone. Autorize o uso do áudio e tente novamente.')
+  }
+}
+
+function togglePauseRecording() {
+  if (!recorder) return
+  if (recorder.state === 'recording') {
+    recorder.pause()
+    recordingPaused.value = true
+  } else if (recorder.state === 'paused') {
+    recorder.resume()
+    recordingPaused.value = false
+  }
+}
+
+function stopRecording(discard = false) {
+  if (!recorder) return
+  discardRecording = discard
+  clearRecordingTimer()
+  if (recorder.state === 'inactive') finishRecording()
+  else recorder.stop()
+}
 
 async function load() {
   loading.value = true
@@ -104,7 +263,7 @@ async function upload() {
     const job = await connect.uploadTranscription(selectedFile.value, language.value)
     jobs.value = [job, ...jobs.value.filter((item) => item.id !== job.id)]
     selectedId.value = job.id
-    selectedFile.value = null
+    setSelectedFile(null)
     if (fileInput.value) fileInput.value.value = ''
     success.value = 'Áudio recebido. O motor local começou o processamento.'
     schedulePolling()
@@ -136,7 +295,11 @@ async function copyText() {
 }
 
 onMounted(() => void load())
-onBeforeUnmount(() => { if (timer !== null) window.clearInterval(timer) })
+onBeforeUnmount(() => {
+  if (timer !== null) window.clearInterval(timer)
+  if (recorder) stopRecording(true)
+  clearPreview()
+})
 </script>
 
 <template>
@@ -151,17 +314,29 @@ onBeforeUnmount(() => { if (timer !== null) window.clearInterval(timer) })
 
       <div class="transcription-layout">
         <PanelCard title="Novo áudio" description="Envie uma gravação para iniciar uma transcrição.">
-          <div class="drop-zone" :class="{ selected: selectedFile }" role="button" tabindex="0" @click="openPicker" @keydown.enter="openPicker" @keydown.space.prevent="openPicker">
-            <input ref="fileInput" class="sr-only" type="file" accept="audio/*,.ogg,.opus,.mp3,.m4a,.wav,.webm,.amr" @change="selectFile" />
-            <span class="drop-icon"><AppIcon :name="selectedFile ? 'check' : 'mic'" :size="24" /></span>
+          <div v-if="!recording" class="capture-actions">
+            <button type="button" class="btn primary record-button" :disabled="busy || !recordingSupported" @click="startRecording"><AppIcon name="mic" :size="16" />Gravar áudio</button>
+            <span>Até 1 hora · medidor de volume em tempo real</span>
+          </div>
+          <div v-if="recording" class="recording-panel" role="status" aria-live="polite">
+            <div class="recording-heading"><span class="record-dot"></span><strong>{{ recordingPaused ? 'Gravação pausada' : 'Gravando áudio' }}</strong><time>{{ clock(recordingSeconds) }} / 60:00</time></div>
+            <div class="level-meter" aria-label="Nível do microfone"><span :style="{ width: `${recordingLevel * 100}%` }"></span></div>
+            <div class="recording-meta"><span>{{ recordingDb }} dB</span><span>{{ recordingPaused ? 'Retome quando quiser' : 'Fale normalmente perto do microfone' }}</span></div>
+            <div class="recording-controls"><button type="button" class="btn ghost compact" @click="togglePauseRecording"><AppIcon :name="recordingPaused ? 'mic' : 'pause'" :size="14" />{{ recordingPaused ? 'Continuar' : 'Pausar' }}</button><button type="button" class="btn primary compact" @click="stopRecording(false)"><AppIcon name="stop" :size="14" />Concluir gravação</button><button type="button" class="btn ghost compact danger-button" @click="stopRecording(true)"><AppIcon name="close" :size="14" />Descartar</button></div>
+          </div>
+          <div v-if="!recording" class="drop-zone" :class="{ selected: selectedFile }" role="button" tabindex="0" @click="openPicker" @keydown.enter="openPicker" @keydown.space.prevent="openPicker">
+            <input ref="fileInput" class="sr-only" type="file" accept="audio/*,video/webm,.ogg,.opus,.mp3,.m4a,.wav,.webm,.amr" @change="selectFile" />
+            <span class="drop-icon"><AppIcon :name="selectedFile ? 'check' : 'folder'" :size="24" /></span>
             <strong>{{ selectedFile ? selectedFile.name : 'Escolha ou arraste um áudio' }}</strong>
             <small>{{ selectedSize }}</small>
             <button type="button" class="btn ghost compact" @click.stop="openPicker">{{ selectedFile ? 'Trocar arquivo' : 'Selecionar arquivo' }}</button>
           </div>
+          <audio v-if="previewUrl && !recording" class="audio-preview" controls preload="metadata" :src="previewUrl"></audio>
           <div class="upload-options">
             <label class="field"><span>Idioma do áudio</span><select v-model="language"><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option><option value="">Detecção automática</option></select></label>
             <button class="btn primary upload-button" :disabled="busy || !selectedFile" @click="upload"><AppIcon name="arrow" :size="16" />{{ busy ? 'Enviando…' : 'Transcrever áudio' }}</button>
           </div>
+          <p v-if="!recordingSupported" class="recording-support"><AppIcon name="warning" :size="13" /> A gravação exige HTTPS ou localhost e permissão para o microfone.</p>
           <p class="privacy-hint"><AppIcon name="shield" :size="13" /> Nenhuma chave de OpenAI ou outro provedor é necessária.</p>
         </PanelCard>
 
@@ -183,5 +358,5 @@ onBeforeUnmount(() => { if (timer !== null) window.clearInterval(timer) })
 </template>
 
 <style scoped>
-.transcription-page{display:grid;gap:18px;min-width:0}.transcription-page :deep(.page-header){margin-bottom:0}.privacy-note{display:flex;gap:12px;align-items:flex-start;padding:15px 17px;border:1px solid var(--border);border-radius:13px;background:var(--primary-soft);color:var(--primary)}.privacy-note strong{font-size:13px}.privacy-note p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.notice{margin:0;padding:12px 14px;border-radius:9px;font-size:12px;line-height:1.5}.notice.error{background:var(--danger-soft);color:var(--danger)}.notice.success{background:var(--success-soft);color:var(--success)}.transcription-layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(0,1.1fr);gap:16px}.drop-zone{display:grid;justify-items:center;gap:7px;padding:30px 18px;border:1px dashed var(--border);border-radius:12px;background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}.drop-zone:hover,.drop-zone:focus-visible,.drop-zone.selected{border-color:var(--primary);background:var(--primary-soft);outline:none}.drop-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--surface);color:var(--primary);box-shadow:var(--shadow)}.drop-zone strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.drop-zone small{color:var(--muted);font-size:10px}.upload-options{display:flex;align-items:flex-end;gap:12px;margin-top:15px}.field{display:grid;gap:5px;min-width:0;flex:1}.field span{color:var(--muted);font-size:10px;font-weight:700}.field select{min-height:38px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);padding:8px;font-size:11px}.upload-button{min-height:38px;white-space:nowrap}.privacy-hint{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--muted);font-size:10px}.job-list{display:grid;gap:3px;max-height:280px;overflow:auto}.job-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--text);text-align:left;cursor:pointer}.job-row:hover,.job-row.active{border-color:var(--border);background:var(--surface-2)}.job-state{display:grid;place-items:center;width:20px;height:20px;border-radius:7px;background:var(--surface-2);flex:none}.job-state i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.job-state.completed{background:var(--success-soft)}.job-state.completed i{background:var(--success)}.job-state.processing{background:var(--primary-soft)}.job-state.processing i{background:var(--primary);animation:pulse 1.2s infinite}.job-state.failed{background:var(--danger-soft)}.job-state.failed i{background:var(--danger)}.job-main{display:grid;gap:3px;min-width:0;flex:1}.job-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.job-main small{color:var(--muted);font-size:9px}.job-status{color:var(--muted);font-size:9px;white-space:nowrap}.empty-state{display:grid;justify-items:center;gap:7px;padding:35px 12px;color:var(--muted);text-align:center}.empty-state strong{color:var(--text);font-size:12px}.empty-state span{font-size:10px}.processing-state,.result-error{display:flex;align-items:flex-start;gap:12px;padding:16px;border-radius:10px;background:var(--surface-2);color:var(--primary)}.processing-state strong,.result-error strong{font-size:12px;color:var(--text)}.processing-state p,.result-error p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.result-error{background:var(--danger-soft);color:var(--danger)}.result-body p{margin:0;min-height:80px;white-space:pre-wrap;font-size:13px;line-height:1.7}.result-body footer{display:flex;flex-wrap:wrap;gap:12px;margin-top:17px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:10px}.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;flex:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{opacity:.25}}@media(max-width:860px){.transcription-layout{grid-template-columns:1fr}}@media(max-width:520px){.upload-options{align-items:stretch;flex-direction:column}.upload-button{width:100%}.transcription-page{gap:13px}.privacy-note{padding:13px}.result-body p{font-size:12px}}
+.transcription-page{display:grid;gap:18px;min-width:0}.transcription-page :deep(.page-header){margin-bottom:0}.privacy-note{display:flex;gap:12px;align-items:flex-start;padding:15px 17px;border:1px solid var(--border);border-radius:13px;background:var(--primary-soft);color:var(--primary)}.privacy-note strong{font-size:13px}.privacy-note p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.notice{margin:0;padding:12px 14px;border-radius:9px;font-size:12px;line-height:1.5}.notice.error{background:var(--danger-soft);color:var(--danger)}.notice.success{background:var(--success-soft);color:var(--success)}.transcription-layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(0,1.1fr);gap:16px}.capture-actions{display:flex;align-items:center;gap:10px;margin-bottom:12px}.capture-actions>span{color:var(--muted);font-size:10px}.record-button{min-height:38px}.recording-panel{display:grid;gap:11px;margin-bottom:12px;padding:16px;border:1px solid color-mix(in srgb,var(--danger) 35%,var(--border));border-radius:12px;background:var(--danger-soft)}.recording-heading,.recording-meta{display:flex;align-items:center;gap:8px}.recording-heading strong{font-size:12px}.recording-heading time{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}.record-dot{width:9px;height:9px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 18%,transparent);animation:pulse 1.2s infinite}.level-meter{height:9px;overflow:hidden;border-radius:99px;background:color-mix(in srgb,var(--danger) 15%,var(--surface))}.level-meter span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--success),#eab308,var(--danger));transition:width .08s linear}.recording-meta{justify-content:space-between;color:var(--muted);font-size:10px}.recording-meta span:first-child{color:var(--text);font-variant-numeric:tabular-nums;font-weight:700}.recording-controls{display:flex;flex-wrap:wrap;gap:8px}.danger-button{color:var(--danger)}.audio-preview{width:100%;height:38px;margin-top:11px}.drop-zone{display:grid;justify-items:center;gap:7px;padding:30px 18px;border:1px dashed var(--border);border-radius:12px;background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}.drop-zone:hover,.drop-zone:focus-visible,.drop-zone.selected{border-color:var(--primary);background:var(--primary-soft);outline:none}.drop-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--surface);color:var(--primary);box-shadow:var(--shadow)}.drop-zone strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.drop-zone small{color:var(--muted);font-size:10px}.upload-options{display:flex;align-items:flex-end;gap:12px;margin-top:15px}.field{display:grid;gap:5px;min-width:0;flex:1}.field span{color:var(--muted);font-size:10px;font-weight:700}.field select{min-height:38px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);padding:8px;font-size:11px}.upload-button{min-height:38px;white-space:nowrap}.recording-support{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--danger);font-size:10px}.privacy-hint{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--muted);font-size:10px}.job-list{display:grid;gap:3px;max-height:280px;overflow:auto}.job-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--text);text-align:left;cursor:pointer}.job-row:hover,.job-row.active{border-color:var(--border);background:var(--surface-2)}.job-state{display:grid;place-items:center;width:20px;height:20px;border-radius:7px;background:var(--surface-2);flex:none}.job-state i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.job-state.completed{background:var(--success-soft)}.job-state.completed i{background:var(--success)}.job-state.processing{background:var(--primary-soft)}.job-state.processing i{background:var(--primary);animation:pulse 1.2s infinite}.job-state.failed{background:var(--danger-soft)}.job-state.failed i{background:var(--danger)}.job-main{display:grid;gap:3px;min-width:0;flex:1}.job-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.job-main small{color:var(--muted);font-size:9px}.job-status{color:var(--muted);font-size:9px;white-space:nowrap}.empty-state{display:grid;justify-items:center;gap:7px;padding:35px 12px;color:var(--muted);text-align:center}.empty-state strong{color:var(--text);font-size:12px}.empty-state span{font-size:10px}.processing-state,.result-error{display:flex;align-items:flex-start;gap:12px;padding:16px;border-radius:10px;background:var(--surface-2);color:var(--primary)}.processing-state strong,.result-error strong{font-size:12px;color:var(--text)}.processing-state p,.result-error p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.result-error{background:var(--danger-soft);color:var(--danger)}.result-body p{margin:0;min-height:80px;white-space:pre-wrap;font-size:13px;line-height:1.7}.result-body footer{display:flex;flex-wrap:wrap;gap:12px;margin-top:17px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:10px}.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;flex:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{opacity:.25}}@media(max-width:860px){.transcription-layout{grid-template-columns:1fr}}@media(max-width:520px){.upload-options{align-items:stretch;flex-direction:column}.upload-button{width:100%}.transcription-page{gap:13px}.privacy-note{padding:13px}.capture-actions{align-items:stretch;flex-direction:column}.capture-actions>span{line-height:1.4}.recording-heading time{font-size:11px}.recording-controls>*{flex:1}.result-body p{font-size:12px}}
 </style>

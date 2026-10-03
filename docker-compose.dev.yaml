@@ -123,6 +123,38 @@ services:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
+  transcription-volume-init:
+    profiles: ["transcription"]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+    pull_policy: always
+    container_name: argws_connect_dev_transcription_volume_init
+    restart: unless-stopped
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /prepared/model-cache/Xenova
+        chown --no-dereference --recursive 1000:1000 /prepared/model-cache
+        chmod u+rwx /prepared/model-cache /prepared/model-cache/Xenova
+        touch /tmp/transcription-volume-init-ready
+        exec tail -f /dev/null
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/transcription-volume-init-ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/prepared/model-cache
+    networks:
+      argws-connect-dev-net:
+        aliases: [transcription-volume-init]
+
   transcription-worker:
     profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
@@ -141,6 +173,9 @@ services:
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
       TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
+    depends_on:
+      transcription-volume-init:
+        condition: service_healthy
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

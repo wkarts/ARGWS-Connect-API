@@ -7,6 +7,7 @@ import PanelCard from '@/components/PanelCard.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import AppModal from '@/components/AppModal.vue'
 import TestMessageModal from '@/components/TestMessageModal.vue'
+import WhatsAppStatusModal from '@/components/WhatsAppStatusModal.vue'
 import { featureEnabled } from '@/config/runtime'
 import { useSessionStore } from '@/stores/session'
 import AppIcon from '@/components/AppIcon.vue'
@@ -16,6 +17,7 @@ import { friendlyError } from '@/services/errors'
 import type { ProviderMigrationResult, WhatsAppProvider } from '@/types/domain'
 
 const testOpen = ref(false)
+const statusOpen = ref(false)
 const session = useSessionStore()
 const route = useRoute()
 const router = useRouter()
@@ -47,7 +49,7 @@ const capabilityGroups = computed(() => [
   { label: 'Contatos', enabled: capabilities.value.contacts },
   { label: 'Conversas', enabled: capabilities.value.chats },
   { label: 'Grupos', enabled: capabilities.value.groups },
-  { label: 'Status', enabled: capabilities.value.statusRead && capabilities.value.statusPublish },
+  { label: 'Status', enabled: capabilities.value.statusRead || capabilities.value.statusPublish },
   { label: 'Presença', enabled: capabilities.value.presence },
   { label: 'Estado de conversa', enabled: capabilities.value.chatState },
   { label: 'Identificação PN/LID', enabled: capabilities.value.pnLid },
@@ -185,6 +187,7 @@ onBeforeUnmount(stopWatch)
   <AppShell>
     <PageHeader :title="data?.name || data?.instanceName || 'Instância'" description="Conexão, recursos, integrações e configurações desta instância.">
       <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" class="btn primary" :disabled="busy || !connected || !capabilities.messaging" @click="testOpen = true">Enviar teste</button>
+      <button v-if="featureEnabled('statusPublish', true) && session.hasPermission('messages.send')" class="btn ghost" :disabled="busy || !connected || !capabilities.statusPublish || provider === 'WHATSAPP-BUSINESS'" @click="statusOpen = true">Publicar Status</button>
       <button class="btn ghost" :disabled="busy" @click="load"><AppIcon name="refresh" :size="16"/>Atualizar</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)">Integrações</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracao`)">Configurações</button>
@@ -194,6 +197,7 @@ onBeforeUnmount(stopWatch)
     </PageHeader>
 
     <TestMessageModal v-if="testOpen" :key="id" :instance-id="id" :instance-name="data?.name || data?.instanceName || id" :provider="provider" :connected="connected" @close="testOpen = false" />
+    <WhatsAppStatusModal v-if="statusOpen" :key="`${id}-status`" :instance-id="id" :instance-name="data?.name || data?.instanceName || id" :provider="provider" :connected="connected" @close="statusOpen = false" />
 
     <div v-if="error" class="alert error">{{ error }}</div>
     <div v-if="feedback" class="alert success">{{ feedback }}</div>
