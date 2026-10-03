@@ -2,7 +2,7 @@
   "name": "@argws/connect-transcription-worker",
   "version": "1.1.15",
   "private": true,
-  "description": "ARGWS Connect|API transcription worker",
+  "description": "ARGWS Connect|API local transcription worker",
   "type": "commonjs",
   "engines": {
     "node": ">=22"
@@ -12,8 +12,8 @@
     "test": "node --test test/*.test.cjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.7.2",
     "amqplib": "^0.10.5",
-    "minio": "^8.0.3",
-    "openai": "^4.77.3"
+    "minio": "^8.0.3"
   }
 }

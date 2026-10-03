@@ -36,17 +36,18 @@ export async function request<T>(path: string, options: {
   })
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), options.timeout || runtime.requestTimeoutMs)
+  const isMultipart = typeof FormData !== 'undefined' && options.data instanceof FormData
   try {
     const response = await fetch(url, {
       method,
       credentials: 'same-origin',
       signal: controller.signal,
       headers: {
-        ...(options.data !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...(options.data !== undefined && !isMultipart ? { 'content-type': 'application/json' } : {}),
         ...(csrf && !['GET', 'HEAD', 'OPTIONS'].includes(method) ? { 'x-csrf-token': csrf } : {}),
         ...options.headers,
       },
-      body: options.data !== undefined ? JSON.stringify(options.data) : undefined,
+      body: options.data !== undefined ? (isMultipart ? options.data as FormData : JSON.stringify(options.data)) : undefined,
     })
     const raw = await response.text()
     let payload: any = null

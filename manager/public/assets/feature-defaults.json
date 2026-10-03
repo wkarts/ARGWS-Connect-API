@@ -70,5 +70,9 @@
   "storage": [
     "MANAGER_FEATURE_STORAGE",
     true
+  ],
+  "transcription": [
+    "MANAGER_FEATURE_TRANSCRIPTION",
+    true
   ]
 }

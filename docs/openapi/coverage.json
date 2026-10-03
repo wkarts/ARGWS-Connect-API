@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-01T03:51:19.911Z",
+  "generatedAt": "2026-10-03T04:51:20.992Z",
   "version": "1.1.15",
-  "sourceDigest": "1f4d0c6eec5e8fb555813fc3c07b2799f6b9c8628b3d975c4cb3075d74c08f56",
+  "sourceDigest": "bf015c69af3999c44f86683a9c66c9b9d3a64109bed6949ecf6c09d3dc76a14f",
   "operations": [
     {
       "method": "GET",
@@ -1264,6 +1264,11 @@
       "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
     },
     {
+      "method": "GET",
+      "path": "/v1/transcriptions",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/v1/transcriptions",
       "source": "src/api/routes/transcription.router.ts"
@@ -1276,6 +1281,11 @@
     {
       "method": "POST",
       "path": "/v1/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/upload",
       "source": "src/api/routes/transcription.router.ts"
     },
     {

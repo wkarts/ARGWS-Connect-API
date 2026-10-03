@@ -196,6 +196,43 @@ function discoverRoutes() {
 }
 
 const requestOverrides = {
+  'GET /v1/transcriptions': {
+    summary: 'Listar transcrições',
+    description: 'Lista os jobs recentes de transcrição desta instalação. O conteúdo é processado pelo worker local e permanece protegido pela API key.',
+    responses: {
+      '200': { description: 'Jobs recentes.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/TranscriptionJob' } } } } },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '503': { description: 'Banco de dados ou transcrição indisponível.' },
+    },
+  },
+  'POST /v1/transcriptions/upload': {
+    summary: 'Enviar áudio para transcrição',
+    description: 'Recebe um arquivo de áudio em multipart/form-data, armazena-o no MinIO privado e cria um job para o worker local. Nenhum provedor externo é chamado.',
+    requestBody: {
+      required: true,
+      content: {
+        'multipart/form-data': {
+          schema: {
+            type: 'object',
+            required: ['audio'],
+            properties: {
+              audio: { type: 'string', format: 'binary' },
+              language: { type: 'string', example: 'pt' },
+              model: { type: 'string', example: 'Xenova/whisper-small' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      '202': { description: 'Áudio aceito e job criado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '413': { description: 'O áudio excede o limite configurado.' },
+      '415': { description: 'Formato de áudio não suportado.' },
+      '503': { description: 'MinIO, fila ou worker indisponível.' },
+    },
+  },
   'POST /v1/transcriptions': {
     summary: 'Enfileirar transcrição de áudio',
     description: 'Cria um job assíncrono para uma mídia de áudio já persistida pelo Connect|API. Exige a API key global e o messageId da mensagem.',
@@ -209,7 +246,7 @@ const requestOverrides = {
             properties: {
               messageId: { type: 'string', minLength: 1 },
               language: { type: 'string', example: 'pt' },
-              model: { type: 'string', example: 'whisper-1' },
+              model: { type: 'string', example: 'Xenova/whisper-small' },
             },
           },
         },
@@ -565,6 +602,31 @@ function nativeSpec(routes, version) {
         },
         ManagerStorageCleanupRequest: { type: 'object', additionalProperties: false, required: ['planId', 'confirm'], properties: { planId: { type: 'string', minLength: 1 }, confirm: { type: 'boolean', const: true } } },
         ManagerStorageCleanupResult: { type: 'object', required: ['status', 'requested', 'removed', 'skipped', 'failed', 'freedBytes', 'failures'], properties: { status: { type: 'string', enum: ['completed', 'partial'] }, requested: { type: 'integer' }, removed: { type: 'integer' }, skipped: { type: 'integer' }, failed: { type: 'integer' }, freedBytes: { type: 'integer' }, failures: { type: 'array', items: { type: 'string' } } } },
+        TranscriptionJob: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'provider', 'model', 'status', 'attempts', 'createdAt', 'updatedAt'],
+          properties: {
+            id: { type: 'string' },
+            instanceId: { type: ['string', 'null'] },
+            messageId: { type: ['string', 'null'] },
+            provider: { type: 'string', example: 'local' },
+            model: { type: 'string', example: 'Xenova/whisper-small' },
+            language: { type: ['string', 'null'] },
+            status: { type: 'string', enum: ['queued', 'processing', 'completed', 'failed'] },
+            text: { type: ['string', 'null'] },
+            detectedLanguage: { type: ['string', 'null'] },
+            durationMs: { type: ['integer', 'null'], minimum: 0 },
+            segments: { type: ['array', 'null'], items: { type: 'object', additionalProperties: true } },
+            errorCode: { type: ['string', 'null'] },
+            errorMessage: { type: ['string', 'null'] },
+            attempts: { type: 'integer', minimum: 1 },
+            createdAt: { type: 'string', format: 'date-time' },
+            startedAt: { type: ['string', 'null'], format: 'date-time' },
+            completedAt: { type: ['string', 'null'], format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },

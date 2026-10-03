@@ -30,11 +30,13 @@ services:
       OPERATIONS_AGENT_URL: ${OPERATIONS_AGENT_URL:-http://operations:8092}
       OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
-      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-openai}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
       TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
-      TRANSCRIPTION_OPENAI_MODEL: ${TRANSCRIPTION_OPENAI_MODEL:-whisper-1}
-      TRANSCRIPTION_OPENAI_TIMEOUT_MS: ${TRANSCRIPTION_OPENAI_TIMEOUT_MS:-120000}
       TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
+      TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
+      TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
+      TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:develop}
     pull_policy: always
     restart: unless-stopped
@@ -131,17 +133,14 @@ services:
       - .env
     environment:
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
-      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-openai}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
       TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
       TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
       TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
-      TRANSCRIPTION_OPENAI_MODEL: ${TRANSCRIPTION_OPENAI_MODEL:-whisper-1}
-      TRANSCRIPTION_OPENAI_TIMEOUT_MS: ${TRANSCRIPTION_OPENAI_TIMEOUT_MS:-120000}
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
+      TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
+      TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -150,6 +149,8 @@ services:
     pids_limit: 128
     tmpfs:
       - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
+    volumes:
+    - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-./volumes/transcription-models}:/home/node/.cache/huggingface
     networks:
       argws-connect-dev-net:
         aliases:

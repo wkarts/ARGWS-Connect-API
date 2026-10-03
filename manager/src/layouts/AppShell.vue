@@ -44,6 +44,7 @@ const groups = [
     { label:'Saúde', to:'/saude', icon:'heart' },
     { label:'Diagnóstico', to:'/diagnostico', icon:'audit', permission:'audit.read' },
     { label:'Armazenamento', to:'/armazenamento', icon:'database', permission:'audit.read', feature:'storage' },
+    { label:'Transcrição de áudio', to:'/transcricoes', icon:'mic', permission:'audit.read', feature:'transcription' },
     { label:'Atualizações', to:'/atualizacoes', icon:'refresh', feature:'updates' },
     { label:'Configurações', to:'/configuracoes', icon:'settings', feature:'settings' },
   ]},
