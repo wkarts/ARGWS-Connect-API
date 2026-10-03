@@ -2,8 +2,12 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { normalizeJob, REQUESTED, PROCESSING, COMPLETED, FAILED } = require('../src/worker');
 const { validateConfig } = require('../src/config');
+const { prepareModelCache } = require('../src/provider');
 
 test('worker local mantém os tópicos do contrato', () => {
   assert.equal(REQUESTED, 'transcription.requested');
@@ -35,4 +39,17 @@ test('configuração local não exige OPENAI_API_KEY_GLOBAL', () => {
     s3: { accessKey: 'key', secretKey: 'secret', bucket: 'bucket' },
   };
   assert.doesNotThrow(() => validateConfig(config));
+});
+
+test('prepara o namespace Xenova em cache bind-mounted antes do primeiro download', async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'argws-transcription-cache-'));
+  try {
+    const cacheDir = await prepareModelCache({
+      local: { cacheDir: root, model: 'Xenova/whisper-small' },
+    });
+    assert.equal(cacheDir, path.resolve(root));
+    assert.equal(fs.existsSync(path.join(root, 'Xenova')), true);
+  } finally {
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
 });

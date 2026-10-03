@@ -2,6 +2,7 @@
 
 const { spawn } = require('node:child_process');
 const fsp = require('node:fs').promises;
+const path = require('node:path');
 
 let pipelinePromise = null;
 
@@ -33,10 +34,23 @@ function decodeAudio(filePath) {
   });
 }
 
+async function prepareModelCache(config) {
+  const cacheDir = path.resolve(config.local.cacheDir);
+  const namespace = String(config.local.model || '').split('/').filter(Boolean)[0];
+
+  // A bind mount hides the directory baked into the image. Transformers.js
+  // creates the model namespace lazily, so create both levels before the
+  // dynamic import; otherwise its first download fails with ENOENT
+  // `/home/node/.cache/huggingface/Xenova`.
+  await fsp.mkdir(cacheDir, { recursive: true });
+  if (namespace) await fsp.mkdir(path.join(cacheDir, namespace), { recursive: true });
+  return cacheDir;
+}
+
 async function createPipeline(config) {
   if (!pipelinePromise) {
-    pipelinePromise = fsp.mkdir(config.local.cacheDir, { recursive: true }).then(() => import('@huggingface/transformers')).then(({ env, pipeline }) => {
-      env.cacheDir = config.local.cacheDir;
+    pipelinePromise = prepareModelCache(config).then(() => import('@huggingface/transformers')).then(({ env, pipeline }) => {
+      env.cacheDir = path.resolve(config.local.cacheDir);
       env.allowRemoteModels = true;
       env.allowLocalModels = true;
       return pipeline('automatic-speech-recognition', config.local.model, {
@@ -91,4 +105,4 @@ function createProvider(config) {
   };
 }
 
-module.exports = { createProvider, decodeAudio };
+module.exports = { createProvider, decodeAudio, prepareModelCache };

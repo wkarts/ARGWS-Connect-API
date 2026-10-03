@@ -9,6 +9,7 @@ const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
 const COMPLETED = 'transcription.completed';
 const FAILED = 'transcription.failed';
+const READY_FILE = '/tmp/transcription-worker.ready';
 
 function normalizeJob(value) {
   if (!value || typeof value !== 'object') throw new Error('Mensagem de transcrição inválida.');
@@ -44,8 +45,9 @@ class TranscriptionWorker {
   }
 
   async start() {
-    fs.writeFileSync('/tmp/transcription-worker.ready', 'ready');
+    fs.rmSync(READY_FILE, { force: true });
     if (!this.config.enabled) {
+      fs.writeFileSync(READY_FILE, 'disabled');
       console.log('Transcription worker desabilitado; aguardando ativação por ambiente.');
       await new Promise(() => {});
       return;
@@ -60,6 +62,7 @@ class TranscriptionWorker {
     this.connection.on('close', () => {
       this.channel = null;
       this.connection = null;
+      fs.rmSync(READY_FILE, { force: true });
       if (!this.stopping && !this.reconnectTimer) {
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
@@ -81,6 +84,7 @@ class TranscriptionWorker {
     await this.channel.consume(this.config.queue, (message) => {
       if (message) void this.handle(message);
     }, { noAck: false });
+    fs.writeFileSync(READY_FILE, 'ready');
     console.log('Transcription worker conectado ao RabbitMQ na fila ' + this.config.queue + '.');
   }
 
@@ -171,6 +175,7 @@ class TranscriptionWorker {
   async stop() {
     this.stopping = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    fs.rmSync(READY_FILE, { force: true });
     await this.channel?.close().catch(() => {});
     await this.connection?.close().catch(() => {});
   }

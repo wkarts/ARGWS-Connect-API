@@ -42,6 +42,19 @@ consumo da fila dentro dele. Não configure `openai` como provider deste worker.
 Por compatibilidade, o valor legado `openai` é normalizado para `local`, mas a
 configuração recomendada é declarar `local` explicitamente.
 
+Antes de testar no Manager, confirme que o perfil realmente foi ativado e que
+o worker está consumindo a fila:
+
+```bash
+docker compose config --services | grep transcription
+docker compose ps -a | grep transcription
+```
+
+Se a API responder `503` informando que o worker não está ativo, o perfil não
+foi incluído no `COMPOSE_PROFILES` da stack ou o worker ainda não ficou
+`healthy`. Recrie somente `transcription-volume-init-*` e
+`transcription-worker-*`; não remova o diretório `./volumes/transcription-models`.
+
 O Manager também pode gravar pelo microfone usando `MediaRecorder`. A gravação
 é limitada a 60 minutos, pode ser pausada, retomada ou descartada, e mostra o
 nível RMS aproximado em decibéis em tempo real. O navegador costuma produzir
