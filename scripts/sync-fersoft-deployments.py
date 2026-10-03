@@ -77,6 +77,10 @@ def overrides(channel):
         'KAFKA_BROKERS': f'kafka-{stack}:9092',
     }
     values.update(FULL_STACK_DEFAULTS)
+    if channel == 'develop':
+        values['COMPOSE_PROFILES'] += ',transcription'
+        values['TRANSCRIPTION_ENABLED'] = 'true'
+        values['TRANSCRIPTION_PROVIDER'] = 'local'
     return values
 
 
@@ -122,6 +126,10 @@ KAFKA_ENABLED=true
 MYSQL_SERVICE_ENABLED=true
 TRACCAR_ENABLED=true
 ```
+
+No `develop`, o gerador também inclui `transcription` e ativa o worker local
+quando `TRANSCRIPTION_ENABLED=true`. Em instalações existentes, preserve os
+perfis atuais e acrescente `transcription` antes de recriar somente o worker.
 
 Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
 O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos

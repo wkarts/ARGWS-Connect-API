@@ -45,6 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import os
           import json
           import re
           import subprocess
@@ -112,7 +113,13 @@ jobs:
                   if all_profiles:
                       cmd += ['--profile', '*']
                   cmd += ['-f', compose_path, 'config', '--format', 'json']
-                  return json.loads(subprocess.check_output(cmd, text=True))
+                  environment = None
+                  if not all_profiles:
+                      # An env.example may intentionally enable a profile for
+                      # develop; this assertion checks the profile-free core.
+                      environment = os.environ.copy()
+                      environment['COMPOSE_PROFILES'] = 'operations' if stack in ('production', 'develop') else ''
+                  return json.loads(subprocess.check_output(cmd, text=True, env=environment))
 
               default = compose_json(False)
               full = compose_json(True)
