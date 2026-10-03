@@ -1,6 +1,13 @@
+import {
+  deleteStoredFile,
+  minioEnabled,
+  uploadFile,
+} from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
+import { randomUUID } from 'crypto';
+import path from 'path';
 
 const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
@@ -8,7 +15,15 @@ const COMPLETED = 'transcription.completed';
 const FAILED = 'transcription.failed';
 
 type EnqueueInput = {
-  messageId: string;
+  messageId?: string;
+  language?: string;
+  model?: string;
+};
+
+type UploadInput = {
+  buffer: Buffer;
+  fileName?: string;
+  mimeType?: string;
   language?: string;
   model?: string;
 };
@@ -28,6 +43,18 @@ type WorkerResult = {
 };
 
 const truthy = new Set(['1', 'true', 'yes', 'on']);
+const supportedAudio = new Set([
+  'audio/ogg',
+  'audio/opus',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/wav',
+  'audio/wave',
+  'audio/webm',
+  'audio/amr',
+]);
 
 function enabledValue(value: unknown, fallback = false): boolean {
   if (value === undefined || value === null) return fallback;
@@ -37,6 +64,13 @@ function enabledValue(value: unknown, fallback = false): boolean {
 function normalizedQueue(value: unknown): string {
   const queue = String(value || 'argws-connect.transcription').trim();
   return queue || 'argws-connect.transcription';
+}
+
+function providerValue(): string {
+  const provider = String(process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local')
+    .trim()
+    .toLowerCase();
+  return provider === 'openai' ? 'local' : provider;
 }
 
 function safeLanguage(value: unknown): string | null {
@@ -49,11 +83,34 @@ function safeLanguage(value: unknown): string | null {
 }
 
 function safeModel(value: unknown): string {
-  const model = String(value || process.env.TRANSCRIPTION_OPENAI_MODEL || 'whisper-1').trim();
-  if (!/^[A-Za-z0-9._:-]{1,100}$/.test(model)) {
+  const model = String(value || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim();
+  if (!/^[A-Za-z0-9._:/@-]{1,100}$/.test(model)) {
     throw new TranscriptionServiceError('model inválido.', 400);
   }
   return model;
+}
+
+function maxUploadBytes(): number {
+  const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
+  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
+}
+
+function uploadExtension(fileName: string, mimeType: string): string {
+  const extension = path.extname(String(fileName || '')).toLowerCase().replace(/[^a-z0-9.]/g, '');
+  if (/^\.[a-z0-9]{1,8}$/.test(extension)) return extension;
+  const byMime: Record<string, string> = {
+    'audio/ogg': '.ogg',
+    'audio/opus': '.opus',
+    'audio/mpeg': '.mp3',
+    'audio/mp3': '.mp3',
+    'audio/mp4': '.m4a',
+    'audio/x-m4a': '.m4a',
+    'audio/wav': '.wav',
+    'audio/wave': '.wav',
+    'audio/webm': '.webm',
+    'audio/amr': '.amr',
+  };
+  return byMime[mimeType] || '.audio';
 }
 
 export class TranscriptionServiceError extends Error {
@@ -67,7 +124,7 @@ export class TranscriptionServiceError extends Error {
 }
 
 /**
- * The API owns the durable job state. The dedicated worker only reads private
+ * The API owns durable job state. The dedicated worker only reads private
  * MinIO objects and publishes status/results through RabbitMQ.
  */
 export class TranscriptionService {
@@ -97,9 +154,19 @@ export class TranscriptionService {
     return this.initializing;
   }
 
+  public async list(limit = 30) {
+    if (!this.isEnabled()) return [];
+    const take = Number.isFinite(Number(limit)) ? Math.min(Math.max(Number(limit), 1), 100) : 30;
+    const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
+      take,
+      orderBy: { createdAt: 'desc' },
+    });
+    return jobs.map((job: any) => this.publicJob(job));
+  }
+
   public async enqueue(input: EnqueueInput) {
     if (!this.isEnabled()) {
-      throw new TranscriptionServiceError('A transcrição assíncrona está desabilitada nesta instalação.', 409);
+      throw new TranscriptionServiceError('A transcrição local está desabilitada nesta instalação.', 409);
     }
 
     const messageId = String(input?.messageId || '').trim();
@@ -109,18 +176,10 @@ export class TranscriptionService {
 
     const media = await (this.prismaRepository.media as any).findUnique({
       where: { messageId },
-      select: {
-        fileName: true,
-        mimetype: true,
-        instanceId: true,
-        Message: { select: { id: true } },
-      },
+      select: { fileName: true, mimetype: true, instanceId: true },
     });
-
     if (!media) throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
-    const mimetype = String(media.mimetype || '')
-      .trim()
-      .toLowerCase();
+    const mimetype = String(media.mimetype || '').trim().toLowerCase();
     if (!mimetype.startsWith('audio/')) {
       throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
     }
@@ -134,45 +193,56 @@ export class TranscriptionService {
     await this.ready();
     const language = safeLanguage(input.language);
     const model = safeModel(input.model);
-    const job = await (this.prismaRepository.transcriptionJob as any).create({
-      data: {
-        instanceId: media.instanceId,
-        messageId,
-        sourceKey: String(media.fileName),
-        sourceMimeType: mimetype,
-        provider: String(process.env.TRANSCRIPTION_PROVIDER || 'openai')
-          .trim()
-          .toLowerCase(),
-        model,
-        language,
-        status: 'queued',
-        attempts: 1,
-      },
+    return this.createAndPublish({
+      instanceId: media.instanceId,
+      messageId,
+      sourceKey: String(media.fileName),
+      sourceMimeType: mimetype,
+      language,
+      model,
     });
+  }
 
-    try {
-      await this.publish(REQUESTED, {
-        jobId: job.id,
-        messageId,
-        instanceId: media.instanceId,
-        source: { key: String(media.fileName), mimeType: mimetype },
-        language,
-        model,
-      });
-    } catch (error) {
-      await (this.prismaRepository.transcriptionJob as any).update({
-        where: { id: job.id },
-        data: {
-          status: 'failed',
-          errorCode: 'QUEUE_UNAVAILABLE',
-          errorMessage: String(error?.message || error).slice(0, 2000),
-          completedAt: new Date(),
-        },
-      });
-      throw new TranscriptionServiceError('Não foi possível publicar o job para o worker.', 503);
+  public async enqueueUpload(input: UploadInput) {
+    if (!this.isEnabled()) {
+      throw new TranscriptionServiceError('A transcrição local está desabilitada nesta instalação.', 409);
+    }
+    if (!minioEnabled()) {
+      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
+    }
+    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
+      throw new TranscriptionServiceError('Envie um arquivo de áudio não vazio.', 400);
+    }
+    if (input.buffer.length > maxUploadBytes()) {
+      throw new TranscriptionServiceError('O áudio excede o limite configurado para transcrição.', 413);
+    }
+    const mimeType = String(input.mimeType || '').trim().toLowerCase();
+    if (!supportedAudio.has(mimeType)) {
+      throw new TranscriptionServiceError('Formato de áudio não suportado. Use OGG, Opus, MP3, M4A, WAV, WEBM ou AMR.', 415);
     }
 
-    return this.publicJob(job);
+    await this.ready();
+    const language = safeLanguage(input.language);
+    const model = safeModel(input.model);
+    const sourceKey = `transcriptions/${randomUUID()}/audio${uploadExtension(String(input.fileName || ''), mimeType)}`;
+    try {
+      const stored = await uploadFile(sourceKey, input.buffer, input.buffer.length, { 'Content-Type': mimeType } as any);
+      if (stored instanceof Error) {
+        throw stored;
+      }
+      return await this.createAndPublish({
+        instanceId: null,
+        messageId: null,
+        sourceKey,
+        sourceMimeType: mimeType,
+        language,
+        model,
+      }, sourceKey);
+    } catch (error) {
+      await deleteStoredFile(sourceKey).catch(() => false);
+      if (error instanceof TranscriptionServiceError) throw error;
+      throw new TranscriptionServiceError('Não foi possível armazenar o áudio para transcrição.', 503);
+    }
   }
 
   public async get(jobId: string) {
@@ -206,14 +276,7 @@ export class TranscriptionService {
     });
 
     try {
-      await this.publish(REQUESTED, {
-        jobId: updated.id,
-        messageId: updated.messageId,
-        instanceId: updated.instanceId,
-        source: { key: updated.sourceKey, mimeType: updated.sourceMimeType },
-        language: updated.language,
-        model: updated.model,
-      });
+      await this.publish(REQUESTED, this.jobPayload(updated));
     } catch (error) {
       await (this.prismaRepository.transcriptionJob as any).update({
         where: { id },
@@ -226,8 +289,45 @@ export class TranscriptionService {
       });
       throw new TranscriptionServiceError('Não foi possível reenfileirar o job.', 503);
     }
-
     return this.publicJob(updated);
+  }
+
+  private async createAndPublish(data: any, cleanupKey?: string) {
+    const job = await (this.prismaRepository.transcriptionJob as any).create({
+      data: {
+        ...data,
+        provider: providerValue(),
+        status: 'queued',
+        attempts: 1,
+      },
+    });
+    try {
+      await this.publish(REQUESTED, this.jobPayload(job));
+    } catch (error) {
+      await (this.prismaRepository.transcriptionJob as any).update({
+        where: { id: job.id },
+        data: {
+          status: 'failed',
+          errorCode: 'QUEUE_UNAVAILABLE',
+          errorMessage: String(error?.message || error).slice(0, 2000),
+          completedAt: new Date(),
+        },
+      });
+      if (cleanupKey) await deleteStoredFile(cleanupKey).catch(() => false);
+      throw new TranscriptionServiceError('Não foi possível publicar o job para o worker.', 503);
+    }
+    return this.publicJob(job);
+  }
+
+  private jobPayload(job: any) {
+    return {
+      jobId: job.id,
+      messageId: job.messageId,
+      instanceId: job.instanceId,
+      source: { key: job.sourceKey, mimeType: job.sourceMimeType },
+      language: job.language,
+      model: job.model,
+    };
   }
 
   private publicJob(job: any) {
@@ -255,16 +355,13 @@ export class TranscriptionService {
 
   private async ready() {
     await this.init();
-    if (!this.channel) {
-      throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
-    }
+    if (!this.channel) throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
   }
 
   private async connect() {
     const uri = String(process.env.RABBITMQ_URI || '').trim();
     if (!uri) throw new Error('RABBITMQ_URI não configurado.');
     await this.prismaRepository.$connect();
-
     const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
     const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
     const resultQueue = queue + '.results';
@@ -276,22 +373,13 @@ export class TranscriptionService {
       this.connection = null;
       this.scheduleReconnect();
     });
-
     this.channel = await this.connection.createChannel();
     await this.channel.assertExchange(exchange, 'topic', { durable: true });
     await this.channel.assertQueue(queue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     await this.channel.bindQueue(queue, exchange, REQUESTED);
     await this.channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
-    for (const key of [PROCESSING, COMPLETED, FAILED]) {
-      await this.channel.bindQueue(resultQueue, exchange, key);
-    }
-    await this.channel.consume(
-      resultQueue,
-      (message) => {
-        if (message) void this.consumeResult(message);
-      },
-      { noAck: false },
-    );
+    for (const key of [PROCESSING, COMPLETED, FAILED]) await this.channel.bindQueue(resultQueue, exchange, key);
+    await this.channel.consume(resultQueue, (message) => { if (message) void this.consumeResult(message); }, { noAck: false });
     this.logger.info('Transcription queue - ON (' + queue + ')');
   }
 
@@ -318,18 +406,11 @@ export class TranscriptionService {
     try {
       const payload = JSON.parse(message.content.toString('utf8')) as WorkerResult;
       const jobId = String(payload.jobId || '').trim();
-      if (!jobId) {
-        this.channel.ack(message);
-        return;
-      }
-
-      const status = ['processing', 'completed', 'failed'].includes(String(payload.status))
-        ? String(payload.status)
-        : 'failed';
+      if (!jobId) { this.channel.ack(message); return; }
+      const status = ['processing', 'completed', 'failed'].includes(String(payload.status)) ? String(payload.status) : 'failed';
       const data: any = { status, updatedAt: new Date() };
-      if (status === 'processing') {
-        data.startedAt = new Date();
-      } else if (status === 'completed') {
+      if (status === 'processing') data.startedAt = new Date();
+      else if (status === 'completed') {
         data.text = String(payload.text || '');
         data.detectedLanguage = payload.language ? String(payload.language) : null;
         data.durationMs = Number.isFinite(Number(payload.durationMs)) ? Math.round(Number(payload.durationMs)) : null;
@@ -344,7 +425,6 @@ export class TranscriptionService {
         data.errorMessage = String(payload.errorMessage || 'Falha no worker.').slice(0, 2000);
         data.completedAt = new Date();
       }
-
       await (this.prismaRepository.transcriptionJob as any).update({ where: { id: jobId }, data });
       this.channel.ack(message);
     } catch (error) {

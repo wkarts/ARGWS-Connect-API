@@ -35,6 +35,27 @@ export type ManagerStorageResource = {
   note?: string
 }
 
+export type TranscriptionJob = {
+  id: string
+  instanceId?: string | null
+  messageId?: string | null
+  provider: string
+  model: string
+  language?: string | null
+  status: 'queued' | 'processing' | 'completed' | 'failed' | string
+  text?: string | null
+  detectedLanguage?: string | null
+  durationMs?: number | null
+  segments?: unknown[] | null
+  errorCode?: string | null
+  errorMessage?: string | null
+  attempts: number
+  createdAt?: string
+  startedAt?: string | null
+  completedAt?: string | null
+  updatedAt?: string
+}
+
 export type ManagerStorageOverview = {
   enabled: boolean
   bucket: string | null

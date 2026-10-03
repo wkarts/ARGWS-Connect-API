@@ -137,7 +137,7 @@ class TranscriptionWorker {
           messageId: job.messageId,
           instanceId: job.instanceId,
           provider: this.config.provider,
-          model: job.model || this.config.openai.model,
+          model: job.model || this.config.local.model,
           ...result,
         });
       } finally {
@@ -153,7 +153,7 @@ class TranscriptionWorker {
           messageId: job.messageId,
           instanceId: job.instanceId,
           provider: this.config.provider,
-          model: job.model || this.config.openai.model,
+          model: job.model || this.config.local.model,
           errorCode: error?.code ? String(error.code).slice(0, 64) : 'TRANSCRIPTION_FAILED',
           errorMessage,
         });

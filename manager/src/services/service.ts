@@ -1,6 +1,6 @@
 import { request, setCsrf, clearCsrf } from './http'
 import * as normalize from './normalizers'
-import type { AuditItem, ConnectionItem, Conversation, ManagerEmbeddingSettings, ManagerStorageOverview, Message, Overview, Session, UserItem } from '@/types/domain'
+import type { AuditItem, ConnectionItem, Conversation, ManagerEmbeddingSettings, ManagerStorageOverview, Message, Overview, Session, TranscriptionJob, UserItem } from '@/types/domain'
 
 export const connect = {
   async status() { return request<any>('/status') },
@@ -51,4 +51,13 @@ export const connect = {
   async storageOverview(instanceId?: string): Promise<ManagerStorageOverview> { return request<ManagerStorageOverview>('/storage/overview', { params: instanceId ? { instanceId } : undefined }) },
   async storageCleanupPreview(data: any) { return request<any>('/storage/cleanup/preview', { method: 'POST', data }) },
   async storageCleanup(data: any) { return request<any>('/storage/cleanup', { method: 'POST', data }) },
+  async transcriptionList(): Promise<TranscriptionJob[]> { return request<TranscriptionJob[]>('/transcriptions') },
+  async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
+    const data = new FormData()
+    data.append('audio', file, file.name)
+    if (language) data.append('language', language)
+    return request<TranscriptionJob>('/transcriptions/upload', { method: 'POST', data, timeout: 180000 })
+  },
+  async transcription(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/transcriptions/${encodeURIComponent(jobId)}`) },
+  async retryTranscription(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/transcriptions/${encodeURIComponent(jobId)}/retry`, { method: 'POST' }) },
 }

@@ -21,17 +21,27 @@ function endpoint(value) {
     .replace(/\/.*$/, '');
 }
 
+function normalizedProvider() {
+  // `openai` was the old value. Treat it as a local migration alias so an
+  // existing .env never causes a restart loop or a network call.
+  const value = String(process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local')
+    .trim()
+    .toLowerCase();
+  return value === 'openai' ? 'local' : value;
+}
+
 function loadConfig() {
   return {
     enabled: boolean('TRANSCRIPTION_ENABLED', false),
-    provider: String(process.env.TRANSCRIPTION_PROVIDER || 'openai').trim().toLowerCase(),
+    provider: normalizedProvider(),
     queue: String(process.env.TRANSCRIPTION_QUEUE || 'argws-connect.transcription').trim(),
     concurrency: integer('TRANSCRIPTION_WORKER_CONCURRENCY', 1, 1, 8),
     maxAudioBytes: integer('TRANSCRIPTION_MAX_AUDIO_BYTES', 25 * 1024 * 1024, 1, 250 * 1024 * 1024),
-    openai: {
-      apiKey: String(process.env.OPENAI_API_KEY_GLOBAL || '').trim(),
-      model: String(process.env.TRANSCRIPTION_OPENAI_MODEL || 'whisper-1').trim(),
-      timeoutMs: integer('TRANSCRIPTION_OPENAI_TIMEOUT_MS', 120000, 1000, 600000),
+    local: {
+      model: String(process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim(),
+      device: String(process.env.TRANSCRIPTION_LOCAL_DEVICE || 'cpu').trim().toLowerCase(),
+      dtype: String(process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q8').trim().toLowerCase(),
+      cacheDir: String(process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/home/node/.cache/huggingface').trim(),
     },
     rabbitmq: {
       uri: String(process.env.RABBITMQ_URI || '').trim(),
@@ -58,13 +68,21 @@ function validateConfig(config) {
   if (!config.s3.accessKey) missing.push('S3_ACCESS_KEY');
   if (!config.s3.secretKey) missing.push('S3_SECRET_KEY');
   if (!config.s3.bucket) missing.push('S3_BUCKET');
-  if (config.provider === 'openai' && !config.openai.apiKey) missing.push('OPENAI_API_KEY_GLOBAL');
-  if (!['openai'].includes(config.provider)) {
+  if (!config.local.model || config.local.model.length > 180 || /[\u0000\r\n]/.test(config.local.model)) {
+    missing.push('TRANSCRIPTION_LOCAL_MODEL');
+  }
+  if (!['local'].includes(config.provider)) {
     throw new Error('TRANSCRIPTION_PROVIDER não suportado pelo worker: ' + config.provider);
+  }
+  if (!['cpu'].includes(config.local.device)) {
+    throw new Error('TRANSCRIPTION_LOCAL_DEVICE inválido: ' + config.local.device);
+  }
+  if (!['q8', 'q4', 'fp32', 'fp16'].includes(config.local.dtype)) {
+    throw new Error('TRANSCRIPTION_LOCAL_DTYPE inválido: ' + config.local.dtype);
   }
   if (missing.length) {
     throw new Error('Configuração do worker incompleta: ' + missing.join(', '));
   }
 }
 
-module.exports = { loadConfig, validateConfig };
+module.exports = { loadConfig, validateConfig, normalizedProvider };

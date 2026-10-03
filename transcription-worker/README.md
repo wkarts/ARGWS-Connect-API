@@ -1,21 +1,26 @@
-# Connect|API Transcription Worker
+# ARGWS Connect|API — worker local de transcrição
 
-Worker opcional para transcrição assíncrona de áudio. A imagem é publicada separadamente no GHCR:
+O worker consome a fila `transcription.requested`, lê o áudio do prefixo privado do MinIO e publica o resultado em RabbitMQ. O reconhecimento é local, com Whisper via `@huggingface/transformers`; nenhum SDK, chave ou chamada à OpenAI é usado por este componente.
 
-`ghcr.io/wkarts/argws-connect-transcription-worker:develop` no canal de desenvolvimento e a mesma imagem recebe as tags da release estável.
+## Configuração mínima
 
-O worker não abre portas. Ele consome `transcription.requested` do RabbitMQ, lê a mídia pelo prefixo privado `argws-connect-api/` no MinIO e publica `transcription.processing`, `transcription.completed` ou `transcription.failed`. A API mantém o estado dos jobs no PostgreSQL.
+```dotenv
+TRANSCRIPTION_ENABLED=true
+TRANSCRIPTION_PROVIDER=local
+TRANSCRIPTION_LOCAL_MODEL=Xenova/whisper-small
+TRANSCRIPTION_LOCAL_DEVICE=cpu
+TRANSCRIPTION_LOCAL_DTYPE=q8
+TRANSCRIPTION_MODEL_CACHE_DIR=/home/node/.cache/huggingface
+```
 
-## Ativação
+O primeiro job baixa o modelo configurado para o volume de cache. O volume deve ser persistente para que recriações do container não repitam o download.
 
-1. Defina `TRANSCRIPTION_ENABLED=true`, `OPENAI_API_KEY_GLOBAL` e as variáveis do RabbitMQ/MinIO no `.env`.
-2. Inclua o perfil `transcription` em `COMPOSE_PROFILES`.
-3. Suba a stack. Sem o perfil ou com a flag falsa, nada muda no fluxo existente.
+## Contrato
 
-A API expõe:
+- `POST /v1/transcriptions` continua aceitando `messageId` para áudios já recebidos por uma instância.
+- `POST /v1/transcriptions/upload` recebe `multipart/form-data` com o campo `audio`, além de `language` opcional.
+- `GET /v1/transcriptions` lista os jobs recentes.
+- `GET /v1/transcriptions/:jobId` consulta o estado e o texto.
+- `POST /v1/transcriptions/:jobId/retry` reenfileira uma falha.
 
-- `POST /v1/transcriptions` com `{"messageId":"..." }`;
-- `GET /v1/transcriptions/:id`;
-- `POST /v1/transcriptions/:id/retry`.
-
-As rotas exigem a API key global no header `apikey`. O endpoint aceita somente mídia de áudio já persistida pelo Connect|API; não aceita caminhos arbitrários do MinIO.
+Todos os endpoints exigem a autenticação administrativa já usada pelo Manager. O áudio é guardado no MinIO privado; não é exposto por URL pública.

@@ -61,7 +61,6 @@ services:
     logging: *default-logging
 
   transcription-worker-argws-connect-canonical:
-    profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:1.0.21}
     pull_policy: always
     container_name: transcription-worker-argws-connect-canonical
@@ -70,12 +69,14 @@ services:
     environment:
       NODE_ENV: production
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
-      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-openai}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
       TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
       TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
       TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
-      TRANSCRIPTION_OPENAI_MODEL: ${TRANSCRIPTION_OPENAI_MODEL:-whisper-1}
-      TRANSCRIPTION_OPENAI_TIMEOUT_MS: ${TRANSCRIPTION_OPENAI_TIMEOUT_MS:-120000}
+      TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
+      TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
+      TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/home/node/.cache/huggingface}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://argws_connect:CHANGE_ME_RABBITMQ_PASSWORD@rabbitmq-argws-connect-canonical:5672/argws_connect}
       RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME:-argws_connect}
       S3_ENDPOINT: ${S3_ENDPOINT:-minio-argws-connect-canonical}
@@ -97,6 +98,8 @@ services:
     cpus: ${TRANSCRIPTION_WORKER_CPUS:-1.00}
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
+    volumes:
+      - ${ARGWS_CONNECT_TRANSCRIPTION_MODEL_PATH:-argws-connect-transcription-models}:/home/node/.cache/huggingface
     networks: [argws-connect-canonical-net]
     healthcheck:
       test: ["CMD", "node", "-e", "process.exit(require('fs').existsSync('/tmp/transcription-worker.ready') ? 0 : 1)"]
