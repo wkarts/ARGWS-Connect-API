@@ -196,6 +196,50 @@ function discoverRoutes() {
 }
 
 const requestOverrides = {
+  'POST /v1/transcriptions': {
+    summary: 'Enfileirar transcrição de áudio',
+    description: 'Cria um job assíncrono para uma mídia de áudio já persistida pelo Connect|API. Exige a API key global e o messageId da mensagem.',
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['messageId'],
+            properties: {
+              messageId: { type: 'string', minLength: 1 },
+              language: { type: 'string', example: 'pt' },
+              model: { type: 'string', example: 'whisper-1' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      '202': { description: 'Job aceito e persistido.' },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '404': { $ref: '#/components/responses/NotFound' },
+      '409': { $ref: '#/components/responses/Conflict' },
+      '503': { description: 'Fila ou worker indisponível.' },
+    },
+  },
+  'GET /v1/transcriptions/{jobId}': {
+    summary: 'Consultar transcrição',
+    description: 'Consulta o estado e o resultado de um job de transcrição.',
+    responses: {
+      '200': { description: 'Estado atual do job.' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
+  'POST /v1/transcriptions/{jobId}/retry': {
+    summary: 'Reenfileirar transcrição',
+    description: 'Reenfileira somente jobs que terminaram em falha.',
+    responses: {
+      '202': { description: 'Job reenfileirado.' },
+      '404': { $ref: '#/components/responses/NotFound' },
+      '409': { $ref: '#/components/responses/Conflict' },
+    },
+  },
   ...localTemplateOperations,
   ...diagnosticOperations,
   ...videoCallOperations,

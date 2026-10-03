@@ -128,6 +128,7 @@ model Instance {
   FindHubDevice           FindHubDevice[]
   FindHubPosition         FindHubPosition[]
   FindHubTraccarBinding   FindHubTraccarBinding[]
+  TranscriptionJob        TranscriptionJob[]
 }
 
 model Session {
@@ -188,6 +189,7 @@ model Message {
   instanceId                   String
   MessageUpdate                MessageUpdate[]
   Media                        Media?
+  TranscriptionJob             TranscriptionJob[]
   webhookUrl                   String?         @db.VarChar(500)
   status                       String?         @db.VarChar(30)
 
@@ -425,6 +427,35 @@ model Media {
   Instance   Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   instanceId String
 }
+model TranscriptionJob {
+  id                String    @id @default(cuid())
+  instanceId        String?
+  messageId         String?
+  sourceKey         String    @db.VarChar(500)
+  sourceMimeType    String    @db.VarChar(100)
+  provider          String    @db.VarChar(32)
+  model             String    @db.VarChar(100)
+  language          String?   @db.VarChar(16)
+  status            String    @db.VarChar(20)
+  text              String?   @db.Text
+  segments          Json?     @db.JsonB
+  detectedLanguage  String?   @db.VarChar(32)
+  durationMs        Int?      @db.Integer
+  errorCode         String?   @db.VarChar(64)
+  errorMessage      String?   @db.Text
+  attempts          Int       @default(0) @db.Integer
+  createdAt         DateTime  @default(now()) @db.Timestamp
+  startedAt         DateTime? @db.Timestamp
+  completedAt       DateTime? @db.Timestamp
+  updatedAt         DateTime  @updatedAt @db.Timestamp
+  Instance          Instance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  Message           Message?  @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([instanceId, createdAt])
+  @@index([messageId])
+}
+
 
 model OpenaiCreds {
   id              String         @id @default(cuid())

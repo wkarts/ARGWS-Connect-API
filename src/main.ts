@@ -4,6 +4,7 @@ import { HttpStatus, router } from '@api/routes/index.router';
 import {
   eventManager,
   statusBroadcastRetentionService,
+  transcriptionService,
   videoMediaService,
   voiceMediaService,
   waMonitor,
@@ -44,6 +45,7 @@ async function bootstrap() {
 
   const prismaRepository = new PrismaRepository(configService);
   await prismaRepository.onModuleInit();
+  await transcriptionService.init();
 
   app.use(
     cors({

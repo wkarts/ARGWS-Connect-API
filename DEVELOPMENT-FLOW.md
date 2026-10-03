@@ -12,12 +12,13 @@ Branch de integração contínua.
 
 - nasce e permanece sincronizável com a `main`;
 - recebe PRs de `feature/*`, `fix/*`, `chore/*` e demais branches de trabalho;
-- cada push/merge em `develop` publica os dois artefatos de desenvolvimento:
+- cada push/merge em `develop` publica os quatro artefatos de desenvolvimento:
 
 ```text
 ghcr.io/wkarts/argws-connect-api:develop
 ghcr.io/wkarts/argws-connect-manager:develop
 ghcr.io/wkarts/argws-connect-docs:develop
+ghcr.io/wkarts/argws-connect-transcription-worker:develop
 ```
 
 - usa builds nativos `linux/amd64` e `linux/arm64`;
@@ -28,7 +29,7 @@ ghcr.io/wkarts/argws-connect-docs:develop
 - não publica tag SemVer;
 - não publica tags estáveis da aplicação.
 
-A stack `deploy/develop` consome `argws-connect-api:develop` e `argws-connect-docs:develop`. O Manager operacional continua servido pela própria API em `/manager`; a imagem `argws-connect-manager:develop` é publicada como artefato independente para validar o mesmo componente que será publicado pela `main`, sem exigir um segundo container no Compose atual.
+A stack `deploy/develop` consome `argws-connect-api:develop` e `argws-connect-docs:develop`; o worker opcional usa `argws-connect-transcription-worker:develop` quando o perfil `transcription` é ativado. O Manager operacional continua servido pela própria API em `/manager`; a imagem `argws-connect-manager:develop` é publicada como artefato independente para validar o mesmo componente que será publicado pela `main`, sem exigir um segundo container no Compose atual.
 
 ### `main`
 
@@ -46,7 +47,7 @@ Quando o estado de `develop` estiver aprovado em homologação:
 6. constrói API, Manager e DOCs em `amd64` e `arm64`;
 7. publica imagens versionadas e `:latest`;
 8. cria Git tag e GitHub Release;
-9. alinha a versão em `develop`, preservando trabalho novo, e reconstrói API, Manager e DOCs `:develop`.
+9. alinha a versão em `develop`, preservando trabalho novo, e reconstrói API, Manager, DOCs e worker `:develop`.
 
 O alinhamento usa fast-forward quando seguro. Se as branches divergirem, altera apenas os metadados de versão sobre o HEAD atual de `develop`, sem copiar código de `main` por cima nem reescrever histórico. O fluxo completo e as proteções estão em [RELEASE-AUTOMATION.md](RELEASE-AUTOMATION.md).
 
@@ -57,7 +58,9 @@ push/merge em develop
         │
         └── GHCR Development
              ├── argws-connect-api:develop
-             └── argws-connect-manager:develop
+             ├── argws-connect-manager:develop
+             ├── argws-connect-docs:develop
+             └── argws-connect-transcription-worker:develop
 
 PR develop → main
         │
@@ -75,8 +78,7 @@ merge/push em main
 sincronização main → develop
         │
         └── push de metadados + workflow_dispatch em develop
-             ├── atualiza somente API :develop
-             ├── atualiza somente Manager :develop
+             ├── atualiza API, Manager, DOCs e worker :develop
              └── nunca dispara SemVer/:latest/Release
 ```
 

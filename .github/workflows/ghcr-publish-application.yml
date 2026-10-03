@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager]
+        component: [api, manager, transcription-worker]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -104,6 +104,10 @@ jobs:
             context: ./manager
             dockerfile: ./manager/Dockerfile
             image: argws-connect-manager
+          - component: transcription-worker
+            context: ./transcription-worker
+            dockerfile: ./transcription-worker/Dockerfile
+            image: argws-connect-transcription-worker
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout the development run commit
@@ -187,6 +191,8 @@ jobs:
             image: argws-connect-api
           - component: manager
             image: argws-connect-manager
+          - component: transcription-worker
+            image: argws-connect-transcription-worker
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5

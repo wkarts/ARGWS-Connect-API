@@ -32,7 +32,8 @@
   "image_packages": [
     "argws-connect-api",
     "argws-connect-manager",
-    "argws-connect-docs"
+    "argws-connect-docs",
+    "argws-connect-transcription-worker"
   ],
   "protected_packages": [
     "argws-connect-node",

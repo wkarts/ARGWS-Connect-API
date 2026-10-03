@@ -18107,6 +18107,152 @@
         }
       }
     },
+    "/v1/transcriptions": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Enfileirar transcrição de áudio",
+        "operationId": "post_v1_transcriptions",
+        "description": "Cria um job assíncrono para uma mídia de áudio já persistida pelo Connect|API. Exige a API key global e o messageId da mensagem.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job aceito e persistido."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "503": {
+            "description": "Fila ou worker indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/transcription.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "messageId"
+                ],
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt"
+                  },
+                  "model": {
+                    "type": "string",
+                    "example": "whisper-1"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/transcriptions/{jobId}": {
+      "get": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Consultar transcrição",
+        "operationId": "get_v1_transcriptions_jobid",
+        "description": "Consulta o estado e o resultado de um job de transcrição.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado atual do job."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/transcription.router.ts"
+      }
+    },
+    "/v1/transcriptions/{jobId}/retry": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Reenfileirar transcrição",
+        "operationId": "post_v1_transcriptions_jobid_retry",
+        "description": "Reenfileira somente jobs que terminaram em falha.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job reenfileirado."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-source-file": "src/api/routes/transcription.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
     "/verify-creds": {
       "post": {
         "tags": [
