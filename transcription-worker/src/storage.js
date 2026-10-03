@@ -20,8 +20,8 @@ function createClient(config) {
 }
 
 function objectKey(sourceKey) {
-  const value = String(sourceKey || '').replace(/\\/g, '/').trim();
-  if (!value || value.includes('\0') || value.startsWith('/') || value.split('/').includes('..')) {
+  const value = String(sourceKey || '').replace(/\\/g, '/').trim().replace(/^\\.\\//, '');
+  if (!value || value.includes('\\0') || value.startsWith('/') || value.split('/').includes('..')) {
     throw new Error('source.key inválida para leitura no armazenamento.');
   }
   return value.startsWith('argws-connect-api/') ? value : 'argws-connect-api/' + value;
