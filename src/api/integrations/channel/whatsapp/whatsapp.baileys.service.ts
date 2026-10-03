@@ -5397,6 +5397,7 @@ export class BaileysStartupService extends ChannelStartupService {
         messageType: true,
         message: true,
         messageTimestamp: true,
+        status: true,
         instanceId: true,
         source: true,
         contextInfo: true,
