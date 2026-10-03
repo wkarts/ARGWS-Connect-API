@@ -118,7 +118,7 @@ jobs:
                       # An env.example may intentionally enable a profile for
                       # develop; this assertion checks the profile-free core.
                       environment = os.environ.copy()
-                      environment['COMPOSE_PROFILES'] = ''
+                      environment['COMPOSE_PROFILES'] = 'operations' if stack in ('production', 'develop') else ''
                   return json.loads(subprocess.check_output(cmd, text=True, env=environment))
 
               default = compose_json(False)
