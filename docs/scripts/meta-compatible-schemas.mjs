@@ -363,6 +363,51 @@ export const metaCompatibleSchemas = {
     required: ['messaging_product', 'status', 'messages'],
     additionalProperties: false,
   },
+  MetaStatusSummary: {
+    type: 'object',
+    properties: {
+      id: string('Identificador real do Status retornado pelo provider.'),
+      type: string('Tipo de Status persistido no histórico.'),
+      text: { type: ['string', 'null'] },
+      timestamp: { type: ['string', 'null'], format: 'date-time' },
+      from_me: { type: 'boolean', const: true },
+      remote_jid: { type: 'string', const: 'status@broadcast' },
+    },
+    required: ['id', 'type', 'from_me', 'remote_jid'],
+    additionalProperties: false,
+  },
+  MetaStatusListResponse: {
+    type: 'object',
+    properties: {
+      messaging_product: { type: 'string', const: 'whatsapp' },
+      data: { type: 'array', items: ref('MetaStatusSummary') },
+      paging: {
+        type: 'object',
+        properties: {
+          total: { type: 'integer', minimum: 0 },
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 500 },
+          pages: { type: 'integer', minimum: 0 },
+        },
+        required: ['total', 'page', 'limit', 'pages'],
+        additionalProperties: false,
+      },
+      connect_api: { type: 'object', properties: { target: { type: 'string', const: 'status@broadcast' } }, additionalProperties: false },
+    },
+    required: ['messaging_product', 'data', 'paging'],
+    additionalProperties: false,
+  },
+  MetaStatusDeleteResponse: {
+    type: 'object',
+    properties: {
+      messaging_product: { type: 'string', const: 'whatsapp' },
+      id: string('Identificador real do Status removido.'),
+      deleted: { type: 'boolean', const: true },
+      connect_api: { type: 'object', properties: { target: { type: 'string', const: 'status@broadcast' } }, additionalProperties: false },
+    },
+    required: ['messaging_product', 'id', 'deleted'],
+    additionalProperties: false,
+  },
   MetaTranscriptionRequest: {
     type: 'object',
     description: 'Solicita uma transcrição assíncrona de áudio já persistido no Connect|API.',

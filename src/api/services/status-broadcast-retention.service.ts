@@ -113,11 +113,21 @@ export class StatusBroadcastRetentionService {
   }
 
   private async findStatusMessages(enabledInstances: Set<string>, expiresBefore: number): Promise<StatusMessage[]> {
-    const lifecycleFilter = enabledInstances.size
+    // `readStatus=false` suppresses incoming status broadcasts, but it must
+    // not make an outgoing status published by the Manager disappear before
+    // its normal WhatsApp lifetime. Older rows always carry key.fromMe, so a
+    // strict false comparison keeps the cleanup deterministic and tenant safe.
+    const disabledIncomingFilter = enabledInstances.size
       ? {
-          OR: [{ messageTimestamp: { lte: expiresBefore } }, { instanceId: { notIn: [...enabledInstances] } }],
+          AND: [
+            { instanceId: { notIn: [...enabledInstances] } },
+            { key: { path: prismaJsonPath('fromMe'), equals: false } as any },
+          ],
         }
-      : {};
+      : { key: { path: prismaJsonPath('fromMe'), equals: false } as any };
+    const lifecycleFilter = {
+      OR: [{ messageTimestamp: { lte: expiresBefore } }, disabledIncomingFilter],
+    };
 
     return await this.prismaRepository.message.findMany({
       where: {

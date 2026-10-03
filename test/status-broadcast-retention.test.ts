@@ -11,6 +11,7 @@ type StoredMessage = {
   id: string;
   instanceId: string;
   remoteJid: string;
+  fromMe: boolean;
   messageTimestamp: number;
 };
 
@@ -37,7 +38,11 @@ function createRepository(
       findMany: async ({ where, take }: any) => {
         const lifecycle = where.AND[1];
         const expiration = lifecycle.OR?.[0]?.messageTimestamp?.lte;
-        const enabledInstances = lifecycle.OR?.[1]?.instanceId?.notIn as string[] | undefined;
+        const disabledIncoming = lifecycle.OR?.[1];
+        const enabledInstances = disabledIncoming?.AND?.[0]?.instanceId?.notIn as string[] | undefined;
+        const removeIncomingWhenDisabled =
+          Boolean(disabledIncoming?.key?.path?.includes?.('fromMe')) ||
+          Boolean(disabledIncoming?.AND?.[1]?.key?.path?.includes?.('fromMe'));
 
         return state.messages
           .filter((message) => message.remoteJid === STATUS_BROADCAST_JID)
@@ -45,7 +50,9 @@ function createRepository(
             (message) =>
               expiration === undefined ||
               message.messageTimestamp <= expiration ||
-              (enabledInstances ? !enabledInstances.includes(message.instanceId) : true),
+              (removeIncomingWhenDisabled &&
+                message.fromMe === false &&
+                (enabledInstances ? !enabledInstances.includes(message.instanceId) : true)),
           )
           .sort((left, right) => left.messageTimestamp - right.messageTimestamp)
           .slice(0, take)
@@ -67,8 +74,8 @@ function createRepository(
 test('removes all status data for an instance that did not opt in', async () => {
   const { repository, state } = createRepository(
     [
-      { id: 'disabled-status', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, messageTimestamp: now },
-      { id: 'chat-message', instanceId: 'disabled', remoteJid: '5511999999999@s.whatsapp.net', messageTimestamp: now },
+      { id: 'disabled-status', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, fromMe: false, messageTimestamp: now },
+      { id: 'chat-message', instanceId: 'disabled', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false, messageTimestamp: now },
     ],
     [],
     { 'disabled-status': { fileName: 'disabled/status.mp4' } },
@@ -88,14 +95,15 @@ test('removes all status data for an instance that did not opt in', async () => 
 test('keeps an opted-in status only through WhatsApp status lifetime', async () => {
   const { repository, state } = createRepository(
     [
-      { id: 'fresh-enabled', instanceId: 'enabled', remoteJid: STATUS_BROADCAST_JID, messageTimestamp: now },
+      { id: 'fresh-enabled', instanceId: 'enabled', remoteJid: STATUS_BROADCAST_JID, fromMe: false, messageTimestamp: now },
       {
         id: 'expired-enabled',
         instanceId: 'enabled',
         remoteJid: STATUS_BROADCAST_JID,
+        fromMe: false,
         messageTimestamp: now - STATUS_BROADCAST_TTL_SECONDS - 1,
       },
-      { id: 'fresh-disabled', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, messageTimestamp: now },
+      { id: 'fresh-disabled', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, fromMe: false, messageTimestamp: now },
     ],
     [{ instanceId: 'enabled', readStatus: true }],
   );
@@ -106,9 +114,21 @@ test('keeps an opted-in status only through WhatsApp status lifetime', async () 
   assert.deepEqual(state.messages.map((message) => message.id), ['fresh-enabled']);
 });
 
+test('preserves a freshly published outgoing status when incoming status is disabled', async () => {
+  const { repository, state } = createRepository(
+    [{ id: 'fresh-outgoing', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, fromMe: true, messageTimestamp: now }],
+    [],
+  );
+  const service = new StatusBroadcastRetentionService(repository as any, async () => true);
+
+  await service.prune();
+
+  assert.deepEqual(state.messages.map((message) => message.id), ['fresh-outgoing']);
+});
+
 test('keeps database metadata for a retry when object storage removal fails', async () => {
   const { repository, state } = createRepository(
-    [{ id: 'status-with-media', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, messageTimestamp: now }],
+    [{ id: 'status-with-media', instanceId: 'disabled', remoteJid: STATUS_BROADCAST_JID, fromMe: false, messageTimestamp: now }],
     [],
     { 'status-with-media': { fileName: 'disabled/status.mp4' } },
   );

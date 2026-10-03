@@ -1,3 +1,4 @@
+import type { ChatController } from '@api/controllers/chat.controller';
 import { SendMessageController } from '@api/controllers/sendMessage.controller';
 import type { SendStatusDto } from '@api/dto/sendMessage.dto';
 import { TranscriptionService } from '@api/services/transcription.service';
@@ -28,6 +29,7 @@ export class MetaCloudGraphController {
     private readonly templates: MetaCloudTemplateService,
     private readonly sendController?: Pick<SendMessageController, 'sendStatus'>,
     private readonly transcription?: TranscriptionService,
+    private readonly chatController?: Pick<ChatController, 'fetchMessages' | 'deleteMessage'>,
   ) {}
 
   public async send(version: string, phoneNumberId: string, authorization: any, payload: MetaCloudMessageRequest) {
@@ -62,6 +64,66 @@ export class MetaCloudGraphController {
     const result = await this.sendController.sendStatus(this.instanceDto(identity), data, file);
     metaCloudMetrics.increment('connect_meta_compat_status_published_total');
     return this.statusResponse(result);
+  }
+
+  public async listStatuses(
+    version: string,
+    phoneNumberId: string,
+    authorization: any,
+    query: { page?: unknown; limit?: unknown } = {},
+  ) {
+    const identity = await this.resolvePhone(phoneNumberId, authorization);
+    this.assertStatusProvider(identity);
+    const chat = this.chatController;
+    if (!chat) throw new MetaCloudGraphError(503, 'Status history is temporarily unavailable.');
+
+    const page = Math.min(Math.max(Number.parseInt(String(query.page || '1'), 10) || 1, 1), 10000);
+    const limit = Math.min(Math.max(Number.parseInt(String(query.limit || '50'), 10) || 50, 1), 500);
+    const result = await chat.fetchMessages(this.instanceDto(identity), {
+      where: {
+        key: { remoteJid: 'status@broadcast', fromMe: true },
+        status: { not: 'DELETED' },
+      },
+      sort: 'desc',
+      page,
+      offset: limit,
+    } as any);
+    const records = Array.isArray(result?.messages?.records) ? result.messages.records : [];
+    this.log(identity, version, 'status-list');
+    return {
+      messaging_product: 'whatsapp',
+      data: records.map((message: any) => this.statusSummary(message)),
+      paging: {
+        total: Number(result?.messages?.total || 0),
+        page,
+        limit,
+        pages: Number(result?.messages?.pages || 0),
+      },
+      connect_api: { target: 'status@broadcast' },
+    };
+  }
+
+  public async deleteStatus(version: string, phoneNumberId: string, authorization: any, statusId: string) {
+    const identity = await this.resolvePhone(phoneNumberId, authorization);
+    this.assertStatusProvider(identity);
+    const normalizedId = String(statusId || '').trim();
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(normalizedId)) {
+      throw new MetaCloudGraphError(400, 'Invalid status identifier.');
+    }
+    const chat = this.chatController;
+    if (!chat) throw new MetaCloudGraphError(503, 'Status deletion is temporarily unavailable.');
+    await chat.deleteMessage(this.instanceDto(identity), {
+      id: normalizedId,
+      fromMe: true,
+      remoteJid: 'status@broadcast',
+    } as any);
+    this.log(identity, version, 'status-delete', normalizedId);
+    return {
+      messaging_product: 'whatsapp',
+      id: normalizedId,
+      deleted: true,
+      connect_api: { target: 'status@broadcast' },
+    };
   }
 
   public async transcribe(
@@ -130,6 +192,7 @@ export class MetaCloudGraphController {
       messaging_product: 'whatsapp',
       id: result.id,
       deleted: true,
+      ...(typeof result.cancelled === 'boolean' ? { cancelled: result.cancelled } : {}),
       source_removed: result.sourceRemoved,
       source_retained: result.sourceRetained,
     };
@@ -270,6 +333,38 @@ export class MetaCloudGraphController {
       status: 'published',
       messages: [{ id: String(id) }],
       connect_api: { target: 'status@broadcast' },
+    };
+  }
+
+  private statusSummary(message: any) {
+    const key = message?.key && typeof message.key === 'object' ? message.key : {};
+    const body = message?.message && typeof message.message === 'object' ? message.message : {};
+    const text =
+      body?.conversation ||
+      body?.extendedTextMessage?.text ||
+      body?.status?.extendedTextMessage?.text ||
+      body?.status?.conversation ||
+      body?.status?.content?.extendedTextMessage?.text ||
+      body?.status?.content?.conversation ||
+      body?.status?.content?.text ||
+      body?.status?.content?.caption ||
+      body?.status?.status?.content?.text ||
+      body?.status?.status?.content?.caption ||
+      body?.status?.text ||
+      body?.status?.image?.caption ||
+      body?.status?.video?.caption ||
+      body?.imageMessage?.caption ||
+      body?.videoMessage?.caption ||
+      body?.audioMessage?.caption ||
+      null;
+    const timestamp = Number(message?.messageTimestamp);
+    return {
+      id: String(key.id || message?.id || ''),
+      type: String(message?.messageType || 'status'),
+      text: text ? String(text).slice(0, 10_000) : null,
+      timestamp: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp * 1000).toISOString() : null,
+      from_me: key.fromMe === true,
+      remote_jid: String(key.remoteJid || 'status@broadcast'),
     };
   }
 

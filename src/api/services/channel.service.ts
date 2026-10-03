@@ -644,6 +644,7 @@ export class ChannelStartupService {
         id: query?.where?.id,
         source: query?.where?.source,
         messageType: query?.where?.messageType,
+        status: query?.where?.status,
         ...timestampFilter,
         AND: [
           keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
@@ -670,6 +671,7 @@ export class ChannelStartupService {
         id: query?.where?.id,
         source: query?.where?.source,
         messageType: query?.where?.messageType,
+        status: query?.where?.status,
         ...timestampFilter,
         AND: [
           keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
@@ -692,6 +694,7 @@ export class ChannelStartupService {
         messageType: true,
         message: true,
         messageTimestamp: true,
+        status: true,
         instanceId: true,
         source: true,
         contextInfo: true,

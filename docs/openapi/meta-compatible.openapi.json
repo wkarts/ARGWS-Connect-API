@@ -286,6 +286,144 @@
         }
       }
     },
+    "/{version}/{phoneNumberId}/statuses": {
+      "get": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Listar Status publicados pela instância",
+        "operationId": "meta_list_statuses",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status publicados da instância, sem conteúdo binário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaStatusListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/statuses/{statusId}": {
+      "delete": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Excluir Status publicado pela instância",
+        "operationId": "meta_delete_status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status excluído no provider e no histórico local.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaStatusDeleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
     "/{version}/{phoneNumberId}/transcriptions": {
       "post": {
         "tags": [
@@ -473,6 +611,9 @@
                       "type": "string"
                     },
                     "deleted": {
+                      "type": "boolean"
+                    },
+                    "cancelled": {
                       "type": "boolean"
                     },
                     "source_removed": {
@@ -2212,6 +2353,140 @@
           "messaging_product",
           "status",
           "messages"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identificador real do Status retornado pelo provider."
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo de Status persistido no histórico."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "from_me": {
+            "type": "boolean",
+            "const": true
+          },
+          "remote_jid": {
+            "type": "string",
+            "const": "status@broadcast"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "from_me",
+          "remote_jid"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusListResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaStatusSummary"
+            }
+          },
+          "paging": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500
+              },
+              "pages": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "total",
+              "page",
+              "limit",
+              "pages"
+            ],
+            "additionalProperties": false
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "const": "status@broadcast"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "messaging_product",
+          "data",
+          "paging"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusDeleteResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "id": {
+            "type": "string",
+            "description": "Identificador real do Status removido."
+          },
+          "deleted": {
+            "type": "boolean",
+            "const": true
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "const": "status@broadcast"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "messaging_product",
+          "id",
+          "deleted"
         ],
         "additionalProperties": false
       },

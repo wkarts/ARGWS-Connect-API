@@ -14,12 +14,14 @@ test('mantém as chaves do contrato de fila', () => {
 test('normaliza somente origens de áudio e campos necessários', () => {
   const job = normalizeJob({
     jobId: 'job-1',
+    attempts: 3,
     messageId: 'message-1',
     source: { key: 'media/audio.ogg', mimeType: 'audio/ogg' },
     language: 'pt',
   });
   assert.equal(job.sourceKey, 'media/audio.ogg');
   assert.equal(job.sourceMimeType, 'audio/ogg');
+  assert.equal(job.attempts, 3);
   assert.throws(
     () => normalizeJob({ jobId: 'job-2', source: { key: 'media/file.jpg', mimeType: 'image/jpeg' } }),
     /Origem de áudio inválida/,

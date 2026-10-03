@@ -2664,7 +2664,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const messageRaw = this.prepareMessage(messageSent);
 
-      if (messageRaw.key?.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus) {
+      // Outgoing statuses must remain in the instance history so the Manager
+      // and API can list/delete them. The readStatus setting only suppresses
+      // incoming status broadcasts.
+      if (
+        messageRaw.key?.remoteJid === STATUS_BROADCAST_JID &&
+        !this.localSettings.readStatus &&
+        !messageRaw.key?.fromMe
+      ) {
         return messageRaw;
       }
 
@@ -4055,15 +4062,40 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async deleteMessage(del: DeleteMessage) {
     try {
+      if (del.remoteJid === STATUS_BROADCAST_JID) {
+        const publishedStatus = await this.prismaRepository.message.findFirst({
+          where: {
+            instanceId: this.instanceId,
+            status: { not: 'DELETED' },
+            key: { path: prismaJsonPath('id'), equals: String(del.id || '') },
+          },
+        });
+        const statusKey =
+          typeof publishedStatus?.key === 'object' && publishedStatus.key !== null
+            ? (publishedStatus.key as Record<string, any>)
+            : {};
+        if (!publishedStatus || statusKey.remoteJid !== STATUS_BROADCAST_JID || statusKey.fromMe !== true) {
+          throw new NotFoundException('Published Status not found for this instance');
+        }
+      }
       const response = await this.client.sendMessage(del.remoteJid, { delete: del });
       if (response) {
         const messageId = response.message?.protocolMessage?.key?.id;
         if (messageId) {
           const isLogicalDeleted = configService.get<Database>('DATABASE').DELETE_DATA.LOGICAL_MESSAGE_DELETE;
           let message = await this.prismaRepository.message.findFirst({
-            where: { key: { path: prismaJsonPath('id'), equals: messageId } },
+            where: { instanceId: this.instanceId, key: { path: prismaJsonPath('id'), equals: messageId } },
           });
-          if (isLogicalDeleted) {
+          if (del.remoteJid === STATUS_BROADCAST_JID && message) {
+            const removed = await this.statusBroadcastRetention.removeMessage(message.id);
+            if (!removed) {
+              const existingKey = typeof message.key === 'object' && message.key !== null ? message.key : {};
+              message = await this.prismaRepository.message.update({
+                where: { id: message.id },
+                data: { key: { ...existingKey, deleted: true }, status: 'DELETED' },
+              });
+            }
+          } else if (isLogicalDeleted) {
             if (!message) return response;
             const existingKey = typeof message?.key === 'object' && message.key !== null ? message.key : {};
             message = await this.prismaRepository.message.update({
@@ -4086,6 +4118,10 @@ export class BaileysStartupService extends ChannelStartupService {
             if (!message) return response;
             await this.prismaRepository.message.deleteMany({ where: { id: message.id } });
           }
+          // WhatsApp can acknowledge a revoke even when the local history was
+          // already pruned. Do not dereference a missing row while emitting
+          // the delete webhook in that case.
+          if (!message) return response;
           this.sendDataWebhook(Events.MESSAGES_DELETE, {
             id: message.id,
             instanceId: message.instanceId,
@@ -4103,6 +4139,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
       return response;
     } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) throw error;
       throw new InternalServerErrorException('Error while deleting message for everyone', error?.toString());
     }
   }
@@ -5315,6 +5352,7 @@ export class BaileysStartupService extends ChannelStartupService {
         id: query?.where?.id,
         source: query?.where?.source,
         messageType: query?.where?.messageType,
+        status: query?.where?.status,
         ...timestampFilter,
         AND: [
           keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
@@ -5350,6 +5388,7 @@ export class BaileysStartupService extends ChannelStartupService {
         id: query?.where?.id,
         source: query?.where?.source,
         messageType: query?.where?.messageType,
+        status: query?.where?.status,
         ...timestampFilter,
         AND: [
           keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
@@ -5379,6 +5418,7 @@ export class BaileysStartupService extends ChannelStartupService {
         messageType: true,
         message: true,
         messageTimestamp: true,
+        status: true,
         instanceId: true,
         source: true,
         contextInfo: true,

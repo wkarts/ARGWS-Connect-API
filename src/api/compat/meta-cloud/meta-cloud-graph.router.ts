@@ -13,6 +13,20 @@ function transcriptionUploadLimit(): number {
   return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
 }
 
+function graphPhoneNumberId(value: unknown): string {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!/^\d{8,15}$/.test(digits)) {
+    throw new MetaCloudGraphError(400, 'phoneNumberId must contain 8 to 15 digits.');
+  }
+  return digits;
+}
+
+function boundedQueryInteger(value: unknown, fallback: number, maximum: number): number {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), maximum);
+}
+
 export class MetaCloudGraphRouter {
   public readonly router = Router();
   private readonly upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
@@ -76,6 +90,35 @@ export class MetaCloudGraphRouter {
             req.headers.authorization,
             req.body,
             this.uploadedFile(req, ['file', 'media']),
+          ),
+        );
+      }),
+    );
+
+    this.router.get(
+      '/:version/:phoneNumberId/statuses',
+      this.wrap(async (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        const phoneNumberId = graphPhoneNumberId(req.params.phoneNumberId);
+        res.json(
+          await metaCloudGraphController.listStatuses(req.params.version, phoneNumberId, req.headers.authorization, {
+            page: boundedQueryInteger(req.query.page, 1, 10000),
+            limit: boundedQueryInteger(req.query.limit, 50, 500),
+          }),
+        );
+      }),
+    );
+
+    this.router.delete(
+      '/:version/:phoneNumberId/statuses/:statusId',
+      this.wrap(async (req, res) => {
+        const phoneNumberId = graphPhoneNumberId(req.params.phoneNumberId);
+        res.json(
+          await metaCloudGraphController.deleteStatus(
+            req.params.version,
+            phoneNumberId,
+            req.headers.authorization,
+            req.params.statusId,
           ),
         );
       }),

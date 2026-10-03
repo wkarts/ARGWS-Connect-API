@@ -205,6 +205,14 @@ const requestOverrides = {
       '503': { description: 'Banco de dados ou transcrição indisponível.' },
     },
   },
+  'GET /v1/transcriptions/health': {
+    summary: 'Verificar worker de transcrição',
+    description: 'Consulta somente o estado da fila RabbitMQ e do consumidor local. Não publica, repete nem remove jobs.',
+    responses: {
+      '200': { description: 'Diagnóstico da fila e do worker local.' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+    },
+  },
   'POST /v1/transcriptions/upload': {
     summary: 'Enviar áudio para transcrição',
     description: 'Recebe um arquivo de áudio em multipart/form-data, armazena-o no MinIO privado e cria um job para o worker local. Nenhum provedor externo é chamado.',
@@ -296,7 +304,7 @@ const requestOverrides = {
   },
   'POST /v1/transcriptions/{jobId}/retry': {
     summary: 'Reenfileirar transcrição',
-    description: 'Reenfileira somente jobs que terminaram em falha.',
+    description: 'Reenfileira jobs que terminaram em falha ou jobs em fila/processamento sem atualização além de TRANSCRIPTION_STALE_JOB_SECONDS.',
     responses: {
       '202': { description: 'Job reenfileirado.' },
       '404': { $ref: '#/components/responses/NotFound' },
@@ -305,7 +313,7 @@ const requestOverrides = {
   },
   'DELETE /v1/transcriptions/{jobId}': {
     summary: 'Excluir transcrição individual',
-    description: 'Exclui um job de transcrição já concluído ou com falha. Em uploads diretos, remove também o áudio temporário do MinIO; em mídias de mensagens, remove somente o resultado e preserva a mídia original. Jobs em fila ou processamento não podem ser excluídos.',
+    description: 'Exclui qualquer job de transcrição. Jobs em fila ou processamento são cancelados de forma durável; resultados atrasados do worker são ignorados. Em uploads diretos, remove também o áudio temporário do MinIO; em mídias de mensagens, remove somente o resultado e preserva a mídia original.',
     responses: {
       '200': {
         description: 'Transcrição excluída.',
@@ -313,10 +321,11 @@ const requestOverrides = {
           'application/json': {
             schema: {
               type: 'object',
-              required: ['id', 'deleted', 'sourceRemoved', 'sourceRetained'],
+              required: ['id', 'deleted', 'cancelled', 'sourceRemoved', 'sourceRetained'],
               properties: {
                 id: { type: 'string' },
                 deleted: { type: 'boolean' },
+                cancelled: { type: 'boolean' },
                 sourceRemoved: { type: 'boolean' },
                 sourceRetained: { type: 'boolean' },
               },
@@ -328,6 +337,34 @@ const requestOverrides = {
       '404': { $ref: '#/components/responses/NotFound' },
       '409': { $ref: '#/components/responses/Conflict' },
       '503': { description: 'MinIO ou banco indisponível.' },
+    },
+  },
+  'GET /chat/findPublishedStatuses/{instanceName}': {
+    summary: 'Listar Status publicados por instância',
+    description: 'Lista os Status enviados pela instância, sem incluir Status recebidos. O histórico é lido do armazenamento da própria instância.',
+    parameters: [
+      { name: 'instanceName', in: 'path', required: true, schema: { type: 'string' } },
+      { name: 'page', in: 'query', required: false, schema: { type: 'integer', minimum: 1, default: 1 } },
+      { name: 'offset', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 50 } },
+    ],
+    responses: {
+      '200': { description: 'Status publicados da instância.' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
+  'DELETE /chat/deleteStatus/{instanceName}/{statusId}': {
+    summary: 'Excluir Status publicado',
+    description: 'Solicita a revogação do Status no WhatsApp e remove/atualiza seu registro local conforme a política de retenção.',
+    parameters: [
+      { name: 'instanceName', in: 'path', required: true, schema: { type: 'string' } },
+      { name: 'statusId', in: 'path', required: true, schema: { type: 'string', minLength: 1, maxLength: 128 } },
+    ],
+    responses: {
+      '200': { description: 'Status excluído.' },
+      '400': { $ref: '#/components/responses/BadRequest' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
     },
   },
   ...localTemplateOperations,
@@ -780,6 +817,29 @@ function graphSpec(version) {
           responses: { '200': { description: 'Status aceito pelo provider.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaStatusResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
         },
       },
+      '/{version}/{phoneNumberId}/statuses': {
+        get: {
+          tags: ['Status'], summary: 'Listar Status publicados pela instância', operationId: 'meta_list_statuses', security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' },
+            { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 500, default: 50 } },
+          ],
+          responses: { '200': { description: 'Status publicados da instância, sem conteúdo binário.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaStatusListResponse' } } } }, '401': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
+      '/{version}/{phoneNumberId}/statuses/{statusId}': {
+        delete: {
+          tags: ['Status'], summary: 'Excluir Status publicado pela instância', operationId: 'meta_delete_status', security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' },
+            { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'statusId', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,128}$' } },
+          ],
+          responses: { '200': { description: 'Status excluído no provider e no histórico local.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaStatusDeleteResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
       '/{version}/{phoneNumberId}/transcriptions': {
         post: {
           tags: ['Transcription'], summary: 'Solicitar transcrição assíncrona de áudio', operationId: 'meta_create_transcription', security: [{ bearerAuth: [] }],
@@ -797,7 +857,7 @@ function graphSpec(version) {
         delete: {
           tags: ['Transcription'], summary: 'Excluir job de transcrição', operationId: 'meta_delete_transcription', security: [{ bearerAuth: [] }],
           parameters: [{ name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' }, { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } }, { name: 'jobId', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { '200': { description: 'Job excluído.', content: { 'application/json': { schema: { type: 'object', properties: { messaging_product: { type: 'string', example: 'whatsapp' }, id: { type: 'string' }, deleted: { type: 'boolean' }, source_removed: { type: 'boolean' }, source_retained: { type: 'boolean' } }, required: ['messaging_product', 'id', 'deleted'] } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' }, '503': { $ref: '#/components/responses/GraphError' } },
+          responses: { '200': { description: 'Job excluído.', content: { 'application/json': { schema: { type: 'object', properties: { messaging_product: { type: 'string', example: 'whatsapp' }, id: { type: 'string' }, deleted: { type: 'boolean' }, cancelled: { type: 'boolean' }, source_removed: { type: 'boolean' }, source_retained: { type: 'boolean' } }, required: ['messaging_product', 'id', 'deleted'] } } } }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' }, '503': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{phoneNumberId}/transcriptions/{jobId}/retry': {

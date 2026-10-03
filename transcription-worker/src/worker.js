@@ -22,8 +22,10 @@ function normalizeJob(value) {
     : sourceMimeType;
   if (!jobId || jobId.length > 128) throw new Error('jobId inválido.');
   if (!sourceKey || !normalizedMimeType.startsWith('audio/')) throw new Error('Origem de áudio inválida.');
+  const attempts = Number.isFinite(Number(value.attempts)) ? Math.max(1, Math.floor(Number(value.attempts))) : undefined;
   return {
     jobId,
+    attempts,
     messageId: value.messageId ? String(value.messageId) : null,
     instanceId: value.instanceId ? String(value.instanceId) : null,
     sourceKey,
@@ -126,7 +128,7 @@ class TranscriptionWorker {
     }
 
     try {
-      await this.publish('processing', { jobId: job.jobId, messageId: job.messageId, instanceId: job.instanceId });
+      await this.publish('processing', { jobId: job.jobId, attempts: job.attempts, messageId: job.messageId, instanceId: job.instanceId });
       const downloaded = await downloadObjectToFile(
         this.client,
         this.config.s3.bucket,
@@ -141,6 +143,7 @@ class TranscriptionWorker {
         });
         await this.publish('completed', {
           jobId: job.jobId,
+          attempts: job.attempts,
           messageId: job.messageId,
           instanceId: job.instanceId,
           provider: this.config.provider,
@@ -157,6 +160,7 @@ class TranscriptionWorker {
       try {
         await this.publish('failed', {
           jobId: job.jobId,
+          attempts: job.attempts,
           messageId: job.messageId,
           instanceId: job.instanceId,
           provider: this.config.provider,

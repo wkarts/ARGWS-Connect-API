@@ -64,6 +64,7 @@ export const connect = {
   storageCleanupPreview: (data: { scope: 'global' | 'instance'; instanceId?: string; resource: string; olderThanDays: number; limit?: number }): Promise<any> => invoke('storageCleanupPreview', data),
   storageCleanup: (data: { planId: string; confirm: boolean }): Promise<any> => invoke('storageCleanup', data),
   transcriptionList: (): Promise<TranscriptionJob[]> => invoke('transcriptionList'),
+  transcriptionHealth: (): Promise<any> => invoke('transcriptionHealth'),
   uploadTranscription: (file: File, language = ''): Promise<TranscriptionJob> => invoke('uploadTranscription', file, language),
   transcription: (jobId: string): Promise<TranscriptionJob> => invoke('transcription', jobId),
   retryTranscription: (jobId: string): Promise<TranscriptionJob> => invoke('retryTranscription', jobId),
@@ -87,6 +88,8 @@ export const connect = {
   groupInfo: (id: string, groupJid: string): Promise<any> => invoke('groupInfo', id, groupJid),
   sendText: (id: string, number: string, text: string): Promise<any> => invoke('sendText', id, number, text),
   sendStatus: (id: string, data: any, file?: File): Promise<any> => invoke('sendStatus', id, data, file),
+  statuses: (id: string): Promise<Message[]> => invoke('statuses', id),
+  deleteStatus: (id: string, statusId: string): Promise<any> => invoke('deleteStatus', id, statusId),
   testMessageContacts: (id: string, page = 1): Promise<{ items: ContactItem[]; hasMore: boolean }> => invoke('testMessageContacts', id, page),
   contacts: (id: string): Promise<ContactItem[]> => typeof adapter.contacts === 'function' ? invoke('contacts', id) : Promise.resolve([]),
   calls: async (id: string): Promise<WhatsAppCall[]> => {

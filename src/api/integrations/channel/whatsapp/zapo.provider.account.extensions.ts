@@ -12,7 +12,7 @@ import {
 } from '@api/dto/chat.dto';
 import { Events } from '@api/types/wa.types';
 import type { Database } from '@config/env.config';
-import { BadRequestException, InternalServerErrorException } from '@exceptions';
+import { BadRequestException, InternalServerErrorException, NotFoundException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
@@ -241,6 +241,22 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       const messageId = String(data?.id ?? '').trim();
       if (!messageId) throw new BadRequestException('Message ID is required');
 
+      const storedMessage = await this.findStoredMessage(messageId);
+      if (jid === 'status@broadcast') {
+        const statusKey =
+          typeof storedMessage?.key === 'object' && storedMessage.key !== null
+            ? (storedMessage.key as Record<string, any>)
+            : {};
+        if (
+          !storedMessage ||
+          storedMessage.status === 'DELETED' ||
+          statusKey.remoteJid !== 'status@broadcast' ||
+          statusKey.fromMe !== true
+        ) {
+          throw new NotFoundException('Published Status not found for this instance');
+        }
+      }
+
       const target = {
         remoteJid: jid,
         id: messageId,
@@ -252,11 +268,20 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
         target,
       });
 
-      const storedMessage = await this.findStoredMessage(messageId);
       const logicalDelete = this.configService.get<Database>('DATABASE').DELETE_DATA.LOGICAL_MESSAGE_DELETE;
       let webhookMessage: any = storedMessage;
 
-      if (storedMessage && logicalDelete) {
+      if (storedMessage && jid === 'status@broadcast') {
+        const removed = await this.statusBroadcastRetention.removeMessage(storedMessage.id);
+        if (!removed) {
+          const existingKey =
+            typeof storedMessage.key === 'object' && storedMessage.key !== null ? storedMessage.key : {};
+          webhookMessage = await this.prismaRepository.message.update({
+            where: { id: storedMessage.id },
+            data: { key: { ...existingKey, deleted: true }, status: 'DELETED' },
+          });
+        }
+      } else if (storedMessage && logicalDelete) {
         const existingKey =
           typeof storedMessage.key === 'object' && storedMessage.key !== null ? (storedMessage.key as object) : {};
         webhookMessage = await this.prismaRepository.message.update({
