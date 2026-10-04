@@ -34,9 +34,8 @@ export class SpeechRouter {
     this.router.get('/models', (req, res) => void this.models(req, res));
     this.router.post('/models/:modelId/activate', (req, res) => void this.activateModel(req, res));
 
-    this.router.post(
-      '/dictation',
-      (req, res) => this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)),
+    this.router.post('/dictation', (req, res) =>
+      this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)),
     );
     this.router.get('/dictation/:jobId', (req, res) => void this.readDictation(req, res));
     this.router.post('/dictation/:jobId/cancel', (req, res) => void this.cancel(req, res, 'dictation'));
@@ -50,9 +49,8 @@ export class SpeechRouter {
         void this.createFromMessage(req, res);
       }
     });
-    this.router.post(
-      '/transcriptions/upload',
-      (req, res) => this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res)),
+    this.router.post('/transcriptions/upload', (req, res) =>
+      this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res)),
     );
     this.router.get('/transcriptions/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/transcriptions/:jobId/cancel', (req, res) => void this.cancel(req, res, 'transcription'));
