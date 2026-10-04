@@ -430,12 +430,22 @@ model TranscriptionJob {
   id                String    @id @default(cuid())
   instanceId        String?
   messageId         String?
+  mode              String    @default("transcription") @db.VarChar(20)
+  sourceType        String    @default("upload") @db.VarChar(24)
   sourceKey         String    @db.VarChar(500)
   sourceMimeType    String    @db.VarChar(100)
+  originalFilename  String?   @db.VarChar(255)
+  sizeBytes         Int?      @db.Integer
+  audioHash         String?   @db.VarChar(64)
+  idempotencyKey    String?   @db.VarChar(128)
   provider          String    @db.VarChar(32)
   model             String    @db.VarChar(100)
   language          String?   @db.VarChar(16)
   status            String    @db.VarChar(20)
+  stage             String?   @db.VarChar(32)
+  progressPercent   Int       @default(0) @db.Integer
+  processedDurationMs Int     @default(0) @db.Integer
+  heartbeatAt       DateTime? @db.Timestamp
   text              String?   @db.Text
   segments          Json?     @db.JsonB
   detectedLanguage  String?   @db.VarChar(32)
@@ -453,6 +463,9 @@ model TranscriptionJob {
   @@index([status, createdAt])
   @@index([instanceId, createdAt])
   @@index([messageId])
+  @@index([mode, status, createdAt])
+  @@unique([instanceId, mode, audioHash, model, language])
+  @@unique([instanceId, mode, idempotencyKey])
 }
 
 

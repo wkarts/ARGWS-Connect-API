@@ -1,8 +1,9 @@
 'use strict';
 
 const fs = require('node:fs');
+const { spawn } = require('node:child_process');
 const amqp = require('amqplib');
-const { createClient, downloadObjectToFile, cleanup } = require('./storage');
+const { createClient, downloadObjectToFile, writeBufferToTemp, cleanup } = require('./storage');
 const { createProvider } = require('./provider');
 
 const REQUESTED = 'transcription.requested';
@@ -10,10 +11,15 @@ const PROCESSING = 'transcription.processing';
 const COMPLETED = 'transcription.completed';
 const FAILED = 'transcription.failed';
 const READY_FILE = '/tmp/transcription-worker.ready';
+const PERMANENT_ERRORS = new Set([
+  'CANCELLED', 'INVALID_AUDIO', 'NO_SPEECH', 'UNSUPPORTED_AUDIO', 'MODEL_MISSING',
+  'MODEL_CHECKSUM_MISMATCH', 'FFMPEG_MISSING', 'QUEUE_MODE_MISMATCH',
+]);
 
-function normalizeJob(value) {
+function normalizeJob(value, maxAudioBytes = 25 * 1024 * 1024) {
   if (!value || typeof value !== 'object') throw new Error('Mensagem de transcrição inválida.');
   const jobId = String(value.jobId || '').trim();
+  const mode = value.mode === 'dictation' ? 'dictation' : 'transcription';
   const source = value.source && typeof value.source === 'object' ? value.source : {};
   const sourceKey = String(source.key || '').trim();
   const sourceMimeType = String(source.mimeType || '').split(';', 1)[0].trim().toLowerCase();
@@ -22,9 +28,23 @@ function normalizeJob(value) {
     : sourceMimeType;
   if (!jobId || jobId.length > 128) throw new Error('jobId inválido.');
   if (!sourceKey || !normalizedMimeType.startsWith('audio/')) throw new Error('Origem de áudio inválida.');
-  const attempts = Number.isFinite(Number(value.attempts)) ? Math.max(1, Math.floor(Number(value.attempts))) : undefined;
+
+  let inlineAudio = null;
+  if (value.inlineAudio !== undefined && value.inlineAudio !== null) {
+    const encoded = String(value.inlineAudio);
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+      throw new Error('Áudio inline inválido.');
+    }
+    if (encoded.length > Math.ceil(maxAudioBytes / 3) * 4 + 4) throw new Error('Áudio inline excede o limite configurado.');
+    inlineAudio = Buffer.from(encoded, 'base64');
+    if (!inlineAudio.length || inlineAudio.length > maxAudioBytes) throw new Error('Áudio inline excede o limite configurado.');
+  }
+  if (mode === 'dictation' && !inlineAudio) throw new Error('Ditado sem áudio inline.');
+
+  const attempts = Number.isFinite(Number(value.attempts)) ? Math.max(1, Math.floor(Number(value.attempts))) : 1;
   return {
     jobId,
+    mode,
     attempts,
     messageId: value.messageId ? String(value.messageId) : null,
     instanceId: value.instanceId ? String(value.instanceId) : null,
@@ -32,7 +52,16 @@ function normalizeJob(value) {
     sourceMimeType: normalizedMimeType,
     language: value.language ? String(value.language) : null,
     model: value.model ? String(value.model) : null,
+    inlineAudio,
   };
+}
+
+function probeFfmpeg() {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ffmpeg', ['-version'], { stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('close', (code) => code === 0 ? resolve() : reject(new Error('FFmpeg não está disponível no worker.')));
+  });
 }
 
 class TranscriptionWorker {
@@ -44,23 +73,26 @@ class TranscriptionWorker {
     this.provider = createProvider(config);
     this.stopping = false;
     this.reconnectTimer = null;
+    this.cancelledJobs = new Set();
   }
 
   async start() {
     fs.rmSync(READY_FILE, { force: true });
     if (!this.config.enabled) {
       fs.writeFileSync(READY_FILE, 'disabled');
-      console.log('Transcription worker desabilitado; aguardando ativação por ambiente.');
+      console.log('Speech worker desabilitado; aguardando ativação por ambiente.');
       await new Promise(() => {});
       return;
     }
+    await probeFfmpeg();
+    await this.provider.warmup();
     await this.connect();
   }
 
   async connect() {
     if (this.stopping) return;
     this.connection = await amqp.connect(this.config.rabbitmq.uri);
-    this.connection.on('error', (error) => console.error('RabbitMQ transcription error:', error.message));
+    this.connection.on('error', (error) => console.error('RabbitMQ speech error:', error.message));
     this.connection.on('close', () => {
       this.channel = null;
       this.connection = null;
@@ -75,19 +107,46 @@ class TranscriptionWorker {
         }, 5000);
       }
     });
-    this.channel = await this.connection.createChannel();
+    this.channel = await this.connection.createConfirmChannel();
     await this.channel.assertExchange(this.config.rabbitmq.exchange, 'topic', { durable: true });
     await this.channel.assertQueue(this.config.queue, {
       durable: true,
+      arguments: {
+        'x-queue-type': 'quorum',
+        ...(this.config.mode === 'dictation' ? { 'x-message-ttl': this.config.dictationAudioRetentionMs } : {}),
+      },
+    });
+    await this.channel.bindQueue(this.config.queue, this.config.rabbitmq.exchange, this.config.requestRoutingKey);
+
+    this.config.controlQueue = this.config.queue + '.control';
+    this.config.retryQueue = this.config.queue + '.retry';
+    this.config.deadLetterQueue = this.config.queue + '.dead-letter';
+    await this.channel.assertQueue(this.config.controlQueue, {
+      durable: true,
       arguments: { 'x-queue-type': 'quorum' },
     });
-    await this.channel.bindQueue(this.config.queue, this.config.rabbitmq.exchange, REQUESTED);
+    await this.channel.bindQueue(this.config.controlQueue, this.config.rabbitmq.exchange, this.config.cancelRoutingKey);
+    await this.channel.assertQueue(this.config.retryQueue, {
+      durable: true,
+      arguments: {
+        'x-queue-type': 'quorum',
+        'x-dead-letter-exchange': this.config.rabbitmq.exchange,
+        'x-dead-letter-routing-key': this.config.requestRoutingKey,
+      },
+    });
+    await this.channel.assertQueue(this.config.deadLetterQueue, {
+      durable: true,
+      arguments: { 'x-queue-type': 'quorum' },
+    });
     await this.channel.prefetch(this.config.concurrency);
+    await this.channel.consume(this.config.controlQueue, (message) => {
+      if (message) this.handleControl(message);
+    }, { noAck: false });
     await this.channel.consume(this.config.queue, (message) => {
       if (message) void this.handle(message);
     }, { noAck: false });
     fs.writeFileSync(READY_FILE, 'ready');
-    console.log('Transcription worker conectado ao RabbitMQ na fila ' + this.config.queue + '.');
+    console.log(`Speech ${this.config.mode} worker pronto na fila ${this.config.queue}.`);
   }
 
   scheduleReconnect() {
@@ -101,78 +160,210 @@ class TranscriptionWorker {
     }, 5000);
   }
 
+  handleControl(message) {
+    try {
+      const payload = JSON.parse(message.content.toString('utf8'));
+      const jobId = String(payload.jobId || '').trim();
+      if (jobId && jobId.length <= 128) this.cancelledJobs.add(jobId);
+      this.channel.ack(message);
+    } catch (error) {
+      console.error('Controle de ditado inválido:', error.message);
+      this.channel.ack(message);
+    }
+  }
+
   async publish(status, payload) {
-    const routingKey = 'transcription.' + status;
+    const prefix = payload.mode === 'dictation' ? 'speech.dictation.' : 'transcription.';
+    const routingKey = prefix + status;
     const message = Buffer.from(JSON.stringify({
       ...payload,
       status,
+      mode: payload.mode || this.config.mode,
+      heartbeatAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }));
-    const accepted = this.channel.publish(
-      this.config.rabbitmq.exchange,
-      routingKey,
-      message,
-      { persistent: true, contentType: 'application/json', messageId: payload.jobId },
-    );
-    if (!accepted) await new Promise((resolve) => this.channel.once('drain', resolve));
+    await new Promise((resolve, reject) => {
+      this.channel.publish(
+        this.config.rabbitmq.exchange,
+        routingKey,
+        message,
+        { persistent: true, contentType: 'application/json', messageId: payload.jobId },
+        (error) => error ? reject(error) : resolve(),
+      );
+    });
+  }
+
+  async publishDeadLetter(job, error) {
+    const body = Buffer.from(JSON.stringify({
+      jobId: job.jobId,
+      mode: job.mode,
+      attempts: job.attempts,
+      errorCode: String(error?.code || 'TRANSCRIPTION_FAILED').slice(0, 64),
+      failedAt: new Date().toISOString(),
+    }));
+    await new Promise((resolve, reject) => {
+      this.channel.sendToQueue(
+        this.config.deadLetterQueue,
+        body,
+        { persistent: true, contentType: 'application/json', messageId: job.jobId },
+        (cause) => cause ? reject(cause) : resolve(),
+      );
+    });
+  }
+
+  async scheduleRetry(job, error) {
+    const retryDelays = [30000, 120000, 600000];
+    const delay = retryDelays[Math.max(0, job.attempts - 1)] || retryDelays[retryDelays.length - 1];
+    const next = { ...job, attempts: job.attempts + 1, inlineAudio: job.inlineAudio?.toString('base64') || undefined };
+    const body = Buffer.from(JSON.stringify(next));
+    await new Promise((resolve, reject) => {
+      this.channel.sendToQueue(
+        this.config.retryQueue,
+        body,
+        {
+          persistent: true,
+          expiration: String(delay),
+          contentType: 'application/json',
+          messageId: job.jobId,
+        },
+        (cause) => cause ? reject(cause) : resolve(),
+      );
+    });
+    await this.publish('processing', {
+      jobId: job.jobId,
+      mode: job.mode,
+      attempts: job.attempts,
+      messageId: job.messageId,
+      instanceId: job.instanceId,
+      stage: 'retrying',
+      progressPercent: 0,
+      processedDurationMs: 0,
+      retryInMs: delay,
+      errorCode: String(error?.code || 'TEMPORARY_FAILURE').slice(0, 64),
+    });
   }
 
   async handle(message) {
     let job;
     try {
-      job = normalizeJob(JSON.parse(message.content.toString('utf8')));
+      job = normalizeJob(JSON.parse(message.content.toString('utf8')), this.config.maxAudioBytes);
     } catch (error) {
-      console.error('Mensagem de transcrição descartada:', error.message);
+      console.error('Mensagem de áudio descartada:', error.message);
+      this.channel.ack(message);
+      return;
+    }
+    if (job.mode !== this.config.mode) {
+      const error = Object.assign(new Error('O job chegou a uma fila de finalidade diferente.'), { code: 'QUEUE_MODE_MISMATCH' });
+      try { await this.publishDeadLetter(job, error); } catch {}
       this.channel.ack(message);
       return;
     }
 
+    let downloaded = null;
+    let heartbeat = null;
+    const state = { stage: 'preparing', progressPercent: 2, processedDurationMs: 0, partialText: '' };
+    const isCancelled = () => this.cancelledJobs.has(job.jobId);
+    const publishProgress = (progress = {}) => {
+      Object.assign(state, progress);
+      return this.publish('processing', {
+        jobId: job.jobId,
+        mode: job.mode,
+        attempts: job.attempts,
+        messageId: job.messageId,
+        instanceId: job.instanceId,
+        ...state,
+      });
+    };
+
     try {
-      await this.publish('processing', { jobId: job.jobId, attempts: job.attempts, messageId: job.messageId, instanceId: job.instanceId });
-      const downloaded = await downloadObjectToFile(
-        this.client,
-        this.config.s3.bucket,
-        job.sourceKey,
-        job.sourceMimeType,
-        this.config.maxAudioBytes,
-      );
-      try {
-        const result = await this.provider.transcribe(downloaded.filePath, {
-          language: job.language,
-          model: job.model,
-        });
-        await this.publish('completed', {
-          jobId: job.jobId,
-          attempts: job.attempts,
-          messageId: job.messageId,
-          instanceId: job.instanceId,
-          provider: this.config.provider,
-          model: job.model || this.config.local.model,
-          ...result,
-        });
-      } finally {
-        await cleanup(downloaded.directory);
-      }
+      await publishProgress({ stage: 'preparing', progressPercent: 2 });
+      heartbeat = setInterval(() => {
+        if (isCancelled() || this.stopping) return;
+        void publishProgress().catch((error) => console.error('Heartbeat de voz não publicado:', error.message));
+      }, this.config.heartbeatIntervalSeconds * 1000);
+      heartbeat.unref?.();
+
+      if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
+      await publishProgress({ stage: job.inlineAudio ? 'normalizing' : 'downloading', progressPercent: 5 });
+      downloaded = job.inlineAudio
+        ? await writeBufferToTemp(job.inlineAudio, job.sourceMimeType, this.config.maxAudioBytes)
+        : await downloadObjectToFile(
+          this.client,
+          this.config.s3.bucket,
+          job.sourceKey,
+          job.sourceMimeType,
+          this.config.maxAudioBytes,
+        );
+      if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
+
+      const result = await this.provider.transcribe(downloaded.filePath, {
+        language: job.language,
+        model: job.model,
+        isCancelled,
+        onProgress: publishProgress,
+      });
+      if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
+      await publishProgress({ stage: 'finalizing', progressPercent: 98, processedDurationMs: result.durationMs });
+      await this.publish('completed', {
+        jobId: job.jobId,
+        mode: job.mode,
+        attempts: job.attempts,
+        messageId: job.messageId,
+        instanceId: job.instanceId,
+        provider: this.config.provider,
+        model: job.model || this.config.local.model,
+        ...result,
+      });
       this.channel.ack(message);
     } catch (error) {
-      const errorMessage = String(error?.message || error).slice(0, 2000);
-      console.error('Transcrição falhou:', errorMessage);
-      try {
-        await this.publish('failed', {
-          jobId: job.jobId,
-          attempts: job.attempts,
-          messageId: job.messageId,
-          instanceId: job.instanceId,
-          provider: this.config.provider,
-          model: job.model || this.config.local.model,
-          errorCode: error?.code ? String(error.code).slice(0, 64) : 'TRANSCRIPTION_FAILED',
-          errorMessage,
-        });
-        this.channel.ack(message);
-      } catch (publishError) {
-        console.error('Não foi possível publicar a falha da transcrição:', publishError.message);
-        this.channel.nack(message, false, true);
+      const code = String(error?.code || 'TRANSCRIPTION_FAILED').slice(0, 64);
+      if (code === 'CANCELLED' || isCancelled()) {
+        try {
+          await this.publish('cancelled', {
+            jobId: job.jobId,
+            mode: job.mode,
+            attempts: job.attempts,
+            messageId: job.messageId,
+            instanceId: job.instanceId,
+          });
+          this.channel.ack(message);
+        } catch {
+          this.channel.nack(message, false, true);
+        }
+      } else if (!PERMANENT_ERRORS.has(code) && job.attempts < this.config.maxAttempts) {
+        try {
+          await this.scheduleRetry(job, error);
+          this.channel.ack(message);
+        } catch (retryError) {
+          console.error('Não foi possível agendar retry de voz:', retryError.message);
+          this.channel.nack(message, false, true);
+        }
+      } else {
+        const safeMessage = String(error?.message || error).slice(0, 2000);
+        console.error('Processamento de voz falhou:', code, safeMessage);
+        try {
+          await this.publish('failed', {
+            jobId: job.jobId,
+            mode: job.mode,
+            attempts: job.attempts,
+            messageId: job.messageId,
+            instanceId: job.instanceId,
+            provider: this.config.provider,
+            model: job.model || this.config.local.model,
+            errorCode: code,
+            errorMessage: safeMessage,
+          });
+          await this.publishDeadLetter(job, { ...error, code });
+          this.channel.ack(message);
+        } catch (publishError) {
+          console.error('Não foi possível persistir a falha do áudio:', publishError.message);
+          this.channel.nack(message, false, true);
+        }
       }
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
+      if (downloaded) await cleanup(downloaded.directory);
+      this.cancelledJobs.delete(job.jobId);
     }
   }
 

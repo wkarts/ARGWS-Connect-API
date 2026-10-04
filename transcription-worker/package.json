@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test test/*.test.cjs"
+    "test": "node --test test/*.test.cjs",
+    "model:manifest": "node scripts/create-model-manifest.cjs"
   },
   "dependencies": {
     "@huggingface/transformers": "3.7.2",

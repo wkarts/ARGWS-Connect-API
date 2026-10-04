@@ -70,16 +70,26 @@ services:
     environment:
       NODE_ENV: production
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
+      SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
+      SPEECH_WORKER_MODE: transcription
+      SPEECH_TRANSCRIPTION_QUEUE: ${SPEECH_TRANSCRIPTION_QUEUE:-${TRANSCRIPTION_QUEUE:-speech.transcription}}
+      SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
+      SPEECH_PROVIDER: ${SPEECH_PROVIDER:-${TRANSCRIPTION_PROVIDER:-local}}
+      SPEECH_MODEL: ${SPEECH_MODEL:-${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}}
+      SPEECH_DEVICE: ${SPEECH_DEVICE:-${TRANSCRIPTION_LOCAL_DEVICE:-cpu}}
+      SPEECH_DTYPE: ${SPEECH_DTYPE:-${TRANSCRIPTION_LOCAL_DTYPE:-q8}}
       TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
-      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
+      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-speech.transcription}
       TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
       TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
       TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
       TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
+      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-}
+      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/tmp/speech-model-cache}
       TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
-      TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-86400}
+      TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-2592000}
       TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://argws_connect:CHANGE_ME_RABBITMQ_PASSWORD@rabbitmq-argws-connect-canonical:5672/argws_connect}
       RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME:-argws_connect}
@@ -97,10 +107,76 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: ${TRANSCRIPTION_WORKER_MEMORY:-2g}
-    cpus: ${TRANSCRIPTION_WORKER_CPUS:-1.00}
+    mem_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
+    cpus: ${SPEECH_WORKER_CPUS:-${TRANSCRIPTION_WORKER_CPUS:-2.00}}
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
+      - /tmp:rw,noexec,nosuid,size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
+    volumes:
+      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
+    networks: [argws-connect-canonical-net]
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(require('fs').existsSync('/tmp/transcription-worker.ready') ? 0 : 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
+
+  speech-dictation-worker-argws-connect-canonical:
+    profiles: ["transcription"]
+    image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:1.0.21}
+    pull_policy: always
+    container_name: speech-dictation-worker-argws-connect-canonical
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
+      SPEECH_WORKER_MODE: dictation
+      SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
+      SPEECH_PROVIDER: ${SPEECH_PROVIDER:-${TRANSCRIPTION_PROVIDER:-local}}
+      SPEECH_MODEL: ${SPEECH_MODEL:-${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}}
+      SPEECH_DEVICE: ${SPEECH_DEVICE:-${TRANSCRIPTION_LOCAL_DEVICE:-cpu}}
+      SPEECH_DTYPE: ${SPEECH_DTYPE:-${TRANSCRIPTION_LOCAL_DTYPE:-q8}}
+      SPEECH_HEARTBEAT_INTERVAL_SECONDS: ${SPEECH_HEARTBEAT_INTERVAL_SECONDS:-5}
+      SPEECH_CHUNK_SECONDS: ${SPEECH_CHUNK_SECONDS:-30}
+      SPEECH_STRIDE_SECONDS: ${SPEECH_STRIDE_SECONDS:-5}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
+      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-speech.transcription}
+      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
+      TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
+      TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
+      TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
+      TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
+      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-}
+      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/tmp/speech-model-cache}
+      TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
+      TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-2592000}
+      TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://argws_connect:CHANGE_ME_RABBITMQ_PASSWORD@rabbitmq-argws-connect-canonical:5672/argws_connect}
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME:-argws_connect}
+      S3_ENDPOINT: ${S3_ENDPOINT:-minio-argws-connect-canonical}
+      S3_PORT: ${S3_PORT:-9000}
+      S3_USE_SSL: ${S3_USE_SSL:-false}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-argws_connect}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-argws-connect-canonical}
+    depends_on:
+      rabbitmq-argws-connect-canonical:
+        condition: service_healthy
+      minio-argws-connect-canonical:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
+    cpus: ${SPEECH_WORKER_CPUS:-${TRANSCRIPTION_WORKER_CPUS:-2.00}}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
+    volumes:
+      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
     networks: [argws-connect-canonical-net]
     healthcheck:
       test: ["CMD", "node", "-e", "process.exit(require('fs').existsSync('/tmp/transcription-worker.ready') ? 0 : 1)"]

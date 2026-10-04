@@ -60,7 +60,8 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'api-fersoft-connect-production', 'docs-fersoft-connect-production',
             'postgres-fersoft-connect-production', 'redis-fersoft-connect-production',
             'rabbitmq-fersoft-connect-production', 'minio-fersoft-connect-production',
-            'operations-fersoft-connect-production', 'transcription-worker-fersoft-connect-production', 'nats-fersoft-connect-production',
+            'operations-fersoft-connect-production', 'transcription-worker-fersoft-connect-production',
+            'speech-dictation-worker-fersoft-connect-production', 'nats-fersoft-connect-production',
             'mysql-fersoft-connect-production', 'zookeeper-fersoft-connect-production',
             'kafka-fersoft-connect-production', 'traccar-fersoft-connect-production',
             'traccar-postgres-fersoft-connect-production',
@@ -120,6 +121,10 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             transcription_worker['environment']['TRANSCRIPTION_MODEL_CACHE_DIR'],
             '${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}',
         )
+        dictation_worker = services['speech-dictation-worker-fersoft-connect-production']
+        self.assertEqual(dictation_worker['profiles'], ['transcription'])
+        self.assertEqual(dictation_worker['environment']['SPEECH_WORKER_MODE'], 'dictation')
+        self.assertEqual(dictation_worker['container_name'], 'speech-dictation-worker-fersoft-connect-production')
         self.assertIn('psql --no-password', ' '.join(traccar_postgres['healthcheck']['test']))
         self.assertNotIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']

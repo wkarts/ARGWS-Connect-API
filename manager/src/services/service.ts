@@ -80,4 +80,20 @@ export const connect = {
   async transcription(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/transcriptions/${encodeURIComponent(jobId)}`) },
   async retryTranscription(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/transcriptions/${encodeURIComponent(jobId)}/retry`, { method: 'POST' }) },
   async deleteTranscription(jobId: string): Promise<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }> { return request<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }>(`/transcriptions/${encodeURIComponent(jobId)}`, { method: 'DELETE' }) },
+  async dictate(file: File, input: { language: string; instanceId?: string; durationMs: number; idempotencyKey: string }): Promise<any> {
+    const data = new FormData()
+    data.append('audio', file, file.name)
+    data.append('language', input.language)
+    data.append('durationMs', String(input.durationMs))
+    data.append('idempotencyKey', input.idempotencyKey)
+    if (input.instanceId) data.append('instanceId', input.instanceId)
+    return request('/speech/dictation', { method: 'POST', data, timeout: 60000 })
+  },
+  async dictationJob(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/dictation/${encodeURIComponent(jobId)}`) },
+  async cancelDictation(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }) },
+  async speechHealth(): Promise<any> { return request<any>('/speech/health') },
+  async transcribeMessage(messageId: string, instanceId: string, language = 'pt-BR', idempotencyKey = crypto.randomUUID()): Promise<TranscriptionJob> {
+    return request<TranscriptionJob>('/speech/transcriptions', { method: 'POST', data: { messageId, instanceId, language, idempotencyKey }, timeout: 60000 })
+  },
+  async speechJob(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/transcriptions/${encodeURIComponent(jobId)}`) },
 }

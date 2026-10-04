@@ -18280,6 +18280,780 @@
         }
       }
     },
+    "/v1/speech/dictation": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Enfileirar ditado do microfone",
+        "operationId": "post_v1_speech_dictation",
+        "description": "Recebe um áudio curto em multipart/form-data e o envia inline para a fila prioritária speech.dictation. O áudio não é copiado para MinIO; o job e o resultado ficam persistidos.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Ditado aceito.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "const": "dictation"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "queued"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "mode",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "description": "Limite de tamanho ou duração excedido."
+          },
+          "415": {
+            "description": "Formato de áudio não suportado."
+          },
+          "503": {
+            "description": "Fila ou worker de ditado indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "audio"
+                ],
+                "properties": {
+                  "audio": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/dictation/{jobId}": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar ditado",
+        "operationId": "get_v1_speech_dictation_jobid",
+        "description": "Retorna estado, progresso e texto do job de ditado.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado atual do ditado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/dictation/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Cancelar ditado",
+        "operationId": "post_v1_speech_dictation_jobid_cancel",
+        "description": "Marca o job como cancelado e sinaliza o worker para parar entre trechos.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job cancelado."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/health": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar saúde do subsistema de voz",
+        "operationId": "get_v1_speech_health",
+        "description": "Retorna configuração local, estado das filas, disponibilidade dos dois workers e contagens de jobs; não altera jobs.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Diagnóstico do subsistema."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/live": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Verificar liveness do serviço de voz",
+        "operationId": "get_v1_speech_live",
+        "description": "Confirma que o processo da API está vivo. Não verifica filas nem modelo.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API de voz ativa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "alive"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/models": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Listar modelo configurado",
+        "operationId": "get_v1_speech_models",
+        "description": "Lista somente o modelo configurado por SPEECH_MODEL. Não baixa nem instala modelos dinamicamente.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo configurado e estado dos workers."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/models/{modelId}/activate": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Confirmar ativação do modelo local",
+        "operationId": "post_v1_speech_models_modelid_activate",
+        "description": "Aceita somente o modelo já configurado em SPEECH_MODEL; a ativação efetiva requer provisionar o modelo e reiniciar os workers.",
+        "parameters": [
+          {
+            "name": "modelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota modelId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo configurado."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/ready": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Verificar readiness de voz",
+        "operationId": "get_v1_speech_ready",
+        "description": "Retorna 200 quando pelo menos um worker de voz está consumindo a fila correspondente; caso contrário retorna 503.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ao menos um worker está pronto."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "description": "API, fila ou workers de voz indisponíveis."
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/transcriptions": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Listar transcrições",
+        "operationId": "get_v1_speech_transcriptions",
+        "description": "Lista jobs recentes de transcrição; use limit para ajustar a quantidade.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 30
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs recentes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TranscriptionJob"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      },
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Criar transcrição",
+        "operationId": "post_v1_speech_transcriptions",
+        "description": "Cria um job para mídia já persistida de uma mensagem (JSON) ou recebe um arquivo para transcrição (multipart/form-data). Uploads diretos são armazenados em MinIO privado.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job aceito.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "description": "O áudio excede o limite configurado."
+          },
+          "415": {
+            "description": "Formato de áudio não suportado."
+          },
+          "503": {
+            "description": "MinIO, fila ou worker indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "messageId"
+                ],
+                "properties": {
+                  "messageId": {
+                    "type": "string"
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "audio"
+                ],
+                "properties": {
+                  "audio": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/transcriptions/{jobId}": {
+      "delete": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Remover resultado de transcrição",
+        "operationId": "delete_v1_speech_transcriptions_jobid",
+        "description": "Remove o registro do job; mídia associada à mensagem permanece intacta.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job removido."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar transcrição",
+        "operationId": "get_v1_speech_transcriptions_jobid",
+        "description": "Retorna estágio, progresso, heartbeat e resultado persistido.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado atual do job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/transcriptions/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Cancelar transcrição",
+        "operationId": "post_v1_speech_transcriptions_jobid_cancel",
+        "description": "Marca o job como cancelado e sinaliza o worker para interromper o processamento entre trechos.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job cancelado."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/transcriptions/{jobId}/retry": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Reenfileirar transcrição",
+        "operationId": "post_v1_speech_transcriptions_jobid_retry",
+        "description": "Reenfileira um job de transcrição que pode ser tentado novamente.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job reenfileirado."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/transcriptions/upload": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Enviar áudio para transcrição",
+        "operationId": "post_v1_speech_transcriptions_upload",
+        "description": "Alias multipart/form-data de POST /v1/speech/transcriptions.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job aceito.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "description": "O áudio excede o limite configurado."
+          },
+          "415": {
+            "description": "Formato de áudio não suportado."
+          },
+          "503": {
+            "description": "MinIO, fila ou worker indisponível."
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "audio"
+                ],
+                "properties": {
+                  "audio": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "language": {
+                    "type": "string"
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/transcriptions": {
       "get": {
         "tags": [
@@ -18494,6 +19268,76 @@
           }
         },
         "x-source-file": "src/api/routes/transcription.router.ts"
+      }
+    },
+    "/v1/transcriptions/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Core"
+        ],
+        "summary": "Cancel",
+        "operationId": "post_v1_transcriptions_jobid_cancel",
+        "description": "Endpoint descoberto do código em `src/api/routes/transcription.router.ts`.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Operação aceita/criada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/transcription.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
       }
     },
     "/v1/transcriptions/{jobId}/retry": {

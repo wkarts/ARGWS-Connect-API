@@ -446,8 +446,22 @@ export function messages(raw: any): Message[] {
   return asArray(raw).map((item, index) => {
     const text = messagePreview(item.message || item.text || item.body || item.content)
     const fromMe = Boolean(item.key?.fromMe ?? item.fromMe)
+    const media = item.Media || item.media
+    const messageType = str(item.messageType || '').toLowerCase()
+    const body = item.message?.message || item.message || {}
+    const hasAudioPayload = Boolean(body.audioMessage || body.pttMessage || body.audio || body.voiceMessage)
+    const isAudio = Boolean(media && str(media.mimetype || media.mimeType).toLowerCase().startsWith('audio/')) ||
+      hasAudioPayload || messageType.includes('audio') || messageType.includes('ptt')
+    const transcript = asArray(item.TranscriptionJob || item.transcriptionJobs)[0]
     return {
       id: str(item.key?.id || item.id || index),
+      transcriptionMessageId: item.id ? str(item.id) : undefined,
+      isAudio,
+      transcriptionJobId: transcript?.id ? str(transcript.id) : undefined,
+      transcriptionStatus: transcript?.status ? str(transcript.status) : undefined,
+      transcriptionStage: transcript?.stage ? str(transcript.stage) : undefined,
+      transcriptionProgress: Number(transcript?.progressPercent || 0),
+      transcriptionText: transcript?.text ? str(transcript.text) : undefined,
       text: text || '[Conteúdo]',
       direction: fromMe ? 'out' : 'in',
       participantRef: item.key?.participant || item.participant || undefined,

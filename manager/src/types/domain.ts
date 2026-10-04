@@ -39,10 +39,18 @@ export type TranscriptionJob = {
   id: string
   instanceId?: string | null
   messageId?: string | null
+  mode?: 'dictation' | 'transcription' | string
+  sourceType?: string
+  originalFilename?: string | null
+  sizeBytes?: number | null
   provider: string
   model: string
   language?: string | null
   status: 'queued' | 'processing' | 'completed' | 'failed' | string
+  stage?: string | null
+  progressPercent?: number
+  processedDurationMs?: number | null
+  heartbeatAt?: string | null
   text?: string | null
   detectedLanguage?: string | null
   durationMs?: number | null
@@ -55,6 +63,8 @@ export type TranscriptionJob = {
   completedAt?: string | null
   updatedAt?: string
 }
+
+export type DictationAccepted = { id: string; mode: 'dictation'; status: string }
 
 export type ManagerStorageOverview = {
   enabled: boolean
@@ -191,6 +201,13 @@ export type Message = {
   participantRef?: string
   participantName?: string
   id: string
+  transcriptionMessageId?: string
+  isAudio?: boolean
+  transcriptionJobId?: string
+  transcriptionStatus?: string
+  transcriptionStage?: string | null
+  transcriptionProgress?: number
+  transcriptionText?: string | null
   text: string
   direction: 'in' | 'out' | 'system'
   timestamp?: string
