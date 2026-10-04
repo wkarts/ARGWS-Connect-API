@@ -2335,6 +2335,57 @@
         "x-source-file": "src/api/routes/chat.router.ts"
       }
     },
+    "/chat/findPublishedStatusViews/{instanceName}/{statusId}": {
+      "get": {
+        "tags": [
+          "Chats & Contacts"
+        ],
+        "summary": "Consultar visualizações de Status publicado",
+        "operationId": "get_chat_findpublishedstatusviews_instancename_statusid",
+        "description": "Retorna somente confirmações READ/PLAYED recebidas para um Status próprio ainda presente no histórico desta instância. Não consulta dados antigos que o WhatsApp/provider não tenha sincronizado.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "description": "Parâmetro de rota statusId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de participantes com confirmação de visualização."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "x-source-file": "src/api/routes/chat.router.ts"
+      }
+    },
     "/chat/findStatusMessage/{instanceName}": {
       "post": {
         "tags": [
@@ -18573,7 +18624,67 @@
         ],
         "responses": {
           "200": {
-            "description": "Diagnóstico da fila e do worker local."
+            "description": "Diagnóstico da fila, do worker local e do limite de upload ativo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "queue": {
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "consumerCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "workerReady": {
+                      "type": "boolean"
+                    },
+                    "messageCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "staleJobSeconds": {
+                      "type": "integer",
+                      "minimum": 60
+                    },
+                    "maxUploadBytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 262144000
+                    },
+                    "queuedJobs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "processingJobs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "oldestQueuedSeconds": {
+                      "type": "integer",
+                      "nullable": true,
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "queue",
+                    "connected",
+                    "consumerCount",
+                    "workerReady",
+                    "staleJobSeconds",
+                    "maxUploadBytes"
+                  ]
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"

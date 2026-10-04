@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-03T21:05:52.551Z",
+  "generatedAt": "2026-10-04T04:00:26.172Z",
   "version": "1.1.16",
-  "sourceDigest": "58c7a5cc69a81f24acd12129049dc397145cf3b43ff04e1c2a20b5fe9eb71a15",
+  "sourceDigest": "d9d2f58cefc6c3f31ec3d68ceee7173558b3fa60149da76ce600b0de3a9f0d2c",
   "operations": [
     {
       "method": "GET",
@@ -166,6 +166,11 @@
     {
       "method": "GET",
       "path": "/chat/findPublishedStatuses/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/findPublishedStatusViews/{instanceName}/{statusId}",
       "source": "src/api/routes/chat.router.ts"
     },
     {
@@ -1383,6 +1388,11 @@
     {
       "method": "DELETE",
       "path": "/graph/{version}/{phoneNumberId}/statuses/{statusId}",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{phoneNumberId}/statuses/{statusId}/views",
       "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
     },
     {

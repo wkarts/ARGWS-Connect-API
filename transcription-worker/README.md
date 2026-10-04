@@ -85,9 +85,11 @@ o áudio mesmo quando o contêiner WebM declara uma trilha de vídeo auxiliar.
 - `POST /v1/transcriptions` continua aceitando `messageId` para áudios já recebidos por uma instância.
 - `POST /v1/transcriptions/upload` recebe `multipart/form-data` com o campo `audio`, além de `language` opcional.
 - `GET /v1/transcriptions` lista os jobs recentes.
-- `GET /v1/transcriptions/health` informa se a fila tem um consumidor ativo; é somente leitura.
+- `GET /v1/transcriptions/health` informa consumidores, jobs na fila, idade do job mais antigo e `maxUploadBytes`; é somente leitura.
 - `GET /v1/transcriptions/:jobId` consulta o estado e o texto.
 - `POST /v1/transcriptions/:jobId/retry` reenfileira uma falha.
 - `POST /v1/transcriptions/cleanup` remove uploads temporários expirados após `confirm=true`.
 
 Todos os endpoints exigem a autenticação administrativa já usada pelo Manager. O áudio é guardado no MinIO privado; não é exposto por URL pública.
+
+O Manager consulta até 100 jobs em uma única chamada por atualização. Jobs na fila mostram há quanto tempo aguardam; somente jobs `processing` sem heartbeat além de `TRANSCRIPTION_STALE_JOB_SECONDS` são recuperados automaticamente. A recuperação não republica jobs `queued`, porque RabbitMQ pode já ter entregue uma mensagem ainda sem confirmação. O limite de upload exibido no Manager vem de `TRANSCRIPTION_MAX_AUDIO_BYTES` informado pela API.

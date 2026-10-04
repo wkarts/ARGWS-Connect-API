@@ -133,6 +133,14 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertEqual(environment['TRANSCRIPTION_ENABLED'], 'true')
         self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
 
+        develop = yaml.safe_load((ROOT / 'deploy/develop/compose.yaml').read_text(encoding='utf-8'))
+        worker = develop['services']['transcription-worker-argws-connect-develop']
+        self.assertEqual(worker['profiles'], ['transcription'])
+
+        production = yaml.safe_load((ROOT / 'deploy/production/compose.yaml').read_text(encoding='utf-8'))
+        production_worker = production['services']['transcription-worker-argws-connect-production']
+        self.assertEqual(production_worker['profiles'], ['transcription'])
+
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')
         self.assertIn('traccar-bootstrap-fersoft-connect-production:', raw)

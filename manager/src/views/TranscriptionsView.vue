@@ -10,6 +10,9 @@ import { friendlyError } from '@/services/errors'
 type TranscriptionJob = {
   id: string
   status: 'queued' | 'processing' | 'completed' | 'failed' | string
+  stage?: string | null
+  progressPercent?: number
+  processedDurationMs?: number | null
   text?: string | null
   language?: string | null
   detectedLanguage?: string | null
@@ -41,6 +44,11 @@ const recordingLevel = ref(0)
 const recordingDb = ref(-60)
 const recordingSupported = computed(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined')
 const MAX_RECORDING_SECONDS = 60 * 60
+const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+const maxUploadBytes = computed(() => {
+  const value = Number(workerHealth.value?.maxUploadBytes)
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_UPLOAD_BYTES
+})
 let recorder: MediaRecorder | null = null
 let recordingStream: MediaStream | null = null
 let recordingChunks: Blob[] = []
@@ -54,7 +62,9 @@ let timer: number | null = null
 
 const selected = computed(() => jobs.value.find((job) => job.id === selectedId.value) || jobs.value[0] || null)
 const active = computed(() => jobs.value.filter((job) => ['queued', 'processing'].includes(job.status)).length)
-const selectedSize = computed(() => selectedFile.value ? (selectedFile.value.size / 1024 / 1024).toFixed(2) + ' MB · pronto para enviar' : 'OGG, Opus, MP3, M4A, WAV, WEBM ou AMR · até 25 MB')
+const selectedSize = computed(() => selectedFile.value
+  ? `${formatSize(selectedFile.value.size)} · pronto para enviar`
+  : `OGG, Opus, MP3, M4A, WAV, WEBM ou AMR · até ${formatSize(maxUploadBytes.value)}`)
 
 function stamp(value?: string | null) {
   if (!value) return '—'
@@ -74,8 +84,33 @@ function clock(value: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 }
 
+function formatSize(value: number) {
+  const megabytes = value / (1024 * 1024)
+  return `${Number(megabytes.toFixed(1))} MB`
+}
+
+function queuedAge(value?: string) {
+  const createdAt = value ? new Date(value).getTime() : NaN
+  if (!Number.isFinite(createdAt)) return 'tempo indisponível'
+  const seconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1000))
+  return seconds >= 3600
+    ? `${Math.floor(seconds / 3600)}h ${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}min`
+    : clock(seconds)
+}
+
 function statusLabel(status: string) {
   return ({ queued: 'Na fila', processing: 'Transcrevendo', completed: 'Concluída', failed: 'Falhou' } as Record<string, string>)[status] || status
+}
+
+function stageLabel(stage?: string | null) {
+  return ({
+    queued: 'Aguardando a vez na fila',
+    downloading: 'Buscando áudio privado no MinIO',
+    loading_model: 'Preparando o modelo local',
+    transcribing: 'Transcrevendo por trechos',
+    completed: 'Transcrição concluída',
+    failed: 'Processamento interrompido',
+  } as Record<string, string>)[String(stage || '')] || 'Preparando processamento'
 }
 
 function canDelete(job?: TranscriptionJob | null) {
@@ -85,7 +120,7 @@ function canDelete(job?: TranscriptionJob | null) {
 function canRetry(job?: TranscriptionJob | null) {
   if (!job) return false
   if (job.status === 'failed') return true
-  if (!['queued', 'processing'].includes(job.status)) return false
+  if (job.status !== 'processing') return false
   const staleSeconds = Number(workerHealth.value?.staleJobSeconds || 1800)
   const updatedAt = new Date(job.updatedAt || job.createdAt || 0).getTime()
   return Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt >= Math.max(60, staleSeconds) * 1000
@@ -239,44 +274,64 @@ function stopRecording(discard = false) {
 
 async function load() {
   loading.value = true
-  try {
-    jobs.value = await connect.transcriptionList()
-    await loadWorkerHealth()
-    if (!selectedId.value && jobs.value[0]) selectedId.value = jobs.value[0].id
-  } catch (cause) {
-    error.value = friendlyError(cause, 'Não foi possível consultar as transcrições.')
-  } finally {
-    loading.value = false
+  error.value = ''
+  const [jobsResult, healthResult] = await Promise.allSettled([
+    connect.transcriptionList(100),
+    connect.transcriptionHealth(),
+  ])
+  if (jobsResult.status === 'fulfilled') {
+    jobs.value = jobsResult.value
+    if (!jobs.value.some((job) => job.id === selectedId.value)) selectedId.value = jobs.value[0]?.id || ''
+  } else {
+    error.value = friendlyError(jobsResult.reason, 'Não foi possível consultar as transcrições.')
   }
+  if (healthResult.status === 'fulfilled') {
+    workerHealth.value = healthResult.value
+  } else if (!error.value) {
+    error.value = friendlyError(healthResult.reason, 'Não foi possível consultar o estado do worker.')
+  }
+  loading.value = false
   schedulePolling()
 }
 
-async function loadWorkerHealth() {
-  try { workerHealth.value = await connect.transcriptionHealth() } catch { /* status is best effort */ }
-}
-
 function schedulePolling() {
-  if (timer !== null) window.clearInterval(timer)
-  timer = active.value ? window.setInterval(() => void refreshActive(), 3000) : null
+  if (timer !== null) window.clearTimeout(timer)
+  timer = null
+  const needsWorkerCheck = !workerHealth.value || (workerHealth.value.enabled && !workerHealth.value.workerReady)
+  if (active.value || needsWorkerCheck) {
+    timer = window.setTimeout(() => {
+      timer = null
+      void refreshActive()
+    }, 5000)
+  }
 }
 
 async function refreshActive() {
-  const pending = jobs.value.filter((job) => ['queued', 'processing'].includes(job.status))
-  await loadWorkerHealth()
-  if (!pending.length) { schedulePolling(); return }
-  await Promise.all(pending.map(async (job) => {
-    try {
-      const fresh = await connect.transcription(job.id)
-      const index = jobs.value.findIndex((item) => item.id === job.id)
-      if (index >= 0) jobs.value[index] = fresh
-    } catch { /* polling is best effort */ }
-  }))
+  const [jobsResult, healthResult] = await Promise.allSettled([
+    connect.transcriptionList(100),
+    connect.transcriptionHealth(),
+  ])
+  if (jobsResult.status === 'fulfilled') {
+    jobs.value = jobsResult.value
+    if (!jobs.value.some((job) => job.id === selectedId.value)) selectedId.value = jobs.value[0]?.id || ''
+    error.value = ''
+  } else {
+    error.value = friendlyError(jobsResult.reason, 'Não foi possível atualizar a fila de transcrição.')
+  }
+  if (healthResult.status === 'fulfilled') {
+    workerHealth.value = healthResult.value
+  } else if (jobsResult.status === 'fulfilled') {
+    error.value = friendlyError(healthResult.reason, 'Não foi possível consultar o estado do worker.')
+  }
   schedulePolling()
 }
 
 async function upload() {
   if (!selectedFile.value) { error.value = 'Selecione um arquivo de áudio antes de enviar.'; return }
-  if (selectedFile.value.size > 25 * 1024 * 1024) { error.value = 'O arquivo excede o limite padrão de 25 MB.'; return }
+  if (selectedFile.value.size > maxUploadBytes.value) {
+    error.value = `O arquivo excede o limite configurado de ${formatSize(maxUploadBytes.value)}.`
+    return
+  }
   busy.value = true
   error.value = ''
   success.value = ''
@@ -338,7 +393,7 @@ async function copyText() {
 
 onMounted(() => void load())
 onBeforeUnmount(() => {
-  if (timer !== null) window.clearInterval(timer)
+  if (timer !== null) window.clearTimeout(timer)
   if (recorder) stopRecording(true)
   clearPreview()
 })
@@ -354,7 +409,7 @@ onBeforeUnmount(() => {
       <p v-if="error" class="notice error" role="alert">{{ error }}</p>
       <p v-if="success" class="notice success" role="status">{{ success }}</p>
       <p v-if="workerHealth && !workerHealth.workerReady" class="notice error" role="alert">O worker local não está consumindo a fila. Ative o perfil <code>transcription</code> no <code>COMPOSE_PROFILES</code> e recrie somente o container do worker.</p>
-      <p v-else-if="workerHealth" class="notice worker-ready" role="status">Worker local ativo · {{ workerHealth.consumerCount }} consumidor(es) · {{ workerHealth.messageCount || 0 }} áudio(s) na fila</p>
+      <p v-else-if="workerHealth" class="notice worker-ready" role="status">Worker local ativo · {{ workerHealth.consumerCount }} consumidor(es) · {{ workerHealth.queuedJobs || 0 }} na fila persistida · {{ workerHealth.processingJobs || 0 }} em processamento<span v-if="workerHealth.oldestQueuedSeconds"> · mais antigo há {{ clock(workerHealth.oldestQueuedSeconds) }}</span></p>
 
       <div class="transcription-layout">
         <PanelCard title="Novo áudio" description="Envie uma gravação para iniciar uma transcrição.">
@@ -384,16 +439,16 @@ onBeforeUnmount(() => {
           <p class="privacy-hint"><AppIcon name="shield" :size="13" /> Nenhuma chave de OpenAI ou outro provedor é necessária.</p>
         </PanelCard>
 
-        <PanelCard title="Atividade" :description="active ? String(active) + ' processamento(s) em andamento' : 'Processamentos recentes desta instalação.'">
+        <PanelCard title="Atividade" :description="active ? String(active) + ' áudio(s) na fila ou em processamento' : 'Histórico e situação da fila desta instalação.'">
           <div v-if="loading" class="empty-state"><AppIcon name="refresh" :size="24" /><strong>Consultando jobs…</strong></div>
           <div v-else-if="!jobs.length" class="empty-state"><AppIcon name="mic" :size="25" /><strong>Nenhuma transcrição ainda</strong><span>Envie o primeiro áudio para começar.</span></div>
-          <div v-else class="job-list"><button v-for="job in jobs" :key="job.id" type="button" class="job-row" :class="{ active: selected?.id === job.id }" @click="selectedId = job.id"><span class="job-state" :class="job.status"><i></i></span><span class="job-main"><strong>{{ job.text ? job.text.slice(0, 72) : statusLabel(job.status) }}</strong><small>{{ stamp(job.createdAt) }} · {{ duration(job.durationMs) }}</small></span><span class="job-status">{{ statusLabel(job.status) }}</span></button></div>
+          <div v-else class="job-list"><button v-for="job in jobs" :key="job.id" type="button" class="job-row" :class="{ active: selected?.id === job.id }" @click="selectedId = job.id"><span class="job-state" :class="job.status"><i></i></span><span class="job-main"><strong>{{ job.text ? job.text.slice(0, 72) : statusLabel(job.status) }}</strong><small>{{ stamp(job.createdAt) }} · {{ job.status === 'processing' ? stageLabel(job.stage) : job.status === 'queued' ? `Na fila há ${queuedAge(job.createdAt)}` : duration(job.durationMs) }}</small></span><span class="job-status">{{ job.status === 'processing' ? `${job.progressPercent || 0}%` : statusLabel(job.status) }}</span></button></div>
         </PanelCard>
       </div>
 
       <PanelCard v-if="selected" title="Resultado" :description="statusLabel(selected.status) + ' · ' + (selected.provider === 'local' ? 'motor local' : (selected.provider || 'worker'))">
         <template #actions><button v-if="canRetry(selected)" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />{{ selected.status === 'failed' ? 'Tentar novamente' : 'Reenfileirar' }}</button><button v-if="selected.text" class="btn ghost compact" :disabled="busy" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button><button v-if="canDelete(selected)" class="btn ghost compact danger-button" :disabled="busy" @click="removeSelected"><AppIcon name="trash" :size="14" />{{ ['queued', 'processing'].includes(selected.status) ? 'Cancelar e excluir' : 'Excluir' }}</button></template>
-        <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div><strong>{{ statusLabel(selected.status) }}</strong><p>O worker local está processando o áudio. Esta tela atualiza automaticamente.</p></div></div>
+        <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div class="processing-copy"><strong>{{ statusLabel(selected.status) }} · {{ stageLabel(selected.stage) }}</strong><p v-if="selected.status === 'queued'">Este áudio permanece na fila. A tela mostra a idade da fila e atualiza o estado automaticamente.</p><p v-else>O worker envia atualizações durante o download, carregamento do modelo e processamento por trechos. Áudio processado: {{ duration(selected.processedDurationMs) }}.</p><div v-if="selected.status === 'processing'" class="job-progress" role="progressbar" :aria-valuenow="selected.progressPercent || 0" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${Math.max(4, selected.progressPercent || 0)}%` }"></span></div></div></div>
         <div v-else-if="selected.status === 'failed'" class="result-error"><AppIcon name="warning" :size="19" /><div><strong>Não foi possível concluir</strong><p>{{ selected.errorMessage || 'O worker retornou uma falha sem detalhes.' }}</p></div></div>
         <div v-else class="result-body"><p>{{ selected.text || 'A transcrição terminou sem texto reconhecido.' }}</p><footer><span>Idioma: {{ selected.detectedLanguage || selected.language || 'detectado automaticamente' }}</span><span>Duração: {{ duration(selected.durationMs) }}</span><span>Concluída: {{ stamp(selected.completedAt) }}</span></footer></div>
       </PanelCard>
@@ -403,4 +458,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .transcription-page{display:grid;gap:18px;min-width:0}.transcription-page :deep(.page-header){margin-bottom:0}.privacy-note{display:flex;gap:12px;align-items:flex-start;padding:15px 17px;border:1px solid var(--border);border-radius:13px;background:var(--primary-soft);color:var(--primary)}.privacy-note strong{font-size:13px}.privacy-note p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.notice{margin:0;padding:12px 14px;border-radius:9px;font-size:12px;line-height:1.5}.notice.error{background:var(--danger-soft);color:var(--danger)}.notice.success{background:var(--success-soft);color:var(--success)}.transcription-layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(0,1.1fr);gap:16px}.capture-actions{display:flex;align-items:center;gap:10px;margin-bottom:12px}.capture-actions>span{color:var(--muted);font-size:10px}.record-button{min-height:38px}.recording-panel{display:grid;gap:11px;margin-bottom:12px;padding:16px;border:1px solid color-mix(in srgb,var(--danger) 35%,var(--border));border-radius:12px;background:var(--danger-soft)}.recording-heading,.recording-meta{display:flex;align-items:center;gap:8px}.recording-heading strong{font-size:12px}.recording-heading time{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}.record-dot{width:9px;height:9px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 18%,transparent);animation:pulse 1.2s infinite}.level-meter{height:9px;overflow:hidden;border-radius:99px;background:color-mix(in srgb,var(--danger) 15%,var(--surface))}.level-meter span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--success),#eab308,var(--danger));transition:width .08s linear}.recording-meta{justify-content:space-between;color:var(--muted);font-size:10px}.recording-meta span:first-child{color:var(--text);font-variant-numeric:tabular-nums;font-weight:700}.recording-controls{display:flex;flex-wrap:wrap;gap:8px}.danger-button{color:var(--danger)}.audio-preview{width:100%;height:38px;margin-top:11px}.drop-zone{display:grid;justify-items:center;gap:7px;padding:30px 18px;border:1px dashed var(--border);border-radius:12px;background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}.drop-zone:hover,.drop-zone:focus-visible,.drop-zone.selected{border-color:var(--primary);background:var(--primary-soft);outline:none}.drop-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--surface);color:var(--primary);box-shadow:var(--shadow)}.drop-zone strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.drop-zone small{color:var(--muted);font-size:10px}.upload-options{display:flex;align-items:flex-end;gap:12px;margin-top:15px}.field{display:grid;gap:5px;min-width:0;flex:1}.field span{color:var(--muted);font-size:10px;font-weight:700}.field select{min-height:38px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);padding:8px;font-size:11px}.upload-button{min-height:38px;white-space:nowrap}.recording-support{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--danger);font-size:10px}.privacy-hint{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--muted);font-size:10px}.job-list{display:grid;gap:3px;max-height:280px;overflow:auto}.job-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--text);text-align:left;cursor:pointer}.job-row:hover,.job-row.active{border-color:var(--border);background:var(--surface-2)}.job-state{display:grid;place-items:center;width:20px;height:20px;border-radius:7px;background:var(--surface-2);flex:none}.job-state i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.job-state.completed{background:var(--success-soft)}.job-state.completed i{background:var(--success)}.job-state.processing{background:var(--primary-soft)}.job-state.processing i{background:var(--primary);animation:pulse 1.2s infinite}.job-state.failed{background:var(--danger-soft)}.job-state.failed i{background:var(--danger)}.job-main{display:grid;gap:3px;min-width:0;flex:1}.job-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.job-main small{color:var(--muted);font-size:9px}.job-status{color:var(--muted);font-size:9px;white-space:nowrap}.empty-state{display:grid;justify-items:center;gap:7px;padding:35px 12px;color:var(--muted);text-align:center}.empty-state strong{color:var(--text);font-size:12px}.empty-state span{font-size:10px}.processing-state,.result-error{display:flex;align-items:flex-start;gap:12px;padding:16px;border-radius:10px;background:var(--surface-2);color:var(--primary)}.processing-state strong,.result-error strong{font-size:12px;color:var(--text)}.processing-state p,.result-error p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.result-error{background:var(--danger-soft);color:var(--danger)}.result-body p{margin:0;min-height:80px;white-space:pre-wrap;font-size:13px;line-height:1.7}.result-body footer{display:flex;flex-wrap:wrap;gap:12px;margin-top:17px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:10px}.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;flex:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{opacity:.25}}@media(max-width:860px){.transcription-layout{grid-template-columns:1fr}}@media(max-width:520px){.upload-options{align-items:stretch;flex-direction:column}.upload-button{width:100%}.transcription-page{gap:13px}.privacy-note{padding:13px}.capture-actions{align-items:stretch;flex-direction:column}.capture-actions>span{line-height:1.4}.recording-heading time{font-size:11px}.recording-controls>*{flex:1}.result-body p{font-size:12px}}
+</style>
+
+<style scoped>
+.processing-copy{flex:1;min-width:0}.job-progress{height:7px;margin-top:11px;overflow:hidden;border-radius:99px;background:var(--border)}.job-progress span{display:block;height:100%;border-radius:inherit;background:var(--primary);transition:width .35s ease}
 </style>

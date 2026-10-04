@@ -152,8 +152,10 @@ contra a mídia temporária já removida pelo ciclo de vida.
 Em uploads diretos, o áudio temporário também é removido do MinIO; quando o job
 foi criado a partir de uma mensagem, somente o resultado da transcrição é
 removido e a mídia original permanece intacta. Para repetir uma transcrição
-falha, use o endpoint `retry`; jobs ativos só podem ser reenfileirados depois do
-limite de abandono configurado, evitando duas execuções concorrentes.
+falha, use o endpoint `retry`. Um job `processing` pode ser reenfileirado após
+perder atualizações por todo o limite de abandono configurado. Jobs `queued`
+permanecem sob entrega durável do RabbitMQ; idade da fila, por si só, não os
+reenfileira, pois uma mensagem pode já estar entregue sem confirmação.
 
 ## Publicar Status do WhatsApp
 

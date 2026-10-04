@@ -64,6 +64,7 @@ import {
   STATUS_BROADCAST_JID,
   StatusBroadcastRetentionService,
 } from '@api/services/status-broadcast-retention.service';
+import { recordStatusViewerReceipt } from '@api/services/status-broadcast-viewers.service';
 import { Events, MessageSubtype, TypeMediaMessage, wa } from '@api/types/wa.types';
 import { CacheEngine } from '@cache/cacheengine';
 import {
@@ -2165,6 +2166,7 @@ export class BaileysStartupService extends ChannelStartupService {
               const remotesJidMap: Record<string, number> = {};
 
               for (const event of payload) {
+                await recordStatusViewerReceipt(this.prismaRepository, this.instanceId, event);
                 if (typeof event.key.remoteJid === 'string' && typeof event.receipt.readTimestamp === 'number') {
                   remotesJidMap[event.key.remoteJid] = event.receipt.readTimestamp;
                 }
@@ -4063,22 +4065,48 @@ export class BaileysStartupService extends ChannelStartupService {
   public async deleteMessage(del: DeleteMessage) {
     try {
       if (del.remoteJid === STATUS_BROADCAST_JID) {
-        const publishedStatus = await this.prismaRepository.message.findFirst({
-          where: {
-            instanceId: this.instanceId,
-            status: { not: 'DELETED' },
-            key: { path: prismaJsonPath('id'), equals: String(del.id || '') },
-          },
-        });
-        const statusKey =
-          typeof publishedStatus?.key === 'object' && publishedStatus.key !== null
-            ? (publishedStatus.key as Record<string, any>)
-            : {};
-        if (!publishedStatus || statusKey.remoteJid !== STATUS_BROADCAST_JID || statusKey.fromMe !== true) {
-          throw new NotFoundException('Published Status not found for this instance');
+        const statusId = String(del.id || '').trim();
+        if (!/^[A-Za-z0-9._:-]{1,128}$/.test(statusId) || del.fromMe !== true) {
+          throw new BadRequestException('A valid own Status identifier is required');
         }
       }
       const response = await this.client.sendMessage(del.remoteJid, { delete: del });
+      if (del.remoteJid === STATUS_BROADCAST_JID && response) {
+        const statusId = String(del.id || '').trim();
+        let statusMessage = await this.prismaRepository.message.findFirst({
+          where: {
+            instanceId: this.instanceId,
+            status: { not: 'DELETED' },
+            AND: [
+              { key: { path: prismaJsonPath('id'), equals: statusId } },
+              { key: { path: prismaJsonPath('remoteJid'), equals: STATUS_BROADCAST_JID } },
+              { key: { path: prismaJsonPath('fromMe'), equals: true } },
+            ],
+          },
+        });
+        if (statusMessage) {
+          const removed = await this.statusBroadcastRetention.removeMessage(statusMessage.id);
+          if (!removed) {
+            const existingKey = typeof statusMessage.key === 'object' && statusMessage.key !== null
+              ? statusMessage.key
+              : {};
+            statusMessage = await this.prismaRepository.message.update({
+              where: { id: statusMessage.id },
+              data: { key: { ...existingKey, deleted: true }, status: 'DELETED' },
+            });
+          }
+        }
+        const existingKey = typeof statusMessage?.key === 'object' && statusMessage.key !== null
+          ? statusMessage.key
+          : del;
+        this.sendDataWebhook(Events.MESSAGES_DELETE, {
+          ...(statusMessage || {}),
+          instanceId: this.instanceId,
+          key: { ...existingKey, deleted: true },
+          status: 'DELETED',
+        });
+        return response;
+      }
       if (response) {
         const messageId = response.message?.protocolMessage?.key?.id;
         if (messageId) {

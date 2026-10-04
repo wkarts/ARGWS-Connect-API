@@ -398,11 +398,17 @@ export const current = {
     }))
   },
 
-  async statuses(id: string): Promise<Message[]> {
+  async statuses(id: string, page = 1, limit = 50): Promise<Message[]> {
     return withInstance(id, async (_item, name, token) => normalize.messages(await api(`/chat/findPublishedStatuses/${encodeURIComponent(name)}`, {
       token,
-      params: { page: 1, offset: 100 },
+      params: { page, offset: limit },
     })))
+  },
+
+  async statusViews(id: string, statusId: string): Promise<{ id: string; count: number; viewers: Array<{ participant: string; status: string }> }> {
+    return withInstance(id, async (_item, name, token) => api(`/chat/findPublishedStatusViews/${encodeURIComponent(name)}/${encodeURIComponent(statusId)}`, {
+      token,
+    }))
   },
 
   async deleteStatus(id: string, statusId: string) {
@@ -867,8 +873,8 @@ export const current = {
   async storageCleanup(data: { planId: string; confirm: boolean }) {
     return api<any>('/manager-api/v1/storage/cleanup', { method: 'POST', data, timeout: 120000 })
   },
-  async transcriptionList(): Promise<TranscriptionJob[]> {
-    return api<TranscriptionJob[]>('/v1/transcriptions')
+  async transcriptionList(limit = 100): Promise<TranscriptionJob[]> {
+    return api<TranscriptionJob[]>('/v1/transcriptions', { params: { limit } })
   },
   async transcriptionHealth(): Promise<any> {
     return api<any>('/v1/transcriptions/health')
