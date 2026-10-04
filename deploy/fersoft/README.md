@@ -15,12 +15,9 @@ MYSQL_SERVICE_ENABLED=true
 TRACCAR_ENABLED=true
 ```
 
-No `develop`, o gerador também inclui `transcription` e ativa as duas filas de
-voz quando `SPEECH_ENABLED=true` (ou o fallback legado
-`TRANSCRIPTION_ENABLED=true`). O modelo local deve estar provisionado e ter
-manifesto SHA-256 antes dos workers ficarem prontos. Em instalações existentes,
-preserve os perfis atuais e acrescente `transcription` antes de recriar os
-workers de transcrição e ditado.
+No `develop`, o gerador também inclui `transcription` e ativa o worker local
+quando `TRANSCRIPTION_ENABLED=true`. Em instalações existentes, preserve os
+perfis atuais e acrescente `transcription` antes de recriar somente o worker.
 
 Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
 O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos

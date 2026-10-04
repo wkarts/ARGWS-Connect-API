@@ -193,10 +193,11 @@ services:
         max-file: ${DOCKER_LOG_MAX_FILE:-5}
 
 
-  speech-dictation-worker:
+  speech-dictation-worker-argws-connect-production:
     profiles: [transcription]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
     pull_policy: always
+    container_name: speech-dictation-worker-argws-connect-production
     restart: unless-stopped
     env_file:
     - .env

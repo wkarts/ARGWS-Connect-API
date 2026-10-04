@@ -64,7 +64,6 @@ services:
       start_period: 60s
     logging: *default-logging
 
-
   transcription-worker:
     profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}

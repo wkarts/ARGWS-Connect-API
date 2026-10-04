@@ -189,7 +189,7 @@ services:
     tmpfs:
     - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
     volumes:
-      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
+    - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
     networks:
     - fersoft-connect-develop-net
     healthcheck:
@@ -205,12 +205,12 @@ services:
       options:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: ${DOCKER_LOG_MAX_FILE:-5}
-
-  speech-dictation-worker:
+  speech-dictation-worker-fersoft-connect-develop:
     profiles:
     - transcription
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
     pull_policy: always
+    container_name: speech-dictation-worker-fersoft-connect-develop
     restart: unless-stopped
     env_file:
     - .env
@@ -252,7 +252,7 @@ services:
     tmpfs:
     - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
     volumes:
-      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
+    - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
     networks:
     - fersoft-connect-develop-net
     healthcheck:

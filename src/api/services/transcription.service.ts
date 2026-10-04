@@ -159,7 +159,12 @@ function cancelRoutingKey(mode: string): string {
 }
 
 function providerValue(): string {
-  const provider = String(process.env.SPEECH_PROVIDER || process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local')
+  const provider = String(
+    process.env.SPEECH_PROVIDER ||
+      process.env.TRANSCRIPTION_PROVIDER ||
+      process.env.TRANSCRIPTION_ENGINE ||
+      'local',
+  )
     .trim()
     .toLowerCase();
   return provider === 'openai' ? 'local' : provider;
@@ -175,7 +180,9 @@ function safeLanguage(value: unknown): string | null {
 }
 
 function safeModel(value: unknown): string {
-  const model = String(value || process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim();
+  const model = String(
+    value || process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small',
+  ).trim();
   if (!/^[A-Za-z0-9._:/@-]{1,100}$/.test(model)) {
     throw new TranscriptionServiceError('model inválido.', 400);
   }
@@ -200,7 +207,11 @@ function dictationAudioRetentionMs(): number {
 function safeIdempotencyKey(value: unknown): string | null {
   if (value === undefined || value === null || String(value).trim() === '') return null;
   const key = String(value).trim();
-  if (key.length > 128 || /[\u0000-\u001f\u007f]/.test(key)) {
+  const hasControlCharacter = [...key].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+  if (key.length > 128 || hasControlCharacter) {
     throw new TranscriptionServiceError('Idempotency-Key inválida.', 400);
   }
   return key;
@@ -327,10 +338,20 @@ export class TranscriptionService {
 
     try {
       const jobs = this.prismaRepository.transcriptionJob as any;
-      const [queuedJobs, processingJobs, oldestQueued, dictationQueuedJobs, dictationProcessingJobs] = await Promise.all([
+      const [
+        queuedJobs,
+        processingJobs,
+        oldestQueued,
+        dictationQueuedJobs,
+        dictationProcessingJobs,
+      ] = await Promise.all([
         jobs.count({ where: { mode: 'transcription', status: 'queued' } }),
         jobs.count({ where: { mode: 'transcription', status: 'processing' } }),
-        jobs.findFirst({ where: { mode: 'transcription', status: 'queued' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+        jobs.findFirst({
+          where: { mode: 'transcription', status: 'queued' },
+          orderBy: { createdAt: 'asc' },
+          select: { createdAt: true },
+        }),
         jobs.count({ where: { mode: 'dictation', status: 'queued' } }),
         jobs.count({ where: { mode: 'dictation', status: 'processing' } }),
       ]);
@@ -395,7 +416,13 @@ export class TranscriptionService {
     const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
 
     const pending = await (this.prismaRepository.transcriptionJob as any).findFirst({
-      where: { messageId, mode: 'transcription', model, language, status: { in: ['queued', 'processing', 'completed'] } },
+      where: {
+        messageId,
+        mode: 'transcription',
+        model,
+        language,
+        status: { in: ['queued', 'processing', 'completed'] },
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (pending) return this.publicJob(pending);
@@ -507,10 +534,9 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('Formato de áudio não suportado pelo ditado.', 415);
     }
     const durationMs = Number(input.durationMs);
-    const maxDuration = Math.min(
-      Math.max(Number.parseInt(process.env.DICTATION_MAX_DURATION_SECONDS || '300', 10) || 300, 1),
-      1800,
-    ) * 1000;
+    const maxDuration =
+      Math.min(Math.max(Number.parseInt(process.env.DICTATION_MAX_DURATION_SECONDS || '300', 10) || 300, 1), 1800) *
+      1000;
     if (Number.isFinite(durationMs) && durationMs > maxDuration) {
       throw new TranscriptionServiceError('O ditado excede a duração máxima configurada.', 413);
     }
@@ -694,7 +720,9 @@ export class TranscriptionService {
           mode: job.mode || 'transcription',
         });
       } catch (error) {
-        this.logger.warn('Transcrição: não foi possível avisar o worker antes da exclusão: ' + (error?.message || error));
+        this.logger.warn(
+          'Transcrição: não foi possível avisar o worker antes da exclusão: ' + (error?.message || error),
+        );
       }
     }
     if (ownsTemporarySource) {
@@ -1180,7 +1208,10 @@ export class TranscriptionService {
   }
 
   private staleJobSeconds(): number {
-    const value = Number.parseInt(process.env.SPEECH_JOB_STALE_AFTER || process.env.TRANSCRIPTION_STALE_JOB_SECONDS || '', 10);
+    const value = Number.parseInt(
+      process.env.SPEECH_JOB_STALE_AFTER || process.env.TRANSCRIPTION_STALE_JOB_SECONDS || '',
+      10,
+    );
     if (!Number.isFinite(value)) return 120;
     return Math.min(Math.max(value, 60), 86_400);
   }
@@ -1313,7 +1344,7 @@ export class TranscriptionService {
       });
       if (result.removed || result.failed) {
         this.logger.info(
-          `Transcrição: limpeza removeu ${result.removed} objeto(s) e ${result.jobsRemoved} resultado(s); falhas=${result.failed + result.jobsFailed}.`,
+          `Transcrição: limpeza removeu ${result.removed} objeto(s) e ${result.jobsRemoved} resultado(s); falhas=${result.failed}.`,
         );
       }
     } catch (error) {

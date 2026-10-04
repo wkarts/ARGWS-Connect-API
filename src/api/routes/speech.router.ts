@@ -34,7 +34,10 @@ export class SpeechRouter {
     this.router.get('/models', (req, res) => void this.models(req, res));
     this.router.post('/models/:modelId/activate', (req, res) => void this.activateModel(req, res));
 
-    this.router.post('/dictation', (req, res) => this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)));
+    this.router.post(
+      '/dictation',
+      (req, res) => this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)),
+    );
     this.router.get('/dictation/:jobId', (req, res) => void this.readDictation(req, res));
     this.router.post('/dictation/:jobId/cancel', (req, res) => void this.cancel(req, res, 'dictation'));
 
@@ -47,7 +50,10 @@ export class SpeechRouter {
         void this.createFromMessage(req, res);
       }
     });
-    this.router.post('/transcriptions/upload', (req, res) => this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res)));
+    this.router.post(
+      '/transcriptions/upload',
+      (req, res) => this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res)),
+    );
     this.router.get('/transcriptions/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/transcriptions/:jobId/cancel', (req, res) => void this.cancel(req, res, 'transcription'));
     this.router.post('/transcriptions/:jobId/retry', (req, res) => void this.retry(req, res, 'transcription'));
@@ -191,7 +197,10 @@ export class SpeechRouter {
     try {
       const health = await this.service.health();
       const ready = health.enabled && (health.workerReady || health.dictationWorkerReady);
-      res.set('Cache-Control', 'no-store').status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', ...health });
+      res
+        .set('Cache-Control', 'no-store')
+        .status(ready ? 200 : 503)
+        .json({ status: ready ? 'ready' : 'not_ready', ...health });
     } catch (error) {
       this.fail(error, res);
     }
@@ -211,7 +220,15 @@ export class SpeechRouter {
       const id = String(health.model || 'Xenova/whisper-small');
       res.set('Cache-Control', 'no-store').json({
         provider: health.provider,
-        models: [{ id, name: id.split('/').pop(), language: process.env.SPEECH_LANGUAGE || 'pt-BR', status: health.workerReady || health.dictationWorkerReady ? 'ready' : 'unavailable', active: true }],
+        models: [
+          {
+            id,
+            name: id.split('/').pop(),
+            language: process.env.SPEECH_LANGUAGE || 'pt-BR',
+            status: health.workerReady || health.dictationWorkerReady ? 'ready' : 'unavailable',
+            active: true,
+          },
+        ],
       });
     } catch (error) {
       this.fail(error, res);
@@ -222,9 +239,14 @@ export class SpeechRouter {
     try {
       const health = await this.service.health();
       if (String(req.params.modelId) !== String(health.model)) {
-        throw new TranscriptionServiceError('Somente o modelo já configurado e provisionado pode ser ativado. Altere SPEECH_MODEL e reinicie os workers.', 409);
+        throw new TranscriptionServiceError(
+          'Somente o modelo já configurado e provisionado pode ser ativado. Altere SPEECH_MODEL e reinicie os workers.',
+          409,
+        );
       }
-      res.set('Cache-Control', 'no-store').json({ id: health.model, active: true, ready: health.workerReady || health.dictationWorkerReady });
+      res
+        .set('Cache-Control', 'no-store')
+        .json({ id: health.model, active: true, ready: health.workerReady || health.dictationWorkerReady });
     } catch (error) {
       this.fail(error, res);
     }
