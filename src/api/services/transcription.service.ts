@@ -413,7 +413,9 @@ export class TranscriptionService {
     }
 
     await this.ready();
-    const updateWhere: any = job.status === 'failed' ? { id, status: 'failed' } : { id, status: 'processing', updatedAt: job.updatedAt };
+    const updateWhere: any = job.status === 'failed'
+      ? { id, status: 'failed' }
+      : { id, status: 'processing', updatedAt: job.updatedAt };
     const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
       where: updateWhere,
       data: {
