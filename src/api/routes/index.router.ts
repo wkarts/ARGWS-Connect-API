@@ -39,6 +39,7 @@ import { OperationsRouter } from './operations.router';
 import { ProxyRouter } from './proxy.router';
 import { MessageRouter } from './sendMessage.router';
 import { SettingsRouter } from './settings.router';
+import { SpeechRouter } from './speech.router';
 import { TemplateRouter } from './template.router';
 import { TranscriptionRouter } from './transcription.router';
 import { ViewsRouter } from './view.router';
@@ -228,6 +229,7 @@ router
   .use('/localTemplate', new LocalTemplateRouter(...guards).router)
   .use('/template', new TemplateRouter(configService, ...guards).router)
   .use('/settings', new SettingsRouter(...guards).router)
+  .use('/v1/speech', new SpeechRouter(transcriptionService, authGuard['apikey']).router)
   .use('/v1/transcriptions', new TranscriptionRouter(transcriptionService, authGuard['apikey']).router)
   .use('/proxy', new ProxyRouter(...guards).router)
   .use('/label', new LabelRouter(...guards).router)

@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-04T04:13:38.602Z",
+  "generatedAt": "2026-10-04T21:58:36.072Z",
   "version": "1.1.16",
-  "sourceDigest": "d9d2f58cefc6c3f31ec3d68ceee7173558b3fa60149da76ce600b0de3a9f0d2c",
+  "sourceDigest": "4c359d2f42acc3377bb7a088185fbd78eeeeb3e6bcce85d05de5b4ee01253336",
   "operations": [
     {
       "method": "GET",
@@ -1279,6 +1279,81 @@
       "source": "src/api/integrations/chatbot/typebot/routes/typebot.router.ts"
     },
     {
+      "method": "POST",
+      "path": "/v1/speech/dictation",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/dictation/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/dictation/{jobId}/cancel",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/health",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/live",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/models",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/models/{modelId}/activate",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/ready",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/transcriptions",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/speech/transcriptions/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/transcriptions/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions/{jobId}/cancel",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions/upload",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
       "method": "GET",
       "path": "/v1/transcriptions",
       "source": "src/api/routes/transcription.router.ts"
@@ -1296,6 +1371,11 @@
     {
       "method": "GET",
       "path": "/v1/transcriptions/{jobId}",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/{jobId}/cancel",
       "source": "src/api/routes/transcription.router.ts"
     },
     {

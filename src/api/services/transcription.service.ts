@@ -8,13 +8,11 @@ import {
 import { PrismaRepository } from '@api/repository/repository.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import path from 'path';
 
 const REQUESTED = 'transcription.requested';
-const PROCESSING = 'transcription.processing';
-const COMPLETED = 'transcription.completed';
-const FAILED = 'transcription.failed';
+const DICTATION_REQUESTED = 'speech.dictation.requested';
 const TRANSCRIPTION_SOURCE_PREFIX = 'transcriptions/';
 const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
 
@@ -23,6 +21,7 @@ type EnqueueInput = {
   instanceId?: string;
   language?: string;
   model?: string;
+  idempotencyKey?: string;
 };
 
 type UploadInput = {
@@ -32,7 +31,10 @@ type UploadInput = {
   instanceId?: string;
   language?: string;
   model?: string;
+  idempotencyKey?: string;
 };
+
+type DictationInput = UploadInput & { durationMs?: number };
 
 type WorkerResult = {
   jobId?: string;
@@ -41,6 +43,9 @@ type WorkerResult = {
   stage?: string | null;
   progressPercent?: number;
   processedDurationMs?: number | null;
+  heartbeatAt?: string;
+  partialText?: string;
+  mode?: string;
   text?: string;
   language?: string | null;
   durationMs?: number | null;
@@ -126,12 +131,35 @@ function enabledValue(value: unknown, fallback = false): boolean {
 }
 
 function normalizedQueue(value: unknown): string {
-  const queue = String(value || 'argws-connect.transcription').trim();
-  return queue || 'argws-connect.transcription';
+  const queue = String(value || 'speech.transcription').trim();
+  return queue || 'speech.transcription';
+}
+
+function dictationQueue(): string {
+  const queue = String(process.env.SPEECH_DICTATION_QUEUE || 'speech.dictation').trim();
+  return queue || 'speech.dictation';
+}
+
+function queueFor(mode: string): string {
+  return mode === 'dictation'
+    ? dictationQueue()
+    : normalizedQueue(process.env.SPEECH_TRANSCRIPTION_QUEUE || process.env.TRANSCRIPTION_QUEUE);
+}
+
+function requestRoutingKey(mode: string): string {
+  return mode === 'dictation' ? DICTATION_REQUESTED : REQUESTED;
+}
+
+function resultRoutingPrefix(mode: string): string {
+  return mode === 'dictation' ? 'speech.dictation.' : 'transcription.';
+}
+
+function cancelRoutingKey(mode: string): string {
+  return mode === 'dictation' ? 'speech.cancel.dictation' : 'speech.cancel.transcription';
 }
 
 function providerValue(): string {
-  const provider = String(process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local')
+  const provider = String(process.env.SPEECH_PROVIDER || process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local')
     .trim()
     .toLowerCase();
   return provider === 'openai' ? 'local' : provider;
@@ -147,7 +175,7 @@ function safeLanguage(value: unknown): string | null {
 }
 
 function safeModel(value: unknown): string {
-  const model = String(value || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim();
+  const model = String(value || process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim();
   if (!/^[A-Za-z0-9._:/@-]{1,100}$/.test(model)) {
     throw new TranscriptionServiceError('model inválido.', 400);
   }
@@ -157,6 +185,29 @@ function safeModel(value: unknown): string {
 function maxUploadBytes(): number {
   const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
   return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
+}
+
+function maxDictationBytes(): number {
+  const value = Number.parseInt(process.env.DICTATION_MAX_AUDIO_BYTES || '', 10);
+  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 25 * 1024 * 1024) : 5 * 1024 * 1024;
+}
+
+function dictationAudioRetentionMs(): number {
+  const minutes = Number.parseInt(process.env.DICTATION_AUDIO_RETENTION_MINUTES || '5', 10);
+  return Math.min(Math.max(Number.isFinite(minutes) ? minutes : 5, 1), 60) * 60_000;
+}
+
+function safeIdempotencyKey(value: unknown): string | null {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const key = String(value).trim();
+  if (key.length > 128 || /[\u0000-\u001f\u007f]/.test(key)) {
+    throw new TranscriptionServiceError('Idempotency-Key inválida.', 400);
+  }
+  return key;
+}
+
+function sha256(value: Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function uploadExtension(fileName: string, mimeType: string): string {
@@ -209,7 +260,11 @@ export class TranscriptionService {
   constructor(private readonly prismaRepository: PrismaRepository) {}
 
   public isEnabled(): boolean {
-    return enabledValue(process.env.TRANSCRIPTION_ENABLED, false);
+    return enabledValue(process.env.SPEECH_ENABLED, enabledValue(process.env.TRANSCRIPTION_ENABLED, false));
+  }
+
+  public isDictationEnabled(): boolean {
+    return this.isEnabled() && enabledValue(process.env.DICTATION_ENABLED, true);
   }
 
   public async init(): Promise<void> {
@@ -229,10 +284,11 @@ export class TranscriptionService {
     return this.initializing;
   }
 
-  public async list(limit = 30) {
+  public async list(limit = 30, mode = 'transcription') {
     if (!this.isEnabled()) return [];
     const take = Number.isFinite(Number(limit)) ? Math.min(Math.max(Number(limit), 1), 100) : 30;
     const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
+      where: { mode: mode === 'dictation' ? 'dictation' : 'transcription' },
       take,
       orderBy: { createdAt: 'desc' },
     });
@@ -244,30 +300,44 @@ export class TranscriptionService {
    * deliberately never publishes, retries or deletes a job.
    */
   public async health() {
-    const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
+    const queue = queueFor('transcription');
     const result: any = {
       enabled: this.isEnabled(),
       queue,
       connected: false,
       consumerCount: 0,
       workerReady: false,
+      dictationQueue: dictationQueue(),
+      dictationConsumerCount: 0,
+      dictationWorkerReady: false,
       staleJobSeconds: this.staleJobSeconds(),
       maxUploadBytes: maxUploadBytes(),
+      maxDictationBytes: maxDictationBytes(),
+      dictationAudioRetentionMinutes: Math.floor(dictationAudioRetentionMs() / 60_000),
       queuedJobs: 0,
       processingJobs: 0,
+      dictationQueuedJobs: 0,
+      dictationProcessingJobs: 0,
       oldestQueuedSeconds: null as number | null,
+      model: String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small'),
+      provider: providerValue(),
+      allowRemoteModels: false,
     };
     if (!this.isEnabled()) return result;
 
     try {
       const jobs = this.prismaRepository.transcriptionJob as any;
-      const [queuedJobs, processingJobs, oldestQueued] = await Promise.all([
-        jobs.count({ where: { status: 'queued' } }),
-        jobs.count({ where: { status: 'processing' } }),
-        jobs.findFirst({ where: { status: 'queued' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+      const [queuedJobs, processingJobs, oldestQueued, dictationQueuedJobs, dictationProcessingJobs] = await Promise.all([
+        jobs.count({ where: { mode: 'transcription', status: 'queued' } }),
+        jobs.count({ where: { mode: 'transcription', status: 'processing' } }),
+        jobs.findFirst({ where: { mode: 'transcription', status: 'queued' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+        jobs.count({ where: { mode: 'dictation', status: 'queued' } }),
+        jobs.count({ where: { mode: 'dictation', status: 'processing' } }),
       ]);
       result.queuedJobs = Number(queuedJobs || 0);
       result.processingJobs = Number(processingJobs || 0);
+      result.dictationQueuedJobs = Number(dictationQueuedJobs || 0);
+      result.dictationProcessingJobs = Number(dictationProcessingJobs || 0);
       if (oldestQueued?.createdAt) {
         const oldestQueuedAt = new Date(oldestQueued.createdAt).getTime();
         if (Number.isFinite(oldestQueuedAt)) {
@@ -287,6 +357,10 @@ export class TranscriptionService {
       result.consumerCount = Number(state?.consumerCount || 0);
       result.workerReady = result.consumerCount > 0;
       result.messageCount = Number(state?.messageCount || 0);
+      const dictationState = await this.channel.checkQueue(dictationQueue());
+      result.dictationConsumerCount = Number(dictationState?.consumerCount || 0);
+      result.dictationWorkerReady = result.dictationConsumerCount > 0;
+      result.dictationMessageCount = Number(dictationState?.messageCount || 0);
     } catch (error) {
       this.logger.debug('Transcrição: diagnóstico da fila indisponível: ' + (error?.message || error));
     }
@@ -316,20 +390,28 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
     }
 
+    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
+    const model = safeModel(input.model);
+    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
+
     const pending = await (this.prismaRepository.transcriptionJob as any).findFirst({
-      where: { messageId, status: { in: ['queued', 'processing'] } },
+      where: { messageId, mode: 'transcription', model, language, status: { in: ['queued', 'processing', 'completed'] } },
       orderBy: { createdAt: 'desc' },
     });
     if (pending) return this.publicJob(pending);
 
-    await this.ready();
-    const language = safeLanguage(input.language);
-    const model = safeModel(input.model);
+    const duplicate = await this.findDuplicate({ mode: 'transcription', instanceId: media.instanceId, idempotencyKey });
+    if (duplicate) return this.publicJob(duplicate);
+
+    await this.ready('transcription');
     return this.createAndPublish({
       instanceId: media.instanceId,
       messageId,
+      mode: 'transcription',
+      sourceType: 'message',
       sourceKey: String(media.fileName),
       sourceMimeType: mimetype,
+      idempotencyKey,
       language,
       model,
     });
@@ -356,9 +438,21 @@ export class TranscriptionService {
       );
     }
 
-    await this.ready();
-    const language = safeLanguage(input.language);
+    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
     const model = safeModel(input.model);
+    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
+    const audioHash = sha256(input.buffer);
+    const duplicate = await this.findDuplicate({
+      mode: 'transcription',
+      instanceId: input.instanceId || null,
+      idempotencyKey,
+      audioHash,
+      model,
+      language,
+    });
+    if (duplicate) return this.publicJob(duplicate);
+
+    await this.ready('transcription');
     const sourceKey = `transcriptions/${randomUUID()}/audio${uploadExtension(String(input.fileName || ''), mimeType)}`;
     try {
       const stored = await uploadFile(sourceKey, input.buffer, input.buffer.length, {
@@ -372,14 +466,91 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('Não foi possível armazenar o áudio para transcrição.', 503);
     }
 
-    return this.createAndPublish({
+    try {
+      return await this.createAndPublish({
+        instanceId: input.instanceId || null,
+        messageId: null,
+        mode: 'transcription',
+        sourceType: 'upload',
+        sourceKey,
+        sourceMimeType: mimeType,
+        originalFilename: path.basename(String(input.fileName || '')).slice(0, 255) || null,
+        sizeBytes: input.buffer.length,
+        audioHash,
+        idempotencyKey,
+        language,
+        model,
+      });
+    } catch (error) {
+      await deleteStoredFile(sourceKey).catch(() => false);
+      throw error;
+    }
+  }
+
+  /**
+   * Dictation keeps short recordings in the durable queue payload. This avoids
+   * the object-store round trip while leaving long, persistent transcription
+   * uploads on their existing MinIO path.
+   */
+  public async enqueueDictation(input: DictationInput) {
+    if (!this.isDictationEnabled()) {
+      throw new TranscriptionServiceError('O ditado está desabilitado nesta instalação.', 409);
+    }
+    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
+      throw new TranscriptionServiceError('Grave uma fala antes de iniciar o ditado.', 400);
+    }
+    if (input.buffer.length > maxDictationBytes()) {
+      throw new TranscriptionServiceError('O áudio do ditado excede o limite configurado.', 413);
+    }
+    const mimeType = normalizeTranscriptionAudioMime(input.mimeType, input.fileName);
+    if (!supportedAudio.has(mimeType)) {
+      throw new TranscriptionServiceError('Formato de áudio não suportado pelo ditado.', 415);
+    }
+    const durationMs = Number(input.durationMs);
+    const maxDuration = Math.min(
+      Math.max(Number.parseInt(process.env.DICTATION_MAX_DURATION_SECONDS || '300', 10) || 300, 1),
+      1800,
+    ) * 1000;
+    if (Number.isFinite(durationMs) && durationMs > maxDuration) {
+      throw new TranscriptionServiceError('O ditado excede a duração máxima configurada.', 413);
+    }
+
+    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
+    const model = safeModel(input.model);
+    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
+    const audioHash = sha256(input.buffer);
+    const duplicate = await this.findDuplicate({
+      mode: 'dictation',
       instanceId: input.instanceId || null,
-      messageId: null,
-      sourceKey,
-      sourceMimeType: mimeType,
-      language,
+      idempotencyKey,
+      audioHash,
       model,
+      language,
     });
+    if (duplicate) return this.publicJob(duplicate);
+
+    await this.ready('dictation');
+    const id = randomUUID();
+    const job = await this.createAndPublish(
+      {
+        id,
+        instanceId: input.instanceId || null,
+        messageId: null,
+        mode: 'dictation',
+        sourceType: 'microphone',
+        sourceKey: `dictation/${id}${uploadExtension(String(input.fileName || ''), mimeType)}`,
+        sourceMimeType: mimeType,
+        originalFilename: path.basename(String(input.fileName || '')).slice(0, 255) || null,
+        sizeBytes: input.buffer.length,
+        audioHash,
+        idempotencyKey,
+        provider: providerValue(),
+        language,
+        model,
+      },
+      input.buffer,
+    );
+    return job;
   }
 
   public async get(jobId: string, instanceId?: string) {
@@ -391,6 +562,45 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
     return this.publicJob(job);
+  }
+
+  public async cancel(jobId: string, instanceId?: string) {
+    const id = String(jobId || '').trim();
+    if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
+    const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
+    if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
+    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
+      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
+    }
+    if (!['queued', 'processing'].includes(String(job.status))) {
+      throw new TranscriptionServiceError('O job já foi concluído e não pode ser cancelado.', 409);
+    }
+
+    const changed = await (this.prismaRepository.transcriptionJob as any).updateMany({
+      where: { id, status: { in: ['queued', 'processing'] }, attempts: job.attempts },
+      data: { status: 'cancelled', stage: 'cancelled', completedAt: new Date(), updatedAt: new Date() },
+    });
+    if (!Number(changed?.count)) {
+      const latest = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
+      if (!latest || latest.status !== 'cancelled') {
+        throw new TranscriptionServiceError('O job mudou antes de o cancelamento ser aplicado.', 409);
+      }
+      return this.publicJob(latest);
+    }
+
+    try {
+      await this.publish(cancelRoutingKey(String(job.mode || 'transcription')), {
+        jobId: id,
+        attempts: job.attempts,
+        mode: job.mode || 'transcription',
+      });
+    } catch (error) {
+      // The durable state remains cancelled; workers also ignore late results
+      // because the API only accepts results for active jobs.
+      this.logger.warn('Transcrição: aviso de cancelamento não chegou ao worker: ' + (error?.message || error));
+    }
+    const cancelled = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
+    return this.publicJob(cancelled || { ...job, status: 'cancelled', stage: 'cancelled' });
   }
 
   public async retry(jobId: string, instanceId?: string) {
@@ -412,7 +622,7 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('O áudio temporário deste job já expirou e não pode ser reenfileirado.', 410);
     }
 
-    await this.ready();
+    await this.ready(String(job.mode || 'transcription'));
     const updateWhere: any =
       job.status === 'failed' ? { id, status: 'failed' } : { id, status: 'processing', updatedAt: job.updatedAt };
     const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
@@ -422,6 +632,7 @@ export class TranscriptionService {
         stage: 'queued',
         progressPercent: 0,
         processedDurationMs: 0,
+        heartbeatAt: null,
         errorCode: null,
         errorMessage: null,
         startedAt: null,
@@ -439,7 +650,7 @@ export class TranscriptionService {
     if (!updated) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
 
     try {
-      await this.publish(REQUESTED, this.jobPayload(updated));
+      await this.publish(requestRoutingKey(String(updated.mode || 'transcription')), this.jobPayload(updated));
     } catch (error) {
       await (this.prismaRepository.transcriptionJob as any).updateMany({
         where: { id, attempts: updated.attempts, status: 'queued' },
@@ -475,6 +686,17 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
     const ownsTemporarySource = !job.messageId && this.isOwnedUploadKey(job.sourceKey);
+    if (['queued', 'processing'].includes(String(job.status))) {
+      try {
+        await this.publish(cancelRoutingKey(String(job.mode || 'transcription')), {
+          jobId: id,
+          attempts: job.attempts,
+          mode: job.mode || 'transcription',
+        });
+      } catch (error) {
+        this.logger.warn('Transcrição: não foi possível avisar o worker antes da exclusão: ' + (error?.message || error));
+      }
+    }
     if (ownsTemporarySource) {
       // S3/MinIO removeObject is idempotent: an object already removed by its
       // lifecycle rule is considered successfully removed here.
@@ -499,20 +721,43 @@ export class TranscriptionService {
     };
   }
 
-  private async createAndPublish(data: any) {
-    const job = await (this.prismaRepository.transcriptionJob as any).create({
-      data: {
-        ...data,
-        provider: providerValue(),
-        status: 'queued',
-        stage: 'queued',
-        progressPercent: 0,
-        processedDurationMs: 0,
-        attempts: 1,
-      },
-    });
+  private async createAndPublish(data: any, inlineAudio?: Buffer) {
+    const mode = data.mode === 'dictation' ? 'dictation' : 'transcription';
+    let job: any;
     try {
-      await this.publish(REQUESTED, this.jobPayload(job));
+      job = await (this.prismaRepository.transcriptionJob as any).create({
+        data: {
+          ...data,
+          provider: providerValue(),
+          mode,
+          status: 'queued',
+          stage: 'queued',
+          progressPercent: 0,
+          processedDurationMs: 0,
+          attempts: 1,
+        },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002' && (data.audioHash || data.idempotencyKey)) {
+        const duplicate = await this.findDuplicate({
+          mode,
+          instanceId: data.instanceId || null,
+          idempotencyKey: data.idempotencyKey,
+          audioHash: data.audioHash,
+          model: data.model,
+          language: data.language,
+        });
+        if (duplicate) {
+          if (data.sourceKey && data.sourceKey !== duplicate.sourceKey) {
+            await deleteStoredFile(String(data.sourceKey)).catch(() => false);
+          }
+          return this.publicJob(duplicate);
+        }
+      }
+      throw error;
+    }
+    try {
+      await this.publish(requestRoutingKey(mode), this.jobPayload(job, inlineAudio));
     } catch (error) {
       await (this.prismaRepository.transcriptionJob as any).update({
         where: { id: job.id },
@@ -529,15 +774,17 @@ export class TranscriptionService {
     return this.publicJob(job);
   }
 
-  private jobPayload(job: any) {
+  private jobPayload(job: any, inlineAudio?: Buffer) {
     return {
       jobId: job.id,
+      mode: job.mode || 'transcription',
       messageId: job.messageId,
       instanceId: job.instanceId,
       source: { key: job.sourceKey, mimeType: job.sourceMimeType },
       language: job.language,
       model: job.model,
       attempts: job.attempts,
+      ...(inlineAudio ? { inlineAudio: inlineAudio.toString('base64') } : {}),
     };
   }
 
@@ -546,6 +793,11 @@ export class TranscriptionService {
       id: job.id,
       messageId: job.messageId,
       instanceId: job.instanceId,
+      mode: job.mode || 'transcription',
+      sourceType: job.sourceType || 'upload',
+      originalFilename: job.originalFilename || null,
+      sizeBytes: job.sizeBytes ?? null,
+      audioHash: job.audioHash || null,
       provider: job.provider,
       model: job.model,
       language: job.language,
@@ -553,6 +805,7 @@ export class TranscriptionService {
       stage: job.stage || job.status,
       progressPercent: Number.isFinite(Number(job.progressPercent)) ? Number(job.progressPercent) : 0,
       processedDurationMs: job.processedDurationMs,
+      heartbeatAt: job.heartbeatAt || null,
       text: job.text,
       detectedLanguage: job.detectedLanguage,
       durationMs: job.durationMs,
@@ -567,18 +820,58 @@ export class TranscriptionService {
     };
   }
 
-  private async ready() {
+  private async findDuplicate(input: {
+    mode: string;
+    instanceId?: string | null;
+    idempotencyKey?: string | null;
+    audioHash?: string;
+    model?: string;
+    language?: string | null;
+  }) {
+    const jobs = this.prismaRepository.transcriptionJob as any;
+    const reusableStatuses = { in: ['queued', 'processing', 'completed'] };
+    if (input.idempotencyKey) {
+      const byKey = await jobs.findFirst({
+        where: {
+          mode: input.mode,
+          instanceId: input.instanceId || null,
+          idempotencyKey: input.idempotencyKey,
+          status: reusableStatuses,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (byKey) return byKey;
+    }
+    if (input.audioHash) {
+      return jobs.findFirst({
+        where: {
+          mode: input.mode,
+          instanceId: input.instanceId || null,
+          audioHash: input.audioHash,
+          model: input.model,
+          language: input.language || null,
+          status: reusableStatuses,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    return null;
+  }
+
+  private async ready(mode = 'transcription') {
     await this.init();
     if (!this.channel) {
       throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
     }
 
-    const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
+    const queue = queueFor(mode);
     try {
       const state = await this.channel.checkQueue(queue);
       if (!Number(state?.consumerCount)) {
         throw new TranscriptionServiceError(
-          'O worker local de transcrição não está ativo. Inclua o perfil transcription no Compose e tente novamente.',
+          mode === 'dictation'
+            ? 'O worker de ditado não está ativo. Verifique o serviço speech-dictation-worker no Compose.'
+            : 'O worker local de transcrição não está ativo. Verifique o serviço transcription-worker no Compose.',
           503,
         );
       }
@@ -594,8 +887,10 @@ export class TranscriptionService {
     if (!uri) throw new Error('RABBITMQ_URI não configurado.');
     await this.prismaRepository.$connect();
     const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
-    const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
-    const resultQueue = queue + '.results';
+    const queues = [
+      { mode: 'transcription', queue: queueFor('transcription') },
+      { mode: 'dictation', queue: queueFor('dictation') },
+    ];
 
     this.connection = await amqp.connect(uri);
     this.connection.on('error', (error) => this.logger.warn('RabbitMQ transcription: ' + (error?.message || error)));
@@ -606,19 +901,31 @@ export class TranscriptionService {
     });
     this.channel = await this.connection.createConfirmChannel();
     await this.channel.assertExchange(exchange, 'topic', { durable: true });
-    await this.channel.assertQueue(queue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
-    await this.channel.bindQueue(queue, exchange, REQUESTED);
-    await this.channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
-    for (const key of [PROCESSING, COMPLETED, FAILED]) await this.channel.bindQueue(resultQueue, exchange, key);
+    for (const item of queues) {
+      const resultQueue = item.queue + '.results';
+      const prefix = resultRoutingPrefix(item.mode);
+      await this.channel.assertQueue(item.queue, {
+        durable: true,
+        arguments: {
+          'x-queue-type': 'quorum',
+          ...(item.mode === 'dictation' ? { 'x-message-ttl': dictationAudioRetentionMs() } : {}),
+        },
+      });
+      await this.channel.bindQueue(item.queue, exchange, requestRoutingKey(item.mode));
+      await this.channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
+      for (const status of ['processing', 'completed', 'failed', 'cancelled']) {
+        await this.channel.bindQueue(resultQueue, exchange, prefix + status);
+      }
+      await this.channel.consume(
+        resultQueue,
+        (message) => {
+          if (message) void this.consumeResult(message);
+        },
+        { noAck: false },
+      );
+    }
     await this.channel.prefetch(20);
-    await this.channel.consume(
-      resultQueue,
-      (message) => {
-        if (message) void this.consumeResult(message);
-      },
-      { noAck: false },
-    );
-    this.logger.info('Transcription queue - ON (' + queue + ')');
+    this.logger.info('Speech queues - ON (' + queues.map((item) => item.queue).join(', ') + ')');
     // Recover abandoned jobs as soon as a real worker consumer is present;
     // waiting for the periodic timer would leave old `processing` rows visible
     // in the Manager for another full interval after a deploy.
@@ -647,6 +954,7 @@ export class TranscriptionService {
             persistent: true,
             contentType: 'application/json',
             messageId: String(payload.jobId || ''),
+            priority: routingKey === DICTATION_REQUESTED ? 10 : 1,
           },
           (error: Error | null) => (error ? reject(error) : resolve()),
         );
@@ -664,7 +972,7 @@ export class TranscriptionService {
         this.channel.ack(message);
         return;
       }
-      const status = ['processing', 'completed', 'failed'].includes(String(payload.status))
+      const status = ['processing', 'completed', 'failed', 'cancelled'].includes(String(payload.status))
         ? String(payload.status)
         : 'failed';
       const data: any = { status, updatedAt: new Date() };
@@ -683,6 +991,8 @@ export class TranscriptionService {
       if (Number.isFinite(Number(payload.processedDurationMs))) {
         data.processedDurationMs = Math.max(0, Math.floor(Number(payload.processedDurationMs)));
       }
+      data.heartbeatAt = payload.heartbeatAt ? new Date(payload.heartbeatAt) : new Date();
+      if (typeof payload.partialText === 'string') data.text = payload.partialText.slice(0, 100_000);
       if (status === 'processing') {
         const current = await (this.prismaRepository.transcriptionJob as any).findUnique({
           where: { id: jobId },
@@ -704,6 +1014,9 @@ export class TranscriptionService {
         data.errorMessage = null;
         data.completedAt = new Date();
         data.progressPercent = 100;
+      } else if (status === 'cancelled') {
+        data.stage = 'cancelled';
+        data.completedAt = new Date();
       } else {
         data.errorCode = String(payload.errorCode || 'TRANSCRIPTION_FAILED').slice(0, 64);
         data.errorMessage = String(payload.errorMessage || 'Falha no worker.').slice(0, 2000);
@@ -791,7 +1104,7 @@ export class TranscriptionService {
         protectedKeys.add(sourceKey);
         continue;
       }
-      if (!['completed', 'failed'].includes(String(job.status))) continue;
+      if (!['completed', 'failed', 'cancelled'].includes(String(job.status))) continue;
       const terminalDate = job.completedAt || job.updatedAt || job.createdAt;
       if (terminalDate && terminalDate.getTime() <= cutoff) {
         expiredKeys.add(sourceKey);
@@ -822,42 +1135,27 @@ export class TranscriptionService {
     let removed = 0;
     let failed = 0;
     let freedBytes = 0;
-    let jobsRemoved = 0;
-    let jobsFailed = 0;
+    let jobsRetained = 0;
     for (const sourceKey of candidates) {
       if (await deleteStoredFile(sourceKey)) {
         removed += 1;
         freedBytes += objectBySourceKey.get(sourceKey)?.size || 0;
-        const jobIds = expiredJobIdsBySource.get(sourceKey) || [];
-        if (jobIds.length) {
-          try {
-            const deleted = await (this.prismaRepository.transcriptionJob as any).deleteMany({
-              where: { id: { in: jobIds } },
-            });
-            jobsRemoved += Number(deleted?.count || 0);
-            jobsFailed += Math.max(0, jobIds.length - Number(deleted?.count || 0));
-          } catch (error) {
-            jobsFailed += jobIds.length;
-            this.logger.warn(
-              'Transcrição: não foi possível remover o resultado expirado: ' + (error?.message || error),
-            );
-          }
-        }
+        jobsRetained += (expiredJobIdsBySource.get(sourceKey) || []).length;
       } else {
         failed += 1;
       }
     }
 
     return {
-      status: failed || jobsFailed ? 'partial' : 'completed',
+      status: failed ? 'partial' : 'completed',
       retentionSeconds,
       cutoff: new Date(cutoff).toISOString(),
       candidates: candidates.length,
       removed,
       failed,
       freedBytes,
-      jobsRemoved,
-      jobsFailed,
+      jobsRemoved: 0,
+      jobsRetained,
     };
   }
 
@@ -868,7 +1166,10 @@ export class TranscriptionService {
 
   private sourceRetentionSeconds(): number {
     const value = Number.parseInt(process.env.TRANSCRIPTION_SOURCE_RETENTION_SECONDS || '', 10);
-    if (!Number.isFinite(value)) return 86_400;
+    if (!Number.isFinite(value)) {
+      const days = Number.parseInt(process.env.TRANSCRIPTION_AUDIO_RETENTION_DAYS || '30', 10);
+      return Math.min(Math.max(Number.isFinite(days) ? days : 30, 0), 365) * 86_400;
+    }
     return Math.min(Math.max(value, 0), 31_536_000);
   }
 
@@ -879,8 +1180,8 @@ export class TranscriptionService {
   }
 
   private staleJobSeconds(): number {
-    const value = Number.parseInt(process.env.TRANSCRIPTION_STALE_JOB_SECONDS || '', 10);
-    if (!Number.isFinite(value)) return 1800;
+    const value = Number.parseInt(process.env.SPEECH_JOB_STALE_AFTER || process.env.TRANSCRIPTION_STALE_JOB_SECONDS || '', 10);
+    if (!Number.isFinite(value)) return 120;
     return Math.min(Math.max(value, 60), 86_400);
   }
 
@@ -892,7 +1193,7 @@ export class TranscriptionService {
 
   private isStaleJob(job: any): boolean {
     if (String(job?.status) !== 'processing') return false;
-    const updatedAt = new Date(job?.updatedAt || job?.createdAt || 0).getTime();
+    const updatedAt = new Date(job?.heartbeatAt || job?.updatedAt || job?.createdAt || 0).getTime();
     return Number.isFinite(updatedAt) && Date.now() - updatedAt >= this.staleJobSeconds() * 1000;
   }
 
@@ -908,50 +1209,84 @@ export class TranscriptionService {
     if (this.staleRecoveryInFlight || !this.channel) return;
     this.staleRecoveryInFlight = true;
     try {
-      const queue = normalizedQueue(process.env.TRANSCRIPTION_QUEUE);
-      const state = await this.channel.checkQueue(queue);
-      if (!Number(state?.consumerCount)) return;
       const cutoff = new Date(Date.now() - this.staleJobSeconds() * 1000);
-      const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
+      for (const mode of ['transcription', 'dictation']) {
+        const state = await this.channel.checkQueue(queueFor(mode));
+        if (mode === 'dictation' && Number(state?.messageCount || 0) === 0) {
+          const expiredCutoff = new Date(Date.now() - dictationAudioRetentionMs() - 60_000);
+          const expired = await (this.prismaRepository.transcriptionJob as any).findMany({
+            where: { mode, status: 'queued', createdAt: { lt: expiredCutoff } },
+            select: { id: true, attempts: true, createdAt: true },
+            take: 100,
+          });
+          for (const job of expired) {
+            await (this.prismaRepository.transcriptionJob as any).updateMany({
+              where: { id: job.id, mode, status: 'queued', attempts: job.attempts, createdAt: job.createdAt },
+              data: {
+                status: 'failed',
+                stage: 'failed',
+                errorCode: 'DICTATION_AUDIO_EXPIRED',
+                errorMessage: 'O áudio do ditado expirou antes de ser processado.',
+                completedAt: new Date(),
+              },
+            });
+          }
+        }
+        if (!Number(state?.consumerCount)) continue;
         // A queued database row may already be prefetched by RabbitMQ. Queue
-        // messageCount excludes unacked messages, so re-publishing it here can
-        // create duplicate transcriptions. Only recover a lost processing
-        // heartbeat; queued jobs stay with RabbitMQ's durable delivery path.
-        where: { status: 'processing', updatedAt: { lt: cutoff } },
-        orderBy: { updatedAt: 'asc' },
-        take: 100,
-      });
-      for (const job of jobs) {
-        const changed = await (this.prismaRepository.transcriptionJob as any).updateMany({
-          where: { id: job.id, status: job.status, updatedAt: job.updatedAt },
-          data: {
-            status: 'queued',
-            stage: 'queued',
-            progressPercent: 0,
-            processedDurationMs: 0,
-            errorCode: null,
-            errorMessage: null,
-            startedAt: null,
-            completedAt: null,
-            attempts: { increment: 1 },
-          },
+        // messageCount excludes unacked messages, so only stale processing
+        // heartbeats are recovered; queued rows stay on RabbitMQ's delivery path.
+        const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
+          where: { mode, status: 'processing', updatedAt: { lt: cutoff } },
+          orderBy: { updatedAt: 'asc' },
+          take: 100,
         });
-        if (!Number(changed?.count)) continue;
-        const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: job.id } });
-        if (!updated) continue;
-        try {
-          await this.publish(REQUESTED, this.jobPayload(updated));
-        } catch (error) {
-          await (this.prismaRepository.transcriptionJob as any).updateMany({
-            where: { id: updated.id, attempts: updated.attempts, status: 'queued' },
+        for (const job of jobs) {
+          if (Number(job.attempts || 0) >= 3) {
+            await (this.prismaRepository.transcriptionJob as any).updateMany({
+              where: { id: job.id, status: 'processing', updatedAt: job.updatedAt },
+              data: {
+                status: 'failed',
+                stage: 'failed',
+                errorCode: 'WORKER_HEARTBEAT_EXPIRED',
+                errorMessage: 'O worker deixou de enviar heartbeat após o limite de tentativas.',
+                completedAt: new Date(),
+              },
+            });
+            continue;
+          }
+          const changed = await (this.prismaRepository.transcriptionJob as any).updateMany({
+            where: { id: job.id, status: job.status, updatedAt: job.updatedAt },
             data: {
-              status: 'failed',
-              stage: 'failed',
-              errorCode: 'QUEUE_UNAVAILABLE',
-              errorMessage: String(error?.message || error).slice(0, 2000),
-              completedAt: new Date(),
+              status: 'queued',
+              stage: 'queued',
+              progressPercent: 0,
+              processedDurationMs: 0,
+              heartbeatAt: null,
+              errorCode: null,
+              errorMessage: null,
+              startedAt: null,
+              completedAt: null,
+              attempts: { increment: 1 },
             },
           });
+          if (!Number(changed?.count)) continue;
+          const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: job.id } });
+          if (!updated) continue;
+          try {
+            await this.publish(requestRoutingKey(String(updated.mode || mode)), this.jobPayload(updated));
+          } catch (error) {
+            await (this.prismaRepository.transcriptionJob as any).updateMany({
+              where: { id: updated.id, attempts: updated.attempts, status: 'queued' },
+              data: {
+                status: 'failed',
+                stage: 'failed',
+                errorCode: 'QUEUE_UNAVAILABLE',
+                errorMessage: String(error?.message || error).slice(0, 2000),
+                completedAt: new Date(),
+              },
+            });
+          }
         }
       }
     } catch (error) {

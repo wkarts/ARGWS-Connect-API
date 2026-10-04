@@ -16,6 +16,7 @@ RUN apt-get update \
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY src ./src
+COPY scripts ./scripts
 RUN mkdir -p /tmp/argws-connect-transcription-model-cache \
   && chown -R node:node /opt/argws-connect-transcription-worker /tmp/argws-connect-transcription-model-cache
 

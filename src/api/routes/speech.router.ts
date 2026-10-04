@@ -1,0 +1,241 @@
+import { TranscriptionService, TranscriptionServiceError } from '@api/services/transcription.service';
+import { RequestHandler, Response, Router } from 'express';
+import multer from 'multer';
+
+function uploadLimit(): number {
+  const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
+  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
+}
+
+function dictationLimit(): number {
+  const value = Number.parseInt(process.env.DICTATION_MAX_AUDIO_BYTES || '', 10);
+  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 25 * 1024 * 1024) : 5 * 1024 * 1024;
+}
+
+export class SpeechRouter {
+  public readonly router = Router();
+  private readonly uploadAudio = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: uploadLimit(), files: 1 },
+  });
+  private readonly uploadDictation = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: dictationLimit(), files: 1 },
+  });
+
+  constructor(
+    private readonly service: TranscriptionService,
+    guard: RequestHandler,
+  ) {
+    this.router.use(guard);
+    this.router.get('/live', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: 'alive' }));
+    this.router.get('/ready', (req, res) => void this.ready(req, res));
+    this.router.get('/health', (req, res) => void this.health(req, res));
+    this.router.get('/models', (req, res) => void this.models(req, res));
+    this.router.post('/models/:modelId/activate', (req, res) => void this.activateModel(req, res));
+
+    this.router.post('/dictation', (req, res) => this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)));
+    this.router.get('/dictation/:jobId', (req, res) => void this.readDictation(req, res));
+    this.router.post('/dictation/:jobId/cancel', (req, res) => void this.cancel(req, res, 'dictation'));
+
+    this.router.get('/transcriptions', (req, res) => void this.list(req, res));
+    this.router.post('/transcriptions', (req, res) => {
+      const contentType = String(req.headers['content-type'] || '').toLowerCase();
+      if (contentType.startsWith('multipart/form-data')) {
+        this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res));
+      } else {
+        void this.createFromMessage(req, res);
+      }
+    });
+    this.router.post('/transcriptions/upload', (req, res) => this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res)));
+    this.router.get('/transcriptions/:jobId', (req, res) => void this.read(req, res));
+    this.router.post('/transcriptions/:jobId/cancel', (req, res) => void this.cancel(req, res, 'transcription'));
+    this.router.post('/transcriptions/:jobId/retry', (req, res) => void this.retry(req, res, 'transcription'));
+    this.router.delete('/transcriptions/:jobId', (req, res) => void this.remove(req, res, 'transcription'));
+  }
+
+  private parseUpload(middleware: ReturnType<typeof multer>, req: any, res: Response, done: () => void) {
+    middleware.single('audio')(req, res, (error: any) => {
+      if (error) {
+        const status = error?.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+        res.status(status).json({
+          status,
+          error: status === 413 ? 'O áudio excede o limite configurado.' : 'Upload de áudio inválido.',
+        });
+        return;
+      }
+      done();
+    });
+  }
+
+  private async dictate(req: any, res: Response) {
+    try {
+      if (!req.file) throw new TranscriptionServiceError('Grave uma fala antes de iniciar o ditado.', 400);
+      const job = await this.service.enqueueDictation({
+        buffer: req.file.buffer,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        language: req.body?.language,
+        model: req.body?.model,
+        instanceId: req.body?.instanceId,
+        durationMs: req.body?.durationMs,
+        idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey,
+      });
+      res.status(202).set('Cache-Control', 'no-store').json({ id: job.id, status: job.status, mode: job.mode });
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async upload(req: any, res: Response) {
+    try {
+      if (!req.file) throw new TranscriptionServiceError('Selecione um arquivo de áudio.', 400);
+      const job = await this.service.enqueueUpload({
+        buffer: req.file.buffer,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        language: req.body?.language,
+        model: req.body?.model,
+        instanceId: req.body?.instanceId,
+        idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey,
+      });
+      res.status(202).set('Cache-Control', 'no-store').json(job);
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async createFromMessage(req: any, res: Response) {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      const job = await this.service.enqueue({
+        messageId: body.messageId,
+        instanceId: body.instanceId,
+        language: body.language,
+        model: body.model,
+        idempotencyKey: req.get('Idempotency-Key') || body.idempotencyKey,
+      });
+      res.status(202).set('Cache-Control', 'no-store').json(job);
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async list(req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.json(await this.service.list(req.query?.limit, 'transcription'));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async read(req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      const job = await this.service.get(req.params.jobId);
+      if (job.mode !== 'transcription') throw new TranscriptionServiceError('Transcrição não encontrada.', 404);
+      res.json(job);
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async readDictation(req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      const job = await this.service.get(req.params.jobId);
+      if (job.mode !== 'dictation') throw new TranscriptionServiceError('Ditado não encontrado.', 404);
+      res.json(job);
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async cancel(req: any, res: Response, mode?: 'dictation' | 'transcription') {
+    try {
+      res.set('Cache-Control', 'no-store');
+      if (mode && (await this.service.get(req.params.jobId)).mode !== mode) {
+        throw new TranscriptionServiceError('Job de voz não encontrado.', 404);
+      }
+      res.json(await this.service.cancel(req.params.jobId));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async retry(req: any, res: Response, mode: 'transcription' = 'transcription') {
+    try {
+      if ((await this.service.get(req.params.jobId)).mode !== mode) {
+        throw new TranscriptionServiceError('Transcrição não encontrada.', 404);
+      }
+      res.status(202).json(await this.service.retry(req.params.jobId));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async remove(req: any, res: Response, mode: 'transcription' = 'transcription') {
+    try {
+      res.set('Cache-Control', 'no-store');
+      if ((await this.service.get(req.params.jobId)).mode !== mode) {
+        throw new TranscriptionServiceError('Transcrição não encontrada.', 404);
+      }
+      res.json(await this.service.delete(req.params.jobId));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async ready(_req: any, res: Response) {
+    try {
+      const health = await this.service.health();
+      const ready = health.enabled && (health.workerReady || health.dictationWorkerReady);
+      res.set('Cache-Control', 'no-store').status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', ...health });
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async health(_req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store').json(await this.service.health());
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async models(_req: any, res: Response) {
+    try {
+      const health = await this.service.health();
+      const id = String(health.model || 'Xenova/whisper-small');
+      res.set('Cache-Control', 'no-store').json({
+        provider: health.provider,
+        models: [{ id, name: id.split('/').pop(), language: process.env.SPEECH_LANGUAGE || 'pt-BR', status: health.workerReady || health.dictationWorkerReady ? 'ready' : 'unavailable', active: true }],
+      });
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async activateModel(req: any, res: Response) {
+    try {
+      const health = await this.service.health();
+      if (String(req.params.modelId) !== String(health.model)) {
+        throw new TranscriptionServiceError('Somente o modelo já configurado e provisionado pode ser ativado. Altere SPEECH_MODEL e reinicie os workers.', 409);
+      }
+      res.set('Cache-Control', 'no-store').json({ id: health.model, active: true, ready: health.workerReady || health.dictationWorkerReady });
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private fail(error: unknown, res: Response) {
+    const known = error instanceof TranscriptionServiceError;
+    const status = known ? error.status : 503;
+    res.status(status).json({
+      status,
+      error: known ? error.message : 'Serviço de voz temporariamente indisponível.',
+    });
+  }
+}

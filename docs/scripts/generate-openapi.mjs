@@ -589,6 +589,83 @@ const requestOverrides = {
       '404': { $ref: '#/components/responses/NotFound' },
     },
   },
+  'GET /v1/speech/live': {
+    tags: ['Speech'], summary: 'Verificar liveness do serviço de voz',
+    description: 'Confirma que o processo da API está vivo. Não verifica filas nem modelo.',
+    responses: { '200': { description: 'API de voz ativa.', content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string', const: 'alive' } }, required: ['status'] } } } }, '401': { $ref: '#/components/responses/Unauthorized' } },
+  },
+  'GET /v1/speech/ready': {
+    tags: ['Speech'], summary: 'Verificar readiness de voz',
+    description: 'Retorna 200 quando pelo menos um worker de voz está consumindo a fila correspondente; caso contrário retorna 503.',
+    responses: { '200': { description: 'Ao menos um worker está pronto.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '503': { description: 'API, fila ou workers de voz indisponíveis.' } },
+  },
+  'GET /v1/speech/health': {
+    tags: ['Speech'], summary: 'Consultar saúde do subsistema de voz',
+    description: 'Retorna configuração local, estado das filas, disponibilidade dos dois workers e contagens de jobs; não altera jobs.',
+    responses: { '200': { description: 'Diagnóstico do subsistema.' }, '401': { $ref: '#/components/responses/Unauthorized' } },
+  },
+  'GET /v1/speech/models': {
+    tags: ['Speech'], summary: 'Listar modelo configurado',
+    description: 'Lista somente o modelo configurado por SPEECH_MODEL. Não baixa nem instala modelos dinamicamente.',
+    responses: { '200': { description: 'Modelo configurado e estado dos workers.' }, '401': { $ref: '#/components/responses/Unauthorized' } },
+  },
+  'POST /v1/speech/models/{modelId}/activate': {
+    tags: ['Speech'], summary: 'Confirmar ativação do modelo local',
+    description: 'Aceita somente o modelo já configurado em SPEECH_MODEL; a ativação efetiva requer provisionar o modelo e reiniciar os workers.',
+    responses: { '200': { description: 'Modelo configurado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
+  },
+  'POST /v1/speech/dictation': {
+    tags: ['Speech'], summary: 'Enfileirar ditado do microfone',
+    description: 'Recebe um áudio curto em multipart/form-data e o envia inline para a fila prioritária speech.dictation. O áudio não é copiado para MinIO; o job e o resultado ficam persistidos.',
+    requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', format: 'binary' }, language: { type: 'string', example: 'pt-BR' }, durationMs: { type: 'integer', minimum: 0 }, instanceId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 128 } } } } } },
+    responses: { '202': { description: 'Ditado aceito.', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' }, mode: { const: 'dictation' }, status: { type: 'string', const: 'queued' } }, required: ['id', 'mode', 'status'] } } } }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '413': { description: 'Limite de tamanho ou duração excedido.' }, '415': { description: 'Formato de áudio não suportado.' }, '503': { description: 'Fila ou worker de ditado indisponível.' } },
+  },
+  'GET /v1/speech/dictation/{jobId}': {
+    tags: ['Speech'], summary: 'Consultar ditado', description: 'Retorna estado, progresso e texto do job de ditado.',
+    responses: { '200': { description: 'Estado atual do ditado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } },
+  },
+  'POST /v1/speech/dictation/{jobId}/cancel': {
+    tags: ['Speech'], summary: 'Cancelar ditado', description: 'Marca o job como cancelado e sinaliza o worker para parar entre trechos.',
+    responses: { '200': { description: 'Job cancelado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
+  },
+  'GET /v1/speech/transcriptions': {
+    tags: ['Speech'], summary: 'Listar transcrições', description: 'Lista jobs recentes de transcrição; use limit para ajustar a quantidade.',
+    parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200, default: 30 } }],
+    responses: {
+      '200': { description: 'Jobs recentes.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/TranscriptionJob' } } } } },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+    },
+  },
+  'POST /v1/speech/transcriptions': {
+    tags: ['Speech'], summary: 'Criar transcrição', description: 'Cria um job para mídia já persistida de uma mensagem (JSON) ou recebe um arquivo para transcrição (multipart/form-data). Uploads diretos são armazenados em MinIO privado.',
+    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['messageId'], properties: { messageId: { type: 'string' }, instanceId: { type: 'string' }, language: { type: 'string', example: 'pt-BR' }, idempotencyKey: { type: 'string', maxLength: 128 } } } }, 'multipart/form-data': { schema: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', format: 'binary' }, language: { type: 'string', example: 'pt-BR' }, instanceId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 128 } } } } } },
+    responses: { '202': { description: 'Job aceito.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '413': { description: 'O áudio excede o limite configurado.' }, '415': { description: 'Formato de áudio não suportado.' }, '503': { description: 'MinIO, fila ou worker indisponível.' } },
+  },
+  'POST /v1/speech/transcriptions/upload': {
+    tags: ['Speech'], summary: 'Enviar áudio para transcrição', description: 'Alias multipart/form-data de POST /v1/speech/transcriptions.',
+    requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', format: 'binary' }, language: { type: 'string' }, instanceId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 128 } } } } } },
+    responses: { '202': { description: 'Job aceito.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '413': { description: 'O áudio excede o limite configurado.' }, '415': { description: 'Formato de áudio não suportado.' }, '503': { description: 'MinIO, fila ou worker indisponível.' } },
+  },
+  'GET /v1/speech/transcriptions/{jobId}': {
+    tags: ['Speech'], summary: 'Consultar transcrição', description: 'Retorna estágio, progresso, heartbeat e resultado persistido.',
+    responses: {
+      '200': { description: 'Estado atual do job.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
+  'POST /v1/speech/transcriptions/{jobId}/cancel': {
+    tags: ['Speech'], summary: 'Cancelar transcrição', description: 'Marca o job como cancelado e sinaliza o worker para interromper o processamento entre trechos.',
+    responses: { '200': { description: 'Job cancelado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
+  },
+  'POST /v1/speech/transcriptions/{jobId}/retry': {
+    tags: ['Speech'], summary: 'Reenfileirar transcrição', description: 'Reenfileira um job de transcrição que pode ser tentado novamente.',
+    responses: { '202': { description: 'Job reenfileirado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
+  },
+  'DELETE /v1/speech/transcriptions/{jobId}': {
+    tags: ['Speech'], summary: 'Remover resultado de transcrição', description: 'Remove o registro do job; mídia associada à mensagem permanece intacta.',
+    responses: { '200': { description: 'Job removido.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } },
+  },
 };
 
 function mergeOperation(base, override = {}) {

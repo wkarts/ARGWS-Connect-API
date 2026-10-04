@@ -39,6 +39,7 @@ export class TranscriptionRouter {
     });
     this.router.get('/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/:jobId/retry', (req, res) => void this.retry(req, res));
+    this.router.post('/:jobId/cancel', (req, res) => void this.cancel(req, res));
     this.router.delete('/:jobId', (req, res) => void this.remove(req, res));
   }
 
@@ -63,7 +64,12 @@ export class TranscriptionRouter {
   private async create(req: any, res: Response) {
     try {
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-      const job = await this.service.enqueue({ messageId: body.messageId, language: body.language, model: body.model });
+      const job = await this.service.enqueue({
+        messageId: body.messageId,
+        language: body.language,
+        model: body.model,
+        idempotencyKey: req.get('Idempotency-Key') || body.idempotencyKey,
+      });
       res.status(202).json(job);
     } catch (error) {
       this.fail(error, res);
@@ -79,6 +85,8 @@ export class TranscriptionRouter {
         mimeType: req.file.mimetype,
         language: req.body?.language,
         model: req.body?.model,
+        instanceId: req.body?.instanceId,
+        idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey,
       });
       res.status(202).json(job);
     } catch (error) {
@@ -119,6 +127,15 @@ export class TranscriptionRouter {
   private async retry(req: any, res: Response) {
     try {
       res.status(202).json(await this.service.retry(req.params.jobId));
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async cancel(req: any, res: Response) {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.json(await this.service.cancel(req.params.jobId));
     } catch (error) {
       this.fail(error, res);
     }

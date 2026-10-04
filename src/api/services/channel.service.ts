@@ -703,6 +703,13 @@ export class ChannelStartupService {
             status: true,
           },
         },
+        Media: { select: { fileName: true, mimetype: true } },
+        TranscriptionJob: {
+          where: { mode: 'transcription' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, status: true, text: true, stage: true, progressPercent: true },
+        },
       },
     });
 

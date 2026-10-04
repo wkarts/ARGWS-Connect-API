@@ -42,18 +42,30 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-O serviço `transcription-worker` está declarado em todos os Compose e usa o
-profile `transcription`. O template `develop` já o seleciona e habilita a
-transcrição local. Em outras stacks, acrescente `transcription` aos profiles
-existentes e defina `TRANSCRIPTION_ENABLED=true` para iniciar o worker. Com a
-feature desligada, o serviço não é iniciado; quando habilitado, prepara o modelo
-local a partir do bucket MinIO e consome a fila RabbitMQ.
+Os workers de voz usam o profile `transcription`: um consome `speech.transcription`
+e outro consome `speech.dictation` para manter ditados curtos fora da fila de
+áudios longos. O template `develop` já seleciona esse profile e habilita o
+recurso. Em outras stacks, acrescente `transcription` aos profiles existentes e
+defina `SPEECH_ENABLED=true` (`TRANSCRIPTION_ENABLED=true` segue aceito como
+fallback legado). O modelo deve estar provisionado em um volume local validado
+por SHA-256 ou no cache privado já configurado; o worker não baixa modelos ao
+iniciar.
 
 ```dotenv
-TRANSCRIPTION_ENABLED=true
-TRANSCRIPTION_PROVIDER=local
+SPEECH_ENABLED=true
+SPEECH_PROVIDER=local
+SPEECH_MODEL=Xenova/whisper-small
+SPEECH_MODELS_HOST_PATH=./models
+SPEECH_MODEL_PATH=/models/Xenova/whisper-small
 TRANSCRIPTION_WORKER_TMPFS_SIZE=1g
+SPEECH_WORKER_MEMORY=4g
+SPEECH_WORKER_CPUS=2.00
 ```
+
+Gere o manifesto do modelo antes de subir os workers com
+`node transcription-worker/scripts/create-model-manifest.cjs <diretório-do-modelo>`.
+Consulte [o guia de voz](../docs/guides/speech.md) para os endpoints, limites e
+passos de provisionamento.
 
 Kafka e ZooKeeper dependem do service interno `volume-init`. Ele fica saudável
 em execução depois de preparar apenas diretórios vazios, por isso não deixa a

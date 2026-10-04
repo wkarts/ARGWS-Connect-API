@@ -219,3 +219,7 @@ Em deployments com reverse proxy, a URL canônica é `/docs/`. Existe também `d
 [Guia completo de implantação e autenticação](guides/google-find-hub.md). A chave
 local é definida e preservada diretamente no `.env`, sem rotação automática. O
 Scalar inclui o documento `openapi/findhub.openapi.json`.
+
+## Voz
+
+[Guia de voz, ditado e transcrição](guides/speech.md) cobre as duas filas, a configuração do worker offline, o provisionamento verificado de modelos e os endpoints `/v1/speech`.

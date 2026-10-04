@@ -7,6 +7,7 @@ import type { CallCapabilities, VideoMediaCallbacks, VideoMediaPreparation } fro
 import type {
   AuditItem,
   ConnectionItem,
+  DictationAccepted,
   ContactItem,
   Conversation,
   IntegrationKey,
@@ -893,6 +894,32 @@ export const current = {
   },
   async deleteTranscription(jobId: string): Promise<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }> {
     return api<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }>(`/v1/transcriptions/${encodeURIComponent(jobId)}`, { method: 'DELETE' })
+  },
+  async dictate(file: File, input: { language: string; instanceId?: string; durationMs: number; idempotencyKey: string }): Promise<DictationAccepted> {
+    const data = new FormData()
+    data.append('audio', file, file.name)
+    data.append('language', input.language)
+    data.append('durationMs', String(input.durationMs))
+    data.append('idempotencyKey', input.idempotencyKey)
+    if (input.instanceId) data.append('instanceId', input.instanceId)
+    return api<DictationAccepted>('/v1/speech/dictation', { method: 'POST', data, timeout: 60000 })
+  },
+  async dictationJob(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}`)
+  },
+  async cancelDictation(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
+  },
+  async speechHealth(): Promise<any> { return api<any>('/v1/speech/health') },
+  async transcribeMessage(messageId: string, instanceId: string, language = 'pt-BR', idempotencyKey = crypto.randomUUID()): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>('/v1/speech/transcriptions', {
+      method: 'POST',
+      data: { messageId, instanceId, language, idempotencyKey },
+      timeout: 60000,
+    })
+  },
+  async speechJob(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/transcriptions/${encodeURIComponent(jobId)}`)
   },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },

@@ -6,6 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { createHash } = require('node:crypto');
+const { verifyModelDirectory } = require('./model-checksum');
 const Minio = require('minio');
 
 function createClient(config) {
@@ -66,6 +68,16 @@ function safeCachePath(cacheDir, relativePath) {
   return target;
 }
 
+function hashFile(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
 async function restoreModelCache(client, bucket, storagePrefix, model, cacheDir) {
   const remotePrefix = objectKey(modelCachePrefix(storagePrefix, model));
   const names = await listObjectNames(client, bucket, remotePrefix);
@@ -78,6 +90,23 @@ async function restoreModelCache(client, bucket, storagePrefix, model, cacheDir)
     const source = await client.getObject(bucket, name);
     await pipeline(source, fs.createWriteStream(target, { flags: 'w', mode: 0o600 }));
     restored += 1;
+  }
+  const manifestPath = safeCachePath(cacheDir, '.speech-model-checksums.json');
+  if (fs.existsSync(manifestPath)) {
+    let manifest;
+    try {
+      manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
+    } catch {
+      throw Object.assign(new Error('Manifesto de checksum do modelo inválido.'), { code: 'MODEL_CHECKSUM_MISMATCH' });
+    }
+    const checksums = manifest?.files && typeof manifest.files === 'object' ? manifest.files : {};
+    for (const [relativePath, expected] of Object.entries(checksums)) {
+      const filePath = safeCachePath(cacheDir, relativePath);
+      const actual = await hashFile(filePath).catch(() => '');
+      if (!actual || actual !== expected) {
+        throw Object.assign(new Error('Checksum inválido no cache local do modelo.'), { code: 'MODEL_CHECKSUM_MISMATCH' });
+      }
+    }
   }
   return restored;
 }
@@ -98,11 +127,13 @@ async function listFiles(root, relative = '') {
 }
 
 async function persistModelCache(client, bucket, storagePrefix, model, cacheDir) {
-  const localFiles = await listFiles(cacheDir);
+  const localFiles = (await listFiles(cacheDir)).filter((file) => file !== '.speech-model-checksums.json');
   const remotePrefix = modelCachePrefix(storagePrefix, model);
+  const checksums = {};
   for (const relativePath of localFiles) {
     const sourcePath = safeCachePath(cacheDir, relativePath);
     const stat = await fsp.stat(sourcePath);
+    checksums[relativePath] = await hashFile(sourcePath);
     await client.putObject(
       bucket,
       objectKey(remotePrefix + relativePath),
@@ -111,6 +142,14 @@ async function persistModelCache(client, bucket, storagePrefix, model, cacheDir)
       { 'Content-Type': 'application/octet-stream' },
     );
   }
+  const manifest = Buffer.from(JSON.stringify({ algorithm: 'sha256', files: checksums }, null, 2));
+  await client.putObject(
+    bucket,
+    objectKey(remotePrefix + '.speech-model-checksums.json'),
+    manifest,
+    manifest.length,
+    { 'Content-Type': 'application/json' },
+  );
   return localFiles.length;
 }
 
@@ -160,6 +199,20 @@ async function downloadObjectToFile(client, bucket, sourceKey, mimetype, maxByte
   }
 }
 
+async function writeBufferToTemp(buffer, mimetype, maxBytes) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('Áudio inline vazio.');
+  if (buffer.length > maxBytes) throw new Error('Áudio excede o limite configurado.');
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'speech-dictation-'));
+  const filePath = path.join(directory, 'audio' + extensionFor(mimetype, 'audio'));
+  try {
+    await fsp.writeFile(filePath, buffer, { mode: 0o600, flag: 'wx' });
+    return { directory, filePath, bytes: buffer.length };
+  } catch (error) {
+    await cleanup(directory);
+    throw error;
+  }
+}
+
 async function cleanup(directory) {
   if (!directory) return;
   await fsp.rm(directory, { recursive: true, force: true }).catch(() => {});
@@ -171,6 +224,8 @@ module.exports = {
   modelCachePrefix,
   restoreModelCache,
   persistModelCache,
+  verifyModelDirectory,
   downloadObjectToFile,
+  writeBufferToTemp,
   cleanup,
 };
