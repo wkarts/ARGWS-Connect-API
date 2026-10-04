@@ -160,8 +160,7 @@ function cancelRoutingKey(mode: string): string {
 
 function providerValue(): string {
   const provider = String(
-    process.env.SPEECH_PROVIDER ||
-      process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE ||
+    process.env.SPEECH_PROVIDER || process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE ||
       'local',
   )
     .trim()
