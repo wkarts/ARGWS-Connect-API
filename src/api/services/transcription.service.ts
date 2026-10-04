@@ -367,7 +367,7 @@ export class TranscriptionService {
       if (stored instanceof Error) {
         throw stored;
       }
-    } catch (error) {
+    } catch {
       await deleteStoredFile(sourceKey).catch(() => false);
       throw new TranscriptionServiceError('Não foi possível armazenar o áudio para transcrição.', 503);
     }
@@ -413,9 +413,7 @@ export class TranscriptionService {
     }
 
     await this.ready();
-    const updateWhere: any = job.status === 'failed'
-      ? { id, status: 'failed' }
-      : { id, status: 'processing', updatedAt: job.updatedAt };
+    const updateWhere: any = job.status === 'failed' ? { id, status: 'failed' } : { id, status: 'processing', updatedAt: job.updatedAt };
     const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
       where: updateWhere,
       data: {
@@ -649,7 +647,7 @@ export class TranscriptionService {
             contentType: 'application/json',
             messageId: String(payload.jobId || ''),
           },
-          (error: Error | null) => error ? reject(error) : resolve(),
+          (error: Error | null) => (error ? reject(error) : resolve()),
         );
       } catch (error) {
         reject(error);
@@ -669,9 +667,12 @@ export class TranscriptionService {
         ? String(payload.status)
         : 'failed';
       const data: any = { status, updatedAt: new Date() };
-      data.stage = status === 'completed' || status === 'failed'
-        ? status
-        : String(payload.stage || status).trim().slice(0, 32);
+      data.stage =
+        status === 'completed' || status === 'failed'
+          ? status
+          : String(payload.stage || status)
+              .trim()
+              .slice(0, 32);
       if (Number.isFinite(Number(payload.progressPercent))) {
         data.progressPercent = Math.max(
           0,

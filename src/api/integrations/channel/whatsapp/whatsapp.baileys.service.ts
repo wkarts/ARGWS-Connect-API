@@ -4087,18 +4087,16 @@ export class BaileysStartupService extends ChannelStartupService {
         if (statusMessage) {
           const removed = await this.statusBroadcastRetention.removeMessage(statusMessage.id);
           if (!removed) {
-            const existingKey = typeof statusMessage.key === 'object' && statusMessage.key !== null
-              ? statusMessage.key
-              : {};
+            const existingKey =
+              typeof statusMessage.key === 'object' && statusMessage.key !== null ? statusMessage.key : {};
             statusMessage = await this.prismaRepository.message.update({
               where: { id: statusMessage.id },
               data: { key: { ...existingKey, deleted: true }, status: 'DELETED' },
             });
           }
         }
-        const existingKey = typeof statusMessage?.key === 'object' && statusMessage.key !== null
-          ? statusMessage.key
-          : del;
+        const existingKey =
+          typeof statusMessage?.key === 'object' && statusMessage.key !== null ? statusMessage.key : del;
         this.sendDataWebhook(Events.MESSAGES_DELETE, {
           ...(statusMessage || {}),
           instanceId: this.instanceId,
