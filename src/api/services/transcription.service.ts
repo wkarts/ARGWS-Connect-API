@@ -161,8 +161,7 @@ function cancelRoutingKey(mode: string): string {
 function providerValue(): string {
   const provider = String(
     process.env.SPEECH_PROVIDER ||
-      process.env.TRANSCRIPTION_PROVIDER ||
-      process.env.TRANSCRIPTION_ENGINE ||
+      process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE ||
       'local',
   )
     .trim()
@@ -338,23 +337,18 @@ export class TranscriptionService {
 
     try {
       const jobs = this.prismaRepository.transcriptionJob as any;
-      const [
-        queuedJobs,
-        processingJobs,
-        oldestQueued,
-        dictationQueuedJobs,
-        dictationProcessingJobs,
-      ] = await Promise.all([
-        jobs.count({ where: { mode: 'transcription', status: 'queued' } }),
-        jobs.count({ where: { mode: 'transcription', status: 'processing' } }),
-        jobs.findFirst({
-          where: { mode: 'transcription', status: 'queued' },
-          orderBy: { createdAt: 'asc' },
-          select: { createdAt: true },
-        }),
-        jobs.count({ where: { mode: 'dictation', status: 'queued' } }),
-        jobs.count({ where: { mode: 'dictation', status: 'processing' } }),
-      ]);
+      const [queuedJobs, processingJobs, oldestQueued, dictationQueuedJobs, dictationProcessingJobs] =
+        await Promise.all([
+          jobs.count({ where: { mode: 'transcription', status: 'queued' } }),
+          jobs.count({ where: { mode: 'transcription', status: 'processing' } }),
+          jobs.findFirst({
+            where: { mode: 'transcription', status: 'queued' },
+            orderBy: { createdAt: 'asc' },
+            select: { createdAt: true },
+          }),
+          jobs.count({ where: { mode: 'dictation', status: 'queued' } }),
+          jobs.count({ where: { mode: 'dictation', status: 'processing' } }),
+        ]);
       result.queuedJobs = Number(queuedJobs || 0);
       result.processingJobs = Number(processingJobs || 0);
       result.dictationQueuedJobs = Number(dictationQueuedJobs || 0);
