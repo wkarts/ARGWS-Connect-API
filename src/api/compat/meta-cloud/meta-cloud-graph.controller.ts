@@ -29,7 +29,10 @@ export class MetaCloudGraphController {
     private readonly templates: MetaCloudTemplateService,
     private readonly sendController?: Pick<SendMessageController, 'sendStatus'>,
     private readonly transcription?: TranscriptionService,
-    private readonly chatController?: Pick<ChatController, 'fetchMessages' | 'deleteMessage'>,
+    private readonly chatController?: Pick<
+      ChatController,
+      'fetchMessages' | 'deleteMessage' | 'fetchPublishedStatusViews'
+    >,
   ) {}
 
   public async send(version: string, phoneNumberId: string, authorization: any, payload: MetaCloudMessageRequest) {
@@ -99,6 +102,27 @@ export class MetaCloudGraphController {
         limit,
         pages: Number(result?.messages?.pages || 0),
       },
+      connect_api: { target: 'status@broadcast' },
+    };
+  }
+
+  public async getStatusViews(version: string, phoneNumberId: string, authorization: any, statusId: string) {
+    const identity = await this.resolvePhone(phoneNumberId, authorization);
+    this.assertStatusProvider(identity);
+    const normalizedId = String(statusId || '').trim();
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(normalizedId)) {
+      throw new MetaCloudGraphError(400, 'Invalid status identifier.');
+    }
+    const chat = this.chatController;
+    if (!chat) throw new MetaCloudGraphError(503, 'Status viewers are temporarily unavailable.');
+    const result = await chat.fetchPublishedStatusViews(this.instanceDto(identity), normalizedId);
+    if (!result) throw new MetaCloudGraphError(404, 'Published status was not found.');
+    this.log(identity, version, 'status-views', normalizedId);
+    return {
+      messaging_product: 'whatsapp',
+      id: normalizedId,
+      count: Number(result.count || 0),
+      data: Array.isArray(result.viewers) ? result.viewers : [],
       connect_api: { target: 'status@broadcast' },
     };
   }
