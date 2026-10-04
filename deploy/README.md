@@ -42,12 +42,17 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-Para usar a transcrição local, `TRANSCRIPTION_ENABLED=true` precisa vir junto
-com o perfil `transcription`:
+O serviço `transcription-worker` está declarado em todos os Compose e usa o
+profile `transcription`. O template `develop` já o seleciona e habilita a
+transcrição local. Em outras stacks, acrescente `transcription` aos profiles
+existentes e defina `TRANSCRIPTION_ENABLED=true` para iniciar o worker. Com a
+feature desligada, o serviço não é iniciado; quando habilitado, prepara o modelo
+local a partir do bucket MinIO e consome a fila RabbitMQ.
 
 ```dotenv
-COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar,transcription
+TRANSCRIPTION_ENABLED=true
 TRANSCRIPTION_PROVIDER=local
+TRANSCRIPTION_WORKER_TMPFS_SIZE=1g
 ```
 
 Kafka e ZooKeeper dependem do service interno `volume-init`. Ele fica saudável

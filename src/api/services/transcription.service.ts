@@ -38,6 +38,9 @@ type WorkerResult = {
   jobId?: string;
   attempts?: number;
   status?: string;
+  stage?: string | null;
+  progressPercent?: number;
+  processedDurationMs?: number | null;
   text?: string;
   language?: string | null;
   durationMs?: number | null;
@@ -249,8 +252,32 @@ export class TranscriptionService {
       consumerCount: 0,
       workerReady: false,
       staleJobSeconds: this.staleJobSeconds(),
+      maxUploadBytes: maxUploadBytes(),
+      queuedJobs: 0,
+      processingJobs: 0,
+      oldestQueuedSeconds: null as number | null,
     };
-    if (!this.isEnabled() || !enabledValue(process.env.RABBITMQ_ENABLED, true)) return result;
+    if (!this.isEnabled()) return result;
+
+    try {
+      const jobs = this.prismaRepository.transcriptionJob as any;
+      const [queuedJobs, processingJobs, oldestQueued] = await Promise.all([
+        jobs.count({ where: { status: 'queued' } }),
+        jobs.count({ where: { status: 'processing' } }),
+        jobs.findFirst({ where: { status: 'queued' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+      ]);
+      result.queuedJobs = Number(queuedJobs || 0);
+      result.processingJobs = Number(processingJobs || 0);
+      if (oldestQueued?.createdAt) {
+        const oldestQueuedAt = new Date(oldestQueued.createdAt).getTime();
+        if (Number.isFinite(oldestQueuedAt)) {
+          result.oldestQueuedSeconds = Math.max(0, Math.floor((Date.now() - oldestQueuedAt) / 1000));
+        }
+      }
+    } catch (error) {
+      this.logger.debug('Transcrição: resumo persistido da fila indisponível: ' + (error?.message || error));
+    }
+    if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return result;
 
     await this.init();
     if (!this.channel) return result;
@@ -340,22 +367,19 @@ export class TranscriptionService {
       if (stored instanceof Error) {
         throw stored;
       }
-      return await this.createAndPublish(
-        {
-          instanceId: input.instanceId || null,
-          messageId: null,
-          sourceKey,
-          sourceMimeType: mimeType,
-          language,
-          model,
-        },
-        sourceKey,
-      );
-    } catch (error) {
+    } catch {
       await deleteStoredFile(sourceKey).catch(() => false);
-      if (error instanceof TranscriptionServiceError) throw error;
       throw new TranscriptionServiceError('Não foi possível armazenar o áudio para transcrição.', 503);
     }
+
+    return this.createAndPublish({
+      instanceId: input.instanceId || null,
+      messageId: null,
+      sourceKey,
+      sourceMimeType: mimeType,
+      language,
+      model,
+    });
   }
 
   public async get(jobId: string, instanceId?: string) {
@@ -377,8 +401,7 @@ export class TranscriptionService {
     if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
-    const canRetry =
-      job.status === 'failed' || (['queued', 'processing'].includes(String(job.status)) && this.isStaleJob(job));
+    const canRetry = job.status === 'failed' || this.isStaleJob(job);
     if (!canRetry) {
       throw new TranscriptionServiceError(
         'O job ainda está em processamento. Aguarde ou remova-o antes de repetir.',
@@ -391,11 +414,14 @@ export class TranscriptionService {
 
     await this.ready();
     const updateWhere: any =
-      job.status === 'failed' ? { id, status: 'failed' } : { id, status: job.status, updatedAt: job.updatedAt };
+      job.status === 'failed' ? { id, status: 'failed' } : { id, status: 'processing', updatedAt: job.updatedAt };
     const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
       where: updateWhere,
       data: {
         status: 'queued',
+        stage: 'queued',
+        progressPercent: 0,
+        processedDurationMs: 0,
         errorCode: null,
         errorMessage: null,
         startedAt: null,
@@ -419,6 +445,7 @@ export class TranscriptionService {
         where: { id, attempts: updated.attempts, status: 'queued' },
         data: {
           status: 'failed',
+          stage: 'failed',
           errorCode: 'QUEUE_UNAVAILABLE',
           errorMessage: String(error?.message || error).slice(0, 2000),
           completedAt: new Date(),
@@ -472,12 +499,15 @@ export class TranscriptionService {
     };
   }
 
-  private async createAndPublish(data: any, cleanupKey?: string) {
+  private async createAndPublish(data: any) {
     const job = await (this.prismaRepository.transcriptionJob as any).create({
       data: {
         ...data,
         provider: providerValue(),
         status: 'queued',
+        stage: 'queued',
+        progressPercent: 0,
+        processedDurationMs: 0,
         attempts: 1,
       },
     });
@@ -488,12 +518,12 @@ export class TranscriptionService {
         where: { id: job.id },
         data: {
           status: 'failed',
+          stage: 'failed',
           errorCode: 'QUEUE_UNAVAILABLE',
           errorMessage: String(error?.message || error).slice(0, 2000),
           completedAt: new Date(),
         },
       });
-      if (cleanupKey) await deleteStoredFile(cleanupKey).catch(() => false);
       throw new TranscriptionServiceError('Não foi possível publicar o job para o worker.', 503);
     }
     return this.publicJob(job);
@@ -520,6 +550,9 @@ export class TranscriptionService {
       model: job.model,
       language: job.language,
       status: job.status,
+      stage: job.stage || job.status,
+      progressPercent: Number.isFinite(Number(job.progressPercent)) ? Number(job.progressPercent) : 0,
+      processedDurationMs: job.processedDurationMs,
       text: job.text,
       detectedLanguage: job.detectedLanguage,
       durationMs: job.durationMs,
@@ -571,12 +604,13 @@ export class TranscriptionService {
       this.connection = null;
       this.scheduleReconnect();
     });
-    this.channel = await this.connection.createChannel();
+    this.channel = await this.connection.createConfirmChannel();
     await this.channel.assertExchange(exchange, 'topic', { durable: true });
     await this.channel.assertQueue(queue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     await this.channel.bindQueue(queue, exchange, REQUESTED);
     await this.channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
     for (const key of [PROCESSING, COMPLETED, FAILED]) await this.channel.bindQueue(resultQueue, exchange, key);
+    await this.channel.prefetch(20);
     await this.channel.consume(
       resultQueue,
       (message) => {
@@ -601,13 +635,25 @@ export class TranscriptionService {
 
   private async publish(routingKey: string, payload: Record<string, unknown>) {
     if (!this.channel) throw new Error('RabbitMQ channel indisponível.');
+    const channel = this.channel;
     const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
-    const accepted = this.channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(payload)), {
-      persistent: true,
-      contentType: 'application/json',
-      messageId: String(payload.jobId || ''),
+    await new Promise<void>((resolve, reject) => {
+      try {
+        channel.publish(
+          exchange,
+          routingKey,
+          Buffer.from(JSON.stringify(payload)),
+          {
+            persistent: true,
+            contentType: 'application/json',
+            messageId: String(payload.jobId || ''),
+          },
+          (error: Error | null) => (error ? reject(error) : resolve()),
+        );
+      } catch (error) {
+        reject(error);
+      }
     });
-    if (!accepted) await new Promise((resolve) => this.channel.once('drain', resolve));
   }
 
   private async consumeResult(message: any) {
@@ -622,8 +668,32 @@ export class TranscriptionService {
         ? String(payload.status)
         : 'failed';
       const data: any = { status, updatedAt: new Date() };
-      if (status === 'processing') data.startedAt = new Date();
-      else if (status === 'completed') {
+      data.stage =
+        status === 'completed' || status === 'failed'
+          ? status
+          : String(payload.stage || status)
+              .trim()
+              .slice(0, 32);
+      if (Number.isFinite(Number(payload.progressPercent))) {
+        data.progressPercent = Math.max(
+          0,
+          Math.min(status === 'completed' ? 100 : 99, Math.floor(Number(payload.progressPercent))),
+        );
+      }
+      if (Number.isFinite(Number(payload.processedDurationMs))) {
+        data.processedDurationMs = Math.max(0, Math.floor(Number(payload.processedDurationMs)));
+      }
+      if (status === 'processing') {
+        const current = await (this.prismaRepository.transcriptionJob as any).findUnique({
+          where: { id: jobId },
+          select: { startedAt: true },
+        });
+        if (!current) {
+          this.channel.ack(message);
+          return;
+        }
+        if (!current.startedAt) data.startedAt = new Date();
+      } else if (status === 'completed') {
         data.text = String(payload.text || '');
         data.detectedLanguage = payload.language ? String(payload.language) : null;
         data.durationMs = Number.isFinite(Number(payload.durationMs)) ? Math.round(Number(payload.durationMs)) : null;
@@ -633,6 +703,7 @@ export class TranscriptionService {
         data.errorCode = null;
         data.errorMessage = null;
         data.completedAt = new Date();
+        data.progressPercent = 100;
       } else {
         data.errorCode = String(payload.errorCode || 'TRANSCRIPTION_FAILED').slice(0, 64);
         data.errorMessage = String(payload.errorMessage || 'Falha no worker.').slice(0, 2000);
@@ -658,7 +729,7 @@ export class TranscriptionService {
         }
         updateWhere = { id: jobId, status: { in: ['queued', 'processing'] }, attempts: currentAttempts };
       } else {
-        updateWhere = { id: jobId, attempts };
+        updateWhere = { id: jobId, attempts, status: { in: ['queued', 'processing'] } };
       }
       const updated = await (this.prismaRepository.transcriptionJob as any).updateMany({ where: updateWhere, data });
       if (!Number(updated?.count)) {
@@ -820,7 +891,7 @@ export class TranscriptionService {
   }
 
   private isStaleJob(job: any): boolean {
-    if (!['queued', 'processing'].includes(String(job?.status))) return false;
+    if (String(job?.status) !== 'processing') return false;
     const updatedAt = new Date(job?.updatedAt || job?.createdAt || 0).getTime();
     return Number.isFinite(updatedAt) && Date.now() - updatedAt >= this.staleJobSeconds() * 1000;
   }
@@ -842,7 +913,11 @@ export class TranscriptionService {
       if (!Number(state?.consumerCount)) return;
       const cutoff = new Date(Date.now() - this.staleJobSeconds() * 1000);
       const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
-        where: { status: { in: ['queued', 'processing'] }, updatedAt: { lt: cutoff } },
+        // A queued database row may already be prefetched by RabbitMQ. Queue
+        // messageCount excludes unacked messages, so re-publishing it here can
+        // create duplicate transcriptions. Only recover a lost processing
+        // heartbeat; queued jobs stay with RabbitMQ's durable delivery path.
+        where: { status: 'processing', updatedAt: { lt: cutoff } },
         orderBy: { updatedAt: 'asc' },
         take: 100,
       });
@@ -851,6 +926,9 @@ export class TranscriptionService {
           where: { id: job.id, status: job.status, updatedAt: job.updatedAt },
           data: {
             status: 'queued',
+            stage: 'queued',
+            progressPercent: 0,
+            processedDurationMs: 0,
             errorCode: null,
             errorMessage: null,
             startedAt: null,
@@ -868,6 +946,7 @@ export class TranscriptionService {
             where: { id: updated.id, attempts: updated.attempts, status: 'queued' },
             data: {
               status: 'failed',
+              stage: 'failed',
               errorCode: 'QUEUE_UNAVAILABLE',
               errorMessage: String(error?.message || error).slice(0, 2000),
               completedAt: new Date(),

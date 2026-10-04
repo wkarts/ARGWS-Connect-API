@@ -209,7 +209,30 @@ const requestOverrides = {
     summary: 'Verificar worker de transcrição',
     description: 'Consulta somente o estado da fila RabbitMQ e do consumidor local. Não publica, repete nem remove jobs.',
     responses: {
-      '200': { description: 'Diagnóstico da fila e do worker local.' },
+      '200': {
+        description: 'Diagnóstico da fila, do worker local e do limite de upload ativo.',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                enabled: { type: 'boolean' },
+                queue: { type: 'string' },
+                connected: { type: 'boolean' },
+                consumerCount: { type: 'integer', minimum: 0 },
+                workerReady: { type: 'boolean' },
+                messageCount: { type: 'integer', minimum: 0 },
+                staleJobSeconds: { type: 'integer', minimum: 60 },
+                maxUploadBytes: { type: 'integer', minimum: 1, maximum: 262144000 },
+                queuedJobs: { type: 'integer', minimum: 0 },
+                processingJobs: { type: 'integer', minimum: 0 },
+                oldestQueuedSeconds: { type: 'integer', nullable: true, minimum: 0 },
+              },
+              required: ['enabled', 'queue', 'connected', 'consumerCount', 'workerReady', 'staleJobSeconds', 'maxUploadBytes'],
+            },
+          },
+        },
+      },
       '401': { $ref: '#/components/responses/Unauthorized' },
     },
   },
@@ -349,6 +372,20 @@ const requestOverrides = {
     ],
     responses: {
       '200': { description: 'Status publicados da instância.' },
+      '401': { $ref: '#/components/responses/Unauthorized' },
+      '404': { $ref: '#/components/responses/NotFound' },
+    },
+  },
+  'GET /chat/findPublishedStatusViews/{instanceName}/{statusId}': {
+    summary: 'Consultar visualizações de Status publicado',
+    description: 'Retorna somente confirmações READ/PLAYED recebidas para um Status próprio ainda presente no histórico desta instância. Não consulta dados antigos que o WhatsApp/provider não tenha sincronizado.',
+    parameters: [
+      { name: 'instanceName', in: 'path', required: true, schema: { type: 'string' } },
+      { name: 'statusId', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,128}$' } },
+    ],
+    responses: {
+      '200': { description: 'Lista de participantes com confirmação de visualização.' },
+      '400': { $ref: '#/components/responses/BadRequest' },
       '401': { $ref: '#/components/responses/Unauthorized' },
       '404': { $ref: '#/components/responses/NotFound' },
     },
@@ -838,6 +875,17 @@ function graphSpec(version) {
             { name: 'statusId', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,128}$' } },
           ],
           responses: { '200': { description: 'Status excluído no provider e no histórico local.', content: { 'application/json': { schema: { $ref: '#/components/schemas/MetaStatusDeleteResponse' } } } }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
+        },
+      },
+      '/{version}/{phoneNumberId}/statuses/{statusId}/views': {
+        get: {
+          tags: ['Status'], summary: 'Consultar visualizações de Status publicado', operationId: 'meta_get_status_views', security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'version', in: 'path', required: true, schema: { type: 'string', pattern: '^v[0-9]+\\.[0-9]+$' }, example: 'v20.0' },
+            { name: 'phoneNumberId', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'statusId', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,128}$' } },
+          ],
+          responses: { '200': { description: 'Visualizações READ/PLAYED conhecidas localmente pela instância.' }, '400': { $ref: '#/components/responses/GraphError' }, '401': { $ref: '#/components/responses/GraphError' }, '404': { $ref: '#/components/responses/GraphError' }, '409': { $ref: '#/components/responses/GraphError' } },
         },
       },
       '/{version}/{phoneNumberId}/transcriptions': {

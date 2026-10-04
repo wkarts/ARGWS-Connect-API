@@ -197,6 +197,19 @@ export class ChatRouter extends RouterBroker {
         res.set('Cache-Control', 'no-store');
         return res.status(HttpStatus.OK).json(response);
       })
+      .get('/findPublishedStatusViews/:instanceName/:statusId', ...guards, async (req, res) => {
+        const statusId = String(req.params.statusId || '').trim();
+        if (!/^[A-Za-z0-9._:-]{1,128}$/.test(statusId)) {
+          return res.status(HttpStatus.BAD_REQUEST).json({ error: 'statusId inválido' });
+        }
+        const instance = req.params as unknown as InstanceDto;
+        const response = await chatController.fetchPublishedStatusViews(instance, statusId);
+        if (!response) {
+          return res.status(HttpStatus.NOT_FOUND).json({ error: 'Status publicado não encontrado.' });
+        }
+        res.set('Cache-Control', 'no-store');
+        return res.status(HttpStatus.OK).json(response);
+      })
       .delete('/deleteStatus/:instanceName/:statusId', ...guards, async (req, res) => {
         const statusId = String(req.params.statusId || '').trim();
         if (!/^[A-Za-z0-9._:-]{1,128}$/.test(statusId)) {

@@ -424,6 +424,66 @@
         }
       }
     },
+    "/{version}/{phoneNumberId}/statuses/{statusId}/views": {
+      "get": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Consultar visualizações de Status publicado",
+        "operationId": "meta_get_status_views",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Visualizações READ/PLAYED conhecidas localmente pela instância."
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
     "/{version}/{phoneNumberId}/transcriptions": {
       "post": {
         "tags": [

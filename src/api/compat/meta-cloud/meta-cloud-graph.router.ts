@@ -109,6 +109,21 @@ export class MetaCloudGraphRouter {
       }),
     );
 
+    this.router.get(
+      '/:version/:phoneNumberId/statuses/:statusId/views',
+      this.wrap(async (req, res) => {
+        const phoneNumberId = graphPhoneNumberId(req.params.phoneNumberId);
+        res.json(
+          await metaCloudGraphController.getStatusViews(
+            req.params.version,
+            phoneNumberId,
+            req.headers.authorization,
+            req.params.statusId,
+          ),
+        );
+      }),
+    );
+
     this.router.delete(
       '/:version/:phoneNumberId/statuses/:statusId',
       this.wrap(async (req, res) => {

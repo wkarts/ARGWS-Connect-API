@@ -128,7 +128,7 @@ services:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
   transcription-worker-argws-connect-develop:
-    profiles: ["transcription"]
+    profiles: [transcription]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
     pull_policy: always
     container_name: transcription-worker-argws-connect-develop
@@ -160,7 +160,7 @@ services:
     cpus: '${TRANSCRIPTION_WORKER_CPUS:-1.00}'
     pids_limit: 128
     tmpfs:
-    - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
+    - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
     networks:
     - argws-connect-develop-net
     healthcheck:
@@ -170,7 +170,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15m
     logging:
       driver: json-file
       options:

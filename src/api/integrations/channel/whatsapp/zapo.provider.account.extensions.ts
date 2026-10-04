@@ -240,19 +240,17 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       const jid = this.normalizeAccountJid(data?.remoteJid);
       const messageId = String(data?.id ?? '').trim();
       if (!messageId) throw new BadRequestException('Message ID is required');
+      if (jid === 'status@broadcast' && (!/^[A-Za-z0-9._:-]{1,128}$/.test(messageId) || data.fromMe !== true)) {
+        throw new BadRequestException('A valid own Status identifier is required');
+      }
 
       const storedMessage = await this.findStoredMessage(messageId);
-      if (jid === 'status@broadcast') {
+      if (jid === 'status@broadcast' && storedMessage) {
         const statusKey =
           typeof storedMessage?.key === 'object' && storedMessage.key !== null
             ? (storedMessage.key as Record<string, any>)
             : {};
-        if (
-          !storedMessage ||
-          storedMessage.status === 'DELETED' ||
-          statusKey.remoteJid !== 'status@broadcast' ||
-          statusKey.fromMe !== true
-        ) {
+        if (statusKey.remoteJid !== 'status@broadcast' || statusKey.fromMe !== true) {
           throw new NotFoundException('Published Status not found for this instance');
         }
       }
@@ -319,7 +317,7 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       );
 
       return {
-        key: { id: result?.id, remoteJid: jid, fromMe: true },
+        key: { id: result?.id || messageId, remoteJid: jid, fromMe: true },
         protocolMessage: { key: target },
         deleted: true,
       };
