@@ -45,7 +45,6 @@ const recordingLevel = ref(0)
 const recordingDb = ref(-60)
 const recordingSupported = computed(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined')
 const MAX_RECORDING_SECONDS = 60 * 60
-const MIN_RECORDING_BYTES = 256
 const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 const maxUploadBytes = computed(() => {
   const value = Number(workerHealth.value?.maxUploadBytes)
@@ -223,11 +222,15 @@ function finishRecording() {
   const shouldDiscard = discardRecording
   recordingChunks = []
   stopRecordingResources()
-  if (shouldDiscard || !chunks.length) return
+  if (shouldDiscard) return
+  if (!chunks.length) {
+    error.value = 'O microfone não capturou dados de áudio. Confira a permissão e tente novamente.'
+    return
+  }
   const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm'
   const blob = new Blob(chunks, { type: mimeType })
-  if (blob.size < MIN_RECORDING_BYTES) {
-    error.value = 'A gravação ficou vazia ou curta demais. Confira o medidor do microfone, aproxime-se dele e grave novamente.'
+  if (blob.size === 0) {
+    error.value = 'A gravação não contém dados de áudio. Confira o microfone e grave novamente.'
     return
   }
   setSelectedFile(new File([blob], `gravacao-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`, { type: mimeType.split(';')[0] }))

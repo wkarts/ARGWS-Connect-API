@@ -6,17 +6,16 @@ import {
   uploadFile,
 } from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
+import { SpeechModelDownloadService, SpeechModelDownloadStatus } from '@api/services/speech-model-download.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
 import { createHash, randomUUID } from 'crypto';
 import path from 'path';
-import { SpeechModelDownloadService, SpeechModelDownloadStatus } from '@api/services/speech-model-download.service';
 
 const REQUESTED = 'transcription.requested';
 const DICTATION_REQUESTED = 'speech.dictation.requested';
 const TRANSCRIPTION_SOURCE_PREFIX = 'transcriptions/';
 const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
-const MIN_AUDIO_BYTES = 256;
 const MODEL_BOOTSTRAP_RETRY_MS = 125_000;
 
 type EnqueueInput = {
@@ -506,8 +505,11 @@ export class TranscriptionService {
     if (!minioEnabled()) {
       throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
     }
-    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length < MIN_AUDIO_BYTES) {
-      throw new TranscriptionServiceError('O arquivo de áudio está vazio ou incompleto. Grave novamente ou selecione outro áudio.', 400);
+    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
+      throw new TranscriptionServiceError(
+        'O arquivo de áudio não contém dados. Grave novamente ou selecione outro áudio.',
+        400,
+      );
     }
     if (input.buffer.length > maxUploadBytes()) {
       throw new TranscriptionServiceError('O áudio excede o limite configurado para transcrição.', 413);
@@ -578,8 +580,11 @@ export class TranscriptionService {
     if (!this.isDictationEnabled()) {
       throw new TranscriptionServiceError('O ditado está desabilitado nesta instalação.', 409);
     }
-    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length < MIN_AUDIO_BYTES) {
-      throw new TranscriptionServiceError('O áudio do ditado está vazio ou incompleto. Confira o microfone e grave novamente.', 400);
+    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
+      throw new TranscriptionServiceError(
+        'O áudio do ditado não contém dados. Confira o microfone e grave novamente.',
+        400,
+      );
     }
     if (input.buffer.length > maxDictationBytes()) {
       throw new TranscriptionServiceError('O áudio do ditado excede o limite configurado.', 413);
@@ -952,7 +957,9 @@ export class TranscriptionService {
       try {
         modelStatus = await this.downloadModel(modelStatus.id);
       } catch (error: any) {
-        this.logger.warn('Não foi possível iniciar o download persistente do modelo de voz: ' + (error?.message || error));
+        this.logger.warn(
+          'Não foi possível iniciar o download persistente do modelo de voz: ' + (error?.message || error),
+        );
         throw new TranscriptionServiceError(
           'O modelo de voz ainda não está instalado e o download automático não pôde ser iniciado. Verifique o volume persistente de modelos no Compose.',
           503,
@@ -1069,9 +1076,21 @@ export class TranscriptionService {
       const resultChannel = this.resultChannel;
       this.resultChannel = null;
       if (this.connection === connection) this.connection = null;
-      try { await resultChannel?.close(); } catch {}
-      try { await channel.close(); } catch {}
-      try { await connection.close(); } catch {}
+      try {
+        await resultChannel?.close();
+      } catch {
+        // Connection teardown below also releases this channel.
+      }
+      try {
+        await channel.close();
+      } catch {
+        // Connection teardown below also releases this channel.
+      }
+      try {
+        await connection.close();
+      } catch {
+        // Preserve the setup error while best-effort cleanup completes.
+      }
       throw error;
     }
   }

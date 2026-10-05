@@ -160,17 +160,28 @@ test('resultado da fila recebe somente um ACK ou NACK por delivery', () => {
   assert.equal(channel.nackCount, 0);
 });
 
-test('áudio curto demais é rejeitado antes de entrar na fila de ditado', async () => {
+test('ditado rejeita áudio sem dados e aceita gravação não vazia abaixo de 256 bytes', async () => {
   const previousEnabled = process.env.SPEECH_ENABLED;
   const previousLegacyEnabled = process.env.TRANSCRIPTION_ENABLED;
   process.env.SPEECH_ENABLED = 'true';
   delete process.env.TRANSCRIPTION_ENABLED;
   try {
     const service = new TranscriptionService({} as any);
+    const existingJob = { id: 'existing-short-dictation' };
+    (service as any).findDuplicate = async () => existingJob;
+    (service as any).publicJob = (job: any) => job;
+
     await assert.rejects(
-      service.enqueueDictation({ buffer: Buffer.alloc(32), fileName: 'ditado.webm', mimeType: 'audio/webm' }),
-      (error: any) => error.status === 400 && /vazio ou incompleto/.test(error.message),
+      service.enqueueDictation({ buffer: Buffer.alloc(0), fileName: 'ditado.webm', mimeType: 'audio/webm' }),
+      (error: any) => error.status === 400 && /não contém dados/.test(error.message),
     );
+
+    const job = await service.enqueueDictation({
+      buffer: Buffer.alloc(32, 1),
+      fileName: 'ditado.webm',
+      mimeType: 'audio/webm',
+    });
+    assert.equal(job.id, existingJob.id);
   } finally {
     if (previousEnabled === undefined) delete process.env.SPEECH_ENABLED;
     else process.env.SPEECH_ENABLED = previousEnabled;

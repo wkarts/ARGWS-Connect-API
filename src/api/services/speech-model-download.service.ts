@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { access, lstat, mkdir, open, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -44,10 +44,6 @@ type StoredStatus = Omit<SpeechModelDownloadStatus, 'available' | 'installed'> &
   startedAt?: string | null;
 };
 
-function sha256(value: Buffer): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
 function safeTarget(root: string, relativePath: string): string {
   const target = path.resolve(root, relativePath);
   if (target !== root && !target.startsWith(root + path.sep)) {
@@ -80,7 +76,10 @@ export class SpeechModelDownloadService {
   }
 
   private get isDownloadAvailable(): boolean {
-    return this.configuredModel() === MODEL_ID && this.targetPath() === path.join(this.modelRoot(), 'Xenova', 'whisper-small');
+    return (
+      this.configuredModel() === MODEL_ID &&
+      this.targetPath() === path.join(this.modelRoot(), 'Xenova', 'whisper-small')
+    );
   }
 
   private statusPath(): string {
@@ -195,18 +194,18 @@ export class SpeechModelDownloadService {
           await this.saveStatus(stored).catch(() => {});
         }
       } else {
-      const lockedStatus = stored || {
-        id: MODEL_ID,
-        revision: MODEL_REVISION,
-        status: 'downloading' as const,
-        progressPercent: 0,
-        downloadedBytes: 0,
-        totalBytes: 0,
-        errorMessage: null,
-        updatedAt: lock.mtime.toISOString(),
-      };
-      if (lockedStatus.status !== 'failed') lockedStatus.status = 'downloading';
-      return this.publicStatus(lockedStatus, false);
+        const lockedStatus = stored || {
+          id: MODEL_ID,
+          revision: MODEL_REVISION,
+          status: 'downloading' as const,
+          progressPercent: 0,
+          downloadedBytes: 0,
+          totalBytes: 0,
+          errorMessage: null,
+          updatedAt: lock.mtime.toISOString(),
+        };
+        if (lockedStatus.status !== 'failed') lockedStatus.status = 'downloading';
+        return this.publicStatus(lockedStatus, false);
       }
     }
 
@@ -272,7 +271,9 @@ export class SpeechModelDownloadService {
   }
 
   private async fetchRemoteFiles(): Promise<RemoteFile[]> {
-    const response = await fetch(`https://huggingface.co/api/models/${MODEL_ID}/tree/${MODEL_REVISION}?recursive=true&expand=true`);
+    const response = await fetch(
+      `https://huggingface.co/api/models/${MODEL_ID}/tree/${MODEL_REVISION}?recursive=true&expand=true`,
+    );
     if (!response.ok) throw new Error(`Não foi possível consultar os arquivos do modelo (HTTP ${response.status}).`);
     const entries = await response.json();
     if (!Array.isArray(entries)) throw new Error('A Hugging Face retornou uma lista de arquivos inválida.');
@@ -287,7 +288,12 @@ export class SpeechModelDownloadService {
     return selected;
   }
 
-  private async downloadFile(file: RemoteFile, stagingPath: string, completedBytes: number, totalBytes: number): Promise<string> {
+  private async downloadFile(
+    file: RemoteFile,
+    stagingPath: string,
+    completedBytes: number,
+    totalBytes: number,
+  ): Promise<string> {
     const encodedPath = file.path.split('/').map(encodeURIComponent).join('/');
     const response = await fetch(`${MODEL_REPOSITORY}/resolve/${MODEL_REVISION}/${encodedPath}?download=true`);
     if (!response.ok || !response.body) {
@@ -311,16 +317,18 @@ export class SpeechModelDownloadService {
           lastSaveAt = now;
           const downloadedBytes = completedBytes + currentFileBytes;
           this.progressWrites = this.progressWrites
-            .then(() => this.saveStatus({
-              id: MODEL_ID,
-              revision: MODEL_REVISION,
-              status: 'downloading',
-              progressPercent: totalBytes ? Math.floor((downloadedBytes / totalBytes) * 100) : 0,
-              downloadedBytes,
-              totalBytes,
-              errorMessage: null,
-              updatedAt: new Date().toISOString(),
-            }))
+            .then(() =>
+              this.saveStatus({
+                id: MODEL_ID,
+                revision: MODEL_REVISION,
+                status: 'downloading',
+                progressPercent: totalBytes ? Math.floor((downloadedBytes / totalBytes) * 100) : 0,
+                downloadedBytes,
+                totalBytes,
+                errorMessage: null,
+                updatedAt: new Date().toISOString(),
+              }),
+            )
             .catch(() => undefined);
         }
         callback(null, chunk);
@@ -333,7 +341,9 @@ export class SpeechModelDownloadService {
       throw new Error(`O tamanho recebido para ${file.path} não corresponde ao arquivo publicado.`);
     }
     const downloadedHash = hash.digest('hex');
-    const remoteHash = String(file.lfs?.oid || '').replace(/^sha256:/i, '').toLowerCase();
+    const remoteHash = String(file.lfs?.oid || '')
+      .replace(/^sha256:/i, '')
+      .toLowerCase();
     if (remoteHash && /^[a-f0-9]{64}$/.test(remoteHash) && downloadedHash !== remoteHash) {
       throw new Error(`A verificação SHA-256 falhou para ${file.path}.`);
     }

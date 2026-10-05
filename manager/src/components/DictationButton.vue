@@ -6,7 +6,6 @@ import { friendlyError } from '@/services/errors'
 
 type InsertMode = 'append' | 'replace' | 'insert-at-cursor'
 type DictationState = 'idle' | 'requesting_permission' | 'listening' | 'processing' | 'completed' | 'error'
-const MIN_RECORDING_BYTES = 256
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -276,16 +275,16 @@ async function finishRecording() {
   }
   const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm'
   const blob = new Blob(capturedChunks, { type: mimeType })
-  if (blob.size < MIN_RECORDING_BYTES) {
+  if (blob.size === 0) {
     state.value = 'error'
-    error.value = 'O áudio ficou vazio ou curto demais. Fale perto do microfone e grave novamente.'
+    error.value = 'A gravação não contém dados de áudio. Confira o microfone e grave novamente.'
     return
   }
   const audio = new File([blob], `ditado.${extension}`, { type: mimeType.split(';')[0] })
   await submitAudio(audio, durationMs)
 }
 
-async function submitAudio(audio: File, durationMs: number, idempotencyKey = crypto.randomUUID()) {
+async function submitAudio(audio: File, durationMs: number, idempotencyKey: string = crypto.randomUUID()) {
   state.value = 'processing'
   stage.value = 'queued'
   progress.value = 0

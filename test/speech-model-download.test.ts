@@ -112,7 +112,7 @@ test('download gerenciado rejeita modelo diferente do perfil fixado', async () =
 test('API provisiona o modelo no início da stack mesmo com a transcrição desativada', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'argws-speech-model-bootstrap-'));
   const envNames = ['SPEECH_MODELS_PATH', 'SPEECH_MODEL_PATH', 'SPEECH_MODEL', 'SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED'];
-  const previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]));
+  const previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
   const originalFetch = globalThis.fetch;
   const buffers = new Map(MODEL_FILES.map((filename) => [filename, Buffer.from(`fixture:${filename}`)]));
   let metadataRequests = 0;
