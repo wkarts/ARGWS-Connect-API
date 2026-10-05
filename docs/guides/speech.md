@@ -24,7 +24,9 @@ Variáveis principais:
 | `SPEECH_CHUNK_SECONDS` | `30` | Duração máxima de cada trecho |
 | `SPEECH_STRIDE_SECONDS` | `5` | Sobreposição entre trechos |
 | `SPEECH_HEARTBEAT_INTERVAL_SECONDS` | `5` | Frequência dos heartbeats |
+| `SPEECH_INFERENCE_STALL_SECONDS` | `300` | Tempo máximo sem progresso do motor antes de reiniciar a thread e agendar retry |
 | `SPEECH_JOB_STALE_AFTER` | `120` | Limite para considerar heartbeat parado |
+| `SPEECH_MAX_ATTEMPTS` | `3` | Tentativas antes de registrar falha definitiva |
 | `DICTATION_MAX_AUDIO_BYTES` | `5242880` | Limite do áudio enviado pelo navegador |
 | `DICTATION_MAX_DURATION_SECONDS` | `300` | Duração máxima do ditado |
 | `DICTATION_AUDIO_RETENTION_MINUTES` | `5` | Tempo máximo de áudio inline aguardando na fila |
@@ -33,6 +35,10 @@ Variáveis principais:
 Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
 
 Cada réplica mantém seu próprio modelo carregado e consome um job por vez. A inferência executa numa thread separada da conexão RabbitMQ, permitindo que o heartbeat continue durante trechos síncronos do modelo. O padrão de duas réplicas permite dois áudios simultâneos; aumente `SPEECH_TRANSCRIPTION_REPLICAS` para mais paralelismo e dimensione CPU/memória por réplica. O ditado conserva sua fila prioritária própria. A velocidade depende da duração do áudio, do processador e do número de réplicas; jobs já reenfileirados pelo watchdog voltam a ser consumidos ao atualizar a stack.
+
+O diagnóstico da API reutiliza a conexão RabbitMQ aberta. Um erro transitório no banco fecha o canal de resultados e devolve a mensagem ainda não confirmada para processamento após a reconexão. Em um retry atrasado, o job permanece com estágio `retrying` até a próxima tentativa; o watchdog respeita o atraso da fila antes de considerar o job abandonado. Se a thread de inferência ficar sem progresso por `SPEECH_INFERENCE_STALL_SECONDS`, o worker a encerra, carrega novamente o modelo do volume persistente e trata a tentativa como falha recuperável. Ajuste esse limite se um trecho legítimo demorar mais no hardware da instalação.
+
+Os sinais de cancelamento usam um canal independente daquele que processa áudio. Cada réplica recebe o evento, inclusive quando outra está ocupada. O endpoint de saúde informa consumidores registrados, mas a prova de operação é observar heartbeats e jobs terminando como `completed` ou `failed`; consumidor registrado sozinho não comprova que a inferência avança.
 
 ## Baixar e manter o modelo
 

@@ -3,6 +3,35 @@ import { test } from 'node:test';
 
 import { TranscriptionService } from '@api/services/transcription.service';
 
+test('polling de health reutiliza a conexão RabbitMQ e serializa init concorrente', async () => {
+  const previous = process.env.SPEECH_ENABLED;
+  process.env.SPEECH_ENABLED = 'true';
+  try {
+    const service = new TranscriptionService({} as any);
+    let connections = 0;
+    (service as any).startDefaultModelDownload = () => {};
+    (service as any).startSourceCleanup = () => {};
+    (service as any).startStaleRecovery = () => {};
+    (service as any).connect = async () => {
+      connections += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      (service as any).connection = {};
+      (service as any).channel = {};
+      (service as any).resultChannel = {};
+    };
+
+    await Promise.all(Array.from({ length: 20 }, () => service.init()));
+    for (let index = 0; index < 20; index += 1) await service.init();
+    assert.equal(connections, 1);
+    (service as any).resultChannel = null;
+    await service.init();
+    assert.equal(connections, 2);
+  } finally {
+    if (previous === undefined) delete process.env.SPEECH_ENABLED;
+    else process.env.SPEECH_ENABLED = previous;
+  }
+});
+
 function withStaleThreshold(callback: () => Promise<void>) {
   const original = process.env.TRANSCRIPTION_STALE_JOB_SECONDS;
   process.env.TRANSCRIPTION_STALE_JOB_SECONDS = '60';
@@ -51,6 +80,70 @@ test('recovery does not inspect or republish jobs while no worker consumes the q
 
     assert.equal(queried, false);
   });
+});
+
+test('watchdog aguarda o retry atrasado antes de reenfileirar o job', async () => {
+  await withStaleThreshold(async () => {
+    let updated = false;
+    const repository = {
+      transcriptionJob: {
+        findMany: async (input: any) => input.where?.status === 'processing' ? [{
+          id: 'retrying-job', mode: 'transcription', status: 'processing', stage: 'retrying', attempts: 3,
+          heartbeatAt: new Date(Date.now() - 120_000), updatedAt: new Date(Date.now() - 120_000),
+        }] : [],
+        updateMany: async () => { updated = true; return { count: 1 }; },
+      },
+    };
+    const service = new TranscriptionService(repository as any);
+    (service as any).channel = { checkQueue: async () => ({ consumerCount: 1, messageCount: 0 }) };
+    await (service as any).recoverStaleJobs();
+    assert.equal(updated, false);
+    assert.equal((service as any).isStaleJob({
+      status: 'processing', stage: 'retrying', attempts: 2,
+      updatedAt: new Date(Date.now() - 190_000),
+    }), true);
+  });
+});
+
+test('primeiro resultado do retry avança a tentativa persistida sem descartar o texto', async () => {
+  const updates: any[] = [];
+  const repository = {
+    transcriptionJob: {
+      findUnique: async () => ({ startedAt: new Date() }),
+      updateMany: async (input: any) => {
+        updates.push(input);
+        return { count: input.where.stage === 'retrying' && input.where.attempts === 1 ? 1 : 0 };
+      },
+    },
+  };
+  const channel = { acknowledgements: 0, ack() { this.acknowledgements += 1; } };
+  const service = new TranscriptionService(repository as any);
+  (service as any).resultChannel = channel;
+  await (service as any).consumeResult({ content: Buffer.from(JSON.stringify({
+    jobId: 'retry-job', attempts: 2, status: 'completed', text: 'teste teste',
+  })) }, channel);
+  assert.equal(updates.length, 2);
+  assert.equal(updates[1].data.attempts, 2);
+  assert.equal(updates[1].data.text, 'teste teste');
+  assert.equal(channel.acknowledgements, 1);
+});
+
+test('falha transitória do banco fecha o consumidor para reentregar o resultado', async () => {
+  const service = new TranscriptionService({ transcriptionJob: {
+    updateMany: async () => { throw new Error('database offline'); },
+  } } as any);
+  let closed = 0;
+  let settled = 0;
+  const connection = { close: async () => { closed += 1; } };
+  const channel = { ack() { settled += 1; }, nack() { settled += 1; } };
+  (service as any).connection = connection;
+  (service as any).resultChannel = channel;
+  (service as any).scheduleReconnect = () => {};
+  await (service as any).consumeResult({ content: Buffer.from(JSON.stringify({
+    jobId: 'db-offline', attempts: 1, status: 'completed', text: 'texto',
+  })) }, channel);
+  assert.equal(closed, 1);
+  assert.equal(settled, 0);
 });
 
 test('ditado expirado na fila termina com estado failed em vez de ficar queued', async () => {

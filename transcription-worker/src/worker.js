@@ -70,6 +70,7 @@ class TranscriptionWorker {
     this.config = config;
     this.connection = null;
     this.channel = null;
+    this.controlChannel = null;
     this.settledMessages = new WeakSet();
     this.client = createClient(config.s3);
     this.provider = null;
@@ -117,6 +118,7 @@ class TranscriptionWorker {
     connection.on('close', () => {
       if (this.connection !== connection) return;
       this.channel = null;
+      this.controlChannel = null;
       this.connection = null;
       fs.rmSync(READY_FILE, { force: true });
       this.scheduleReconnect();
@@ -125,14 +127,16 @@ class TranscriptionWorker {
     const channel = await connection.createConfirmChannel();
     this.channel = channel;
     channel.on('error', (error) => console.error('RabbitMQ speech channel error:', error.message));
-    channel.on('close', () => {
-      if (this.channel !== channel || this.connection !== connection) return;
+    const onChannelClose = (closed) => {
+      if (this.connection !== connection || (this.channel !== closed && this.controlChannel !== closed)) return;
       this.channel = null;
+      this.controlChannel = null;
       this.connection = null;
       fs.rmSync(READY_FILE, { force: true });
       void connection.close().catch(() => {});
       this.scheduleReconnect();
-    });
+    };
+    channel.on('close', () => onChannelClose(channel));
 
     await channel.assertExchange(this.config.rabbitmq.exchange, 'topic', { durable: true });
     await channel.assertQueue(this.config.queue, {
@@ -164,14 +168,32 @@ class TranscriptionWorker {
       durable: true,
       arguments: { 'x-queue-type': 'quorum' },
     });
-    await channel.prefetch(this.config.concurrency);
-    await channel.consume(this.config.controlQueue, (message) => {
-      if (message) this.handleControl(message, channel);
+    // A busy job channel has prefetch=1. Keep cancellation on another channel
+    // so its delivery cannot wait for inference to finish.
+    const controlChannel = await connection.createChannel();
+    if (this.connection !== connection || this.channel !== channel) {
+      await controlChannel.close().catch(() => {});
+      return;
+    }
+    this.controlChannel = controlChannel;
+    controlChannel.on('error', (error) => console.error('RabbitMQ speech control channel error:', error.message));
+    controlChannel.on('close', () => onChannelClose(controlChannel));
+    const broadcastQueue = await controlChannel.assertQueue('', { exclusive: true, autoDelete: true });
+    await controlChannel.bindQueue(broadcastQueue.queue, this.config.rabbitmq.exchange, this.config.cancelRoutingKey);
+    await controlChannel.prefetch(10);
+    await controlChannel.consume(broadcastQueue.queue, (message) => {
+      if (message) this.handleControl(message, controlChannel);
     }, { noAck: false });
+    // Drain cancellation messages left in the old shared queue during rolling
+    // upgrades; each live replica also receives the broadcast above.
+    await controlChannel.consume(this.config.controlQueue, (message) => {
+      if (message) this.handleControl(message, controlChannel);
+    }, { noAck: false });
+    await channel.prefetch(this.config.concurrency);
     await channel.consume(this.config.queue, (message) => {
       if (message) void this.handle(message, channel);
     }, { noAck: false });
-    if (this.channel !== channel) return;
+    if (this.channel !== channel || this.controlChannel !== controlChannel) return;
     fs.writeFileSync(READY_FILE, 'ready');
     console.log(`Speech ${this.config.mode} worker pronto na fila ${this.config.queue}.`);
   }
@@ -188,7 +210,7 @@ class TranscriptionWorker {
   }
 
   acknowledge(channel, message) {
-    if (!channel || channel !== this.channel || !message || typeof message !== 'object') return false;
+    if (!channel || (channel !== this.channel && channel !== this.controlChannel) || !message || typeof message !== 'object') return false;
     this.settledMessages ||= new WeakSet();
     if (this.settledMessages.has(message)) return false;
     try {
@@ -217,8 +239,8 @@ class TranscriptionWorker {
     }
   }
 
-  handleControl(message, channel = this.channel) {
-    if (!channel || channel !== this.channel) return;
+  handleControl(message, channel = this.controlChannel) {
+    if (!channel || channel !== this.controlChannel) return;
     try {
       const payload = JSON.parse(message.content.toString('utf8'));
       const jobId = String(payload.jobId || '').trim();
@@ -441,6 +463,7 @@ class TranscriptionWorker {
     await this.provider?.stop();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     fs.rmSync(READY_FILE, { force: true });
+    await this.controlChannel?.close().catch(() => {});
     await this.channel?.close().catch(() => {});
     await this.connection?.close().catch(() => {});
   }

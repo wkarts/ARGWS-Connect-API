@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const amqp = require('amqplib');
 const { TranscriptionWorker, normalizeJob, REQUESTED, PROCESSING, COMPLETED, FAILED } = require('../src/worker');
 const { validateConfig } = require('../src/config');
 const { createProvider, prepareModelCache } = require('../src/provider');
@@ -45,6 +46,65 @@ test('ACK e NACK repetidos não reutilizam a mesma delivery tag', () => {
   assert.equal(worker.negativeAcknowledge(channel, message, true), false);
   assert.equal(acknowledged, 1);
   assert.equal(rejected, 0);
+});
+
+test('cancelamento chega durante job ocupado e alcança cada réplica', async () => {
+  const originalConnect = amqp.connect;
+  const connections = [];
+  amqp.connect = async () => {
+    const makeChannel = () => ({
+      handlers: new Map(), prefetchCount: null, acknowledgements: 0,
+      on() {},
+      async assertExchange() {},
+      async assertQueue(name) { return { queue: name || `cancel-${connections.length}` }; },
+      async bindQueue() {},
+      async prefetch(count) { this.prefetchCount = count; },
+      async consume(queue, callback) { this.handlers.set(queue, callback); },
+      ack() { this.acknowledgements += 1; },
+      async close() {},
+    });
+    const job = makeChannel();
+    const control = makeChannel();
+    const connection = {
+      on() {}, async createConfirmChannel() { return job; },
+      async createChannel() { return control; }, async close() {},
+    };
+    connections.push({ job, control, connection });
+    return connection;
+  };
+
+  const workers = [];
+  try {
+    for (let index = 0; index < 2; index += 1) {
+      const worker = Object.create(TranscriptionWorker.prototype);
+      worker.config = {
+        rabbitmq: { uri: 'amqp://fixture', exchange: 'speech' },
+        queue: 'speech.transcription', mode: 'transcription',
+        requestRoutingKey: 'transcription.requested', cancelRoutingKey: 'speech.cancel.transcription',
+        concurrency: 1,
+      };
+      worker.stopping = false;
+      worker.cancelledJobs = new Set();
+      worker.activeJobId = 'busy-job';
+      worker.provider = { cancel() { worker.cancelled = true; } };
+      await worker.connect();
+      workers.push(worker);
+    }
+    for (let index = 0; index < workers.length; index += 1) {
+      const { job, control } = connections[index];
+      assert.equal(job.prefetchCount, 1);
+      assert.equal(control.prefetchCount, 10);
+      assert.notEqual(job, control);
+      const delivery = { content: Buffer.from('{"jobId":"busy-job"}') };
+      control.handlers.get(`cancel-${index + 1}`)(delivery);
+      assert.equal(workers[index].cancelled, true);
+      assert.equal(control.acknowledgements, 1);
+      assert.equal(job.acknowledgements, 0);
+    }
+  } finally {
+    amqp.connect = originalConnect;
+    await fs.promises.rm('/tmp/transcription-worker.ready', { force: true });
+  }
 });
 
 test('normaliza um job de áudio sem credencial externa', () => {

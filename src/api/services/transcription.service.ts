@@ -17,6 +17,7 @@ const DICTATION_REQUESTED = 'speech.dictation.requested';
 const TRANSCRIPTION_SOURCE_PREFIX = 'transcriptions/';
 const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
 const MODEL_BOOTSTRAP_RETRY_MS = 125_000;
+const RETRY_DELAYS_MS = [30_000, 120_000, 600_000];
 
 type EnqueueInput = {
   messageId?: string;
@@ -288,6 +289,9 @@ export class TranscriptionService {
     this.startSourceCleanup();
     this.startStaleRecovery();
     if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
+    // Health polling calls init on every request. Replacing a live connection
+    // strands deliveries on its old result consumer and leaks AMQP connections.
+    if (this.connection && this.channel && this.resultChannel) return;
     if (this.initializing) return this.initializing;
     this.initializing = this.connect()
       .catch((error) => {
@@ -1166,8 +1170,20 @@ export class TranscriptionService {
 
   private async consumeResult(message: any, channel: any) {
     if (!channel || channel !== this.resultChannel) return;
+    let payload: WorkerResult;
     try {
-      const payload = JSON.parse(message.content.toString('utf8')) as WorkerResult;
+      payload = JSON.parse(message.content.toString('utf8')) as WorkerResult;
+    } catch (error) {
+      this.logger.error('Resultado de transcrição malformado: ' + (error?.message || error));
+      this.rejectResult(channel, message, false);
+      return;
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      this.logger.error('Resultado de transcrição malformado: payload não é um objeto.');
+      this.rejectResult(channel, message, false);
+      return;
+    }
+    try {
       const jobId = String(payload.jobId || '').trim();
       if (!jobId) {
         this.acknowledgeResult(channel, message);
@@ -1245,8 +1261,20 @@ export class TranscriptionService {
       } else {
         updateWhere = { id: jobId, attempts, status: { in: ['queued', 'processing'] } };
       }
-      const updated = await (this.prismaRepository.transcriptionJob as any).updateMany({ where: updateWhere, data });
-      if (!Number(updated?.count)) {
+      const jobs = this.prismaRepository.transcriptionJob as any;
+      const updated = await jobs.updateMany({ where: updateWhere, data });
+      let updatedCount = Number(updated?.count || 0);
+      if (!updatedCount && attempts !== null && attempts > 1) {
+        // The delayed retry carries the next attempt. Advance the durable
+        // counter only when its first event arrives, with a compare-and-swap
+        // against the preceding retrying state.
+        const resumed = await jobs.updateMany({
+          where: { id: jobId, attempts: attempts - 1, status: 'processing', stage: 'retrying' },
+          data: { ...data, attempts },
+        });
+        updatedCount = Number(resumed?.count || 0);
+      }
+      if (!updatedCount) {
         // The job may have been deliberately removed, or this is a late result
         // from an older retry attempt. It must not poison the durable queue.
         this.logger.debug('Resultado de transcrição ignorado para job ausente ou tentativa antiga: ' + jobId);
@@ -1254,8 +1282,10 @@ export class TranscriptionService {
       this.acknowledgeResult(channel, message);
     } catch (error) {
       if (channel !== this.resultChannel) return;
-      this.logger.error('Resultado de transcrição inválido: ' + (error?.message || error));
-      this.rejectResult(channel, message, false);
+      this.logger.error('Falha ao persistir resultado de transcrição: ' + (error?.message || error));
+      // A database outage is transient: closing the consumer channel returns
+      // the unacknowledged result to RabbitMQ after the reconnect backoff.
+      this.handleChannelClose(channel, this.connection);
     }
   }
 
@@ -1396,10 +1426,18 @@ export class TranscriptionService {
     return Math.min(Math.max(value, 30), 3600);
   }
 
+  private maxAttempts(): number {
+    const value = Number.parseInt(process.env.SPEECH_MAX_ATTEMPTS || '', 10);
+    return Number.isFinite(value) ? Math.min(Math.max(value, 1), 10) : 3;
+  }
+
   private isStaleJob(job: any): boolean {
     if (String(job?.status) !== 'processing') return false;
-    const updatedAt = new Date(job?.heartbeatAt || job?.updatedAt || job?.createdAt || 0).getTime();
-    return Number.isFinite(updatedAt) && Date.now() - updatedAt >= this.staleJobSeconds() * 1000;
+    const updatedAt = new Date(job?.updatedAt || job?.heartbeatAt || job?.createdAt || 0).getTime();
+    const retryDelay = String(job?.stage) === 'retrying'
+      ? RETRY_DELAYS_MS[Math.min(RETRY_DELAYS_MS.length - 1, Math.max(0, Number(job?.attempts || 1) - 1))]
+      : 0;
+    return Number.isFinite(updatedAt) && Date.now() - updatedAt >= retryDelay + this.staleJobSeconds() * 1000;
   }
 
   private startStaleRecovery() {
@@ -1447,7 +1485,8 @@ export class TranscriptionService {
           take: 100,
         });
         for (const job of jobs) {
-          if (Number(job.attempts || 0) >= 3) {
+          if (!this.isStaleJob(job)) continue;
+          if (Number(job.attempts || 0) >= this.maxAttempts()) {
             await (this.prismaRepository.transcriptionJob as any).updateMany({
               where: { id: job.id, status: 'processing', updatedAt: job.updatedAt },
               data: {
