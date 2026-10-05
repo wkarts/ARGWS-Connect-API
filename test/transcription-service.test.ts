@@ -12,15 +12,23 @@ test('polling de health reutiliza a conexão RabbitMQ e serializa init concorren
     (service as any).startDefaultModelDownload = () => {};
     (service as any).startSourceCleanup = () => {};
     (service as any).startStaleRecovery = () => {};
+    let finishSetup: (() => void) | undefined;
+    const setup = new Promise<void>((resolve) => { finishSetup = resolve; });
     (service as any).connect = async () => {
       connections += 1;
-      await new Promise((resolve) => setImmediate(resolve));
       (service as any).connection = {};
       (service as any).channel = {};
       (service as any).resultChannel = {};
+      await setup;
     };
 
-    await Promise.all(Array.from({ length: 20 }, () => service.init()));
+    const first = service.init();
+    let secondSettled = false;
+    const second = service.init().then(() => { secondSettled = true; });
+    await Promise.resolve();
+    assert.equal(secondSettled, false);
+    finishSetup!();
+    await Promise.all([first, second, ...Array.from({ length: 18 }, () => service.init())]);
     for (let index = 0; index < 20; index += 1) await service.init();
     assert.equal(connections, 1);
     (service as any).resultChannel = null;

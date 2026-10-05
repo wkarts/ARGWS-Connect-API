@@ -291,8 +291,8 @@ export class TranscriptionService {
     if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
     // Health polling calls init on every request. Replacing a live connection
     // strands deliveries on its old result consumer and leaks AMQP connections.
-    if (this.connection && this.channel && this.resultChannel) return;
     if (this.initializing) return this.initializing;
+    if (this.connection && this.channel && this.resultChannel) return;
     this.initializing = this.connect()
       .catch((error) => {
         this.logger.warn('Transcription queue indisponível; nova tentativa em 5s: ' + (error?.message || error));
