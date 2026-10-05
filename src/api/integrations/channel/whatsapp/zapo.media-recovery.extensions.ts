@@ -87,11 +87,11 @@ export class ZapoMediaRecoveryStartupService extends ZapoParityStartupService {
 
   private async storedStatusMedia(messageId: string) {
     const stored = await this.findPersistedMessage(messageId);
-    if (!stored || (stored.key as any)?.remoteJid !== 'status@broadcast' ||
-      (stored.key as any)?.fromMe !== true) return null;
+    if (!stored || (stored.key as any)?.remoteJid !== 'status@broadcast' || (stored.key as any)?.fromMe !== true)
+      return null;
     const media = await this.prismaRepository.media.findUnique({ where: { messageId: stored.id } });
-    if (!media || media.instanceId !== this.instanceId ||
-      !/^(image|video|audio)\/[\w.+-]+$/i.test(media.mimetype)) return null;
+    if (!media || media.instanceId !== this.instanceId || !/^(image|video|audio)\/[\w.+-]+$/i.test(media.mimetype))
+      return null;
     const stream = await s3Service.getObjectStream(media.fileName);
     if (!stream) return null;
     const chunks: Buffer[] = [];
