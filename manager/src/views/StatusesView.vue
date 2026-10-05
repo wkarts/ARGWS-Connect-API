@@ -31,6 +31,7 @@ const viewingId = ref('')
 const opened = ref<Message | null>(null)
 const mediaUrl = ref('')
 const previewError = ref('')
+const previewNotice = ref('')
 const previewLoading = ref(false)
 const instance = computed(() => instances.value.find((item) => item.id === selected.value))
 const canPublish = computed(() => featureEnabled('statusPublish', true) && session.hasPermission('messages.send') &&
@@ -61,12 +62,14 @@ function closePreview() {
   opened.value = null
   mediaUrl.value = ''
   previewError.value = ''
+  previewNotice.value = ''
 }
 
 async function openPreview(item: Message) {
   opened.value = item
   mediaUrl.value = ''
   previewError.value = ''
+  previewNotice.value = ''
   if (!item.mediaKind) return
   const instanceId = selected.value
   previewLoading.value = true
@@ -77,7 +80,14 @@ async function openPreview(item: Message) {
       !media.mimetype.startsWith(`${item.mediaKind}/`)) throw new Error('Mídia indisponível para este Status.')
     mediaUrl.value = `data:${media.mimetype};base64,${media.base64}`
   } catch (cause) {
-    if (opened.value?.id === item.id) previewError.value = friendlyError(cause, 'Mídia indisponível para este Status.')
+    if (opened.value?.id === item.id) {
+      const status = Number((cause as { status?: number })?.status || 0)
+      if (status === 400 || status === 404) {
+        previewNotice.value = 'A mídia desta publicação não está disponível no histórico. O texto continua visível.'
+      } else {
+        previewError.value = friendlyError(cause, 'Não foi possível carregar a mídia do Status.')
+      }
+    }
   } finally { previewLoading.value = false }
 }
 
@@ -180,7 +190,7 @@ onMounted(async () => {
         <video v-if="opened.mediaKind === 'video' && mediaUrl" :src="mediaUrl" controls playsinline />
         <audio v-if="opened.mediaKind === 'audio' && mediaUrl" :src="mediaUrl" controls />
         <p v-if="previewError" class="alert error" role="alert">{{ previewError }}</p>
-        <p v-else-if="!previewLoading && !mediaUrl && opened.mediaKind" class="muted">O arquivo de mídia não está disponível no histórico desta instância.</p>
+        <p v-else-if="previewNotice || (!previewLoading && !mediaUrl && opened.mediaKind)" class="muted">{{ previewNotice || 'O arquivo de mídia não está disponível no histórico desta instância.' }}</p>
         <small>ID: {{ opened.id }}</small>
       </div>
     </AppModal>
