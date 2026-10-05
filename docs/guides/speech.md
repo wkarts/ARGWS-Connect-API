@@ -37,7 +37,7 @@ Ao iniciar, a API confere o volume e baixa automaticamente o modelo se ele ainda
 
 O mesmo diretório do host é montado como `/models` com leitura e escrita na API e somente leitura nos workers. Depois da primeira instalação, transcrição e ditado carregam o modelo desse volume; reiniciar ou atualizar os containers reutiliza os arquivos sem baixar os pesos novamente. Preserve `./models` entre implantações. Os pesos não fazem parte da imagem GHCR e não são armazenados em `/tmp`.
 
-O resultado do ditado contém somente texto, então o worker não calcula timestamps para esse caminho curto. O upload de transcrição continua produzindo segmentos temporizados. Gravações vazias ou curtas demais são interrompidas no navegador com uma orientação para conferir o nível do microfone, sem criar um job inválido.
+O resultado do ditado contém somente texto, então o worker não calcula timestamps para esse caminho curto. O upload de transcrição continua produzindo segmentos temporizados. O navegador interrompe somente gravações sem trechos capturados ou com zero bytes; uma gravação curta que contenha dados segue para o worker.
 
 Se uma transcrição for enviada antes de o download terminar, a API pede para tentar novamente quando o modelo estiver pronto. O arquivo selecionado na tela de transcrição é mantido; no ditado pelo microfone, o áudio capturado fica disponível no botão de nova tentativa enquanto o modelo baixa.
 
@@ -88,4 +88,6 @@ Os jobs têm `mode`, `sourceType`, estágio, percentual real, duração processa
 
 ## Limites atuais
 
-O Manager oferece transcrição manual de mensagens de áudio. A transcrição automática de mensagens recebidas, controles de preferência por instância e publicação de `speech.transcription.completed` em Webhooks/flows ainda precisam de integração específica; os endpoints e os dados persistidos já podem ser usados como base para essa etapa.
+O Manager oferece transcrição manual de mensagens de áudio. O VAD reduz o trabalho ao selecionar trechos com atividade de voz, mas não bloqueia sozinho uma gravação: se nenhum trecho superar o limiar de energia, o worker envia o áudio decodificado inteiro ao Whisper, o que permite reconhecer fala capturada em volume baixo. O job só retorna `NO_SPEECH` depois que o modelo também não reconhece texto. No navegador, somente gravações sem dados capturados ou com zero bytes são interrompidas; áudios curtos com conteúdo seguem para processamento.
+
+A transcrição automática de mensagens recebidas, controles de preferência por instância e publicação de `speech.transcription.completed` em Webhooks/flows ainda precisam de integração específica; os endpoints e os dados persistidos já podem ser usados como base para essa etapa.

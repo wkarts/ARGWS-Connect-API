@@ -220,10 +220,13 @@ function createProvider(config, dependencies = {}) {
       if (input.isCancelled?.()) throw new SpeechCancelledError();
 
       await input.onProgress?.({ stage: 'voice_activity_detection', progressPercent: 14, processedDurationMs: 0 });
-      const regions = detectSpeechRegions(decoded.samples, config.vadThresholdDb);
-      if (!regions.length) {
-        throw Object.assign(new Error('Não foi identificada fala neste áudio.'), { code: 'NO_SPEECH', retryable: false });
-      }
+      const detectedRegions = detectSpeechRegions(decoded.samples, config.vadThresholdDb);
+      // VAD is an optimization, not a validation gate: quiet speech can fall
+      // below a fixed energy threshold. Give Whisper the full non-empty audio
+      // when VAD cannot confidently select any regions.
+      const regions = detectedRegions.length
+        ? detectedRegions
+        : [{ start: 0, end: decoded.samples.length }];
       const chunks = chunkRegions(regions, config.chunkSeconds, config.strideSeconds);
       const transcriber = await loadPipeline();
       let partialText = '';

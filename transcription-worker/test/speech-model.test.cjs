@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { loadConfig } = require('../src/config');
-const { detectSpeechRegions, chunkRegions, mergeOverlappingText } = require('../src/provider');
+const { createProvider, detectSpeechRegions, chunkRegions, mergeOverlappingText } = require('../src/provider');
 const { verifyModelDirectory } = require('../src/model-checksum');
 
 test('ditado usa sua própria fila mesmo com uma fila antiga de transcrição configurada', () => {
@@ -36,6 +36,30 @@ test('VAD descarta silêncio e o chunker aplica sobreposição configurada', () 
   const chunks = chunkRegions([{ start: 0, end: 16_000 * 70 }], 30, 5);
   assert.deepEqual(chunks.map(({ start, end }) => [start / 16_000, end / 16_000]), [[0, 30], [25, 55], [50, 70]]);
   assert.equal(mergeOverlappingText('preciso verificar o pedido', 'o pedido do cliente'), 'preciso verificar o pedido do cliente');
+});
+
+test('VAD não descarta gravação não vazia com fala abaixo do limiar de energia', async () => {
+  const quietSamples = new Float32Array(16_000).fill(0.001);
+  const calls = [];
+  const provider = createProvider({
+    provider: 'local',
+    vadThresholdDb: -45,
+    chunkSeconds: 30,
+    strideSeconds: 5,
+    local: { model: 'Xenova/whisper-small' },
+  }, {
+    decodeAudio: async () => ({ samples: quietSamples, durationMs: 1000 }),
+    createPipeline: async () => async (samples) => {
+      calls.push(samples);
+      return { text: 'fala em volume baixo' };
+    },
+  });
+
+  const result = await provider.transcribe('quiet-audio.webm', { mode: 'dictation' });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].length, quietSamples.length);
+  assert.equal(result.text, 'fala em volume baixo');
 });
 
 test('modelo local exige manifesto e rejeita arquivo alterado', async () => {
