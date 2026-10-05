@@ -93,6 +93,9 @@ function loadConfig() {
 
 function validateConfig(config) {
   if (!config.enabled) return;
+  if (config.concurrency > 1) {
+    throw new Error('Use SPEECH_TRANSCRIPTION_REPLICAS para paralelismo; SPEECH_WORKER_CONCURRENCY deve ser 1 por processo.');
+  }
   const missing = [];
   if (!config.rabbitmq.uri) missing.push('RABBITMQ_URI');
   if (!config.rabbitmq.exchange) missing.push('RABBITMQ_EXCHANGE_NAME');

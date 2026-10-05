@@ -130,10 +130,10 @@ services:
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
   transcription-worker:
+    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-2}
     profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
     pull_policy: always
-    container_name: argws_connect_dev_transcription_worker
     restart: unless-stopped
     env_file:
       - .env

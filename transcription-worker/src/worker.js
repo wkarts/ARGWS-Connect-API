@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const amqp = require('amqplib');
 const { createClient, downloadObjectToFile, writeBufferToTemp, cleanup } = require('./storage');
-const { createProvider } = require('./provider');
+const { InferenceClient } = require('./inference-client');
 
 const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
@@ -72,7 +72,7 @@ class TranscriptionWorker {
     this.channel = null;
     this.settledMessages = new WeakSet();
     this.client = createClient(config.s3);
-    this.provider = createProvider(config);
+    this.provider = null;
     this.stopping = false;
     this.reconnectTimer = null;
     this.cancelledJobs = new Set();
@@ -89,6 +89,7 @@ class TranscriptionWorker {
     await probeFfmpeg();
     await this.waitForPersistentModel();
     if (this.stopping) return;
+    this.provider = new InferenceClient(this.config);
     await this.provider.warmup();
     await this.connect();
   }
@@ -221,7 +222,10 @@ class TranscriptionWorker {
     try {
       const payload = JSON.parse(message.content.toString('utf8'));
       const jobId = String(payload.jobId || '').trim();
-      if (jobId && jobId.length <= 128) this.cancelledJobs.add(jobId);
+      if (jobId && jobId.length <= 128) {
+        this.cancelledJobs.add(jobId);
+        if (this.activeJobId === jobId) this.provider?.cancel();
+      }
       this.acknowledge(channel, message);
     } catch (error) {
       console.error('Controle de ditado inválido:', error.message);
@@ -337,6 +341,7 @@ class TranscriptionWorker {
     };
 
     try {
+      this.activeJobId = job.jobId;
       await publishProgress({ stage: 'preparing', progressPercent: 2 });
       heartbeat = setInterval(() => {
         if (isCancelled() || this.stopping) return;
@@ -424,6 +429,7 @@ class TranscriptionWorker {
         }
       }
     } finally {
+      this.activeJobId = null;
       if (heartbeat) clearInterval(heartbeat);
       if (downloaded) await cleanup(downloaded.directory);
       this.cancelledJobs.delete(job.jobId);
@@ -432,6 +438,7 @@ class TranscriptionWorker {
 
   async stop() {
     this.stopping = true;
+    await this.provider?.stop();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     fs.rmSync(READY_FILE, { force: true });
     await this.channel?.close().catch(() => {});
