@@ -223,3 +223,5 @@ Scalar inclui o documento `openapi/findhub.openapi.json`.
 ## Voz
 
 [Guia de voz, ditado e transcrição](guides/speech.md) cobre as duas filas, a configuração do worker offline, o provisionamento verificado de modelos e os endpoints `/v1/speech`.
+
+[Guia de webhooks por instância](guides/webhooks.md) explica múltiplos destinos, a opção de rota por evento e como recuperar um receptor que responde HTTP 404.
