@@ -19712,9 +19712,9 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "Find",
+        "summary": "Consultar destinos de webhook da instância",
         "operationId": "get_webhook_find_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/event/webhook/webhook.router.ts`.",
+        "description": "Retorna o destino principal e additionalTargets. Proteja esta resposta: os cabeçalhos podem conter credenciais.",
         "parameters": [
           {
             "name": "instanceName",
@@ -19734,33 +19734,14 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação concluída com sucesso.",
+            "description": "Configuração persistida da instância.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/WebhookStoredConfig"
                 }
               }
             }
-          },
-          "201": {
-            "description": "Operação concluída com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
           }
         },
         "x-source-file": "src/api/integrations/event/webhook/webhook.router.ts"
@@ -19874,9 +19855,9 @@
         "tags": [
           "Webhooks"
         ],
-        "summary": "Set",
+        "summary": "Configurar webhook principal e destinos adicionais",
         "operationId": "post_webhook_set_instancename",
-        "description": "Endpoint descoberto do código em `src/api/integrations/event/webhook/webhook.router.ts`.",
+        "description": "Até dez destinos adicionais independentes. Se additionalTargets for omitido, a lista atual permanece; envie [] para removê-la. Requisições HTTP 404 do receptor não são repetidas. Consulte docs/guides/webhooks.md.",
         "parameters": [
           {
             "name": "instanceName",
@@ -19895,44 +19876,24 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
           "201": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Configuração salva.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/WebhookStoredConfig"
                 }
               }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
           }
         },
         "x-source-file": "src/api/integrations/event/webhook/webhook.router.ts",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "$ref": "#/components/schemas/WebhookSettingsRequest"
               }
             }
           }
@@ -20079,6 +20040,127 @@
       }
     },
     "schemas": {
+      "WebhookAdditionalTarget": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "url"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "URL HTTP(S) do receptor; obrigatória se ativo."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "byEvents": {
+            "type": "boolean",
+            "description": "Acrescenta /messages-upsert, /connection-update etc. à URL."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lista vazia significa todos os eventos."
+          }
+        }
+      },
+      "WebhookSettingsRequest": {
+        "type": "object",
+        "required": [
+          "webhook"
+        ],
+        "properties": {
+          "webhook": {
+            "type": "object",
+            "required": [
+              "enabled",
+              "url"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "byEvents": {
+                "type": "boolean"
+              },
+              "base64": {
+                "type": "boolean",
+                "description": "Enriquecimento de mídia comum a todos os destinos da instância."
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "additionalTargets": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "$ref": "#/components/schemas/WebhookAdditionalTarget"
+                }
+              }
+            }
+          }
+        }
+      },
+      "WebhookStoredConfig": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "webhookByEvents": {
+            "type": "boolean"
+          },
+          "webhookBase64": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "additionalTargets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookAdditionalTarget"
+            }
+          }
+        }
+      },
       "MetaCompatibilityConfig": {
         "type": "object",
         "description": "Identidade Graph derivada da instância Connect|API e configuração opcional do webhook Meta Compatible.",

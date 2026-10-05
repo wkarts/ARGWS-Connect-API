@@ -21,6 +21,7 @@ const saving = ref(false)
 const error = ref('')
 const feedback = ref('')
 const headersText = ref('{}')
+const targetHeaders = ref<string[]>([])
 const ignoreText = ref('')
 
 const keys = Object.keys(instanceConfigDefinitions) as InstanceConfigKey[]
@@ -28,7 +29,12 @@ const selectedDefinition = computed(() => instanceConfigDefinitions[selected.val
 const isEvent = computed(() => ['webhook','websocket','rabbitmq','nats','sqs','kafka','pusher'].includes(selected.value))
 const missingRequirement = computed(() => {
   const v = value.value || {}
-  if (selected.value === 'webhook' && !String(v.url || '').trim()) return 'Informe a URL antes de salvar o Webhook.'
+  if (selected.value === 'webhook') {
+    if (v.enabled && !validWebhookUrl(v.url)) return 'Informe uma URL HTTP ou HTTPS válida para o webhook principal.'
+    for (const [index, target] of (v.additionalTargets || []).entries()) {
+      if (target.enabled && !validWebhookUrl(target.url)) return `Informe uma URL válida para o destino ${index + 2}.`
+    }
+  }
   if (selected.value === 'proxy' && (!String(v.host || '').trim() || !String(v.port || '').trim() || !String(v.protocol || '').trim())) return 'Informe servidor, porta e protocolo antes de salvar o Proxy.'
   if (selected.value === 'pusher' && (!String(v.appId || '').trim() || !String(v.key || '').trim() || !String(v.secret || '').trim() || !String(v.cluster || '').trim())) return 'Informe App ID, chave, segredo e cluster antes de salvar o Pusher.'
   if (selected.value === 'chatwoot' && (!String(v.url || '').trim() || !String(v.accountId || '').trim() || !String(v.token || '').trim())) return 'Informe URL, Account ID e token antes de salvar o Chatwoot.'
@@ -38,7 +44,7 @@ const missingRequirement = computed(() => {
 function defaults(key: InstanceConfigKey) {
   if (key === 'settings') return { rejectCall:false, groupsIgnore:true, alwaysOnline:false, readMessages:false, readStatus:false, syncFullHistory:false, msgCall:'', voipMaxConcurrentCalls:undefined, voipMaxConcurrentCallsLimit:4 }
   if (key === 'proxy') return { enabled:false, host:'', port:'', protocol:'http', username:'', password:'' }
-  if (key === 'webhook') return { enabled:false, url:'', headers:{}, byEvents:false, base64:false, events:[] }
+  if (key === 'webhook') return { enabled:false, url:'', headers:{}, byEvents:false, base64:false, events:[], additionalTargets:[] }
   if (['websocket','rabbitmq','nats','sqs','kafka'].includes(key)) return { enabled:false, events:[] }
   if (key === 'pusher') return { enabled:false, appId:'', key:'', secret:'', cluster:'', useTLS:true, events:[] }
   if (key === 'chatwoot') return { enabled:false, url:'', accountId:'', token:'', nameInbox:'', signMsg:false, signDelimiter:'', reopenConversation:false, conversationPending:false, autoCreate:false, importContacts:false, mergeBrazilContacts:false, importMessages:false, daysLimitImportMessages:0, ignoreJids:[] }
@@ -47,7 +53,38 @@ function defaults(key: InstanceConfigKey) {
 
 function normalizeLoaded(key: InstanceConfigKey, raw: any) {
   const data = raw?.[key] ?? raw ?? {}
+  if (key === 'webhook') return {
+    ...defaults(key), ...data,
+    byEvents: data.webhookByEvents ?? data.byEvents ?? false,
+    base64: data.webhookBase64 ?? data.base64 ?? false,
+    additionalTargets: Array.isArray(data.additionalTargets) ? data.additionalTargets : [],
+  }
   return { ...defaults(key), ...(data || {}) }
+}
+
+function validWebhookUrl(raw: unknown) {
+  try { return ['http:', 'https:'].includes(new URL(String(raw || '')).protocol) }
+  catch { return false }
+}
+
+function addTarget() {
+  if (!Array.isArray(value.value.additionalTargets)) value.value.additionalTargets = []
+  if (value.value.additionalTargets.length >= 10) return
+  value.value.additionalTargets.push({ name:'', enabled:false, url:'', headers:{}, byEvents:false, events:value.value.events?.length ? [...value.value.events] : eventOptions.map(([key]) => key) })
+  targetHeaders.value.push('{}')
+}
+
+function removeTarget(index: number) {
+  value.value.additionalTargets.splice(index, 1)
+  targetHeaders.value.splice(index, 1)
+}
+
+function toggleTargetEvent(index: number, eventName: string) {
+  const target = value.value.additionalTargets[index]
+  const current = new Set(Array.isArray(target.events) ? target.events : [])
+  if (current.has(eventName)) current.delete(eventName)
+  else current.add(eventName)
+  target.events = [...current]
 }
 
 async function load() {
@@ -57,7 +94,10 @@ async function load() {
   try {
     if (!instance.value) instance.value = await connect.connection(instanceId)
     value.value = normalizeLoaded(selected.value, await connect.loadInstanceConfig(instanceId, selected.value))
-    if (selected.value === 'webhook') headersText.value = JSON.stringify(value.value.headers || {}, null, 2)
+    if (selected.value === 'webhook') {
+      headersText.value = JSON.stringify(value.value.headers || {}, null, 2)
+      targetHeaders.value = value.value.additionalTargets.map((target: any) => JSON.stringify(target.headers || {}, null, 2))
+    }
     if (selected.value === 'chatwoot') ignoreText.value = Array.isArray(value.value.ignoreJids) ? value.value.ignoreJids.join('\n') : ''
   } catch (e) { error.value = friendlyError(e) }
   finally { loading.value = false }
@@ -90,9 +130,19 @@ async function save() {
     if (selected.value === 'webhook') {
       try { value.value.headers = JSON.parse(headersText.value || '{}') }
       catch { throw new Error('Os cabeçalhos precisam estar em formato JSON válido.') }
+      if (!value.value.headers || Array.isArray(value.value.headers) || typeof value.value.headers !== 'object') throw new Error('Os cabeçalhos precisam ser um objeto JSON.')
+      value.value.additionalTargets = value.value.additionalTargets.map((target: any, index: number) => {
+        let headers: any
+        try { headers = JSON.parse(targetHeaders.value[index] || '{}') }
+        catch { throw new Error(`Cabeçalhos inválidos no destino ${index + 2}.`) }
+        if (!headers || Array.isArray(headers) || typeof headers !== 'object' || Object.values(headers).some(item => typeof item !== 'string')) throw new Error(`Os cabeçalhos do destino ${index + 2} precisam ser um objeto de textos.`)
+        return { name:target.name, enabled:target.enabled, url:target.url.trim(), headers, byEvents:target.byEvents, events:target.events }
+      })
     }
     if (selected.value === 'chatwoot') value.value.ignoreJids = ignoreText.value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean)
-    const payload = { ...value.value }
+    const payload: Record<string, any> = selected.value === 'webhook'
+      ? { enabled:value.value.enabled, url:value.value.url, headers:value.value.headers, byEvents:value.value.byEvents, base64:value.value.base64, events:value.value.events, additionalTargets:value.value.additionalTargets }
+      : { ...value.value }
     delete payload.voipMaxConcurrentCallsLimit
     if (selected.value === 'settings') {
       if (
@@ -106,8 +156,8 @@ async function save() {
       }
     }
     await connect.saveInstanceConfig(instanceId, selected.value, payload)
-    feedback.value = 'Configuração salva com sucesso.'
     await load()
+    feedback.value = 'Configuração salva com sucesso.'
   } catch (e) { error.value = friendlyError(e) }
   finally { saving.value = false }
 }
@@ -167,10 +217,22 @@ onMounted(load)
             </template>
 
             <template v-else-if="selected==='webhook'">
-              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Ativar Webhook</strong><small>Você pode configurar a URL mesmo antes de ativar o envio.</small></span></label>
-              <label class="field"><span>URL</span><input v-model="value.url" type="url" placeholder="https://..."/></label>
-              <div class="field-grid two"><label class="toggle-field"><input v-model="value.byEvents" type="checkbox"/><span><strong>Separar por eventos</strong></span></label><label class="toggle-field"><input v-model="value.base64" type="checkbox"/><span><strong>Enviar mídia codificada</strong></span></label></div>
+              <div class="webhook-section-head"><div><strong>Destino principal</strong><small>Recebe os eventos selecionados abaixo.</small></div></div>
+              <label class="toggle-field"><input v-model="value.enabled" type="checkbox"/><span><strong>Ativar destino principal</strong><small>Você pode configurar a URL mesmo antes de ativar o envio.</small></span></label>
+              <label class="field"><span>URL do principal</span><input v-model="value.url" type="url" placeholder="https://..."/></label>
+              <div class="field-grid two"><label class="toggle-field"><input v-model="value.byEvents" type="checkbox"/><span><strong>Adicionar evento à URL</strong><small>Use apenas quando o receptor possuir rotas como /messages-upsert.</small></span></label><label class="toggle-field"><input v-model="value.base64" type="checkbox"/><span><strong>Enviar mídia codificada</strong><small>Aplica-se a todos os destinos desta instância.</small></span></label></div>
               <label class="field"><span>Cabeçalhos adicionais</span><textarea v-model="headersText" rows="6" spellcheck="false"></textarea><small>Objeto JSON com os cabeçalhos enviados nas requisições.</small></label>
+              <div class="webhook-targets">
+                <div class="webhook-section-head"><div><strong>Destinos adicionais</strong><small>Até 10 URLs independentes. Uma falha em um destino não impede os demais.</small></div><button class="btn ghost compact" type="button" :disabled="value.additionalTargets?.length >= 10" @click="addTarget">Adicionar destino</button></div>
+                <div v-for="(target,index) in value.additionalTargets" :key="index" class="webhook-target-card">
+                  <div class="webhook-section-head"><strong>Destino {{ index + 2 }}</strong><button class="btn ghost compact" type="button" @click="removeTarget(index)">Remover</button></div>
+                  <label class="toggle-field"><input v-model="target.enabled" type="checkbox"/><span><strong>Ativar este destino</strong></span></label>
+                  <div class="field-grid two"><label class="field"><span>Nome</span><input v-model="target.name" maxlength="80" placeholder="Ex.: sistema alternativo"/></label><label class="field"><span>URL</span><input v-model="target.url" type="url" placeholder="https://..."/></label></div>
+                  <label class="toggle-field"><input v-model="target.byEvents" type="checkbox"/><span><strong>Adicionar evento à URL deste destino</strong></span></label>
+                  <label class="field"><span>Cabeçalhos deste destino (JSON)</span><textarea v-model="targetHeaders[index]" rows="3" spellcheck="false"></textarea></label>
+                  <div class="webhook-target-events"><div class="webhook-section-head"><strong>Eventos deste destino</strong><div class="page-actions"><button class="btn ghost compact" type="button" @click="target.events = eventOptions.map(([key]) => key)">Todos</button><button class="btn ghost compact" type="button" @click="target.events = []">Padrão (todos)</button></div></div><small>Sem seleção significa todos os eventos quando ativo.</small><div class="event-grid"><label v-for="([eventName,label]) in eventOptions" :key="eventName" :class="['event-option', {active:(target.events || []).includes(eventName)}]"><input type="checkbox" :checked="(target.events || []).includes(eventName)" @change="toggleTargetEvent(index,eventName)"/><span>{{ label }}</span></label></div></div>
+                </div>
+              </div>
             </template>
 
             <template v-else-if="selected==='pusher'">
@@ -203,7 +265,7 @@ onMounted(load)
             </template>
 
             <div v-if="isEvent" class="event-selector">
-              <div class="event-selector-head"><div><strong>Eventos</strong><small>Selecione o que deve ser encaminhado.</small></div><div class="page-actions"><button class="btn ghost compact" @click="selectAllEvents">Selecionar todos</button><button class="btn ghost compact" @click="clearEvents">Limpar</button></div></div>
+              <div class="event-selector-head"><div><strong>{{ selected==='webhook' ? 'Eventos do principal' : 'Eventos' }}</strong><small>Sem seleção, todos os eventos são enviados quando ativo.</small></div><div class="page-actions"><button class="btn ghost compact" @click="selectAllEvents">Selecionar todos</button><button class="btn ghost compact" @click="clearEvents">{{ selected==='webhook' ? 'Padrão (todos)' : 'Limpar' }}</button></div></div>
               <div class="event-grid">
                 <label v-for="([eventName,label]) in eventOptions" :key="eventName" :class="['event-option', {active:(value.events || []).includes(eventName)}]"><input type="checkbox" :checked="(value.events || []).includes(eventName)" @change="toggleEvent(eventName)"/><span>{{ label }}</span></label>
               </div>
@@ -214,3 +276,14 @@ onMounted(load)
     </div>
   </AppShell>
 </template>
+
+<style scoped>
+.webhook-targets{display:grid;gap:14px;margin-top:12px;padding-top:18px;border-top:1px solid var(--border)}
+.webhook-section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.webhook-section-head>div{display:grid;gap:3px}
+.webhook-section-head strong{font-size:14px}
+.webhook-section-head small,.webhook-target-events>small{color:var(--muted);font-size:12px}
+.webhook-target-card{display:grid;gap:14px;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--surface)}
+.webhook-target-events{display:grid;gap:10px;padding-top:12px;border-top:1px solid var(--border)}
+@media (max-width: 760px){.webhook-target-card{padding:12px}.webhook-target-card .field-grid.two,.webhook-target-card .event-grid{grid-template-columns:1fr}.webhook-section-head .page-actions{flex-wrap:wrap}}
+</style>

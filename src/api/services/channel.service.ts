@@ -136,7 +136,10 @@ export class ChannelStartupService {
       },
     });
 
-    this.localWebhook.enabled = data?.enabled;
+    this.localWebhook.enabled = Boolean(
+      data?.enabled ||
+        (Array.isArray(data?.additionalTargets) && data.additionalTargets.some((target: any) => target.enabled)),
+    );
     this.localWebhook.webhookBase64 = data?.webhookBase64;
   }
 

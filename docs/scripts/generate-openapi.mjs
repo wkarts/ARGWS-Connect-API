@@ -196,6 +196,17 @@ function discoverRoutes() {
 }
 
 const requestOverrides = {
+  'GET /webhook/find/{instanceName}': {
+    summary: 'Consultar destinos de webhook da instância',
+    description: 'Retorna o destino principal e additionalTargets. Proteja esta resposta: os cabeçalhos podem conter credenciais.',
+    responses: { '200': { description: 'Configuração persistida da instância.', content: { 'application/json': { schema: { $ref: '#/components/schemas/WebhookStoredConfig' } } } } },
+  },
+  'POST /webhook/set/{instanceName}': {
+    summary: 'Configurar webhook principal e destinos adicionais',
+    description: 'Até dez destinos adicionais independentes. Se additionalTargets for omitido, a lista atual permanece; envie [] para removê-la. Requisições HTTP 404 do receptor não são repetidas. Consulte docs/guides/webhooks.md.',
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/WebhookSettingsRequest' } } } },
+    responses: { '201': { description: 'Configuração salva.', content: { 'application/json': { schema: { $ref: '#/components/schemas/WebhookStoredConfig' } } } } },
+  },
   'GET /v1/transcriptions': {
     summary: 'Listar transcrições',
     description: 'Lista os jobs recentes de transcrição desta instalação. O conteúdo é processado pelo worker local e permanece protegido pela API key.',
@@ -751,6 +762,36 @@ function nativeSpec(routes, version) {
     components: {
       securitySchemes: { apiKey: { type: 'apiKey', in: 'header', name: 'apikey', description: 'Chave global da API ou token autorizado da instância.' } },
       schemas: {
+        WebhookAdditionalTarget: {
+          type: 'object', required: ['enabled', 'url'],
+          properties: {
+            name: { type: 'string', maxLength: 80 }, enabled: { type: 'boolean' },
+            url: { type: 'string', maxLength: 500, description: 'URL HTTP(S) do receptor; obrigatória se ativo.' },
+            headers: { type: 'object', additionalProperties: { type: 'string' } },
+            byEvents: { type: 'boolean', description: 'Acrescenta /messages-upsert, /connection-update etc. à URL.' },
+            events: { type: 'array', items: { type: 'string' }, description: 'Lista vazia significa todos os eventos.' },
+          },
+        },
+        WebhookSettingsRequest: {
+          type: 'object', required: ['webhook'], properties: {
+            webhook: { type: 'object', required: ['enabled', 'url'], properties: {
+              enabled: { type: 'boolean' }, url: { type: 'string', maxLength: 500 },
+              headers: { type: 'object', additionalProperties: { type: 'string' } },
+              byEvents: { type: 'boolean' }, base64: { type: 'boolean', description: 'Enriquecimento de mídia comum a todos os destinos da instância.' },
+              events: { type: 'array', items: { type: 'string' } },
+              additionalTargets: { type: 'array', maxItems: 10, items: { $ref: '#/components/schemas/WebhookAdditionalTarget' } },
+            } },
+          },
+        },
+        WebhookStoredConfig: {
+          type: 'object', properties: {
+            enabled: { type: 'boolean' }, url: { type: 'string' },
+            headers: { type: 'object', additionalProperties: true },
+            webhookByEvents: { type: 'boolean' }, webhookBase64: { type: 'boolean' },
+            events: { type: 'array', items: { type: 'string' } },
+            additionalTargets: { type: 'array', items: { $ref: '#/components/schemas/WebhookAdditionalTarget' } },
+          },
+        },
         ...metaCompatibilityAdminSchemas,
         ...localTemplateSchemas,
         ...diagnosticSchemas,

@@ -39,7 +39,7 @@ function assertPrivate(records) {
   const json = JSON.stringify(records);
   for (const secret of secrets) assert.ok(!json.includes(secret), `export retained ${secret}`);
 }
-function native(post) {
+function native(post, storedConfig, prisma = {}, monitor = {}) {
   const capture = diagnosticCapture();
   const config = { GLOBAL: { ENABLED: false }, REQUEST: {}, RETRY: {
     MAX_ATTEMPTS: 3, INITIAL_DELAY_SECONDS: 0, USE_EXPONENTIAL_BACKOFF: false,
@@ -48,15 +48,18 @@ function native(post) {
   const { WebhookController } = load('src/api/integrations/event/webhook/webhook.controller.ts', {
     '@config/env.config': { configService: { get: key => key === 'LOG' ? { LEVEL: [] } : config } },
     '@config/logger.config': { Logger: quietLogger },
+    '@exceptions': { BadRequestException: class { constructor(message) { throw new Error(message); } } },
     '../../../../diagnostics/diagnostics.service': capture,
-    '../event.controller': { EventController: class { async get() {
-      return { enabled: true, events: ['CALL', 'MESSAGES_UPSERT'], url: destination,
-        headers: { Authorization: 'SECRET_TOKEN' } };
-    } } },
-    axios: { default: { create: () => ({ post }) } },
+    '../event.controller': { EventController: class {
+      constructor(repository, instances) { this.prisma = repository; this.monitor = instances; }
+      async get() { return storedConfig ?? { enabled: true, events: ['CALL', 'MESSAGES_UPSERT'], url: destination,
+        headers: { Authorization: 'SECRET_TOKEN' } }; }
+      cacheConfig() {}
+    } },
+    axios: { default: { create: ({ baseURL }) => ({ post: (_path, body) => post(baseURL, body) }) } },
     jsonwebtoken: {},
   });
-  return { ...capture, controller: new WebhookController({}, {}) };
+  return { ...capture, controller: new WebhookController(prisma, monitor) };
 }
 function meta(post) {
   const capture = diagnosticCapture();
@@ -105,6 +108,46 @@ test('native emit traces CALL delivery and correlates its call without storing w
   assert.equal(records[1].instanceId, `instance-${hash(privateInstance)}`);
   assert.equal(records[1].details.targetId, hash(destination));
   assertPrivate(records);
+});
+
+test('webhook fanout preserves event routes and delivers to a secondary URL when primary responds 404', async () => {
+  const received = [];
+  const secondary = 'https://backup.example/notifications?source=connect';
+  const config = {
+    enabled: true, url: destination, webhookByEvents: true, events: ['MESSAGES_UPSERT'],
+    additionalTargets: [{ enabled: true, url: secondary, events: ['MESSAGES_UPSERT'], byEvents: false }],
+  };
+  const { controller, records } = native(async (url, body) => {
+    received.push({ url, destination: body.destination });
+    if (url.includes('/messages-upsert')) throw failed(404);
+    return { status: 200 };
+  }, config);
+  await controller.emit({ instanceName: privateInstance, origin: 'provider', event: 'messages.upsert',
+    data: { message: 'SECRET_BODY' }, serverUrl: 'https://private.example', local: true });
+  assert.equal(received.length, 2);
+  assert.ok(received.some(item => item.url.includes('/messages-upsert?token=SECRET_URL')));
+  assert.ok(received.some(item => item.url === secondary && item.destination === secondary));
+  assert.deepEqual(records.filter(record => record.details.phase === 'failed').map(record => record.details.status), [404]);
+  assert.equal(records.filter(record => record.details.phase === 'succeeded').length, 1);
+  assertPrivate(records);
+});
+
+test('legacy webhook updates preserve additional destinations and refresh media configuration immediately', async () => {
+  const persisted = [{ enabled: true, url: 'https://backup.example/hook' }];
+  let operation;
+  const prisma = { webhook: { upsert: async input => {
+    operation = input;
+    return { ...input.update, additionalTargets: persisted, webhookBase64: true };
+  } } };
+  const active = { instanceId: 'test', localWebhook: { enabled: false, webhookBase64: false } };
+  const monitor = { waInstances: { test: active } };
+  const { controller } = native(async () => ({ status: 200 }), undefined, prisma, monitor);
+  await controller.set('test', { webhook: { enabled: false, url: '', base64: true, events: [] } });
+  assert.equal(Object.hasOwn(operation.update, 'additionalTargets'), false);
+  assert.equal(active.localWebhook.enabled, true);
+  assert.equal(active.localWebhook.webhookBase64, true);
+  await controller.set('test', { webhook: { enabled: false, url: '', additionalTargets: [] } });
+  assert.deepEqual(operation.update.additionalTargets, []);
 });
 
 test('native rejection preserves non-retryable behavior and safe HTTP failure metadata', async () => {
