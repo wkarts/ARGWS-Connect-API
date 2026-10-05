@@ -198,6 +198,7 @@ export type Conversation = {
 }
 
 export type Message = {
+  mediaKind?: 'image' | 'video' | 'audio'
   participantRef?: string
   participantName?: string
   id: string

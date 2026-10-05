@@ -99,6 +99,7 @@ export const connect = {
   statuses: (id: string, page = 1, limit = 50): Promise<Message[]> => invoke('statuses', id, page, limit),
   statusViews: (id: string, statusId: string): Promise<{ id: string; count: number; viewers: Array<{ participant: string; status: string }> }> => invoke('statusViews', id, statusId),
   deleteStatus: (id: string, statusId: string): Promise<any> => invoke('deleteStatus', id, statusId),
+  statusMedia: (id: string, statusId: string): Promise<{ base64: string; mimetype: string }> => invoke('statusMedia', id, statusId),
   testMessageContacts: (id: string, page = 1): Promise<{ items: ContactItem[]; hasMore: boolean }> => invoke('testMessageContacts', id, page),
   contacts: (id: string): Promise<ContactItem[]> => typeof adapter.contacts === 'function' ? invoke('contacts', id) : Promise.resolve([]),
   calls: async (id: string): Promise<WhatsAppCall[]> => {

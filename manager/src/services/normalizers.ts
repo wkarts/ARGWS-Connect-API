@@ -100,6 +100,8 @@ function messagePreview(value: any): string {
   if (typeof value !== 'object') return ''
 
   if (value.text && typeof value.text === 'string') return value.text
+  if (value.type === 'text' && typeof value.text === 'string') return value.text
+  if (['image', 'video', 'audio'].includes(value.type)) return str(value.caption || ({ image: 'Imagem', video: 'Vídeo', audio: 'Áudio' } as Record<string, string>)[value.type])
   if (value.body && typeof value.body === 'string') return value.body
   if (value.content && typeof value.content === 'string') return value.content
   if (value.conversation && typeof value.conversation === 'string') return value.conversation
@@ -449,12 +451,16 @@ export function messages(raw: any): Message[] {
     const media = item.Media || item.media
     const messageType = str(item.messageType || '').toLowerCase()
     const body = item.message?.message || item.message || {}
+    const statusBody = body.status || body
+    const mediaKind = (['image', 'video', 'audio'] as const).find((kind) =>
+      Boolean(statusBody[`${kind}Message`] || statusBody.type === kind || messageType.includes(kind)))
     const hasAudioPayload = Boolean(body.audioMessage || body.pttMessage || body.audio || body.voiceMessage)
     const isAudio = Boolean(media && str(media.mimetype || media.mimeType).toLowerCase().startsWith('audio/')) ||
       hasAudioPayload || messageType.includes('audio') || messageType.includes('ptt')
     const transcript = asArray(item.TranscriptionJob || item.transcriptionJobs)[0]
     return {
       id: str(item.key?.id || item.id || index),
+      mediaKind,
       transcriptionMessageId: item.id ? str(item.id) : undefined,
       isAudio,
       transcriptionJobId: transcript?.id ? str(transcript.id) : undefined,

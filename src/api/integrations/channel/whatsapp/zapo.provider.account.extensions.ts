@@ -264,10 +264,27 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
         fromMe: data.fromMe === true,
         ...(data.participant ? { participant: this.normalizeAccountJid(data.participant) } : {}),
       };
-      const result = await this.connectedClient().message.send(jid, {
-        type: 'revoke',
-        target,
-      });
+      let result: any;
+      if (jid === 'status@broadcast') {
+        const saved = (storedMessage?.key as any)?.statusRecipients;
+        let recipients: string[] = Array.isArray(saved) ? saved : [];
+        if (!recipients.length) {
+          const contacts = await this.prismaRepository.contact.findMany({ where: { instanceId: this.instanceId } });
+          recipients = contacts.map((contact) => contact.remoteJid);
+        }
+        recipients = [
+          ...new Set(
+            recipients.filter(
+              (recipient) => typeof recipient === 'string' && /^\d+@(?:s\.whatsapp\.net|lid)$/.test(recipient),
+            ),
+          ),
+        ];
+        if (!recipients.length)
+          throw new BadRequestException('Não há destinatários conhecidos para revogar este Status.');
+        result = await this.connectedClient().status.revokeStatus({ messageId, recipients });
+      } else {
+        result = await this.connectedClient().message.send(jid, { type: 'revoke', target });
+      }
       if (jid === 'status@broadcast' && !result) {
         throw new InternalServerErrorException('Status revoke was not confirmed by the provider');
       }
@@ -329,6 +346,14 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       };
     } catch (error) {
       if (error && typeof error === 'object' && 'status' in error) throw error;
+      if (
+        data?.remoteJid === 'status@broadcast' &&
+        /missing signal sessions for all targets/i.test(String((error as Error)?.message))
+      ) {
+        throw new InternalServerErrorException(
+          'Não foi possível revogar este Status: o WhatsApp não forneceu sessões de criptografia para os destinatários. A publicação continua no histórico; reconecte a instância e tente novamente.',
+        );
+      }
       throw new InternalServerErrorException('Error deleting message', (error as Error)?.toString());
     }
   }

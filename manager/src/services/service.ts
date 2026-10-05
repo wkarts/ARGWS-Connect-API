@@ -56,6 +56,9 @@ export const connect = {
   async statuses(id: string): Promise<Message[]> { return request<Message[]>(`/instances/${encodeURIComponent(id)}/statuses`) },
   async statusViews(id: string, statusId: string) { return request<{ id: string; count: number; viewers: Array<{ participant: string; status: string }> }>(`/instances/${encodeURIComponent(id)}/statuses/${encodeURIComponent(statusId)}/views`) },
   async deleteStatus(id: string, statusId: string) { return request(`/instances/${encodeURIComponent(id)}/statuses/${encodeURIComponent(statusId)}`, { method: 'DELETE' }) },
+  async statusMedia(_id: string, _statusId: string): Promise<{ base64: string; mimetype: string }> {
+    throw new Error('Prévia de mídia indisponível neste modo de conexão.')
+  },
   async calls(id: string) { return request<any>(`/instances/${encodeURIComponent(id)}/calls`) },
   async callAction(id: string, action: string, data: any = {}) { return request(`/instances/${encodeURIComponent(id)}/calls/${encodeURIComponent(action)}`, { method: 'POST', data }) },
   async users(): Promise<UserItem[]> { return normalize.users(await request<any>('/users')) },

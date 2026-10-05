@@ -185,7 +185,10 @@ O retorno confirma apenas o aceite pelo provider e contém o identificador real
 do envio em `messages[0].id`; não promete entrega ao aparelho.
 
 No Manager, acesse **Comunicação → Status** para publicar, paginar o histórico,
-consultar visualizações e solicitar revogação pela mesma conta.
+abrir o conteúdo armazenado, consultar visualizações e solicitar revogação pela mesma conta.
+A prévia de mídia consulta o arquivo sob demanda com a credencial da instância; se o
+histórico conservar apenas metadados (como em publicações ZAPO sem eco do aparelho),
+o Manager informa que a mídia não está disponível, sem inventar uma prévia.
 
 Para consultar e excluir os Status publicados por uma instância:
 
@@ -211,6 +214,12 @@ conhecidos quando recebe o evento (ou usa os contatos atuais se a lista estava
 vazia), pois o evento do dispositivo não traz a audiência original. Se não
 houver destinatários conhecidos, a operação retorna erro e mantém o registro.
 O aceite do provider não confirma a entrega do comando a cada aparelho.
+No ZAPO, a revogação usa o coordenador próprio de Status do provider. Para
+publicações feitas pela API, usa os destinatários registrados na publicação;
+para as originadas no celular sem audiência armazenada, usa os contatos conhecidos
+pela instância. A ausência de destinatários ou uma falha do provider mantém o
+Status no histórico e retorna erro explícito. Uma resposta HTTP de sucesso
+confirma apenas o aceite do comando pelo provider.
 
 ## Templates
 
