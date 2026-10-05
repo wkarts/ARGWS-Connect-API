@@ -110,7 +110,7 @@ export class ZapoStartupService extends ChannelStartupService {
     const picture = await this.profilePicture(jid).catch(() => null);
     return { subject: group.subject, avatar: picture?.profilePictureUrl || undefined };
   });
-  private storeBackend: any = null;
+  protected storeBackend: any = null;
   private cleanupPoller: any = null;
   private store: any = null;
   private connectPromise: Promise<void> | null = null;
