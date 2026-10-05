@@ -137,7 +137,8 @@ export class ChannelStartupService {
     });
 
     this.localWebhook.enabled = Boolean(
-      data?.enabled || (Array.isArray(data?.additionalTargets) && data.additionalTargets.some((target: any) => target.enabled)),
+      data?.enabled ||
+        (Array.isArray(data?.additionalTargets) && data.additionalTargets.some((target: any) => target.enabled)),
     );
     this.localWebhook.webhookBase64 = data?.webhookBase64;
   }
