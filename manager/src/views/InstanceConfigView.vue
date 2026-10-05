@@ -140,7 +140,7 @@ async function save() {
       })
     }
     if (selected.value === 'chatwoot') value.value.ignoreJids = ignoreText.value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean)
-    const payload = selected.value === 'webhook'
+    const payload: Record<string, any> = selected.value === 'webhook'
       ? { enabled:value.value.enabled, url:value.value.url, headers:value.value.headers, byEvents:value.value.byEvents, base64:value.value.base64, events:value.value.events, additionalTargets:value.value.additionalTargets }
       : { ...value.value }
     delete payload.voipMaxConcurrentCallsLimit
