@@ -455,7 +455,9 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
               throw error;
             }
           } catch (error) {
-            this.logger.warn(`Status ${result.id} publicado sem prévia de mídia: ${(error as Error)?.message || error}`);
+            this.logger.warn(
+              `Status ${result.id} publicado sem prévia de mídia: ${(error as Error)?.message || error}`,
+            );
           }
         }
       } catch (error) {
