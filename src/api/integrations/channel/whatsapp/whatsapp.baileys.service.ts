@@ -1188,8 +1188,11 @@ export class BaileysStartupService extends ChannelStartupService {
         if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
           await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
         } else {
-          const ownStatuses = messagesRaw.filter((item) => item.key?.remoteJid === STATUS_BROADCAST_JID && item.key?.fromMe);
-          if (ownStatuses.length) await this.prismaRepository.message.createMany({ data: ownStatuses, skipDuplicates: true });
+          const ownStatuses = messagesRaw.filter(
+            (item) => item.key?.remoteJid === STATUS_BROADCAST_JID && item.key?.fromMe,
+          );
+          if (ownStatuses.length)
+            await this.prismaRepository.message.createMany({ data: ownStatuses, skipDuplicates: true });
         }
 
         if (
@@ -1264,7 +1267,12 @@ export class BaileysStartupService extends ChannelStartupService {
             Boolean(protocolMessage?.key?.id) &&
             (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
-          if (received.key?.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus && !received.key.fromMe && !isRevokeMessage) {
+          if (
+            received.key?.remoteJid === STATUS_BROADCAST_JID &&
+            !this.localSettings.readStatus &&
+            !received.key.fromMe &&
+            !isRevokeMessage
+          ) {
             continue;
           }
 
@@ -1324,7 +1332,12 @@ export class BaileysStartupService extends ChannelStartupService {
               }
             }
 
-            if (!isStatusDeletion || this.localSettings.readStatus || deletedKey.fromMe || (persistedMessage as any)?.key?.fromMe) {
+            if (
+              !isStatusDeletion ||
+              this.localSettings.readStatus ||
+              deletedKey.fromMe ||
+              (persistedMessage as any)?.key?.fromMe
+            ) {
               await this.sendDataWebhook(Events.MESSAGES_DELETE, {
                 id: persistedMessage?.id,
                 instanceId: this.instanceId,
@@ -1583,7 +1596,10 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE || (isStatusMessage && received.key.fromMe)) {
+          if (
+            this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE ||
+            (isStatusMessage && received.key.fromMe)
+          ) {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { pollUpdates, ...messageData } = messageRaw;
             const msg = await this.prismaRepository.message.create({ data: messageData });
@@ -2537,7 +2553,9 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const rejected = sent.filter((result) => result.status === 'rejected');
       if (rejected.length) {
-        throw new InternalServerErrorException(`Status parcialmente enviado: ${rejected.length} lote(s) falharam. ID: ${msgId}`);
+        throw new InternalServerErrorException(
+          `Status parcialmente enviado: ${rejected.length} lote(s) falharam. ID: ${msgId}`,
+        );
       }
 
       return firstMessage;
@@ -2736,7 +2754,10 @@ export class BaileysStartupService extends ChannelStartupService {
         }
       }
 
-      if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE || messageRaw.key?.remoteJid === STATUS_BROADCAST_JID) {
+      if (
+        this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE ||
+        messageRaw.key?.remoteJid === STATUS_BROADCAST_JID
+      ) {
         const msg = await this.prismaRepository.message.create({ data: messageRaw });
 
         if (isMedia && this.configService.get<S3>('S3').ENABLE) {
@@ -4117,9 +4138,11 @@ export class BaileysStartupService extends ChannelStartupService {
           const contacts = await this.prismaRepository.contact.findMany({ where: { instanceId: this.instanceId } });
           statusRecipients = contacts.map((contact) => contact.remoteJid);
         }
-        statusRecipients = [...new Set(statusRecipients.filter((jid) =>
-          typeof jid === 'string' && /@(?:s\.whatsapp\.net|lid)$/.test(jid),
-        ))];
+        statusRecipients = [
+          ...new Set(
+            statusRecipients.filter((jid) => typeof jid === 'string' && /@(?:s\.whatsapp\.net|lid)$/.test(jid)),
+          ),
+        ];
         if (!statusRecipients.length) {
           throw new BadRequestException('Não há destinatários conhecidos para revogar este Status.');
         }
@@ -4127,9 +4150,11 @@ export class BaileysStartupService extends ChannelStartupService {
       let response: any;
       if (del.remoteJid === STATUS_BROADCAST_JID) {
         for (let index = 0; index < statusRecipients.length; index += 100) {
-          const sent = await this.client.sendMessage(del.remoteJid, { delete: del }, {
-            statusJidList: statusRecipients.slice(index, index + 100),
-          });
+          const sent = await this.client.sendMessage(
+            del.remoteJid,
+            { delete: del },
+            { statusJidList: statusRecipients.slice(index, index + 100) },
+          );
           if (!sent) throw new InternalServerErrorException('Falha ao revogar Status para os destinatários.');
           response ||= sent;
         }
