@@ -1,6 +1,6 @@
 # Voz, ditado e transcrição
 
-O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona uma API para ditado e transcrição de mensagens. O processamento usa o worker local, FFmpeg, VAD e o modelo provisionado. O worker desabilita downloads remotos do Transformers.js.
+O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona uma API para ditado e transcrição de mensagens. O processamento usa o worker local, FFmpeg, VAD e o modelo provisionado. O worker não baixa arquivos durante cada transcrição: a API instala a revisão fixada uma vez no volume persistente compartilhado, e os workers leem os arquivos localmente.
 
 ## Habilitar
 
@@ -15,7 +15,8 @@ Variáveis principais:
 | `SPEECH_ENABLED` | `false` | Habilita os endpoints e workers |
 | `SPEECH_PROVIDER` | `local` | Provider local |
 | `SPEECH_MODEL` | `Xenova/whisper-small` | Modelo configurado |
-| `SPEECH_MODEL_PATH` | vazio | Caminho do modelo local verificado |
+| `SPEECH_MODEL_PATH` | `/models/Xenova/whisper-small` | Caminho do modelo local verificado |
+| `SPEECH_MODELS_HOST_PATH` | `./models` | Diretório persistente do host compartilhado pela API e pelos workers |
 | `SPEECH_TRANSCRIPTION_QUEUE` | `speech.transcription` | Fila de transcrições longas |
 | `SPEECH_DICTATION_QUEUE` | `speech.dictation` | Fila prioritária de ditado |
 | `SPEECH_WORKER_CONCURRENCY` | `1` | Concorrência por worker |
@@ -30,9 +31,17 @@ Variáveis principais:
 
 Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
 
-## Provisionar um modelo offline
+## Baixar e manter o modelo
 
-Copie previamente os arquivos de modelo para um diretório local. Monte o diretório do host com `SPEECH_MODELS_HOST_PATH` e configure `SPEECH_MODEL_PATH` para a pasta que contém `config.json` e os arquivos do modelo. O caminho montado é somente leitura nos workers.
+Ao iniciar, a API confere o volume e baixa automaticamente o modelo se ele ainda não estiver instalado. Isso também acontece depois de instalar ou atualizar a stack. O pacote q8 do `Xenova/whisper-small` tem aproximadamente 250 MB; a API baixa uma revisão fixada da Hugging Face, verifica SHA-256 e grava os arquivos em `./models` por padrão. A tela **Gerenciador → Transcrição de áudio** mostra o progresso e permite iniciar ou repetir o download manualmente.
+
+O mesmo diretório do host é montado como `/models` com leitura e escrita na API e somente leitura nos workers. Depois da primeira instalação, transcrição e ditado carregam o modelo desse volume; reiniciar ou atualizar os containers reutiliza os arquivos sem baixar os pesos novamente. Preserve `./models` entre implantações. Os pesos não fazem parte da imagem GHCR e não são armazenados em `/tmp`.
+
+O resultado do ditado contém somente texto, então o worker não calcula timestamps para esse caminho curto. O upload de transcrição continua produzindo segmentos temporizados. Gravações vazias ou curtas demais são interrompidas no navegador com uma orientação para conferir o nível do microfone, sem criar um job inválido.
+
+Se uma transcrição for enviada antes de o download terminar, a API pede para tentar novamente quando o modelo estiver pronto. O arquivo selecionado na tela de transcrição é mantido; no ditado pelo microfone, o áudio capturado fica disponível no botão de nova tentativa enquanto o modelo baixa.
+
+O provisionamento manual continua disponível para ambientes sem acesso à Internet. Copie os arquivos compatíveis para o diretório do host e gere o manifesto SHA-256:
 
 Gere o manifesto SHA-256 antes de subir os workers:
 
@@ -48,9 +57,9 @@ SPEECH_MODEL_PATH=/models/Xenova/whisper-small
 SPEECH_MODEL=Xenova/whisper-small
 ```
 
-O worker valida o manifesto e todos os hashes antes do warm-up. Sem manifesto, com checksum inválido ou sem modelo compatível, o worker não fica pronto. O runtime não baixa arquivos de modelo. O Transformers.js documenta o carregamento de modelos por `env.localModelPath` e a desativação de modelos remotos em sua [referência de ambiente](https://huggingface.co/docs/transformers.js/v3.8.1/api/env).
+O worker valida o manifesto e todos os hashes antes do warm-up. Sem manifesto, com checksum inválido ou sem modelo compatível, o worker não fica pronto. Enquanto o download gerenciado termina, os workers aguardam o modelo no volume compartilhado. O Transformers.js documenta o carregamento local e a desativação de modelos remotos em sua [referência de ambiente](https://huggingface.co/docs/transformers.js/v3.8.1/api/env).
 
-O endpoint `GET /v1/speech/models` mostra o modelo configurado. A ativação pela API só confirma o mesmo modelo configurado; a troca de modelo requer provisionar os arquivos, atualizar `SPEECH_MODEL` e reiniciar os workers.
+O endpoint `GET /v1/speech/models` informa instalação, progresso e prontidão do modelo. `POST /v1/speech/models/{modelId}/download` inicia o download do modelo configurado. A troca de modelo continua exigindo provisionar arquivos compatíveis, atualizar `SPEECH_MODEL`/`SPEECH_MODEL_PATH` e reiniciar os workers.
 
 ## API
 
@@ -61,7 +70,8 @@ Todos os endpoints usam o header `apikey`.
 | `GET /v1/speech/live` | Liveness da API |
 | `GET /v1/speech/ready` | Readiness de pelo menos um worker |
 | `GET /v1/speech/health` | Estado das filas, modelo e contagens |
-| `GET /v1/speech/models` | Modelo configurado |
+| `GET /v1/speech/models` | Modelo configurado e progresso de instalação |
+| `POST /v1/speech/models/{modelId}/download` | Inicia ou consulta o download gerenciado do modelo |
 | `POST /v1/speech/models/{modelId}/activate` | Confirma o modelo já configurado |
 | `POST /v1/speech/dictation` | Recebe áudio curto em `multipart/form-data`, campo `audio` |
 | `GET /v1/speech/dictation/{jobId}` | Lê estado e resultado do ditado |

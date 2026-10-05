@@ -119,8 +119,11 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertFalse(any('transcription-models' in str(volume) for volume in transcription_worker.get('volumes', [])))
         self.assertEqual(
             transcription_worker['environment']['TRANSCRIPTION_MODEL_CACHE_DIR'],
-            '${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}',
+            '${TRANSCRIPTION_MODEL_CACHE_DIR:-/models}',
         )
+        self.assertEqual(environment['SPEECH_MODELS_HOST_PATH'], './models')
+        self.assertEqual(environment['SPEECH_MODEL_PATH'], '/models/Xenova/whisper-small')
+        self.assertIn('${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro', transcription_worker['volumes'])
         dictation_worker = services['speech-dictation-worker-fersoft-connect-production']
         self.assertEqual(dictation_worker['profiles'], ['transcription'])
         self.assertEqual(dictation_worker['environment']['SPEECH_WORKER_MODE'], 'dictation')

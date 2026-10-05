@@ -6,6 +6,7 @@ import {
   uploadFile,
 } from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
+import { SpeechModelDownloadService, SpeechModelDownloadStatus } from '@api/services/speech-model-download.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
 import { createHash, randomUUID } from 'crypto';
@@ -15,6 +16,7 @@ const REQUESTED = 'transcription.requested';
 const DICTATION_REQUESTED = 'speech.dictation.requested';
 const TRANSCRIPTION_SOURCE_PREFIX = 'transcriptions/';
 const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
+const MODEL_BOOTSTRAP_RETRY_MS = 125_000;
 
 type EnqueueInput = {
   messageId?: string;
@@ -256,8 +258,13 @@ export class TranscriptionServiceError extends Error {
  */
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
+  private readonly modelDownloadService = new SpeechModelDownloadService();
+  private modelBootstrapStarted = false;
+  private modelBootstrapRetryTimer: NodeJS.Timeout | null = null;
   private connection: any = null;
   private channel: any = null;
+  private resultChannel: any = null;
+  private readonly settledResultMessages = new WeakSet<object>();
   private initializing: Promise<void> | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private sourceCleanupTimer: NodeJS.Timeout | null = null;
@@ -276,6 +283,7 @@ export class TranscriptionService {
   }
 
   public async init(): Promise<void> {
+    this.startDefaultModelDownload();
     if (!this.isEnabled()) return;
     this.startSourceCleanup();
     this.startStaleRecovery();
@@ -290,6 +298,42 @@ export class TranscriptionService {
         this.initializing = null;
       });
     return this.initializing;
+  }
+
+  /**
+   * Provision the pinned model at API startup. The download runs in the
+   * background so normal API startup does not wait for the model host.
+   */
+  private startDefaultModelDownload(): void {
+    if (this.modelBootstrapStarted) return;
+    this.modelBootstrapStarted = true;
+
+    void this.modelDownloadService
+      .status()
+      .then(async (status) => {
+        if (!status.available || status.installed) return;
+        if (status.status === 'downloading') {
+          this.scheduleModelBootstrapRetry();
+          return;
+        }
+        const started = await this.modelDownloadService.start(status.id);
+        if (started.status === 'downloading' || started.installed) {
+          this.logger.info(`Modelo de voz ${started.id}: download iniciado ou já disponível no volume persistente.`);
+        }
+      })
+      .catch((error) => {
+        this.logger.warn('Não foi possível iniciar o provisionamento do modelo de voz: ' + (error?.message || error));
+      });
+  }
+
+  private scheduleModelBootstrapRetry(): void {
+    if (this.modelBootstrapRetryTimer) return;
+    this.modelBootstrapRetryTimer = setTimeout(() => {
+      this.modelBootstrapRetryTimer = null;
+      this.modelBootstrapStarted = false;
+      this.startDefaultModelDownload();
+    }, MODEL_BOOTSTRAP_RETRY_MS);
+    this.modelBootstrapRetryTimer.unref?.();
   }
 
   public async list(limit = 30, mode = 'transcription') {
@@ -330,7 +374,9 @@ export class TranscriptionService {
       model: String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small'),
       provider: providerValue(),
       allowRemoteModels: false,
+      modelDownload: null as SpeechModelDownloadStatus | null,
     };
+    result.modelDownload = await this.modelDownloadStatus();
     if (!this.isEnabled()) return result;
 
     try {
@@ -363,7 +409,7 @@ export class TranscriptionService {
     if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return result;
 
     await this.init();
-    if (!this.channel) return result;
+    if (!this.channel || !this.resultChannel) return result;
     result.connected = true;
     try {
       const state = await this.channel.checkQueue(queue);
@@ -378,6 +424,22 @@ export class TranscriptionService {
       this.logger.debug('Transcrição: diagnóstico da fila indisponível: ' + (error?.message || error));
     }
     return result;
+  }
+
+  public async modelDownloadStatus(): Promise<SpeechModelDownloadStatus> {
+    const status = await this.modelDownloadService.status();
+    return { ...status, available: status.available && this.isEnabled() };
+  }
+
+  public async downloadModel(modelId: string): Promise<SpeechModelDownloadStatus> {
+    if (!this.isEnabled()) {
+      throw new TranscriptionServiceError('A transcrição local está desabilitada nesta instalação.', 409);
+    }
+    try {
+      return await this.modelDownloadService.start(String(modelId || '').trim());
+    } catch (error: any) {
+      throw new TranscriptionServiceError(String(error?.message || error), 409);
+    }
   }
 
   public async enqueue(input: EnqueueInput) {
@@ -444,7 +506,10 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
     }
     if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
-      throw new TranscriptionServiceError('Envie um arquivo de áudio não vazio.', 400);
+      throw new TranscriptionServiceError(
+        'O arquivo de áudio não contém dados. Grave novamente ou selecione outro áudio.',
+        400,
+      );
     }
     if (input.buffer.length > maxUploadBytes()) {
       throw new TranscriptionServiceError('O áudio excede o limite configurado para transcrição.', 413);
@@ -516,7 +581,10 @@ export class TranscriptionService {
       throw new TranscriptionServiceError('O ditado está desabilitado nesta instalação.', 409);
     }
     if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
-      throw new TranscriptionServiceError('Grave uma fala antes de iniciar o ditado.', 400);
+      throw new TranscriptionServiceError(
+        'O áudio do ditado não contém dados. Confira o microfone e grave novamente.',
+        400,
+      );
     }
     if (input.buffer.length > maxDictationBytes()) {
       throw new TranscriptionServiceError('O áudio do ditado excede o limite configurado.', 413);
@@ -880,8 +948,29 @@ export class TranscriptionService {
 
   private async ready(mode = 'transcription') {
     await this.init();
-    if (!this.channel) {
+    if (!this.channel || !this.resultChannel) {
       throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
+    }
+
+    let modelStatus = await this.modelDownloadStatus();
+    if (!modelStatus.installed && modelStatus.available) {
+      try {
+        modelStatus = await this.downloadModel(modelStatus.id);
+      } catch (error: any) {
+        this.logger.warn(
+          'Não foi possível iniciar o download persistente do modelo de voz: ' + (error?.message || error),
+        );
+        throw new TranscriptionServiceError(
+          'O modelo de voz ainda não está instalado e o download automático não pôde ser iniciado. Verifique o volume persistente de modelos no Compose.',
+          503,
+        );
+      }
+      if (!modelStatus.installed) {
+        throw new TranscriptionServiceError(
+          'O download do modelo de voz foi iniciado. Acompanhe o progresso em Gerenciador > Transcrição de áudio e envie o áudio novamente quando o modelo estiver pronto.',
+          503,
+        );
+      }
     }
 
     const queue = queueFor(mode);
@@ -912,44 +1001,107 @@ export class TranscriptionService {
       { mode: 'dictation', queue: queueFor('dictation') },
     ];
 
-    this.connection = await amqp.connect(uri);
-    this.connection.on('error', (error) => this.logger.warn('RabbitMQ transcription: ' + (error?.message || error)));
-    this.connection.on('close', () => {
+    const connection = await amqp.connect(uri);
+    this.connection = connection;
+    connection.on('error', (error) => this.logger.warn('RabbitMQ transcription: ' + (error?.message || error)));
+    connection.on('close', () => {
+      if (this.connection !== connection) return;
       this.channel = null;
+      this.resultChannel = null;
       this.connection = null;
       this.scheduleReconnect();
     });
-    this.channel = await this.connection.createConfirmChannel();
-    await this.channel.assertExchange(exchange, 'topic', { durable: true });
-    for (const item of queues) {
-      const resultQueue = item.queue + '.results';
-      const prefix = resultRoutingPrefix(item.mode);
-      await this.channel.assertQueue(item.queue, {
-        durable: true,
-        arguments: {
-          'x-queue-type': 'quorum',
-          ...(item.mode === 'dictation' ? { 'x-message-ttl': dictationAudioRetentionMs() } : {}),
-        },
-      });
-      await this.channel.bindQueue(item.queue, exchange, requestRoutingKey(item.mode));
-      await this.channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
-      for (const status of ['processing', 'completed', 'failed', 'cancelled']) {
-        await this.channel.bindQueue(resultQueue, exchange, prefix + status);
-      }
-      await this.channel.consume(
-        resultQueue,
-        (message) => {
-          if (message) void this.consumeResult(message);
-        },
-        { noAck: false },
-      );
+
+    const channel = await connection.createConfirmChannel();
+    if (this.connection !== connection) {
+      await channel.close().catch(() => {});
+      return;
     }
-    await this.channel.prefetch(20);
-    this.logger.info('Speech queues - ON (' + queues.map((item) => item.queue).join(', ') + ')');
-    // Recover abandoned jobs as soon as a real worker consumer is present;
-    // waiting for the periodic timer would leave old `processing` rows visible
-    // in the Manager for another full interval after a deploy.
-    void this.recoverStaleJobs();
+    this.channel = channel;
+    channel.on('error', (error) => this.logger.warn('RabbitMQ transcription channel: ' + (error?.message || error)));
+    channel.on('close', () => {
+      this.handleChannelClose(channel, connection);
+    });
+
+    try {
+      await channel.assertExchange(exchange, 'topic', { durable: true });
+      for (const item of queues) {
+        const resultQueue = item.queue + '.results';
+        const prefix = resultRoutingPrefix(item.mode);
+        await channel.assertQueue(item.queue, {
+          durable: true,
+          arguments: {
+            'x-queue-type': 'quorum',
+            ...(item.mode === 'dictation' ? { 'x-message-ttl': dictationAudioRetentionMs() } : {}),
+          },
+        });
+        await channel.bindQueue(item.queue, exchange, requestRoutingKey(item.mode));
+        await channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
+        for (const status of ['processing', 'completed', 'failed', 'cancelled']) {
+          await channel.bindQueue(resultQueue, exchange, prefix + status);
+        }
+      }
+
+      // Keep consumer delivery tags on a dedicated channel. This prevents
+      // publishing confirmations and result ACKs from sharing channel state.
+      const resultChannel = await connection.createChannel();
+      if (this.connection !== connection || this.channel !== channel) {
+        await resultChannel.close().catch(() => {});
+        return;
+      }
+      this.resultChannel = resultChannel;
+      resultChannel.on('error', (error) =>
+        this.logger.warn('RabbitMQ transcription result channel: ' + (error?.message || error)),
+      );
+      resultChannel.on('close', () => this.handleChannelClose(resultChannel, connection));
+      await resultChannel.prefetch(20);
+      for (const item of queues) {
+        const resultQueue = item.queue + '.results';
+        await resultChannel.consume(
+          resultQueue,
+          (message) => {
+            if (message) void this.consumeResult(message, resultChannel);
+          },
+          { noAck: false },
+        );
+      }
+      if (this.channel !== channel || this.resultChannel !== resultChannel) return;
+      this.logger.info('Speech queues - ON (' + queues.map((item) => item.queue).join(', ') + ')');
+      // Recover abandoned jobs as soon as a real worker consumer is present;
+      // waiting for the periodic timer would leave old `processing` rows visible
+      // in the Manager for another full interval after a deploy.
+      void this.recoverStaleJobs();
+    } catch (error) {
+      if (this.channel === channel) this.channel = null;
+      const resultChannel = this.resultChannel;
+      this.resultChannel = null;
+      if (this.connection === connection) this.connection = null;
+      try {
+        await resultChannel?.close();
+      } catch {
+        // Connection teardown below also releases this channel.
+      }
+      try {
+        await channel.close();
+      } catch {
+        // Connection teardown below also releases this channel.
+      }
+      try {
+        await connection.close();
+      } catch {
+        // Preserve the setup error while best-effort cleanup completes.
+      }
+      throw error;
+    }
+  }
+
+  private handleChannelClose(channel: any, connection: any) {
+    if (this.connection !== connection || (this.channel !== channel && this.resultChannel !== channel)) return;
+    this.channel = null;
+    this.resultChannel = null;
+    this.connection = null;
+    void connection.close().catch(() => {});
+    this.scheduleReconnect();
   }
 
   private scheduleReconnect() {
@@ -984,12 +1136,41 @@ export class TranscriptionService {
     });
   }
 
-  private async consumeResult(message: any) {
+  private acknowledgeResult(channel: any, message: any): boolean {
+    if (!channel || channel !== this.resultChannel || !message || typeof message !== 'object') return false;
+    if (this.settledResultMessages.has(message)) return false;
+    try {
+      channel.ack(message);
+      this.settledResultMessages.add(message);
+      return true;
+    } catch (error) {
+      this.logger.warn('Não foi possível confirmar resultado de voz: ' + (error?.message || error));
+      void channel.close().catch(() => {});
+      return false;
+    }
+  }
+
+  private rejectResult(channel: any, message: any, requeue: boolean): boolean {
+    if (!channel || channel !== this.resultChannel || !message || typeof message !== 'object') return false;
+    if (this.settledResultMessages.has(message)) return false;
+    try {
+      channel.nack(message, false, requeue);
+      this.settledResultMessages.add(message);
+      return true;
+    } catch (error) {
+      this.logger.warn('Não foi possível devolver resultado de voz à fila: ' + (error?.message || error));
+      void channel.close().catch(() => {});
+      return false;
+    }
+  }
+
+  private async consumeResult(message: any, channel: any) {
+    if (!channel || channel !== this.resultChannel) return;
     try {
       const payload = JSON.parse(message.content.toString('utf8')) as WorkerResult;
       const jobId = String(payload.jobId || '').trim();
       if (!jobId) {
-        this.channel.ack(message);
+        this.acknowledgeResult(channel, message);
         return;
       }
       const status = ['processing', 'completed', 'failed', 'cancelled'].includes(String(payload.status))
@@ -1019,7 +1200,7 @@ export class TranscriptionService {
           select: { startedAt: true },
         });
         if (!current) {
-          this.channel.ack(message);
+          this.acknowledgeResult(channel, message);
           return;
         }
         if (!current.startedAt) data.startedAt = new Date();
@@ -1057,7 +1238,7 @@ export class TranscriptionService {
           this.logger.debug(
             'Resultado legado de transcrição ignorado para job ausente, terminal ou repetido: ' + jobId,
           );
-          this.channel.ack(message);
+          this.acknowledgeResult(channel, message);
           return;
         }
         updateWhere = { id: jobId, status: { in: ['queued', 'processing'] }, attempts: currentAttempts };
@@ -1070,10 +1251,11 @@ export class TranscriptionService {
         // from an older retry attempt. It must not poison the durable queue.
         this.logger.debug('Resultado de transcrição ignorado para job ausente ou tentativa antiga: ' + jobId);
       }
-      this.channel.ack(message);
+      this.acknowledgeResult(channel, message);
     } catch (error) {
+      if (channel !== this.resultChannel) return;
       this.logger.error('Resultado de transcrição inválido: ' + (error?.message || error));
-      this.channel.nack(message, false, false);
+      this.rejectResult(channel, message, false);
     }
   }
 

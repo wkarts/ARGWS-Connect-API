@@ -28,6 +28,7 @@ type TranscriptionJob = {
 
 const jobs = ref<TranscriptionJob[]>([])
 const workerHealth = ref<any>(null)
+const modelBusy = ref(false)
 const selectedFile = ref<File | null>(null)
 const language = ref('pt')
 const busy = ref(false)
@@ -62,6 +63,7 @@ let timer: number | null = null
 
 const selected = computed(() => jobs.value.find((job) => job.id === selectedId.value) || jobs.value[0] || null)
 const active = computed(() => jobs.value.filter((job) => ['queued', 'processing'].includes(job.status)).length)
+const modelDownload = computed(() => workerHealth.value?.modelDownload || null)
 const selectedSize = computed(() => selectedFile.value
   ? `${formatSize(selectedFile.value.size)} · pronto para enviar`
   : `OGG, Opus, MP3, M4A, WAV, WEBM ou AMR · até ${formatSize(maxUploadBytes.value)}`)
@@ -85,8 +87,20 @@ function clock(value: number) {
 }
 
 function formatSize(value: number) {
-  const megabytes = value / (1024 * 1024)
-  return `${Number(megabytes.toFixed(1))} MB`
+  const bytes = Math.max(0, Number(value) || 0)
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function modelDownloadLabel(status?: string) {
+  return ({
+    not_installed: 'Ainda não instalado',
+    downloading: 'Baixando para o volume persistente',
+    ready: 'Instalado neste servidor',
+    failed: 'O download falhou',
+    unavailable: 'Instalação manual',
+  } as Record<string, string>)[String(status || '')] || 'Verificando o modelo'
 }
 
 function queuedAge(value?: string) {
@@ -208,9 +222,17 @@ function finishRecording() {
   const shouldDiscard = discardRecording
   recordingChunks = []
   stopRecordingResources()
-  if (shouldDiscard || !chunks.length) return
+  if (shouldDiscard) return
+  if (!chunks.length) {
+    error.value = 'O microfone não capturou dados de áudio. Confira a permissão e tente novamente.'
+    return
+  }
   const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm'
   const blob = new Blob(chunks, { type: mimeType })
+  if (blob.size === 0) {
+    error.value = 'A gravação não contém dados de áudio. Confira o microfone e grave novamente.'
+    return
+  }
   setSelectedFile(new File([blob], `gravacao-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`, { type: mimeType.split(';')[0] }))
   success.value = 'Gravação concluída. Confira o áudio e envie para transcrever.'
 }
@@ -294,10 +316,34 @@ async function load() {
   schedulePolling()
 }
 
+async function downloadModel() {
+  const model = modelDownload.value
+  if (!model?.available || modelBusy.value) return
+  modelBusy.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const result = await connect.downloadSpeechModel(String(model.id || workerHealth.value?.model || 'Xenova/whisper-small'))
+    workerHealth.value = {
+      ...workerHealth.value,
+      modelDownload: { ...model, ...result },
+    }
+    success.value = result.installed
+      ? 'O modelo já está instalado e pronto para ser reutilizado.'
+      : 'Download iniciado. Os arquivos ficarão no volume persistente para os próximos usos.'
+  } catch (cause) {
+    error.value = friendlyError(cause, 'Não foi possível iniciar o download do modelo.')
+    try { workerHealth.value = await connect.transcriptionHealth() } catch { /* Keep the current download state visible. */ }
+  } finally {
+    modelBusy.value = false
+    schedulePolling()
+  }
+}
+
 function schedulePolling() {
   if (timer !== null) window.clearTimeout(timer)
   timer = null
-  const needsWorkerCheck = !workerHealth.value || (workerHealth.value.enabled && !workerHealth.value.workerReady)
+  const needsWorkerCheck = !workerHealth.value || (workerHealth.value.enabled && (!workerHealth.value.workerReady || modelDownload.value?.status === 'downloading'))
   if (active.value || needsWorkerCheck) {
     timer = window.setTimeout(() => {
       timer = null
@@ -328,6 +374,10 @@ async function refreshActive() {
 
 async function upload() {
   if (!selectedFile.value) { error.value = 'Selecione um arquivo de áudio antes de enviar.'; return }
+  if (selectedFile.value.size === 0) {
+    error.value = 'O arquivo está vazio. Grave novamente ou selecione outro áudio.'
+    return
+  }
   if (selectedFile.value.size > maxUploadBytes.value) {
     error.value = `O arquivo excede o limite configurado de ${formatSize(maxUploadBytes.value)}.`
     return
@@ -345,6 +395,8 @@ async function upload() {
     schedulePolling()
   } catch (cause) {
     error.value = friendlyError(cause, 'Não foi possível enviar o áudio.')
+    try { workerHealth.value = await connect.transcriptionHealth() } catch { /* Preserve the upload error and the last status. */ }
+    schedulePolling()
   } finally {
     busy.value = false
   }
@@ -408,8 +460,25 @@ onBeforeUnmount(() => {
       <section class="privacy-note"><AppIcon name="shield" :size="21" /><div><strong>Processamento privado</strong><p>O arquivo fica no MinIO privado e é processado pelo worker local. O painel recebe apenas o estado do job e o texto resultante.</p></div></section>
       <p v-if="error" class="notice error" role="alert">{{ error }}</p>
       <p v-if="success" class="notice success" role="status">{{ success }}</p>
-      <p v-if="workerHealth && !workerHealth.workerReady" class="notice error" role="alert">O worker local não está consumindo a fila. Ative o perfil <code>transcription</code> no <code>COMPOSE_PROFILES</code> e recrie somente o container do worker.</p>
+      <p v-if="workerHealth?.enabled && modelDownload?.status === 'downloading'" class="notice worker-ready" role="status">Baixando o modelo de voz · {{ modelDownload.progressPercent || 0 }}% concluído. O áudio será processado após o download e o primeiro carregamento.</p>
+      <p v-else-if="workerHealth && !workerHealth.workerReady && modelDownload?.installed" class="notice error" role="alert">Modelo instalado. O worker ainda está carregando o modelo ou não está ativo; aguarde e confira se o perfil <code>transcription</code> está habilitado.</p>
+      <p v-else-if="workerHealth && !workerHealth.workerReady && modelDownload?.available" class="notice worker-ready" role="status">A API baixa o modelo automaticamente ao iniciar. Acompanhe o progresso aqui ou repita o download manualmente se necessário.</p>
+      <p v-else-if="workerHealth && !workerHealth.workerReady" class="notice error" role="alert">O worker local não está consumindo a fila. Ative o perfil <code>transcription</code> no <code>COMPOSE_PROFILES</code> e recrie somente o container do worker.</p>
       <p v-else-if="workerHealth" class="notice worker-ready" role="status">Worker local ativo · {{ workerHealth.consumerCount }} consumidor(es) · {{ workerHealth.queuedJobs || 0 }} na fila persistida · {{ workerHealth.processingJobs || 0 }} em processamento<span v-if="workerHealth.oldestQueuedSeconds"> · mais antigo há {{ clock(workerHealth.oldestQueuedSeconds) }}</span></p>
+
+      <section v-if="workerHealth?.enabled && modelDownload" class="model-card" aria-live="polite">
+        <div class="model-copy">
+          <strong>Modelo de voz · {{ modelDownload.id || workerHealth.model }}</strong>
+          <p>{{ modelDownloadLabel(modelDownload.status) }} · Baixa aproximadamente 250 MB uma vez e mantém os arquivos no volume persistente entre reinícios e atualizações. Português, inglês e espanhol usam o mesmo modelo.</p>
+          <div v-if="modelDownload.status === 'downloading'" class="model-progress">
+            <progress :value="modelDownload.progressPercent || 0" max="100">{{ modelDownload.progressPercent || 0 }}%</progress>
+            <small>{{ modelDownload.progressPercent || 0 }}% · {{ formatSize(modelDownload.downloadedBytes || 0) }} baixados<span v-if="modelDownload.totalBytes"> de {{ formatSize(modelDownload.totalBytes) }}</span></small>
+          </div>
+          <p v-if="modelDownload.errorMessage" class="model-error" role="alert">{{ modelDownload.errorMessage }}</p>
+        </div>
+        <button v-if="modelDownload.available && !modelDownload.installed && modelDownload.status !== 'downloading'" type="button" class="btn primary model-button" :disabled="modelBusy" @click="downloadModel"><AppIcon name="download" :size="15" />{{ modelBusy ? 'Iniciando…' : modelDownload.status === 'failed' ? 'Tentar novamente' : 'Baixar modelo' }}</button>
+        <span v-else-if="modelDownload.installed" class="model-ready"><AppIcon name="check" :size="15" />Instalado</span>
+      </section>
 
       <div class="transcription-layout">
         <PanelCard title="Novo áudio" description="Envie uma gravação para iniciar uma transcrição.">
@@ -461,5 +530,5 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.processing-copy{flex:1;min-width:0}.job-progress{height:7px;margin-top:11px;overflow:hidden;border-radius:99px;background:var(--border)}.job-progress span{display:block;height:100%;border-radius:inherit;background:var(--primary);transition:width .35s ease}
+.model-card{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 17px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}.model-copy{display:grid;gap:5px;min-width:0}.model-copy strong{font-size:12px}.model-copy p{margin:0;color:var(--muted);font-size:10px;line-height:1.5}.model-button{flex:none;white-space:nowrap}.model-ready{display:flex;align-items:center;gap:5px;flex:none;color:var(--success);font-size:11px;font-weight:700}.model-progress{display:grid;gap:4px;max-width:440px}.model-progress progress{width:100%;height:8px;accent-color:var(--primary)}.model-progress small{color:var(--muted);font-size:9px}.model-error{color:var(--danger)!important}.processing-copy{flex:1;min-width:0}.job-progress{height:7px;margin-top:11px;overflow:hidden;border-radius:99px;background:var(--border)}.job-progress span{display:block;height:100%;border-radius:inherit;background:var(--primary);transition:width .35s ease}@media(max-width:520px){.model-card{align-items:stretch;flex-direction:column}.model-button{width:100%}}
 </style>

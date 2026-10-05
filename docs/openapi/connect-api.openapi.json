@@ -18544,7 +18544,7 @@
         ],
         "summary": "Listar modelo configurado",
         "operationId": "get_v1_speech_models",
-        "description": "Lista somente o modelo configurado por SPEECH_MODEL. Não baixa nem instala modelos dinamicamente.",
+        "description": "Lista o modelo configurado e informa se os arquivos estão instalados, disponíveis para download, em transferência ou prontos para uso.",
         "security": [
           {
             "apiKey": []
@@ -18595,6 +18595,59 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/models/{modelId}/download": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Baixar modelo de voz para armazenamento persistente",
+        "operationId": "post_v1_speech_models_modelid_download",
+        "description": "Inicia em segundo plano o download da revisão fixada de Xenova/whisper-small para o volume SPEECH_MODELS_HOST_PATH. A API também inicia esse provisionamento ao subir se o modelo estiver ausente. O download é validado por SHA-256 e reutilizado pelos workers após reinícios e atualizações; somente esse modelo predefinido pode ser baixado pelo endpoint.",
+        "parameters": [
+          {
+            "name": "modelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota modelId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "O modelo já está instalado."
+          },
+          "202": {
+            "description": "Download iniciado ou em andamento."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           },
           "409": {
             "$ref": "#/components/responses/Conflict"

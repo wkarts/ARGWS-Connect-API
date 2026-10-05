@@ -95,3 +95,97 @@ test('a queued job cannot be manually retried based only on its age', async () =
     await assert.rejects(service.retry('queued-job'), (error: any) => error.status === 409);
   });
 });
+
+test('resultado de voz não confirma no canal novo após reconexão do RabbitMQ', async () => {
+  let finishUpdate: ((value: { count: number }) => void) | undefined;
+  const updatePending = new Promise<{ count: number }>((resolve) => { finishUpdate = resolve; });
+  const repository = {
+    transcriptionJob: {
+      updateMany: async () => updatePending,
+    },
+  };
+  const oldChannel = {
+    ackCount: 0,
+    nackCount: 0,
+    ack() { this.ackCount += 1; },
+    nack() { this.nackCount += 1; },
+  };
+  const newChannel = {
+    ackCount: 0,
+    nackCount: 0,
+    ack() { this.ackCount += 1; },
+    nack() { this.nackCount += 1; },
+  };
+  const service = new TranscriptionService(repository as any);
+  (service as any).resultChannel = oldChannel;
+  const message = {
+    content: Buffer.from(JSON.stringify({
+      jobId: 'job-channel-race',
+      status: 'completed',
+      attempts: 1,
+      text: 'teste teste',
+    })),
+  };
+
+  const consuming = (service as any).consumeResult(message, oldChannel);
+  for (let attempt = 0; attempt < 10 && !finishUpdate; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(typeof finishUpdate, 'function');
+  (service as any).resultChannel = newChannel;
+  finishUpdate!({ count: 1 });
+  await consuming;
+
+  assert.equal(oldChannel.ackCount, 0);
+  assert.equal(newChannel.ackCount, 0);
+  assert.equal(oldChannel.nackCount, 0);
+  assert.equal(newChannel.nackCount, 0);
+});
+
+test('resultado da fila recebe somente um ACK ou NACK por delivery', () => {
+  const service = new TranscriptionService({} as any);
+  const channel = {
+    ackCount: 0,
+    nackCount: 0,
+    ack() { this.ackCount += 1; },
+    nack() { this.nackCount += 1; },
+  };
+  const message = { content: Buffer.from('{}') };
+  (service as any).resultChannel = channel;
+
+  assert.equal((service as any).acknowledgeResult(channel, message), true);
+  assert.equal((service as any).acknowledgeResult(channel, message), false);
+  assert.equal((service as any).rejectResult(channel, message, true), false);
+  assert.equal(channel.ackCount, 1);
+  assert.equal(channel.nackCount, 0);
+});
+
+test('ditado rejeita áudio sem dados e aceita gravação não vazia abaixo de 256 bytes', async () => {
+  const previousEnabled = process.env.SPEECH_ENABLED;
+  const previousLegacyEnabled = process.env.TRANSCRIPTION_ENABLED;
+  process.env.SPEECH_ENABLED = 'true';
+  delete process.env.TRANSCRIPTION_ENABLED;
+  try {
+    const service = new TranscriptionService({} as any);
+    const existingJob = { id: 'existing-short-dictation' };
+    (service as any).findDuplicate = async () => existingJob;
+    (service as any).publicJob = (job: any) => job;
+
+    await assert.rejects(
+      service.enqueueDictation({ buffer: Buffer.alloc(0), fileName: 'ditado.webm', mimeType: 'audio/webm' }),
+      (error: any) => error.status === 400 && /não contém dados/.test(error.message),
+    );
+
+    const job = await service.enqueueDictation({
+      buffer: Buffer.alloc(32, 1),
+      fileName: 'ditado.webm',
+      mimeType: 'audio/webm',
+    });
+    assert.equal(job.id, existingJob.id);
+  } finally {
+    if (previousEnabled === undefined) delete process.env.SPEECH_ENABLED;
+    else process.env.SPEECH_ENABLED = previousEnabled;
+    if (previousLegacyEnabled === undefined) delete process.env.TRANSCRIPTION_ENABLED;
+    else process.env.TRANSCRIPTION_ENABLED = previousLegacyEnabled;
+  }
+});

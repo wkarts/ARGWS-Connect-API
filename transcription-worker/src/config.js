@@ -64,10 +64,10 @@ function loadConfig() {
     silenceTimeoutMs: integer('DICTATION_SILENCE_TIMEOUT_MS', 1500, 500, 10000),
     local: {
       model: String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim(),
-      modelPath: String(process.env.SPEECH_MODEL_PATH || '').trim(),
+      modelPath: String(process.env.SPEECH_MODEL_PATH || '/models/Xenova/whisper-small').trim(),
       device: String(process.env.SPEECH_DEVICE || process.env.TRANSCRIPTION_LOCAL_DEVICE || 'cpu').trim().toLowerCase(),
       dtype: String(process.env.SPEECH_DTYPE || process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q8').trim().toLowerCase(),
-      cacheDir: String(process.env.SPEECH_MODEL_CACHE_DIR || process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/tmp/speech-model-cache').trim(),
+      cacheDir: String(process.env.SPEECH_MODEL_CACHE_DIR || process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/models').trim(),
     },
     syncModelCache: boolean('SPEECH_SYNC_MODEL_CACHE', false),
     sourceRetentionSeconds: durationSeconds('TRANSCRIPTION_SOURCE_RETENTION_SECONDS', 0),

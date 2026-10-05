@@ -606,8 +606,13 @@ const requestOverrides = {
   },
   'GET /v1/speech/models': {
     tags: ['Speech'], summary: 'Listar modelo configurado',
-    description: 'Lista somente o modelo configurado por SPEECH_MODEL. Não baixa nem instala modelos dinamicamente.',
+    description: 'Lista o modelo configurado e informa se os arquivos estão instalados, disponíveis para download, em transferência ou prontos para uso.',
     responses: { '200': { description: 'Modelo configurado e estado dos workers.' }, '401': { $ref: '#/components/responses/Unauthorized' } },
+  },
+  'POST /v1/speech/models/{modelId}/download': {
+    tags: ['Speech'], summary: 'Baixar modelo de voz para armazenamento persistente',
+    description: 'Inicia em segundo plano o download da revisão fixada de Xenova/whisper-small para o volume SPEECH_MODELS_HOST_PATH. A API também inicia esse provisionamento ao subir se o modelo estiver ausente. O download é validado por SHA-256 e reutilizado pelos workers após reinícios e atualizações; somente esse modelo predefinido pode ser baixado pelo endpoint.',
+    responses: { '200': { description: 'O modelo já está instalado.' }, '202': { description: 'Download iniciado ou em andamento.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '409': { $ref: '#/components/responses/Conflict' } },
   },
   'POST /v1/speech/models/{modelId}/activate': {
     tags: ['Speech'], summary: 'Confirmar ativação do modelo local',

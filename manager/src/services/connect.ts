@@ -66,6 +66,7 @@ export const connect = {
   storageCleanup: (data: { planId: string; confirm: boolean }): Promise<any> => invoke('storageCleanup', data),
   transcriptionList: (limit = 100): Promise<TranscriptionJob[]> => invoke('transcriptionList', limit),
   transcriptionHealth: (): Promise<any> => invoke('transcriptionHealth'),
+  downloadSpeechModel: (modelId: string): Promise<any> => invoke('downloadSpeechModel', modelId),
   uploadTranscription: (file: File, language = ''): Promise<TranscriptionJob> => invoke('uploadTranscription', file, language),
   transcription: (jobId: string): Promise<TranscriptionJob> => invoke('transcription', jobId),
   retryTranscription: (jobId: string): Promise<TranscriptionJob> => invoke('retryTranscription', jobId),

@@ -59,6 +59,7 @@ services:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38081}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
+      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models
     networks:
       - argws-connect-net
     healthcheck:
@@ -111,6 +112,7 @@ services:
     environment:
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
       SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
+      SPEECH_MODELS_PATH: ${SPEECH_MODELS_PATH:-/models}
       SPEECH_WORKER_MODE: transcription
       SPEECH_TRANSCRIPTION_QUEUE: ${SPEECH_TRANSCRIPTION_QUEUE:-${TRANSCRIPTION_QUEUE:-speech.transcription}}
       SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
@@ -125,9 +127,9 @@ services:
       TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
-      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
-      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-}
-      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/tmp/speech-model-cache}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/models}
+      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/Xenova/whisper-small}
+      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/models}
       TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
       TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-2592000}
       TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
@@ -155,7 +157,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15m
     logging: *default-logging
 
   speech-dictation-worker:
@@ -183,9 +185,9 @@ services:
       TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
       TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
       TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
-      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/tmp/argws-connect-transcription-model-cache}
-      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-}
-      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/tmp/speech-model-cache}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/models}
+      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/Xenova/whisper-small}
+      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/models}
       TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
       TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-2592000}
       TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
@@ -213,7 +215,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15m
     logging: *default-logging
 
   operations:

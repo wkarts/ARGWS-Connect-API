@@ -71,6 +71,7 @@ export const connect = {
   async storageCleanup(data: any) { return request<any>('/storage/cleanup', { method: 'POST', data }) },
   async transcriptionList(limit = 100): Promise<TranscriptionJob[]> { return request<TranscriptionJob[]>('/transcriptions', { params: { limit } }) },
   async transcriptionHealth(): Promise<any> { return request<any>('/transcriptions/health') },
+  async downloadSpeechModel(modelId: string): Promise<any> { return request<any>(`/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', timeout: 60000 }) },
   async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
     const data = new FormData()
     data.append('audio', file, file.name)
