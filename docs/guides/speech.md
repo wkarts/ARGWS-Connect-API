@@ -19,7 +19,8 @@ Variáveis principais:
 | `SPEECH_MODELS_HOST_PATH` | `./models` | Diretório persistente do host compartilhado pela API e pelos workers |
 | `SPEECH_TRANSCRIPTION_QUEUE` | `speech.transcription` | Fila de transcrições longas |
 | `SPEECH_DICTATION_QUEUE` | `speech.dictation` | Fila prioritária de ditado |
-| `SPEECH_WORKER_CONCURRENCY` | `1` | Concorrência por worker |
+| `SPEECH_TRANSCRIPTION_REPLICAS` | `2` | Processos de transcrição em paralelo no Compose; ajuste conforme CPU e memória disponíveis |
+| `SPEECH_WORKER_CONCURRENCY` | `1` | Um job por processo; aumente réplicas para processar simultaneamente |
 | `SPEECH_CHUNK_SECONDS` | `30` | Duração máxima de cada trecho |
 | `SPEECH_STRIDE_SECONDS` | `5` | Sobreposição entre trechos |
 | `SPEECH_HEARTBEAT_INTERVAL_SECONDS` | `5` | Frequência dos heartbeats |
@@ -30,6 +31,8 @@ Variáveis principais:
 | `TRANSCRIPTION_SOURCE_RETENTION_SECONDS` | `2592000` | Retenção de uploads privados em MinIO |
 
 Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
+
+Cada réplica mantém seu próprio modelo carregado e consome um job por vez. A inferência executa numa thread separada da conexão RabbitMQ, permitindo que o heartbeat continue durante trechos síncronos do modelo. O padrão de duas réplicas permite dois áudios simultâneos; aumente `SPEECH_TRANSCRIPTION_REPLICAS` para mais paralelismo e dimensione CPU/memória por réplica. O ditado conserva sua fila prioritária própria. A velocidade depende da duração do áudio, do processador e do número de réplicas; jobs já reenfileirados pelo watchdog voltam a ser consumidos ao atualizar a stack.
 
 ## Baixar e manter o modelo
 

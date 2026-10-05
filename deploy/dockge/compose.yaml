@@ -66,6 +66,7 @@ services:
     logging: *default-logging
 
   transcription-worker:
+    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-2}
     profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
     pull_policy: always

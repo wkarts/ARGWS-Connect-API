@@ -62,10 +62,10 @@ services:
     logging: *default-logging
 
   transcription-worker-argws-connect-canonical:
+    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-2}
     profiles: ["transcription"]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:1.0.21}
     pull_policy: always
-    container_name: transcription-worker-argws-connect-canonical
     restart: unless-stopped
     env_file: [.env]
     environment:
