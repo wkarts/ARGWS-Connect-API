@@ -24,6 +24,7 @@ export class WebhookController extends EventController implements EventControlle
   override async set(instanceName: string, data: EventDto): Promise<wa.LocalWebHook> {
     const config = data.webhook;
     if (!config) throw new BadRequestException('Webhook configuration is required.');
+    const url = config.url ?? '';
     const validateUrl = (url: string) => {
       try {
         const parsed = new URL(url);
@@ -32,7 +33,7 @@ export class WebhookController extends EventController implements EventControlle
         return false;
       }
     };
-    if (config.enabled && !validateUrl(config.url)) {
+    if (config.enabled && !validateUrl(url)) {
       throw new BadRequestException('A URL do webhook principal precisa ser HTTP ou HTTPS.');
     }
     if (config.additionalTargets !== undefined && (!Array.isArray(config.additionalTargets) || config.additionalTargets.length > 10)) {
@@ -60,7 +61,7 @@ export class WebhookController extends EventController implements EventControlle
       update: {
         enabled: config.enabled,
         events,
-        url: config.url.trim(),
+        url: url.trim(),
         headers: config.headers,
         webhookBase64: config.base64,
         webhookByEvents: config.byEvents,
@@ -71,7 +72,7 @@ export class WebhookController extends EventController implements EventControlle
         enabled: config.enabled,
         events,
         instanceId: instance.instanceId,
-        url: config.url.trim(),
+        url: url.trim(),
         headers: config.headers,
         webhookBase64: config.base64,
         webhookByEvents: config.byEvents,
