@@ -93,6 +93,7 @@ import { getOnWhatsappCache, saveOnWhatsappCache } from '@utils/onWhatsappCache'
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { status } from '@utils/renderStatus';
 import { sendTelemetry } from '@utils/sendTelemetry';
+import { selectStatusRecipientJids } from '@utils/status-recipient.utils';
 import useMultiFileAuthStatePrisma from '@utils/use-multi-file-auth-state-prisma';
 import { AuthStateProvider } from '@utils/use-multi-file-auth-state-provider-files';
 import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-redis-db';
@@ -2981,12 +2982,13 @@ export class BaileysStartupService extends ChannelStartupService {
         throw new BadRequestException('Contacts not found');
       }
 
-      status.statusJidList = contacts.filter((contact) => contact.pushName).map((contact) => contact.remoteJid);
+      status.statusJidList = contacts
+        .filter((contact) => contact.pushName && /@(?:s\.whatsapp\.net|lid)$/.test(contact.remoteJid))
+        .map((contact) => contact.remoteJid);
     }
 
-    if (!status.statusJidList?.length && !status.allContacts) {
-      throw new BadRequestException('StatusJidList is required');
-    }
+    status.statusJidList = selectStatusRecipientJids(status.statusJidList || []);
+    if (!status.statusJidList.length) throw new BadRequestException('StatusJidList is required');
 
     if (status.type === 'text') {
       if (!status.backgroundColor) {
