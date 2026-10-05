@@ -184,6 +184,9 @@ como `multipart/form-data` no campo `file`, ou referenciados por `link`/`id`.
 O retorno confirma apenas o aceite pelo provider e contém o identificador real
 do envio em `messages[0].id`; não promete entrega ao aparelho.
 
+No Manager, acesse **Comunicação → Status** para publicar, paginar o histórico,
+consultar visualizações e solicitar revogação pela mesma conta.
+
 Para consultar e excluir os Status publicados por uma instância:
 
 ```bash
