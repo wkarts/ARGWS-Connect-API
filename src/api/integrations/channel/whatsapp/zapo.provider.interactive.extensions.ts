@@ -410,7 +410,12 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         const previous = await this.prismaRepository.message.findFirst({
           where: { instanceId: this.instanceId, key: { path: prismaJsonPath('id'), equals: String(result.id) } },
         });
-        if (!previous)
+        if (previous) {
+          await this.prismaRepository.message.update({
+            where: { id: previous.id },
+            data: { key: { ...(previous.key as object), statusRecipients: recipients } },
+          });
+        } else {
           await this.prismaRepository.message.create({
             data: {
               key: { id: String(result.id), remoteJid: 'status@broadcast', fromMe: true, statusRecipients: recipients },
@@ -421,6 +426,7 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
               instanceId: this.instanceId,
             },
           });
+        }
       } catch (error) {
         throw new InternalServerErrorException(
           `Status ${result.id} enviado, mas falhou ao gravar o histórico.`,

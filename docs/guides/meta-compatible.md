@@ -203,8 +203,9 @@ não são expostos nessas rotas.
 
 A exclusão solicita a revogação no WhatsApp antes de remover o registro e a
 mídia local. O Baileys usa a lista de destinatários guardada na publicação via
-API; para Status originados no celular, usa os contatos conhecidos pela
-instância, pois o evento do dispositivo não traz a audiência original. Se não
+API; para Status originados no celular, guarda uma fotografia dos contatos
+conhecidos quando recebe o evento (ou usa os contatos atuais se a lista estava
+vazia), pois o evento do dispositivo não traz a audiência original. Se não
 houver destinatários conhecidos, a operação retorna erro e mantém o registro.
 O aceite do provider não confirma a entrega do comando a cada aparelho.
 
