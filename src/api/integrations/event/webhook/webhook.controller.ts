@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import { EventDto } from '@api/integrations/event/event.dto';
+import { AdditionalWebhookTarget, EventDto } from '@api/integrations/event/event.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
 import { wa } from '@api/types/wa.types';
 import { configService, Log, Webhook } from '@config/env.config';
 import { Logger } from '@config/logger.config';
-// import { BadRequestException } from '@exceptions';
+import { BadRequestException } from '@exceptions';
+import { Prisma } from '@prisma/client';
 import axios, { AxiosInstance } from 'axios';
 import * as jwt from 'jsonwebtoken';
 
@@ -21,40 +22,72 @@ export class WebhookController extends EventController implements EventControlle
   }
 
   override async set(instanceName: string, data: EventDto): Promise<wa.LocalWebHook> {
-    // if (!/^(https?:\/\/)/.test(data.webhook.url)) {
-    //   throw new BadRequestException('Invalid "url" property');
-    // }
-
-    if (!data.webhook?.enabled) {
-      data.webhook.events = [];
-    } else {
-      if (0 === data.webhook.events.length) {
-        data.webhook.events = EventController.events;
+    const config = data.webhook;
+    if (!config) throw new BadRequestException('Webhook configuration is required.');
+    const validateUrl = (url: string) => {
+      try {
+        const parsed = new URL(url);
+        return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && Boolean(parsed.hostname);
+      } catch {
+        return false;
       }
+    };
+    if (config.enabled && !validateUrl(config.url)) {
+      throw new BadRequestException('A URL do webhook principal precisa ser HTTP ou HTTPS.');
+    }
+    if (config.additionalTargets !== undefined && (!Array.isArray(config.additionalTargets) || config.additionalTargets.length > 10)) {
+      throw new BadRequestException('Informe no máximo dez destinos adicionais.');
+    }
+    if (config.additionalTargets?.some((target) => target.enabled && !validateUrl(target.url))) {
+      throw new BadRequestException('Cada destino adicional ativo precisa de uma URL HTTP ou HTTPS válida.');
     }
 
-    return this.prisma.webhook.upsert({
+    const instance = this.monitor.waInstances[instanceName];
+    const events = config.enabled && !config.events?.length ? EventController.events : config.events ?? [];
+    const additionalTargets = config.additionalTargets?.map((target) => ({
+      name: target.name?.trim() || '',
+      enabled: target.enabled,
+      url: target.url.trim(),
+      headers: target.headers ?? {},
+      byEvents: target.byEvents ?? false,
+      events: target.events?.length ? target.events : EventController.events,
+    }));
+
+    const result = await this.prisma.webhook.upsert({
       where: {
-        instanceId: this.monitor.waInstances[instanceName].instanceId,
+        instanceId: instance.instanceId,
       },
       update: {
-        enabled: data.webhook?.enabled,
-        events: data.webhook?.events,
-        url: data.webhook?.url,
-        headers: data.webhook?.headers,
-        webhookBase64: data.webhook.base64,
-        webhookByEvents: data.webhook.byEvents,
+        enabled: config.enabled,
+        events,
+        url: config.url.trim(),
+        headers: config.headers,
+        webhookBase64: config.base64,
+        webhookByEvents: config.byEvents,
+        // Legacy clients omit this field; their updates must not remove existing destinations.
+        ...(additionalTargets !== undefined ? { additionalTargets: additionalTargets as Prisma.InputJsonValue } : {}),
       },
       create: {
-        enabled: data.webhook?.enabled,
-        events: data.webhook?.events,
-        instanceId: this.monitor.waInstances[instanceName].instanceId,
-        url: data.webhook?.url,
-        headers: data.webhook?.headers,
-        webhookBase64: data.webhook.base64,
-        webhookByEvents: data.webhook.byEvents,
+        enabled: config.enabled,
+        events,
+        instanceId: instance.instanceId,
+        url: config.url.trim(),
+        headers: config.headers,
+        webhookBase64: config.base64,
+        webhookByEvents: config.byEvents,
+        additionalTargets: (additionalTargets ?? []) as Prisma.InputJsonValue,
       },
     });
+    this.cacheConfig(instanceName, result);
+    // Media enrichment uses a copy loaded at connection startup. Refresh it without restarting WhatsApp.
+    if (instance.localWebhook) {
+      instance.localWebhook.enabled = Boolean(
+        result.enabled ||
+          (Array.isArray(result.additionalTargets) && result.additionalTargets.some((target: any) => target.enabled)),
+      );
+      instance.localWebhook.webhookBase64 = Boolean(result.webhookBase64);
+    }
+    return result;
   }
 
   public async emit({
@@ -77,129 +110,87 @@ export class WebhookController extends EventController implements EventControlle
     const instance = (await this.get(instanceName)) as wa.LocalWebHook;
 
     const webhookConfig = configService.get<Webhook>('WEBHOOK');
-    const webhookLocal = instance?.events;
-    const webhookHeaders = { ...((instance?.headers as Record<string, string>) || {}) };
-
-    if (webhookHeaders && 'jwt_key' in webhookHeaders) {
-      const jwtKey = webhookHeaders['jwt_key'];
-      const jwtToken = this.generateJwtToken(jwtKey);
-      webhookHeaders['Authorization'] = `Bearer ${jwtToken}`;
-
-      delete webhookHeaders['jwt_key'];
-    }
-
     const we = event.replace(/[.-]/gm, '_').toUpperCase();
     const transformedWe = we.replace(/_/gm, '-').toLowerCase();
     const enabledLog = configService.get<Log>('LOG').LEVEL.includes('WEBHOOKS');
-    const regex = /^(https?:\/\/)/;
-
-    const webhookData = {
+    const payload = {
       ...(extra ?? {}),
       event,
       instance: instanceName,
       data,
-      destination: instance?.url || `${webhookConfig.GLOBAL.URL}/${transformedWe}`,
       date_time: dateTime,
       sender,
       server_url: serverUrl,
       apikey: apiKey,
     };
 
-    if (local && instance?.enabled) {
-      if (Array.isArray(webhookLocal) && webhookLocal.includes(we)) {
-        let baseURL: string;
-
-        if (instance?.webhookByEvents) {
-          baseURL = `${instance?.url}/${transformedWe}`;
-        } else {
-          baseURL = instance?.url;
-        }
-
-        if (enabledLog) {
-          const logData = {
-            local: `${origin}.sendData-Webhook`,
-            url: baseURL,
-            ...webhookData,
-          };
-
-          this.logger.log(logData);
-        }
-
-        try {
-          if (instance?.enabled && regex.test(instance.url)) {
-            const httpService = axios.create({
-              baseURL,
-              headers: webhookHeaders as Record<string, string> | undefined,
-              timeout: webhookConfig.REQUEST?.TIMEOUT_MS ?? 30000,
-            });
-
-            await this.retryWebhookRequest(httpService, webhookData, `${origin}.sendData-Webhook`, baseURL, serverUrl);
-          }
-        } catch (error) {
-          this.logger.error({
-            local: `${origin}.sendData-Webhook`,
-            message: `Todas as tentativas falharam: ${error?.message}`,
-            hostName: error?.hostname,
-            syscall: error?.syscall,
-            code: error?.code,
-            error: error?.errno,
-            stack: error?.stack,
-            name: error?.name,
-            url: baseURL,
-            server_url: serverUrl,
-          });
-        }
+    const deliveries: Promise<void>[] = [];
+    if (local && instance) {
+      const primary: AdditionalWebhookTarget = {
+        enabled: Boolean(instance.enabled),
+        url: instance.url,
+        headers: instance.headers as Record<string, string>,
+        byEvents: instance.webhookByEvents,
+        events: instance.events as string[],
+      };
+      const additional = Array.isArray(instance.additionalTargets)
+        ? (instance.additionalTargets as AdditionalWebhookTarget[])
+        : [];
+      for (const target of [primary, ...additional]) {
+        if (!target.enabled || !target.url || (target.events?.length && !target.events.includes(we))) continue;
+        deliveries.push(this.deliverTarget(target, payload, transformedWe, origin, serverUrl, enabledLog, webhookConfig));
       }
     }
 
-    if (webhookConfig.GLOBAL?.ENABLED) {
-      if (webhookConfig.EVENTS[we]) {
-        let globalURL = webhookConfig.GLOBAL.URL;
+    if (webhookConfig.GLOBAL?.ENABLED && webhookConfig.EVENTS[we]) {
+      deliveries.push(this.deliverTarget({
+        enabled: true,
+        url: webhookConfig.GLOBAL.URL,
+        byEvents: webhookConfig.GLOBAL.WEBHOOK_BY_EVENTS,
+      }, payload, transformedWe, `${origin}-Global`, serverUrl, enabledLog, webhookConfig));
+    }
+    // A failed destination cannot prevent delivery to a different destination.
+    await Promise.all(deliveries);
+  }
 
-        if (webhookConfig.GLOBAL.WEBHOOK_BY_EVENTS) {
-          globalURL = `${globalURL}/${transformedWe}`;
-        }
-
-        if (enabledLog) {
-          const logData = {
-            local: `${origin}.sendData-Webhook-Global`,
-            url: globalURL,
-            ...webhookData,
-          };
-
-          this.logger.log(logData);
-        }
-
-        try {
-          if (regex.test(globalURL)) {
-            const httpService = axios.create({
-              baseURL: globalURL,
-              timeout: webhookConfig.REQUEST?.TIMEOUT_MS ?? 30000,
-            });
-
-            await this.retryWebhookRequest(
-              httpService,
-              webhookData,
-              `${origin}.sendData-Webhook-Global`,
-              globalURL,
-              serverUrl,
-            );
-          }
-        } catch (error) {
-          this.logger.error({
-            local: `${origin}.sendData-Webhook-Global`,
-            message: `Todas as tentativas falharam: ${error?.message}`,
-            hostName: error?.hostname,
-            syscall: error?.syscall,
-            code: error?.code,
-            error: error?.errno,
-            stack: error?.stack,
-            name: error?.name,
-            url: globalURL,
-            server_url: serverUrl,
-          });
-        }
+  private async deliverTarget(
+    target: AdditionalWebhookTarget,
+    payload: Record<string, any>,
+    eventPath: string,
+    origin: string,
+    serverUrl: string,
+    enabledLog: boolean,
+    config: Webhook,
+  ): Promise<void> {
+    let baseURL = target.url;
+    try {
+      const parsed = new URL(baseURL);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return;
+      if (target.byEvents) {
+        parsed.pathname = `${parsed.pathname.replace(/\/+$/, '')}/${eventPath}`;
+        baseURL = parsed.toString();
       }
+      const headers = { ...(target.headers ?? {}) };
+      if ('jwt_key' in headers) {
+        headers.Authorization = `Bearer ${this.generateJwtToken(headers.jwt_key)}`;
+        delete headers.jwt_key;
+      }
+      const body = { ...payload, destination: target.url };
+      if (enabledLog) this.logger.log({ local: `${origin}.sendData-Webhook`, url: baseURL, ...body });
+      const httpService = axios.create({
+        baseURL,
+        headers,
+        timeout: config.REQUEST?.TIMEOUT_MS ?? 30000,
+      });
+      await this.retryWebhookRequest(httpService, body, `${origin}.sendData-Webhook`, baseURL, serverUrl);
+    } catch (error) {
+      this.logger.error({
+        local: `${origin}.sendData-Webhook`,
+        message: `Todas as tentativas falharam: ${error?.message}`,
+        statusCode: error?.response?.status,
+        url: baseURL,
+        server_url: serverUrl,
+      });
     }
   }
 
