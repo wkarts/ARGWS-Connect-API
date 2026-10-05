@@ -1,4 +1,6 @@
 import { Button, SendButtonsDto, SendListDto, SendStatusDto, TypeButton } from '@api/dto/sendMessage.dto';
+import * as s3Service from '@api/integrations/storage/s3/libs/minio.server';
+import { S3 } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
@@ -410,13 +412,14 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         const previous = await this.prismaRepository.message.findFirst({
           where: { instanceId: this.instanceId, key: { path: prismaJsonPath('id'), equals: String(result.id) } },
         });
+        let storedMessage: any;
         if (previous) {
-          await this.prismaRepository.message.update({
+          storedMessage = await this.prismaRepository.message.update({
             where: { id: previous.id },
             data: { key: { ...(previous.key as object), statusRecipients: recipients } },
           });
         } else {
-          await this.prismaRepository.message.create({
+          storedMessage = await this.prismaRepository.message.create({
             data: {
               key: { id: String(result.id), remoteJid: 'status@broadcast', fromMe: true, statusRecipients: recipients },
               messageType: `status${type}`,
@@ -426,6 +429,24 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
               instanceId: this.instanceId,
             },
           });
+        }
+        const s3 = this.configService.get<S3>('S3');
+        if (type !== 'text' && Buffer.isBuffer(content.media) && s3?.ENABLE &&
+          (type !== 'video' || s3.SAVE_VIDEO)) {
+          const fileName = `${this.instanceId}/status@broadcast/${type}/${randomUUID()}`;
+          const uploaded = await s3Service.uploadFile(fileName, content.media, content.media.length, {
+            'Content-Type': content.mimetype,
+          });
+          if (uploaded && !(uploaded instanceof Error)) {
+            await this.prismaRepository.media.upsert({
+              where: { messageId: storedMessage.id },
+              update: { fileName, type, mimetype: content.mimetype, instanceId: this.instanceId },
+              create: { fileName, type, mimetype: content.mimetype, instanceId: this.instanceId,
+                messageId: storedMessage.id },
+            });
+          } else {
+            this.logger.warn(`Status ${result.id} publicado sem prévia de mídia: armazenamento indisponível`);
+          }
         }
       } catch (error) {
         throw new InternalServerErrorException(
