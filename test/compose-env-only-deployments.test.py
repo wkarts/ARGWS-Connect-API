@@ -48,9 +48,12 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
 
     def test_fersoft_production_is_full_stack_selected_by_env(self):
         environment = env_values(ROOT / 'deploy/fersoft/production/env.example')
-        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar')
+        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar,transcription')
         for key in ('OPERATIONS_ENABLED', 'NATS_ENABLED', 'KAFKA_ENABLED', 'MYSQL_SERVICE_ENABLED', 'TRACCAR_ENABLED'):
             self.assertEqual(environment[key], 'true', key)
+        for key in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED'):
+            self.assertEqual(environment[key], 'true', key)
+        self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
         self.assertEqual(environment['TRACCAR_MODE'], 'internal')
         self.assertNotIn('TRACCAR_PUBLIC_URL', environment)
 
@@ -116,6 +119,12 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             '${TRACCAR_DATABASE_PASSWORD:-}',
         )
         transcription_worker = services['transcription-worker-fersoft-connect-production']
+        self.assertEqual(transcription_worker['profiles'], ['transcription'])
+        self.assertEqual(transcription_worker['environment']['SPEECH_WORKER_MODE'], 'transcription')
+        self.assertEqual(
+            transcription_worker['environment']['SPEECH_TRANSCRIPTION_QUEUE'],
+            services['api-fersoft-connect-production']['environment']['SPEECH_TRANSCRIPTION_QUEUE'],
+        )
         self.assertFalse(any('transcription-models' in str(volume) for volume in transcription_worker.get('volumes', [])))
         self.assertEqual(
             transcription_worker['environment']['TRANSCRIPTION_MODEL_CACHE_DIR'],
