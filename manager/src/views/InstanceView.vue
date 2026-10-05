@@ -105,7 +105,10 @@ async function removeStatus(status: Message) {
 
 function statusStamp(value?: string) {
   if (!value) return '—'
-  const date = new Date(value)
+  const numeric = Number(value)
+  const date = Number.isFinite(numeric) && numeric > 0
+    ? new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric)
+    : new Date(value)
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR')
 }
 
@@ -305,7 +308,7 @@ onBeforeUnmount(stopWatch)
         <div v-else class="status-list">
           <div v-for="status in statuses" :key="status.id" class="status-row">
             <div class="status-row-main"><strong>{{ status.text || 'Status de mídia' }}</strong><small>{{ statusStamp(status.timestamp) }}</small></div>
-            <button v-if="session.hasPermission('messages.send')" class="btn ghost compact danger-button" :disabled="deletingStatusId === status.id" @click="removeStatus(status)"><AppIcon name="trash" :size="14" />{{ deletingStatusId === status.id ? 'Excluindo…' : 'Excluir' }}</button>
+            <div class="status-actions"><button class="btn ghost compact" @click="router.push({ path: '/status', query: { instance: id, post: status.id } })">Abrir</button><button v-if="session.hasPermission('messages.send')" class="btn ghost compact danger-button" :disabled="Boolean(deletingStatusId) || !connected" @click="removeStatus(status)"><AppIcon name="trash" :size="14" />{{ deletingStatusId === status.id ? 'Revogando…' : 'Revogar' }}</button></div>
           </div>
         </div>
       </PanelCard>
@@ -372,4 +375,5 @@ onBeforeUnmount(stopWatch)
 
 <style scoped>
 .status-list{display:grid;gap:7px}.status-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)}.status-row-main{display:grid;gap:3px;min-width:0}.status-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.status-row-main small{color:var(--muted);font-size:10px}.status-empty{padding:18px 8px;color:var(--muted);font-size:11px;text-align:center}
+.status-actions{display:flex;gap:8px;flex-wrap:wrap}@media(max-width:640px){.status-row{align-items:stretch;flex-direction:column}.status-actions>*{flex:1}}
 </style>
