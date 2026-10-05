@@ -93,6 +93,7 @@ import { getOnWhatsappCache, saveOnWhatsappCache } from '@utils/onWhatsappCache'
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { status } from '@utils/renderStatus';
 import { sendTelemetry } from '@utils/sendTelemetry';
+import { selectStatusRecipientJids } from '@utils/status-recipient.utils';
 import useMultiFileAuthStatePrisma from '@utils/use-multi-file-auth-state-prisma';
 import { AuthStateProvider } from '@utils/use-multi-file-auth-state-provider-files';
 import { useMultiFileAuthStateRedisDb } from '@utils/use-multi-file-auth-state-redis-db';
@@ -745,7 +746,9 @@ export class BaileysStartupService extends ChannelStartupService {
         const isBroadcast = isJidBroadcast(jid) && !isStatusBroadcast;
         const isNewsletter = isJidNewsletter(jid);
 
-        return isGroupJid || isBroadcast || isNewsletter || (isStatusBroadcast && !this.localSettings.readStatus);
+        // O filtro por mensagem abaixo preserva os Status da própria conta,
+        // inclusive aqueles publicados pelo celular com readStatus desativado.
+        return isGroupJid || isBroadcast || isNewsletter;
       },
       syncFullHistory: this.localSettings.syncFullHistory,
       shouldSyncHistoryMessage: (msg: proto.Message.IHistorySyncNotification) => {
@@ -1125,6 +1128,7 @@ export class BaileysStartupService extends ChannelStartupService {
         }
 
         const messagesRaw: any[] = [];
+        let historyStatusRecipients: string[] | null = null;
 
         const messagesRepository: Set<string> = new Set(
           chatwootImport.getRepositoryMessagesCache(instance) ??
@@ -1159,6 +1163,9 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
+          if (m.key.remoteJid === STATUS_BROADCAST_JID && !m.key.fromMe && !this.localSettings.readStatus) {
+            continue;
+          }
           if (messagesRepository?.has(m.key.id)) {
             continue;
           }
@@ -1172,7 +1179,22 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          messagesRaw.push(this.prepareMessage(m));
+          const historyMessage = this.prepareMessage(m);
+          if (m.key.remoteJid === STATUS_BROADCAST_JID && m.key.fromMe) {
+            if (historyStatusRecipients === null) {
+              const known = await this.prismaRepository.contact.findMany({
+                where: { instanceId: this.instanceId },
+                select: { remoteJid: true },
+              });
+              historyStatusRecipients = selectStatusRecipientJids(
+                [...known.map((item) => item.remoteJid), ...contactsMap.keys()].filter((jid) =>
+                  /@(?:s\.whatsapp\.net|lid)$/.test(jid),
+                ),
+              );
+            }
+            historyMessage.key = { ...historyMessage.key, statusRecipients: historyStatusRecipients };
+          }
+          messagesRaw.push(historyMessage);
         }
 
         this.sendDataWebhook(Events.MESSAGES_SET, [...messagesRaw], true, undefined, {
@@ -1182,6 +1204,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
         if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
           await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
+        } else {
+          const ownStatuses = messagesRaw.filter(
+            (item) => item.key?.remoteJid === STATUS_BROADCAST_JID && item.key?.fromMe,
+          );
+          if (ownStatuses.length)
+            await this.prismaRepository.message.createMany({ data: ownStatuses, skipDuplicates: true });
         }
 
         if (
@@ -1256,7 +1284,12 @@ export class BaileysStartupService extends ChannelStartupService {
             Boolean(protocolMessage?.key?.id) &&
             (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
-          if (received.key?.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus && !isRevokeMessage) {
+          if (
+            received.key?.remoteJid === STATUS_BROADCAST_JID &&
+            !this.localSettings.readStatus &&
+            !received.key.fromMe &&
+            !isRevokeMessage
+          ) {
             continue;
           }
 
@@ -1316,7 +1349,12 @@ export class BaileysStartupService extends ChannelStartupService {
               }
             }
 
-            if (!isStatusDeletion || this.localSettings.readStatus) {
+            if (
+              !isStatusDeletion ||
+              this.localSettings.readStatus ||
+              deletedKey.fromMe ||
+              (persistedMessage as any)?.key?.fromMe
+            ) {
               await this.sendDataWebhook(Events.MESSAGES_DELETE, {
                 id: persistedMessage?.id,
                 instanceId: this.instanceId,
@@ -1529,17 +1567,37 @@ export class BaileysStartupService extends ChannelStartupService {
           const isVideo = received?.message?.videoMessage;
 
           const isStatusMessage = received.key.remoteJid === 'status@broadcast';
+          if (isStatusMessage && received.key.fromMe) {
+            const existing = await this.prismaRepository.message.findFirst({
+              where: {
+                instanceId: this.instanceId,
+                key: { path: prismaJsonPath('id'), equals: received.key.id },
+              },
+            });
+            if (existing) continue;
+            const known = await this.prismaRepository.contact.findMany({
+              where: { instanceId: this.instanceId },
+              select: { remoteJid: true },
+            });
+            messageRaw.key = {
+              ...messageRaw.key,
+              statusRecipients: selectStatusRecipientJids(
+                known.map((item) => item.remoteJid).filter((jid) => /@(?:s\.whatsapp\.net|lid)$/.test(jid)),
+              ),
+            };
+          }
           if (this.localSettings.readMessages && !isStatusMessage) {
             await this.client.readMessages([received.key]);
           }
 
-          if (this.localSettings.readStatus && isStatusMessage) {
+          if (this.localSettings.readStatus && isStatusMessage && !received.key.fromMe) {
             await this.client.readMessages([received.key]);
           }
 
           if (
             this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
             this.localChatwoot?.enabled &&
+            !isStatusMessage &&
             !received.key.id.includes('@broadcast')
           ) {
             const chatwootSentMessage = await this.chatwootService.eventWhatsapp(
@@ -1555,7 +1613,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if (this.configService.get<Openai>('OPENAI').ENABLED && received?.message?.audioMessage) {
+          if (!isStatusMessage && this.configService.get<Openai>('OPENAI').ENABLED && received?.message?.audioMessage) {
             const openAiDefaultSettings = await this.prismaRepository.openaiSetting.findFirst({
               where: { instanceId: this.instanceId },
               include: { OpenaiCreds: true },
@@ -1566,7 +1624,10 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
+          if (
+            this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE ||
+            (isStatusMessage && received.key.fromMe)
+          ) {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { pollUpdates, ...messageData } = messageRaw;
             const msg = await this.prismaRepository.message.create({ data: messageData });
@@ -1696,6 +1757,8 @@ export class BaileysStartupService extends ChannelStartupService {
 
           this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
 
+          if (isStatusMessage) continue;
+
           await chatbotController.emit({
             instance: { instanceName: this.instance.name, instanceId: this.instanceId },
             remoteJid: messageRaw.key.remoteJid,
@@ -1779,7 +1842,7 @@ export class BaileysStartupService extends ChannelStartupService {
           continue;
         }
 
-        if (key.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus) {
+        if (key.remoteJid === STATUS_BROADCAST_JID && !this.localSettings.readStatus && !key.fromMe) {
           continue;
         }
 
@@ -2462,7 +2525,7 @@ export class BaileysStartupService extends ChannelStartupService {
     }
 
     if (sender === 'status@broadcast') {
-      let jidList;
+      let jidList: string[];
       if (message['status'].option.allContacts) {
         const contacts = await this.prismaRepository.contact.findMany({
           where: { instanceId: this.instanceId, remoteJid: { not: { endsWith: '@g.us' } } },
@@ -2501,7 +2564,7 @@ export class BaileysStartupService extends ChannelStartupService {
 
       if (batches.length === 0) return firstMessage;
 
-      await Promise.allSettled(
+      const sent = await Promise.allSettled(
         batches.map(async (batch) => {
           const messageSent = await this.client.sendMessage(
             sender,
@@ -2517,6 +2580,13 @@ export class BaileysStartupService extends ChannelStartupService {
           return messageSent;
         }),
       );
+
+      const rejected = sent.filter((result) => result.status === 'rejected');
+      if (rejected.length) {
+        throw new InternalServerErrorException(
+          `Status parcialmente enviado: ${rejected.length} lote(s) falharam. ID: ${msgId}`,
+        );
+      }
 
       return firstMessage;
     }
@@ -2665,6 +2735,12 @@ export class BaileysStartupService extends ChannelStartupService {
       }
 
       const messageRaw = this.prepareMessage(messageSent);
+      if (message['status'] && messageRaw.key?.remoteJid === STATUS_BROADCAST_JID) {
+        messageRaw.key = {
+          ...messageRaw.key,
+          statusRecipients: message['status'].option.statusJidList,
+        };
+      }
 
       // Outgoing statuses must remain in the instance history so the Manager
       // and API can list/delete them. The readStatus setting only suppresses
@@ -2689,7 +2765,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const isVideo = messageSent?.message?.videoMessage;
 
-      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled && !isIntegration) {
+      if (
+        this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
+        this.localChatwoot?.enabled &&
+        !isIntegration &&
+        messageRaw.key?.remoteJid !== STATUS_BROADCAST_JID
+      ) {
         this.chatwootService.eventWhatsapp(
           Events.SEND_MESSAGE,
           { instanceName: this.instance.name, instanceId: this.instanceId },
@@ -2697,7 +2778,11 @@ export class BaileysStartupService extends ChannelStartupService {
         );
       }
 
-      if (this.configService.get<Openai>('OPENAI').ENABLED && messageRaw?.message?.audioMessage) {
+      if (
+        this.configService.get<Openai>('OPENAI').ENABLED &&
+        messageRaw?.message?.audioMessage &&
+        messageRaw.key?.remoteJid !== STATUS_BROADCAST_JID
+      ) {
         const openAiDefaultSettings = await this.prismaRepository.openaiSetting.findFirst({
           where: { instanceId: this.instanceId },
           include: { OpenaiCreds: true },
@@ -2708,7 +2793,25 @@ export class BaileysStartupService extends ChannelStartupService {
         }
       }
 
-      if (this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE) {
+      if (
+        this.configService.get<Database>('DATABASE').SAVE_DATA.NEW_MESSAGE ||
+        messageRaw.key?.remoteJid === STATUS_BROADCAST_JID
+      ) {
+        if (messageRaw.key?.remoteJid === STATUS_BROADCAST_JID && messageRaw.key?.id) {
+          const existing = await this.prismaRepository.message.findFirst({
+            where: {
+              instanceId: this.instanceId,
+              key: { path: prismaJsonPath('id'), equals: messageRaw.key.id },
+            },
+          });
+          if (existing) {
+            await this.prismaRepository.message.update({
+              where: { id: existing.id },
+              data: { key: { ...(existing.key as object), ...messageRaw.key } },
+            });
+            return messageRaw;
+          }
+        }
         const msg = await this.prismaRepository.message.create({ data: messageRaw });
 
         if (isMedia && this.configService.get<S3>('S3').ENABLE) {
@@ -2932,12 +3035,13 @@ export class BaileysStartupService extends ChannelStartupService {
         throw new BadRequestException('Contacts not found');
       }
 
-      status.statusJidList = contacts.filter((contact) => contact.pushName).map((contact) => contact.remoteJid);
+      status.statusJidList = contacts
+        .filter((contact) => contact.pushName && /@(?:s\.whatsapp\.net|lid)$/.test(contact.remoteJid))
+        .map((contact) => contact.remoteJid);
     }
 
-    if (!status.statusJidList?.length && !status.allContacts) {
-      throw new BadRequestException('StatusJidList is required');
-    }
+    status.statusJidList = selectStatusRecipientJids(status.statusJidList || []);
+    if (!status.statusJidList.length) throw new BadRequestException('StatusJidList is required');
 
     if (status.type === 'text') {
       if (!status.backgroundColor) {
@@ -4064,16 +4168,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
   public async deleteMessage(del: DeleteMessage) {
     try {
+      let statusMessage: any = null;
+      let statusRecipients: string[] = [];
       if (del.remoteJid === STATUS_BROADCAST_JID) {
         const statusId = String(del.id || '').trim();
         if (!/^[A-Za-z0-9._:-]{1,128}$/.test(statusId) || del.fromMe !== true) {
           throw new BadRequestException('A valid own Status identifier is required');
         }
-      }
-      const response = await this.client.sendMessage(del.remoteJid, { delete: del });
-      if (del.remoteJid === STATUS_BROADCAST_JID && response) {
-        const statusId = String(del.id || '').trim();
-        let statusMessage = await this.prismaRepository.message.findFirst({
+        statusMessage = await this.prismaRepository.message.findFirst({
           where: {
             instanceId: this.instanceId,
             status: { not: 'DELETED' },
@@ -4084,6 +4186,37 @@ export class BaileysStartupService extends ChannelStartupService {
             ],
           },
         });
+        if (!statusMessage) throw new NotFoundException('Status publicado não encontrado nesta instância.');
+        const saved = (statusMessage.key as any)?.statusRecipients;
+        if (Array.isArray(saved) && saved.length) statusRecipients = saved;
+        else {
+          const contacts = await this.prismaRepository.contact.findMany({ where: { instanceId: this.instanceId } });
+          statusRecipients = contacts.map((contact) => contact.remoteJid);
+        }
+        statusRecipients = [
+          ...new Set(
+            statusRecipients.filter((jid) => typeof jid === 'string' && /@(?:s\.whatsapp\.net|lid)$/.test(jid)),
+          ),
+        ];
+        if (!statusRecipients.length) {
+          throw new BadRequestException('Não há destinatários conhecidos para revogar este Status.');
+        }
+      }
+      let response: any;
+      if (del.remoteJid === STATUS_BROADCAST_JID) {
+        for (let index = 0; index < statusRecipients.length; index += 100) {
+          const sent = await this.client.sendMessage(
+            del.remoteJid,
+            { delete: del },
+            { statusJidList: statusRecipients.slice(index, index + 100) },
+          );
+          if (!sent) throw new InternalServerErrorException('Falha ao revogar Status para os destinatários.');
+          response ||= sent;
+        }
+      } else {
+        response = await this.client.sendMessage(del.remoteJid, { delete: del });
+      }
+      if (del.remoteJid === STATUS_BROADCAST_JID && response) {
         if (statusMessage) {
           const removed = await this.statusBroadcastRetention.removeMessage(statusMessage.id);
           if (!removed) {

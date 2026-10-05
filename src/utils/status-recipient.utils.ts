@@ -29,8 +29,11 @@ export function normalizeStatusRecipient(value: unknown): string | null {
   const explicitPhone = numericJid(raw, PHONE_JID_SUFFIX);
   if (explicitPhone) return explicitPhone;
 
+  // Only phone notation may be converted to a phone JID. Never reinterpret
+  // group/newsletter/other JIDs by stripping their non-numeric characters.
+  if (!/^\+?[\d\s().-]+$/.test(raw)) return null;
   const digits = raw.replace(/\D/g, '');
-  return digits ? `${digits}${PHONE_JID_SUFFIX}` : null;
+  return /^\d{8,15}$/.test(digits) ? `${digits}${PHONE_JID_SUFFIX}` : null;
 }
 
 function phoneKey(value: string): string | null {

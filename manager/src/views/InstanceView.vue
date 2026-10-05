@@ -298,7 +298,7 @@ onBeforeUnmount(stopWatch)
       </div>
 
       <PanelCard v-if="capabilities.statusRead || capabilities.statusPublish" class="top-gap" title="Status publicados" description="Status desta instância armazenados no histórico e vinculados ao WhatsApp.">
-        <template #actions><button class="btn ghost compact" :disabled="statusesLoading" @click="loadStatuses"><AppIcon name="refresh" :size="14" />{{ statusesLoading ? 'Atualizando…' : 'Atualizar' }}</button></template>
+        <template #actions><button class="btn ghost compact" @click="router.push({ path: '/status', query: { instance: id } })">Abrir administração</button><button class="btn ghost compact" :disabled="statusesLoading" @click="loadStatuses"><AppIcon name="refresh" :size="14" />{{ statusesLoading ? 'Atualizando…' : 'Atualizar' }}</button></template>
         <div v-if="statusesError" class="alert error" role="alert">{{ statusesError }}</div>
         <div v-else-if="statusesLoading && !statuses.length" class="status-empty">Consultando Status…</div>
         <div v-else-if="!statuses.length" class="status-empty">Nenhum Status publicado foi encontrado para esta instância.</div>

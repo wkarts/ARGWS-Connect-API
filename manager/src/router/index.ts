@@ -15,6 +15,7 @@ const routes = [
   { path: '/confirmacao', component: () => import('@/views/auth/VerifyView.vue'), meta: { public: true, feature: 'security' } },
   { path: '/', component: () => import('@/views/DashboardView.vue') },
   { path: '/instancias', component: () => import('@/views/InstancesView.vue'), meta: { permission: 'instances.read' } },
+  { path: '/status', component: () => import('@/views/StatusesView.vue'), meta: { permission: 'messages.read' } },
   { path: '/instancias/:id', component: () => import('@/views/InstanceView.vue'), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/findhub', redirect: (to: any) => findHubPath(String(to.params.id)), meta: { permission: 'instances.read' } },
   { path: '/instancias/:id/integracoes', component: () => import('@/views/IntegrationsView.vue'), meta: { permission: 'instances.read' } },

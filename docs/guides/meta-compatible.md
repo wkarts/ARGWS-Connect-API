@@ -184,6 +184,9 @@ como `multipart/form-data` no campo `file`, ou referenciados por `link`/`id`.
 O retorno confirma apenas o aceite pelo provider e contém o identificador real
 do envio em `messages[0].id`; não promete entrega ao aparelho.
 
+No Manager, acesse **Comunicação → Status** para publicar, paginar o histórico,
+consultar visualizações e solicitar revogação pela mesma conta.
+
 Para consultar e excluir os Status publicados por uma instância:
 
 ```bash
@@ -194,11 +197,20 @@ curl -X DELETE 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/statuses/<STA
   -H 'Authorization: Bearer <INSTANCE_TOKEN>'
 ```
 
-Essas rotas retornam somente Status enviados pela própria instância
-(`status@broadcast`, `from_me=true`). A exclusão solicita o revoke ao provider
-e remove o registro e a mídia local; se o provider já tiver removido o Status,
-a limpeza local ainda pode ser concluída. Status recebidos não são expostos por
-essas rotas de gerenciamento.
+Essas rotas retornam os Status da própria conta (`status@broadcast`,
+`from_me=true`) observados pela instância durante as 24 horas de vida útil,
+incluindo publicações feitas no celular durante a conexão ou sincronizadas
+pelo histórico do provider. Publicações que não chegam por evento nem pela
+sincronização não podem ser recuperadas do telefone por essa consulta. Status recebidos dos contatos
+não são expostos nessas rotas.
+
+A exclusão solicita a revogação no WhatsApp antes de remover o registro e a
+mídia local. O Baileys usa a lista de destinatários guardada na publicação via
+API; para Status originados no celular, guarda uma fotografia dos contatos
+conhecidos quando recebe o evento (ou usa os contatos atuais se a lista estava
+vazia), pois o evento do dispositivo não traz a audiência original. Se não
+houver destinatários conhecidos, a operação retorna erro e mantém o registro.
+O aceite do provider não confirma a entrega do comando a cada aparelho.
 
 ## Templates
 
