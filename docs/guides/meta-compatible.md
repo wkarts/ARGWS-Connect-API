@@ -186,9 +186,12 @@ do envio em `messages[0].id`; não promete entrega ao aparelho.
 
 No Manager, acesse **Comunicação → Status** para publicar, paginar o histórico,
 abrir o conteúdo armazenado, consultar visualizações e solicitar revogação pela mesma conta.
-A prévia de mídia consulta o arquivo sob demanda com a credencial da instância; se o
-histórico conservar apenas metadados (como em publicações ZAPO sem eco do aparelho),
-o Manager informa que a mídia não está disponível, sem inventar uma prévia.
+A prévia de mídia consulta o arquivo sob demanda com a credencial da instância.
+No ZAPO, ela procura primeiro a mídia armazenada no S3/MinIO e depois a cópia
+do mailbox do provider, quando disponível. Novas publicações da API preservam
+uma cópia para prévia quando o S3/MinIO está habilitado (para vídeo, também é
+necessário `S3_SAVE_VIDEO`). Se uma postagem antiga conservar somente
+metadados, o Manager exibe o texto e informa que a mídia não está disponível.
 
 Para consultar e excluir os Status publicados por uma instância:
 
