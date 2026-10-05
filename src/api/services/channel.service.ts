@@ -136,7 +136,10 @@ export class ChannelStartupService {
       },
     });
 
-    this.localWebhook.enabled = data?.enabled;
+    this.localWebhook.enabled = Boolean(
+      data?.enabled ||
+        (Array.isArray(data?.additionalTargets) && data.additionalTargets.some((target: any) => target.enabled)),
+    );
     this.localWebhook.webhookBase64 = data?.webhookBase64;
   }
 
@@ -644,6 +647,7 @@ export class ChannelStartupService {
         id: query?.where?.id,
         source: query?.where?.source,
         messageType: query?.where?.messageType,
+        status: query?.where?.status,
         ...timestampFilter,
         AND: [
           keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
@@ -670,6 +674,7 @@ export class ChannelStartupService {
         id: query?.where?.id,
         source: query?.where?.source,
         messageType: query?.where?.messageType,
+        status: query?.where?.status,
         ...timestampFilter,
         AND: [
           keyFilters?.id ? { key: { path: prismaJsonPath('id'), equals: keyFilters?.id } } : {},
@@ -692,6 +697,7 @@ export class ChannelStartupService {
         messageType: true,
         message: true,
         messageTimestamp: true,
+        status: true,
         instanceId: true,
         source: true,
         contextInfo: true,
@@ -699,6 +705,13 @@ export class ChannelStartupService {
           select: {
             status: true,
           },
+        },
+        Media: { select: { fileName: true, mimetype: true } },
+        TranscriptionJob: {
+          where: { mode: 'transcription' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, status: true, text: true, stage: true, progressPercent: true },
         },
       },
     });

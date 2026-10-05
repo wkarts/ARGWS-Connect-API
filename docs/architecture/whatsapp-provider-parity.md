@@ -24,7 +24,7 @@ Este documento define o comportamento público que Baileys e Zapo devem expor de
 
 - `status@broadcast` não é uma conversa regular.
 - Status é armazenado para a tela dedicada de Status.
-- `readStatus` controla somente o envio de leitura do Status; não controla se o Status é recebido/armazenado.
+- `readStatus=false` suprime Status recebidos dos contatos e recibos de leitura, mas não impede registrar os Status publicados pela própria conta via API ou celular.
 - O usuário pode optar por também visualizar Status na lista do Chat.
 
 ## Mensagens internas

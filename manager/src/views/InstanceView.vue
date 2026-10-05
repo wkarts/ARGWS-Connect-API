@@ -7,15 +7,17 @@ import PanelCard from '@/components/PanelCard.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import AppModal from '@/components/AppModal.vue'
 import TestMessageModal from '@/components/TestMessageModal.vue'
+import WhatsAppStatusModal from '@/components/WhatsAppStatusModal.vue'
 import { featureEnabled } from '@/config/runtime'
 import { useSessionStore } from '@/stores/session'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
 import { instanceTokenSupported } from '@/services/instance-token'
 import { friendlyError } from '@/services/errors'
-import type { ProviderMigrationResult, WhatsAppProvider } from '@/types/domain'
+import type { Message, ProviderMigrationResult, WhatsAppProvider } from '@/types/domain'
 
 const testOpen = ref(false)
+const statusOpen = ref(false)
 const session = useSessionStore()
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +34,10 @@ const pairNumber = ref('')
 const migrationOpen = ref(false)
 const migrationBusy = ref(false)
 const migrationResult = ref<ProviderMigrationResult | null>(null)
+const statuses = ref<Message[]>([])
+const statusesLoading = ref(false)
+const statusesError = ref('')
+const deletingStatusId = ref('')
 let watchTimer: number | undefined
 
 const connected = computed(() => ['open', 'connected'].includes(String(data.value?.connectionStatus || data.value?.status || '').toLowerCase()))
@@ -47,7 +53,7 @@ const capabilityGroups = computed(() => [
   { label: 'Contatos', enabled: capabilities.value.contacts },
   { label: 'Conversas', enabled: capabilities.value.chats },
   { label: 'Grupos', enabled: capabilities.value.groups },
-  { label: 'Status', enabled: capabilities.value.statusRead && capabilities.value.statusPublish },
+  { label: 'Status', enabled: capabilities.value.statusRead || capabilities.value.statusPublish },
   { label: 'Presença', enabled: capabilities.value.presence },
   { label: 'Estado de conversa', enabled: capabilities.value.chatState },
   { label: 'Identificação PN/LID', enabled: capabilities.value.pnLid },
@@ -66,6 +72,44 @@ async function load() {
   error.value = ''
   try { data.value = await connect.connection(id) }
   catch (e) { error.value = friendlyError(e) }
+}
+
+async function loadStatuses() {
+  if (!session.hasPermission('messages.read') || (!capabilities.value.statusRead && !capabilities.value.statusPublish)) return
+  statusesLoading.value = true
+  statusesError.value = ''
+  try {
+    statuses.value = await connect.statuses(id)
+  } catch (cause) {
+    statusesError.value = friendlyError(cause, 'Não foi possível consultar os Status publicados.')
+  } finally {
+    statusesLoading.value = false
+  }
+}
+
+async function removeStatus(status: Message) {
+  if (!status.id || deletingStatusId.value) return
+  if (!window.confirm('Excluir este Status da instância e solicitar a remoção no WhatsApp?')) return
+  deletingStatusId.value = status.id
+  statusesError.value = ''
+  try {
+    await connect.deleteStatus(id, status.id)
+    statuses.value = statuses.value.filter((item) => item.id !== status.id)
+    feedback.value = 'Status excluído.'
+  } catch (cause) {
+    statusesError.value = friendlyError(cause, 'Não foi possível excluir este Status.')
+  } finally {
+    deletingStatusId.value = ''
+  }
+}
+
+function statusStamp(value?: string) {
+  if (!value) return '—'
+  const numeric = Number(value)
+  const date = Number.isFinite(numeric) && numeric > 0
+    ? new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric)
+    : new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR')
 }
 
 function stopWatch() {
@@ -177,7 +221,12 @@ async function confirmMigration() {
   finally { migrationBusy.value = false }
 }
 
-onMounted(async () => { await load(); pairNumber.value = data.value?.number || '' })
+async function onStatusPublished() {
+  statusOpen.value = false
+  await loadStatuses()
+}
+
+onMounted(async () => { await load(); pairNumber.value = data.value?.number || ''; await loadStatuses() })
 onBeforeUnmount(stopWatch)
 </script>
 
@@ -185,6 +234,7 @@ onBeforeUnmount(stopWatch)
   <AppShell>
     <PageHeader :title="data?.name || data?.instanceName || 'Instância'" description="Conexão, recursos, integrações e configurações desta instância.">
       <button v-if="featureEnabled('instanceTestMessage', true) && session.hasPermission('messages.send')" class="btn primary" :disabled="busy || !connected || !capabilities.messaging" @click="testOpen = true">Enviar teste</button>
+      <button v-if="featureEnabled('statusPublish', true) && session.hasPermission('messages.send')" class="btn ghost" :disabled="busy || !connected || !capabilities.statusPublish || provider === 'WHATSAPP-BUSINESS'" @click="statusOpen = true">Publicar Status</button>
       <button class="btn ghost" :disabled="busy" @click="load"><AppIcon name="refresh" :size="16"/>Atualizar</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/integracoes`)">Integrações</button>
       <button class="btn ghost" :disabled="busy" @click="router.push(`/instancias/${encodeURIComponent(id)}/configuracao`)">Configurações</button>
@@ -194,6 +244,7 @@ onBeforeUnmount(stopWatch)
     </PageHeader>
 
     <TestMessageModal v-if="testOpen" :key="id" :instance-id="id" :instance-name="data?.name || data?.instanceName || id" :provider="provider" :connected="connected" @close="testOpen = false" />
+    <WhatsAppStatusModal v-if="statusOpen" :key="`${id}-status`" :instance-id="id" :instance-name="data?.name || data?.instanceName || id" :provider="provider" :connected="connected" @close="statusOpen = false" @published="onStatusPublished" />
 
     <div v-if="error" class="alert error">{{ error }}</div>
     <div v-if="feedback" class="alert success">{{ feedback }}</div>
@@ -248,6 +299,19 @@ onBeforeUnmount(stopWatch)
           <button v-if="capabilities.calls" class="btn primary full top-gap" @click="router.push({path:'/chamadas', query:{instance:id}})"><AppIcon name="phone" :size="16"/>Abrir chamadas de teste</button>
         </PanelCard>
       </div>
+
+      <PanelCard v-if="capabilities.statusRead || capabilities.statusPublish" class="top-gap" title="Status publicados" description="Status desta instância armazenados no histórico e vinculados ao WhatsApp.">
+        <template #actions><button class="btn ghost compact" @click="router.push({ path: '/status', query: { instance: id } })">Abrir administração</button><button class="btn ghost compact" :disabled="statusesLoading" @click="loadStatuses"><AppIcon name="refresh" :size="14" />{{ statusesLoading ? 'Atualizando…' : 'Atualizar' }}</button></template>
+        <div v-if="statusesError" class="alert error" role="alert">{{ statusesError }}</div>
+        <div v-else-if="statusesLoading && !statuses.length" class="status-empty">Consultando Status…</div>
+        <div v-else-if="!statuses.length" class="status-empty">Nenhum Status publicado foi encontrado para esta instância.</div>
+        <div v-else class="status-list">
+          <div v-for="status in statuses" :key="status.id" class="status-row">
+            <div class="status-row-main"><strong>{{ status.text || 'Status de mídia' }}</strong><small>{{ statusStamp(status.timestamp) }}</small></div>
+            <div class="status-actions"><button class="btn ghost compact" @click="router.push({ path: '/status', query: { instance: id, post: status.id } })">Abrir</button><button v-if="session.hasPermission('messages.send')" class="btn ghost compact danger-button" :disabled="Boolean(deletingStatusId) || !connected" @click="removeStatus(status)"><AppIcon name="trash" :size="14" />{{ deletingStatusId === status.id ? 'Revogando…' : 'Revogar' }}</button></div>
+          </div>
+        </div>
+      </PanelCard>
 
       <PanelCard class="top-gap" title="Recursos do provider" description="Capacidades disponíveis para esta tecnologia de conexão.">
         <div class="capability-grid">
@@ -308,3 +372,8 @@ onBeforeUnmount(stopWatch)
     </AppModal>
   </AppShell>
 </template>
+
+<style scoped>
+.status-list{display:grid;gap:7px}.status-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)}.status-row-main{display:grid;gap:3px;min-width:0}.status-row-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.status-row-main small{color:var(--muted);font-size:10px}.status-empty{padding:18px 8px;color:var(--muted);font-size:11px;text-align:center}
+.status-actions{display:flex;gap:8px;flex-wrap:wrap}@media(max-width:640px){.status-row{align-items:stretch;flex-direction:column}.status-actions>*{flex:1}}
+</style>

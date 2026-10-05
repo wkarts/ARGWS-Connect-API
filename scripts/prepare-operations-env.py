@@ -15,6 +15,7 @@ DEFAULTS = {
     'NATS_ENABLED': 'false',
     'KAFKA_ENABLED': 'false',
     'MYSQL_SERVICE_ENABLED': 'false',
+    'TRANSCRIPTION_ENABLED': 'false',
     'OPERATIONS_AGENT_URL': 'http://operations:8092',
     'OPERATIONS_INTERNAL_TOKEN': '',
     'ARGWS_CONNECT_OPERATIONS_DATA_PATH': './volumes/operations',
@@ -28,6 +29,7 @@ PROFILE_FLAGS = (
     ('NATS_ENABLED', 'nats'),
     ('KAFKA_ENABLED', 'kafka'),
     ('MYSQL_SERVICE_ENABLED', 'mysql'),
+    ('TRANSCRIPTION_ENABLED', 'transcription'),
 )
 
 

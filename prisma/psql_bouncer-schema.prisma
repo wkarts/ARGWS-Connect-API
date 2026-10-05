@@ -128,6 +128,7 @@ model Instance {
   FindHubDevice           FindHubDevice[]
   FindHubPosition         FindHubPosition[]
   FindHubTraccarBinding   FindHubTraccarBinding[]
+  TranscriptionJob        TranscriptionJob[]
 }
 
 model Session {
@@ -188,6 +189,7 @@ model Message {
   instanceId                   String
   MessageUpdate                MessageUpdate[]
   Media                        Media?
+  TranscriptionJob             TranscriptionJob[]
   webhookUrl                   String?         @db.VarChar(500)
   status                       String?         @db.VarChar(30)
 
@@ -222,6 +224,7 @@ model Webhook {
   events          Json?     @db.JsonB
   webhookByEvents Boolean?  @default(false) @db.Boolean
   webhookBase64   Boolean?  @default(false) @db.Boolean
+  additionalTargets Json?    @db.JsonB
   createdAt       DateTime? @default(now()) @db.Timestamp
   updatedAt       DateTime  @updatedAt @db.Timestamp
   Instance        Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
@@ -425,6 +428,48 @@ model Media {
   Instance   Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   instanceId String
 }
+model TranscriptionJob {
+  id                String    @id @default(cuid())
+  instanceId        String?
+  messageId         String?
+  mode              String    @default("transcription") @db.VarChar(20)
+  sourceType        String    @default("upload") @db.VarChar(24)
+  sourceKey         String    @db.VarChar(500)
+  sourceMimeType    String    @db.VarChar(100)
+  originalFilename  String?   @db.VarChar(255)
+  sizeBytes         Int?      @db.Integer
+  audioHash         String?   @db.VarChar(64)
+  idempotencyKey    String?   @db.VarChar(128)
+  provider          String    @db.VarChar(32)
+  model             String    @db.VarChar(100)
+  language          String?   @db.VarChar(16)
+  status            String    @db.VarChar(20)
+  stage             String?   @db.VarChar(32)
+  progressPercent   Int       @default(0) @db.Integer
+  processedDurationMs Int     @default(0) @db.Integer
+  heartbeatAt       DateTime? @db.Timestamp
+  text              String?   @db.Text
+  segments          Json?     @db.JsonB
+  detectedLanguage  String?   @db.VarChar(32)
+  durationMs        Int?      @db.Integer
+  errorCode         String?   @db.VarChar(64)
+  errorMessage      String?   @db.Text
+  attempts          Int       @default(0) @db.Integer
+  createdAt         DateTime  @default(now()) @db.Timestamp
+  startedAt         DateTime? @db.Timestamp
+  completedAt       DateTime? @db.Timestamp
+  updatedAt         DateTime  @updatedAt @db.Timestamp
+  Instance          Instance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  Message           Message?  @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([instanceId, createdAt])
+  @@index([messageId])
+  @@index([mode, status, createdAt])
+  @@unique([instanceId, mode, audioHash, model, language])
+  @@unique([instanceId, mode, idempotencyKey])
+}
+
 
 model OpenaiCreds {
   id              String         @id @default(cuid())

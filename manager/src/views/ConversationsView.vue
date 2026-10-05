@@ -4,6 +4,7 @@ import AppShell from '@/layouts/AppShell.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import DictationButton from '@/components/DictationButton.vue'
 import { connect } from '@/services/connect'
 import { isFindHub } from '@/services/findhub-channel'
 import { friendlyError } from '@/services/errors'
@@ -19,6 +20,9 @@ const error = ref('')
 const loadingMessages = ref(false)
 const sending = ref(false)
 const messageList = ref<HTMLElement | null>(null)
+const draftTarget = ref<HTMLInputElement | null>(null)
+const activeTranscriptions = ref(new Set<string>())
+const expandedTranscripts = ref(new Set<string>())
 
 function messageTimestamp(value: unknown): number {
   if (value === null || value === undefined || value === '') return 0
@@ -107,6 +111,59 @@ async function send() {
   }
 }
 
+function updateTranscript(message: Message, job: any) {
+  message.transcriptionJobId = String(job.id || message.transcriptionJobId || '') || undefined
+  message.transcriptionStatus = String(job.status || 'processing')
+  message.transcriptionStage = job.stage ? String(job.stage) : null
+  message.transcriptionProgress = Number(job.progressPercent || 0)
+  if (job.status === 'completed') message.transcriptionText = String(job.text || '')
+}
+
+async function transcribeAudio(message: Message) {
+  if (!message.isAudio || !message.transcriptionMessageId) return
+  if (message.transcriptionStatus === 'completed' && message.transcriptionText) {
+    const next = new Set(expandedTranscripts.value)
+    if (next.has(message.id)) next.delete(message.id)
+    else next.add(message.id)
+    expandedTranscripts.value = next
+    return
+  }
+  if (activeTranscriptions.value.has(message.id)) return
+
+  const active = new Set(activeTranscriptions.value)
+  active.add(message.id)
+  activeTranscriptions.value = active
+  error.value = ''
+  try {
+    const job = await connect.transcribeMessage(message.transcriptionMessageId, selectedInstance.value)
+    updateTranscript(message, job)
+    const deadline = Date.now() + 30 * 60 * 1000
+    while (['queued', 'processing'].includes(message.transcriptionStatus || '') && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1200))
+      const current = await connect.speechJob(String(message.transcriptionJobId || job.id))
+      updateTranscript(message, current)
+    }
+    if (message.transcriptionStatus === 'completed') {
+      const next = new Set(expandedTranscripts.value)
+      next.add(message.id)
+      expandedTranscripts.value = next
+    } else if (message.transcriptionStatus === 'failed') {
+      throw new Error('Não foi possível transcrever este áudio. Você pode tentar novamente.')
+    } else if (message.transcriptionStatus === 'cancelled') {
+      throw new Error('A transcrição deste áudio foi cancelada.')
+    } else {
+      throw new Error('A transcrição continua na fila. Atualize a conversa para acompanhar o resultado.')
+    }
+  } catch (e) {
+    error.value = friendlyError(e)
+    if (!message.transcriptionJobId) message.transcriptionStatus = undefined
+  } finally {
+    const next = new Set(activeTranscriptions.value)
+    next.delete(message.id)
+    activeTranscriptions.value = next
+  }
+}
+
 onMounted(async () => {
   instances.value = (await connect.connections().catch(() => [])).filter((item) => !isFindHub(item))
   selectedInstance.value = instances.value[0]?.id || ''
@@ -179,13 +236,34 @@ onMounted(async () => {
               >
                 <strong v-if="selectedChat.isGroup && message.direction === 'in'" class="message-author">{{ message.participantName || 'Participante' }}</strong>
                 <p>{{ message.text }}</p>
+                <div v-if="message.isAudio" class="message-transcription">
+                  <button
+                    class="message-transcription-action"
+                    type="button"
+                    :disabled="activeTranscriptions.has(message.id)"
+                    @click="transcribeAudio(message)"
+                  >
+                    <template v-if="activeTranscriptions.has(message.id)">Transcrevendo{{ message.transcriptionProgress ? ` · ${message.transcriptionProgress}%` : '…' }}</template>
+                    <template v-else-if="message.transcriptionStatus === 'completed'">{{ expandedTranscripts.has(message.id) ? 'Ocultar transcrição' : 'Mostrar transcrição' }}</template>
+                    <template v-else-if="message.transcriptionStatus === 'queued' || message.transcriptionStatus === 'processing'">Retomar acompanhamento</template>
+                    <template v-else>Transcrever áudio</template>
+                  </button>
+                  <p v-if="expandedTranscripts.has(message.id) && message.transcriptionText" class="message-transcription-text">{{ message.transcriptionText }}</p>
+                  <small v-else-if="message.transcriptionStatus === 'queued' || message.transcriptionStatus === 'processing'" class="message-transcription-progress">
+                    {{ message.transcriptionStage || 'Na fila' }}<template v-if="message.transcriptionProgress"> · {{ message.transcriptionProgress }}%</template>
+                  </small>
+                  <small v-else-if="message.transcriptionStatus === 'failed'" class="message-transcription-error">Falha na transcrição. Você pode tentar novamente.</small>
+                </div>
                 <small>{{ formatTime(message.timestamp) }}</small>
               </div>
             </template>
           </div>
 
           <form class="composer" @submit.prevent="send">
-            <input v-model="draft" placeholder="Digite uma mensagem..." :disabled="sending" />
+            <div class="composer-field">
+              <input ref="draftTarget" v-model="draft" placeholder="Digite uma mensagem..." :disabled="sending" />
+              <DictationButton v-model="draft" :target="draftTarget" :instance-id="selectedInstance" />
+            </div>
             <button class="btn primary" :disabled="sending || !draft.trim()">
               {{ sending ? 'Enviando...' : 'Enviar' }}
             </button>
@@ -202,3 +280,7 @@ onMounted(async () => {
     </div>
   </AppShell>
 </template>
+
+<style scoped>
+.composer-field{display:flex;align-items:center;gap:8px;min-width:0}.composer-field>input{min-width:0;flex:1}.message-transcription{margin-top:8px;padding-top:7px;border-top:1px solid color-mix(in srgb,var(--border) 70%,transparent);display:grid;gap:5px}.message-transcription-action{justify-self:start;border:0;background:transparent;color:var(--primary);padding:0;font:inherit;font-size:11px;font-weight:700;cursor:pointer}.message-transcription-action:disabled{opacity:.65;cursor:wait}.message-transcription-text{margin:0!important;white-space:pre-wrap;font-size:12px;line-height:1.5}.message-transcription-progress,.message-transcription-error{font-size:10px;opacity:.75}
+</style>

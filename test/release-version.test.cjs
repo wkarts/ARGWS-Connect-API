@@ -77,11 +77,11 @@ test('existing version planner selects 1.0.22 for the main release promotion', (
   assert.deepEqual(JSON.parse(result.stdout), { version: '1.0.22', bump: 'patch', previous: '1.0.21' });
 });
 
-test('release workflow retains main-only publication, three components and scoped credentials', () => {
+test('release workflow retains main-only publication, four components and scoped credentials', () => {
   const source = fs.readFileSync(path.join(root, '.github/workflows/auto-version-release.yml'), 'utf8');
   assert.ok(source.includes('refs/heads/main'));
   assert.ok(source.includes("NODE_VERSION: '22.x'"));
-  assert.ok(source.includes('component: [api, manager, docs]'));
+  assert.ok(source.includes('component: [api, manager, docs, transcription-worker]'));
   assert.ok(source.includes('MANAGER_BUILD_MODE=production'));
   assert.ok(source.includes('packages: write'));
   assert.ok(source.includes('argws-connect-buildkit:buildx-stable-1'));

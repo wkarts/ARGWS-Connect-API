@@ -219,5 +219,115 @@ export async function runGraphIdentityRoutingRegression() {
     await assert.rejects(controller.getMedia('v20.0', 'REAL_MEDIA_ID', 'Bearer old-instance-token'), oauthError);
   });
 
+  await check('Status and transcription stay on the authenticated Meta-compatible instance', async () => {
+    const resolver = new MetaCloudIdentityResolver({ instance: { findMany: async () => [hubInstance] } } as any);
+    const auth = new MetaCloudAuthService(() => 'installation-secret');
+    const calls: any[] = [];
+    const transcriptionJob = {
+      id: 'TRANSCRIPTION_JOB',
+      instanceId: hubInstance.id,
+      provider: 'local',
+      model: 'Xenova/whisper-small',
+      status: 'queued',
+    };
+    const controller = new MetaCloudGraphController(
+      resolver,
+      auth,
+      { execute: async () => ({ messages: [{ id: 'MESSAGE' }] }) } as any,
+      { resolveOutbound: async (media: any) => media?.link || 'https://signed.example/status' } as any,
+      { list: async () => ({ data: [] }) } as any,
+      { sendStatus: async (_instance: any, data: any, file: any) => {
+        calls.push({ operation: 'status', data, hasFile: Boolean(file?.buffer) });
+        return { key: { id: 'STATUS_MESSAGE' } };
+      } } as any,
+      {
+        enqueueUpload: async (input: any) => {
+          calls.push({ operation: 'upload', instanceId: input.instanceId });
+          return transcriptionJob;
+        },
+        enqueue: async (input: any) => {
+          calls.push({ operation: 'message', instanceId: input.instanceId, messageId: input.messageId });
+          return transcriptionJob;
+        },
+        get: async (jobId: string, instanceId: string) => {
+          calls.push({ operation: 'get', jobId, instanceId });
+          return transcriptionJob;
+        },
+        retry: async (jobId: string, instanceId: string) => {
+          calls.push({ operation: 'retry', jobId, instanceId });
+          return transcriptionJob;
+        },
+        delete: async (jobId: string, instanceId: string) => {
+          calls.push({ operation: 'delete', jobId, instanceId });
+          return { id: jobId, deleted: true, sourceRemoved: false, sourceRetained: true };
+        },
+      } as any,
+    );
+
+    assert.deepEqual(
+      await controller.publishStatus(
+        'v20.0',
+        phone,
+        'Bearer hub-instance-token',
+        { messaging_product: 'whatsapp', type: 'text', text: { body: 'Aviso' }, all_contacts: true },
+        { buffer: Buffer.from('status') },
+      ),
+      {
+        messaging_product: 'whatsapp',
+        status: 'published',
+        messages: [{ id: 'STATUS_MESSAGE' }],
+        connect_api: { target: 'status@broadcast' },
+      },
+    );
+    assert.deepEqual(
+      await controller.transcribe(
+        'v20.0',
+        phone,
+        'Bearer hub-instance-token',
+        { messaging_product: 'whatsapp', language: 'pt' },
+        { buffer: Buffer.from('audio'), originalname: 'audio.ogg', mimetype: 'audio/ogg' },
+      ),
+      {
+        messaging_product: 'whatsapp',
+        id: 'TRANSCRIPTION_JOB',
+        status: 'queued',
+        transcription: transcriptionJob,
+        connect_api: { operation: 'transcription', source: 'upload' },
+      },
+    );
+    await controller.transcribe('v20.0', phone, 'Bearer hub-instance-token', {
+      messaging_product: 'whatsapp', message_id: 'AUDIO_MESSAGE',
+    });
+    await controller.getTranscription('v20.0', phone, 'Bearer hub-instance-token', 'TRANSCRIPTION_JOB');
+    await controller.retryTranscription('v20.0', phone, 'Bearer hub-instance-token', 'TRANSCRIPTION_JOB');
+    assert.deepEqual(
+      await controller.deleteTranscription('v20.0', phone, 'Bearer hub-instance-token', 'TRANSCRIPTION_JOB'),
+      {
+        messaging_product: 'whatsapp',
+        id: 'TRANSCRIPTION_JOB',
+        deleted: true,
+        source_removed: false,
+        source_retained: true,
+      },
+    );
+    assert.deepEqual(calls[0], { operation: 'status', data: {
+      number: phone,
+      type: 'text',
+      content: 'Aviso',
+      caption: undefined,
+      backgroundColor: '#FFFFFF',
+      font: 1,
+      allContacts: true,
+      statusJidList: undefined,
+    }, hasFile: true });
+    assert.deepEqual(calls.slice(1), [
+      { operation: 'upload', instanceId: hubInstance.id },
+      { operation: 'message', instanceId: hubInstance.id, messageId: 'AUDIO_MESSAGE' },
+      { operation: 'get', jobId: 'TRANSCRIPTION_JOB', instanceId: hubInstance.id },
+      { operation: 'retry', jobId: 'TRANSCRIPTION_JOB', instanceId: hubInstance.id },
+      { operation: 'delete', jobId: 'TRANSCRIPTION_JOB', instanceId: hubInstance.id },
+    ]);
+  });
+
   console.log(`graph identity routing: ${passed} scenarios passed`);
 }

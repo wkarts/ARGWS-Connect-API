@@ -24,6 +24,12 @@
       "name": "Media"
     },
     {
+      "name": "Status"
+    },
+    {
+      "name": "Transcription"
+    },
+    {
       "name": "Templates"
     }
   ],
@@ -205,6 +211,560 @@
             "$ref": "#/components/responses/GraphError"
           },
           "401": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/status": {
+      "post": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Publicar Status do WhatsApp",
+        "operationId": "meta_publish_status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaStatusRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Status aceito pelo provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/statuses": {
+      "get": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Listar Status publicados pela instância",
+        "operationId": "meta_list_statuses",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status publicados da instância, sem conteúdo binário.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaStatusListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/statuses/{statusId}": {
+      "delete": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Excluir Status publicado pela instância",
+        "operationId": "meta_delete_status",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status excluído no provider e no histórico local.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaStatusDeleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/statuses/{statusId}/views": {
+      "get": {
+        "tags": [
+          "Status"
+        ],
+        "summary": "Consultar visualizações de Status publicado",
+        "operationId": "meta_get_status_views",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "statusId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Visualizações READ/PLAYED conhecidas localmente pela instância."
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/transcriptions": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Solicitar transcrição assíncrona de áudio",
+        "operationId": "meta_create_transcription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaTranscriptionRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaTranscriptionUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job de transcrição criado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaTranscriptionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "415": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/transcriptions/{jobId}": {
+      "get": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Consultar job de transcrição",
+        "operationId": "meta_get_transcription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado atual do job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaTranscriptionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Excluir job de transcrição",
+        "operationId": "meta_delete_transcription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job excluído.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messaging_product": {
+                      "type": "string",
+                      "example": "whatsapp"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "cancelled": {
+                      "type": "boolean"
+                    },
+                    "source_removed": {
+                      "type": "boolean"
+                    },
+                    "source_retained": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "messaging_product",
+                    "id",
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "503": {
+            "$ref": "#/components/responses/GraphError"
+          }
+        }
+      }
+    },
+    "/{version}/{phoneNumberId}/transcriptions/{jobId}/retry": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Reenfileirar job de transcrição com falha",
+        "operationId": "meta_retry_transcription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^v[0-9]+\\.[0-9]+$"
+            },
+            "example": "v20.0"
+          },
+          {
+            "name": "phoneNumberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job reenfileirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaTranscriptionJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "404": {
+            "$ref": "#/components/responses/GraphError"
+          },
+          "409": {
             "$ref": "#/components/responses/GraphError"
           }
         }
@@ -1638,6 +2198,572 @@
         },
         "required": [
           "success"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusRequest": {
+        "type": "object",
+        "description": "Publicação explícita de Status para contatos selecionados ou para todos os contatos. Não é habilitada na criação da instância.",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "audio"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "Texto ou URL retornada/aceita pelo provider. Em multipart, o arquivo substitui este campo."
+          },
+          "text": {
+            "type": "object",
+            "properties": {
+              "body": {
+                "type": "string",
+                "description": "Texto do Status."
+              },
+              "background_color": {
+                "type": "string",
+                "description": "Cor hexadecimal de fundo."
+              },
+              "font": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5
+              }
+            },
+            "additionalProperties": false
+          },
+          "image": {
+            "type": "object",
+            "properties": {
+              "link": {
+                "type": "string",
+                "description": "URL pública da imagem.",
+                "format": "uri"
+              },
+              "id": {
+                "type": "string",
+                "description": "ID de mídia temporário."
+              },
+              "caption": {
+                "type": "string",
+                "description": "Legenda opcional."
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "link"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "video": {
+            "type": "object",
+            "properties": {
+              "link": {
+                "type": "string",
+                "description": "URL pública do vídeo.",
+                "format": "uri"
+              },
+              "id": {
+                "type": "string",
+                "description": "ID de mídia temporário."
+              },
+              "caption": {
+                "type": "string",
+                "description": "Legenda opcional."
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "link"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "audio": {
+            "type": "object",
+            "properties": {
+              "link": {
+                "type": "string",
+                "description": "URL pública do áudio.",
+                "format": "uri"
+              },
+              "id": {
+                "type": "string",
+                "description": "ID de mídia temporário."
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "link"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "caption": {
+            "type": "string",
+            "description": "Legenda opcional para imagem, vídeo ou áudio."
+          },
+          "background_color": {
+            "type": "string",
+            "description": "Cor hexadecimal de fundo do Status de texto."
+          },
+          "font": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "status_jid_list": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^\\d{8,15}$"
+            },
+            "description": "Números internacionais autorizados, sem adivinhar contatos."
+          },
+          "all_contacts": {
+            "type": "boolean",
+            "const": true,
+            "description": "Obrigatório para a publicação para todos os contatos; exige confirmação no Manager."
+          },
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "Arquivo usado no multipart/form-data."
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "all_contacts"
+            ]
+          },
+          {
+            "required": [
+              "status_jid_list"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "status": {
+            "type": "string",
+            "const": "published"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaMessageId"
+            }
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "const": "status@broadcast"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "messaging_product",
+          "status",
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Identificador real do Status retornado pelo provider."
+          },
+          "type": {
+            "type": "string",
+            "description": "Tipo de Status persistido no histórico."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "from_me": {
+            "type": "boolean",
+            "const": true
+          },
+          "remote_jid": {
+            "type": "string",
+            "const": "status@broadcast"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "from_me",
+          "remote_jid"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusListResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetaStatusSummary"
+            }
+          },
+          "paging": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "page": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500
+              },
+              "pages": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "total",
+              "page",
+              "limit",
+              "pages"
+            ],
+            "additionalProperties": false
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "const": "status@broadcast"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "messaging_product",
+          "data",
+          "paging"
+        ],
+        "additionalProperties": false
+      },
+      "MetaStatusDeleteResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "id": {
+            "type": "string",
+            "description": "Identificador real do Status removido."
+          },
+          "deleted": {
+            "type": "boolean",
+            "const": true
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "const": "status@broadcast"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "messaging_product",
+          "id",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTranscriptionRequest": {
+        "type": "object",
+        "description": "Solicita uma transcrição assíncrona de áudio já persistido no Connect|API.",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "ID real da mensagem que possui a mídia de áudio."
+          },
+          "language": {
+            "type": "string",
+            "description": "Idioma opcional, por exemplo pt ou pt-BR."
+          },
+          "model": {
+            "type": "string",
+            "description": "Modelo local opcional permitido pela instalação."
+          }
+        },
+        "required": [
+          "message_id"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTranscriptionUploadRequest": {
+        "type": "object",
+        "description": "Upload multipart de áudio para transcrição local e assíncrona.",
+        "properties": {
+          "audio": {
+            "type": "string",
+            "format": "binary"
+          },
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "Alias compatível com clientes Meta."
+          },
+          "language": {
+            "type": "string",
+            "description": "Idioma opcional, por exemplo pt ou pt-BR."
+          },
+          "model": {
+            "type": "string",
+            "description": "Modelo local opcional permitido pela instalação."
+          }
+        },
+        "required": [
+          "audio"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTranscriptionJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID do job assíncrono."
+          },
+          "messageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instanceId": {
+            "type": "string",
+            "description": "Instância autenticada que originou o job."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider local efetivamente usado."
+          },
+          "model": {
+            "type": "string",
+            "description": "Modelo local usado."
+          },
+          "language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detectedLanguage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "segments": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "errorMessage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "provider",
+          "model"
+        ],
+        "additionalProperties": false
+      },
+      "MetaTranscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "messaging_product": {
+            "type": "string",
+            "const": "whatsapp"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID do job assíncrono."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed"
+            ]
+          },
+          "transcription": {
+            "$ref": "#/components/schemas/MetaTranscriptionJob"
+          },
+          "connect_api": {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "transcription"
+              },
+              "source": {
+                "enum": [
+                  "upload",
+                  "message"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "messaging_product",
+          "id",
+          "status",
+          "transcription"
         ],
         "additionalProperties": false
       },

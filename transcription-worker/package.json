@@ -1,0 +1,20 @@
+{
+  "name": "@argws/connect-transcription-worker",
+  "version": "1.1.15",
+  "private": true,
+  "description": "ARGWS Connect|API local transcription worker",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.cjs",
+    "model:manifest": "node scripts/create-model-manifest.cjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.7.2",
+    "amqplib": "^0.10.5",
+    "minio": "^8.0.3"
+  }
+}

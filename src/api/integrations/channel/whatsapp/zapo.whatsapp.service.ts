@@ -82,7 +82,7 @@ function getSharedZapoPostgresBackend(connectionString: string) {
  * plugin; the public call adapter delegates only video calls to Connect's engine.
  */
 export class ZapoStartupService extends ChannelStartupService {
-  private readonly statusBroadcastRetention: StatusBroadcastRetentionService;
+  protected readonly statusBroadcastRetention: StatusBroadcastRetentionService;
 
   constructor(
     public readonly configService: ConfigService,
@@ -110,7 +110,7 @@ export class ZapoStartupService extends ChannelStartupService {
     const picture = await this.profilePicture(jid).catch(() => null);
     return { subject: group.subject, avatar: picture?.profilePictureUrl || undefined };
   });
-  private storeBackend: any = null;
+  protected storeBackend: any = null;
   private cleanupPoller: any = null;
   private store: any = null;
   private connectPromise: Promise<void> | null = null;
@@ -1239,7 +1239,8 @@ export class ZapoStartupService extends ChannelStartupService {
       );
     }
 
-    if (!db.SAVE_DATA.HISTORIC || !hasMessages) return;
+    if (!hasMessages) return;
+    const ownStatusesOnly = !db.SAVE_DATA.HISTORIC;
 
     const existingMessageIds = new Set(
       (
@@ -1260,7 +1261,7 @@ export class ZapoStartupService extends ChannelStartupService {
         await pool.query(
           `SELECT message_id, thread_jid, sender_jid, participant_jid, from_me, timestamp_ms, message_bytes
            FROM ${table('mailbox_messages')}
-           WHERE session_id = $1
+           WHERE session_id = $1${ownStatusesOnly ? " AND thread_jid = 'status@broadcast' AND from_me = true" : ''}
            ORDER BY timestamp_ms ASC NULLS LAST, message_id ASC
            LIMIT $2 OFFSET $3`,
           [this.instanceId, pageSize, offset],
@@ -1274,6 +1275,10 @@ export class ZapoStartupService extends ChannelStartupService {
         const id = String(row.message_id || '');
         const threadJid = this.normalizeDeviceJid(String(row.thread_jid || ''));
         if (!id || !threadJid || !row.message_bytes || existingMessageIds.has(id)) continue;
+        if (threadJid === STATUS_BROADCAST_JID) {
+          if ((!row.from_me && !this.localSettings.readStatus) ||
+            Number(row.timestamp_ms || 0) < Date.now() - 24 * 60 * 60 * 1000) continue;
+        } else if (ownStatusesOnly) continue;
 
         let message: any;
         try {
@@ -1415,7 +1420,7 @@ export class ZapoStartupService extends ChannelStartupService {
       Boolean(protocol?.key?.id) &&
       (Number(protocolType) === 0 || String(protocolType).toUpperCase() === 'REVOKE');
 
-    if (isStatusMessage && !this.localSettings.readStatus && !isRevokeProtocol) return;
+    if (isStatusMessage && !this.localSettings.readStatus && !event.key.fromMe && !isRevokeProtocol) return;
 
     if (isRevokeProtocol) {
       const targetKey = protocol.key;
@@ -1474,7 +1479,7 @@ export class ZapoStartupService extends ChannelStartupService {
         remoteJid: targetKey.remoteJid || persistedMessage?.key?.remoteJid || canonicalRemoteJid,
       };
 
-      if (!isStatusDeletion || this.localSettings.readStatus) {
+      if (!isStatusDeletion || this.localSettings.readStatus || targetKey.fromMe || persistedMessage?.key?.fromMe) {
         this.sendDataWebhook(Events.MESSAGES_DELETE, {
           id: persistedMessage?.id,
           instanceId: this.instanceId,
@@ -1496,7 +1501,13 @@ export class ZapoStartupService extends ChannelStartupService {
       return;
     }
 
-    if (db.SAVE_DATA.NEW_MESSAGE) {
+    if (isStatusMessage && event.key.fromMe) {
+      const previous = await this.prismaRepository.message.findFirst({
+        where: { instanceId: this.instanceId, key: { path: prismaJsonPath('id'), equals: String(event.key.id) } },
+      });
+      if (previous) return;
+    }
+    if (db.SAVE_DATA.NEW_MESSAGE || (isStatusMessage && event.key.fromMe)) {
       await this.prismaRepository.message
         .create({ data: messageRaw })
         .catch((error: Error) => this.logger.error(error));

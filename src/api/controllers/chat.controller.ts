@@ -18,6 +18,7 @@ import {
 import { InstanceDto } from '@api/dto/instance.dto';
 import { Query } from '@api/repository/repository.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { listStatusViewers } from '@api/services/status-broadcast-viewers.service';
 import { Contact, Message, MessageUpdate } from '@prisma/client';
 
 export class ChatController {
@@ -69,6 +70,12 @@ export class ChatController {
 
   public async fetchStatusMessage({ instanceName }: InstanceDto, query: Query<MessageUpdate>) {
     return await this.waMonitor.waInstances[instanceName].fetchStatusMessage(query);
+  }
+
+  public async fetchPublishedStatusViews({ instanceName }: InstanceDto, statusId: string) {
+    const channel = this.waMonitor.waInstances[instanceName];
+    if (!channel) return null;
+    return await listStatusViewers(channel.prismaRepository, channel.instanceId, statusId);
   }
 
   public async fetchChats({ instanceName }: InstanceDto, query: Query<Contact>) {

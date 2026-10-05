@@ -7,6 +7,7 @@ import type { CallCapabilities, VideoMediaCallbacks, VideoMediaPreparation } fro
 import type {
   AuditItem,
   ConnectionItem,
+  DictationAccepted,
   ContactItem,
   Conversation,
   IntegrationKey,
@@ -14,6 +15,7 @@ import type {
   InstanceConfigKey,
   ManagerEmbeddingSettings,
   ManagerStorageOverview,
+  TranscriptionJob,
   Message,
   Overview,
   ProviderMigrationResult,
@@ -89,17 +91,18 @@ async function api<T>(path: string, options: {
   })
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), options.timeout || runtime.requestTimeoutMs)
+  const isMultipart = typeof FormData !== 'undefined' && options.data instanceof FormData
   try {
     const response = await fetch(url, {
       method,
       credentials: 'same-origin',
       signal: controller.signal,
       headers: {
-        ...(options.data !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...(options.data !== undefined && !isMultipart ? { 'content-type': 'application/json' } : {}),
         ...(options.token || accessCode ? { apikey: options.token || accessCode } : {}),
         ...options.headers,
       },
-      body: options.data !== undefined ? JSON.stringify(options.data) : undefined,
+      body: options.data !== undefined ? (isMultipart ? options.data as FormData : JSON.stringify(options.data)) : undefined,
     })
     const text = await response.text()
     let payload: any = null
@@ -202,6 +205,21 @@ async function withInstance<T>(ref: string, fn: (item: any, name: string, token:
   const name = String(item.name || item.instanceName || ref)
   const token = String(item.token || '')
   return fn(item, name, token)
+}
+
+function statusForm(data: any, file?: File, number?: string) {
+  const form = new FormData()
+  if (number) form.append('number', number)
+  for (const key of ['type', 'content', 'caption', 'backgroundColor', 'font']) {
+    const value = data?.[key]
+    if (value !== undefined && value !== null && value !== '') form.append(key, String(value))
+  }
+  if (data?.allContacts !== undefined) form.append('allContacts', String(Boolean(data.allContacts)))
+  if (Array.isArray(data?.statusJidList) && data.statusJidList.length) {
+    form.append('statusJidList', JSON.stringify(data.statusJidList))
+  }
+  if (file) form.append('file', file, file.name)
+  return form
 }
 
 function integrationId(item: any, key: IntegrationKey) {
@@ -369,6 +387,41 @@ export const current = {
   async sendText(id: string, number: string, text: string) {
     return withInstance(id, async (_item, name, token) => api(`/message/sendText/${encodeURIComponent(name)}`, {
       method: 'POST', token, data: { number: whatsappDestination(number), text },
+    }))
+  },
+
+  async sendStatus(id: string, data: any, file?: File) {
+    return withInstance(id, async (item, name, token) => api(`/message/sendStatus/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      token,
+      timeout: 180000,
+      data: statusForm(data, file, String(item?.number || item?.ownerJid || '').split('@', 1)[0].replace(/\D/g, '')),
+    }))
+  },
+
+  async statuses(id: string, page = 1, limit = 50): Promise<Message[]> {
+    return withInstance(id, async (_item, name, token) => normalize.messages(await api(`/chat/findPublishedStatuses/${encodeURIComponent(name)}`, {
+      token,
+      params: { page, offset: limit },
+    })))
+  },
+
+  async statusViews(id: string, statusId: string): Promise<{ id: string; count: number; viewers: Array<{ participant: string; status: string }> }> {
+    return withInstance(id, async (_item, name, token) => api(`/chat/findPublishedStatusViews/${encodeURIComponent(name)}/${encodeURIComponent(statusId)}`, {
+      token,
+    }))
+  },
+
+  async deleteStatus(id: string, statusId: string) {
+    return withInstance(id, async (_item, name, token) => api(`/chat/deleteStatus/${encodeURIComponent(name)}/${encodeURIComponent(statusId)}`, {
+      method: 'DELETE',
+      token,
+    }))
+  },
+
+  async statusMedia(id: string, statusId: string): Promise<{ base64: string; mimetype: string }> {
+    return withInstance(id, async (_item, name, token) => api(`/chat/getBase64FromMediaMessage/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { message: { key: { id: statusId, remoteJid: 'status@broadcast', fromMe: true } } },
     }))
   },
 
@@ -826,6 +879,56 @@ export const current = {
   },
   async storageCleanup(data: { planId: string; confirm: boolean }) {
     return api<any>('/manager-api/v1/storage/cleanup', { method: 'POST', data, timeout: 120000 })
+  },
+  async transcriptionList(limit = 100): Promise<TranscriptionJob[]> {
+    return api<TranscriptionJob[]>('/v1/transcriptions', { params: { limit } })
+  },
+  async transcriptionHealth(): Promise<any> {
+    return api<any>('/v1/transcriptions/health')
+  },
+  async downloadSpeechModel(modelId: string): Promise<any> {
+    return api<any>(`/v1/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', timeout: 60000 })
+  },
+  async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
+    const data = new FormData()
+    data.append('audio', file, file.name)
+    if (language) data.append('language', language)
+    return api<TranscriptionJob>('/v1/transcriptions/upload', { method: 'POST', data, timeout: 180000 })
+  },
+  async transcription(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/transcriptions/${encodeURIComponent(jobId)}`)
+  },
+  async retryTranscription(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/transcriptions/${encodeURIComponent(jobId)}/retry`, { method: 'POST' })
+  },
+  async deleteTranscription(jobId: string): Promise<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }> {
+    return api<{ id: string; deleted: boolean; sourceRemoved?: boolean; sourceRetained?: boolean }>(`/v1/transcriptions/${encodeURIComponent(jobId)}`, { method: 'DELETE' })
+  },
+  async dictate(file: File, input: { language: string; instanceId?: string; durationMs: number; idempotencyKey: string }): Promise<DictationAccepted> {
+    const data = new FormData()
+    data.append('audio', file, file.name)
+    data.append('language', input.language)
+    data.append('durationMs', String(input.durationMs))
+    data.append('idempotencyKey', input.idempotencyKey)
+    if (input.instanceId) data.append('instanceId', input.instanceId)
+    return api<DictationAccepted>('/v1/speech/dictation', { method: 'POST', data, timeout: 60000 })
+  },
+  async dictationJob(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}`)
+  },
+  async cancelDictation(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
+  },
+  async speechHealth(): Promise<any> { return api<any>('/v1/speech/health') },
+  async transcribeMessage(messageId: string, instanceId: string, language = 'pt-BR', idempotencyKey = crypto.randomUUID()): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>('/v1/speech/transcriptions', {
+      method: 'POST',
+      data: { messageId, instanceId, language, idempotencyKey },
+      timeout: 60000,
+    })
+  },
+  async speechJob(jobId: string): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/transcriptions/${encodeURIComponent(jobId)}`)
   },
   async security() { return normalize.security({}) },
   async setup() { throw new CurrentApiError('Este recurso ainda não está habilitado nesta instalação.', 409) },

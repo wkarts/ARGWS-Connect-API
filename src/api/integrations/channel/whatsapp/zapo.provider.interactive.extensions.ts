@@ -1,7 +1,11 @@
 import { Button, SendButtonsDto, SendListDto, SendStatusDto, TypeButton } from '@api/dto/sendMessage.dto';
+import * as s3Service from '@api/integrations/storage/s3/libs/minio.server';
+import { S3 } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
+import { normalizeStatusRecipient, selectStatusRecipientJids } from '@utils/status-recipient.utils';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import { randomUUID } from 'crypto';
@@ -14,6 +18,13 @@ import { ZapoGroupStartupService } from './zapo.provider.group.extensions';
 type ResolvedBinaryMedia = {
   buffer: Buffer;
   mimetype: string;
+};
+
+type StatusRecipientLookup = {
+  queriedJid?: string;
+  phoneJid?: string;
+  lidJid?: string | null;
+  exists?: boolean;
 };
 
 /**
@@ -201,20 +212,57 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         ),
       ];
       if (recipients.length === 0) throw new BadRequestException('Contacts not found');
-      return { recipients, statusSetting: 'contacts' };
+
+      const resolved = await this.resolveStatusRecipientLids(recipients);
+      return { recipients: resolved.length > 0 ? resolved : recipients, statusSetting: 'contacts' };
     }
 
     if (!data.statusJidList?.length) throw new BadRequestException('StatusJidList is required');
-    const resolved = await this.whatsappNumber({ numbers: data.statusJidList });
-    const recipients = [
-      ...new Set(
-        resolved
-          .filter((entry) => entry?.exists === true && typeof entry.jid === 'string')
-          .map((entry) => entry.jid as string),
-      ),
-    ];
+    const recipients = await this.resolveStatusRecipientLids(data.statusJidList);
     if (recipients.length === 0) throw new BadRequestException('No valid status recipients found');
     return { recipients, statusSetting: 'allowlist' };
+  }
+
+  /**
+   * Status distribution now expects the native LID form whenever WhatsApp
+   * exposes one. The old generic number helper intentionally applies legacy
+   * Brazilian-number shortening and only returned a `lid: 'lid'` marker, so
+   * passing its phone JID to Zapo made the publish fan-out reach WhatsApp with
+   * an incomplete identity and receive a server-side 400 NACK.
+   */
+  private async resolveStatusRecipientLids(values: readonly unknown[]): Promise<string[]> {
+    const normalizedValues = values
+      .map((value) => normalizeStatusRecipient(value))
+      .filter((value): value is string => Boolean(value));
+    if (normalizedValues.length === 0) return [];
+
+    const phoneJids = [
+      ...new Set(normalizedValues.filter((value) => value.endsWith('@s.whatsapp.net')).map((value) => value)),
+    ];
+    const profile = this.interactiveClient().profile;
+    const lookup = profile?.getLidsByPhoneNumbers;
+
+    if (phoneJids.length > 0 && typeof lookup === 'function') {
+      const lookups: StatusRecipientLookup[] = [];
+      try {
+        // Keep usync payloads bounded when “all contacts” is used.
+        for (let offset = 0; offset < phoneJids.length; offset += 100) {
+          const chunk = phoneJids.slice(offset, offset + 100).map((jid) => jid.split('@', 1)[0]);
+          const result = await lookup.call(profile, chunk);
+          if (Array.isArray(result)) lookups.push(...result);
+        }
+        return selectStatusRecipientJids(normalizedValues, lookups);
+      } catch (error) {
+        this.logger.warn(
+          `Zapo Status LID lookup failed; using canonical phone JIDs: ${(error as Error)?.message ?? error}`,
+        );
+      }
+    }
+
+    // Compatibility fallback for an older provider client without the native
+    // LID lookup. This is intentionally limited to the already-normalized
+    // values and never re-enters the legacy Brazil-number formatter.
+    return selectStatusRecipientJids(normalizedValues);
   }
 
   public buttonMessage(): never;
@@ -352,6 +400,72 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
         recipients,
         statusSetting,
       });
+
+      // Zapo does not emit an outgoing status echo when readStatus is off.
+      // Keep a JSON-safe history row so the Manager/API can list and revoke
+      // the exact status without storing the binary payload in PostgreSQL.
+      if (!result?.id)
+        throw new InternalServerErrorException('Status enviado sem identificador de publicação pelo provider.');
+      const persistedMessage =
+        type === 'text' ? content : { type, caption: data.caption || null, mimetype: content.mimetype || null };
+      try {
+        const previous = await this.prismaRepository.message.findFirst({
+          where: { instanceId: this.instanceId, key: { path: prismaJsonPath('id'), equals: String(result.id) } },
+        });
+        let storedMessage: any;
+        if (previous) {
+          storedMessage = await this.prismaRepository.message.update({
+            where: { id: previous.id },
+            data: { key: { ...(previous.key as object), statusRecipients: recipients } },
+          });
+        } else {
+          storedMessage = await this.prismaRepository.message.create({
+            data: {
+              key: { id: String(result.id), remoteJid: 'status@broadcast', fromMe: true, statusRecipients: recipients },
+              messageType: `status${type}`,
+              message: { status: persistedMessage },
+              messageTimestamp: Math.floor(Date.now() / 1000),
+              source: 'web',
+              instanceId: this.instanceId,
+            },
+          });
+        }
+        const s3 = this.configService.get<S3>('S3');
+        if (type !== 'text' && Buffer.isBuffer(content.media) && s3?.ENABLE && (type !== 'video' || s3.SAVE_VIDEO)) {
+          const fileName = `${this.instanceId}/status@broadcast/${type}/${randomUUID()}`;
+          try {
+            const uploaded = await s3Service.uploadFile(fileName, content.media, content.media.length, {
+              'Content-Type': content.mimetype,
+            });
+            if (!uploaded || uploaded instanceof Error) throw new Error('Armazenamento indisponível');
+            try {
+              await this.prismaRepository.media.upsert({
+                where: { messageId: storedMessage.id },
+                update: { fileName, type, mimetype: content.mimetype, instanceId: this.instanceId },
+                create: {
+                  fileName,
+                  type,
+                  mimetype: content.mimetype,
+                  instanceId: this.instanceId,
+                  messageId: storedMessage.id,
+                },
+              });
+            } catch (error) {
+              await s3Service.deleteStoredFile(fileName);
+              throw error;
+            }
+          } catch (error) {
+            this.logger.warn(
+              `Status ${result.id} publicado sem prévia de mídia: ${(error as Error)?.message || error}`,
+            );
+          }
+        }
+      } catch (error) {
+        throw new InternalServerErrorException(
+          `Status ${result.id} enviado, mas falhou ao gravar o histórico.`,
+          (error as Error)?.message,
+        );
+      }
 
       return {
         key: { id: result?.id, remoteJid: 'status@broadcast', fromMe: true },

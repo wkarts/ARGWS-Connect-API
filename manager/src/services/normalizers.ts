@@ -100,9 +100,12 @@ function messagePreview(value: any): string {
   if (typeof value !== 'object') return ''
 
   if (value.text && typeof value.text === 'string') return value.text
+  if (value.type === 'text' && typeof value.text === 'string') return value.text
+  if (['image', 'video', 'audio'].includes(value.type)) return str(value.caption || ({ image: 'Imagem', video: 'Vídeo', audio: 'Áudio' } as Record<string, string>)[value.type])
   if (value.body && typeof value.body === 'string') return value.body
   if (value.content && typeof value.content === 'string') return value.content
   if (value.conversation && typeof value.conversation === 'string') return value.conversation
+  if (value.content && typeof value.content === 'object') return messagePreview(value.content)
   if (value.extendedTextMessage?.text) return str(value.extendedTextMessage.text)
   if (value.imageMessage) return str(value.imageMessage.caption || 'Imagem')
   if (value.videoMessage) return str(value.videoMessage.caption || 'Vídeo')
@@ -110,6 +113,9 @@ function messagePreview(value: any): string {
   if (value.stickerMessage) return 'Figurinha'
   if (value.documentMessage) return str(value.documentMessage.caption || value.documentMessage.fileName || 'Documento')
   if (value.documentWithCaptionMessage) return messagePreview(value.documentWithCaptionMessage.message)
+  // ZAPO stores an outgoing Status in a small JSON-safe `status` envelope so
+  // the Manager can list/revoke it even when the provider emits no echo.
+  if (value.status) return messagePreview(value.status)
   if (value.contactMessage) return str(value.contactMessage.displayName || 'Contato')
   if (value.contactsArrayMessage) return 'Contatos'
   if (value.locationMessage || value.liveLocationMessage) return 'Localização'
@@ -442,8 +448,26 @@ export function messages(raw: any): Message[] {
   return asArray(raw).map((item, index) => {
     const text = messagePreview(item.message || item.text || item.body || item.content)
     const fromMe = Boolean(item.key?.fromMe ?? item.fromMe)
+    const media = item.Media || item.media
+    const messageType = str(item.messageType || '').toLowerCase()
+    const body = item.message?.message || item.message || {}
+    const statusBody = body.status || body
+    const mediaKind = (['image', 'video', 'audio'] as const).find((kind) =>
+      Boolean(statusBody[`${kind}Message`] || statusBody.type === kind || messageType.includes(kind)))
+    const hasAudioPayload = Boolean(body.audioMessage || body.pttMessage || body.audio || body.voiceMessage)
+    const isAudio = Boolean(media && str(media.mimetype || media.mimeType).toLowerCase().startsWith('audio/')) ||
+      hasAudioPayload || messageType.includes('audio') || messageType.includes('ptt')
+    const transcript = asArray(item.TranscriptionJob || item.transcriptionJobs)[0]
     return {
       id: str(item.key?.id || item.id || index),
+      mediaKind,
+      transcriptionMessageId: item.id ? str(item.id) : undefined,
+      isAudio,
+      transcriptionJobId: transcript?.id ? str(transcript.id) : undefined,
+      transcriptionStatus: transcript?.status ? str(transcript.status) : undefined,
+      transcriptionStage: transcript?.stage ? str(transcript.stage) : undefined,
+      transcriptionProgress: Number(transcript?.progressPercent || 0),
+      transcriptionText: transcript?.text ? str(transcript.text) : undefined,
       text: text || '[Conteúdo]',
       direction: fromMe ? 'out' : 'in',
       participantRef: item.key?.participant || item.participant || undefined,

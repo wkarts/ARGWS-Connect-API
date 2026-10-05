@@ -3,25 +3,6 @@ import { v4 } from 'uuid';
 
 import { EventController } from '../event.controller';
 
-const isNotEmpty = (...propertyNames: string[]): JSONSchema7 => {
-  const properties = {};
-  propertyNames.forEach(
-    (property) =>
-      (properties[property] = {
-        minLength: 1,
-        description: `The "${property}" cannot be empty`,
-      }),
-  );
-  return {
-    if: {
-      propertyNames: {
-        enum: [...propertyNames],
-      },
-    },
-    then: { properties },
-  };
-};
-
 export const webhookSchema: JSONSchema7 = {
   $id: v4(),
   type: 'object',
@@ -30,7 +11,7 @@ export const webhookSchema: JSONSchema7 = {
       type: 'object',
       properties: {
         enabled: { type: 'boolean' },
-        url: { type: 'string' },
+        url: { type: 'string', maxLength: 500 },
         headers: { type: 'object' },
         byEvents: { type: 'boolean' },
         base64: { type: 'boolean' },
@@ -42,9 +23,33 @@ export const webhookSchema: JSONSchema7 = {
             enum: EventController.events,
           },
         },
+        additionalTargets: {
+          type: 'array',
+          maxItems: 10,
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', maxLength: 80 },
+              enabled: { type: 'boolean' },
+              url: { type: 'string', maxLength: 500 },
+              headers: { type: 'object', additionalProperties: { type: 'string' } },
+              byEvents: { type: 'boolean' },
+              events: { type: 'array', items: { type: 'string', enum: EventController.events } },
+            },
+            required: ['enabled', 'url'],
+            allOf: [
+              {
+                if: { properties: { enabled: { const: true } } },
+                then: { properties: { url: { pattern: '^https?://' } } },
+              },
+            ],
+          },
+        },
       },
       required: ['enabled', 'url'],
-      ...isNotEmpty('enabled', 'url'),
+      allOf: [
+        { if: { properties: { enabled: { const: true } } }, then: { properties: { url: { pattern: '^https?://' } } } },
+      ],
     },
   },
   required: ['webhook'],

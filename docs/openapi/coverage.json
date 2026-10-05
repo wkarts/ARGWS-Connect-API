@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-01T07:13:51.938Z",
+  "generatedAt": "2026-10-05T01:56:01.173Z",
   "version": "1.1.16",
-  "sourceDigest": "201d4d7acf84214d4eea5e94f2f1b791fcda4cd02498d5854397b623c0c38179",
+  "sourceDigest": "1e590c98da8d07a7a0376886670de65af833549b39ec53f062cf533bb6c4a25f",
   "operations": [
     {
       "method": "GET",
@@ -119,6 +119,11 @@
       "source": "src/api/routes/chat.router.ts"
     },
     {
+      "method": "DELETE",
+      "path": "/chat/deleteStatus/{instanceName}/{statusId}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
       "method": "POST",
       "path": "/chat/fetchBusinessProfile/{instanceName}",
       "source": "src/api/routes/chat.router.ts"
@@ -156,6 +161,16 @@
     {
       "method": "POST",
       "path": "/chat/findMessages/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/findPublishedStatuses/{instanceName}",
+      "source": "src/api/routes/chat.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/findPublishedStatusViews/{instanceName}/{statusId}",
       "source": "src/api/routes/chat.router.ts"
     },
     {
@@ -1265,6 +1280,131 @@
     },
     {
       "method": "POST",
+      "path": "/v1/speech/dictation",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/dictation/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/dictation/{jobId}/cancel",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/health",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/live",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/models",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/models/{modelId}/activate",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/models/{modelId}/download",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/ready",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/transcriptions",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/speech/transcriptions/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/transcriptions/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions/{jobId}/cancel",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/transcriptions/upload",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/transcriptions",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/transcriptions/{jobId}",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/transcriptions/{jobId}",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/{jobId}/cancel",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/cleanup",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/transcriptions/health",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/transcriptions/upload",
+      "source": "src/api/routes/transcription.router.ts"
+    },
+    {
+      "method": "POST",
       "path": "/verify-creds",
       "source": "src/api/routes/index.router.ts"
     },
@@ -1318,6 +1458,46 @@
     {
       "method": "POST",
       "path": "/graph/{version}/{phoneNumberId}/messages",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/status",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{phoneNumberId}/statuses",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/graph/{version}/{phoneNumberId}/statuses/{statusId}",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{phoneNumberId}/statuses/{statusId}/views",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions/{jobId}",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions/{jobId}",
+      "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/graph/{version}/{phoneNumberId}/transcriptions/{jobId}/retry",
       "source": "src/api/compat/meta-cloud/meta-cloud-graph.router.ts"
     }
   ]

@@ -106,6 +106,124 @@ GET /graph/{version}/{mediaId}
 
 O `mediaId` corresponde ao ID real da mensagem/provider usado na correlação. A resolução usa metadata existente e devolve URL segura/presigned quando disponível.
 
+## Transcrição de áudio
+
+A transcrição pelo contrato Meta Compatible é assíncrona e usa o worker local da
+instalação. Não há dependência de OpenAI. O job fica escopado à instância do
+`phoneNumberId` autenticado.
+
+Para transcrever um áudio já persistido em uma mensagem:
+
+```bash
+curl -X POST 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/transcriptions' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"messaging_product":"whatsapp","message_id":"REAL_AUDIO_MESSAGE_ID","language":"pt"}'
+```
+
+Para enviar um arquivo diretamente, use `multipart/form-data` com o campo
+`audio` (o alias `file` também é aceito). Os formatos aceitos dependem da
+instalação, normalmente OGG/Opus, MP3, M4A, WAV, WEBM e AMR.
+
+```text
+POST /graph/{version}/{phoneNumberId}/transcriptions
+GET  /graph/{version}/{phoneNumberId}/transcriptions/{jobId}
+POST /graph/{version}/{phoneNumberId}/transcriptions/{jobId}/retry
+DELETE /graph/{version}/{phoneNumberId}/transcriptions/{jobId}
+```
+
+O POST retorna `202` e o estado inicial do job. Consulte o `id` retornado até
+`status=completed` ou `status=failed`; a resposta nunca expõe credenciais nem
+permite consultar job de outra instância.
+
+Arquivos enviados diretamente para esse recurso são armazenados no bucket
+privado da aplicação e têm retenção configurável por
+`TRANSCRIPTION_SOURCE_RETENTION_SECONDS` (24 horas por padrão). Após o job
+terminar, o ciclo de vida remove o objeto e o registro/resultado expirados; mídia
+e jobs já pertencentes a uma mensagem da instância não são apagados. Quando a limpeza automática estiver
+desligada (`0`), um administrador pode executar a limpeza manual pela API nativa
+com `POST /v1/transcriptions/cleanup`, enviando `{"confirm":true}` e, se
+necessário, `olderThanSeconds` e `limit`.
+
+Para remover um job individual, use o `DELETE` acima. Jobs na fila ou em
+processamento são cancelados pela remoção do registro; qualquer resultado
+atrasado do worker é ignorado. O `DELETE` também é idempotentemente protegido
+contra a mídia temporária já removida pelo ciclo de vida.
+Em uploads diretos, o áudio temporário também é removido do MinIO; quando o job
+foi criado a partir de uma mensagem, somente o resultado da transcrição é
+removido e a mídia original permanece intacta. Para repetir uma transcrição
+falha, use o endpoint `retry`. Um job `processing` pode ser reenfileirado após
+perder atualizações por todo o limite de abandono configurado. Jobs `queued`
+permanecem sob entrega durável do RabbitMQ; idade da fila, por si só, não os
+reenfileira, pois uma mensagem pode já estar entregue sem confirmação.
+
+## Publicar Status do WhatsApp
+
+Status não é ativado implicitamente ao criar uma instância. A publicação é uma
+ação explícita pelo Manager ou pela rota Meta Compatible, e somente providers
+WhatsApp Web com suporte nativo (Baileys/ZAPO) aceitam essa operação. Business
+retorna erro de capacidade, sem tentar um fallback.
+
+Texto para todos os contatos:
+
+```bash
+curl -X POST 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/status' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "messaging_product":"whatsapp",
+    "type":"text",
+    "text":{"body":"Aviso importante","background_color":"#1d4ed8","font":1},
+    "all_contacts":true
+  }'
+```
+
+Para uma lista controlada, troque `all_contacts` por
+`status_jid_list:["5575999999999"]`. Imagem, vídeo e áudio podem ser enviados
+como `multipart/form-data` no campo `file`, ou referenciados por `link`/`id`.
+O retorno confirma apenas o aceite pelo provider e contém o identificador real
+do envio em `messages[0].id`; não promete entrega ao aparelho.
+
+No Manager, acesse **Comunicação → Status** para publicar, paginar o histórico,
+abrir o conteúdo armazenado, consultar visualizações e solicitar revogação pela mesma conta.
+A prévia de mídia consulta o arquivo sob demanda com a credencial da instância.
+No ZAPO, ela procura primeiro a mídia armazenada no S3/MinIO e depois a cópia
+do mailbox do provider, quando disponível. Novas publicações da API preservam
+uma cópia para prévia quando o S3/MinIO está habilitado (para vídeo, também é
+necessário `S3_SAVE_VIDEO`). Se uma postagem antiga conservar somente
+metadados, o Manager exibe o texto e informa que a mídia não está disponível.
+
+Para consultar e excluir os Status publicados por uma instância:
+
+```bash
+curl 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/statuses?limit=50' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>'
+
+curl -X DELETE 'http://127.0.0.1:38080/graph/v20.0/<phoneNumberId>/statuses/<STATUS_ID>' \
+  -H 'Authorization: Bearer <INSTANCE_TOKEN>'
+```
+
+Essas rotas retornam os Status da própria conta (`status@broadcast`,
+`from_me=true`) observados pela instância durante as 24 horas de vida útil,
+incluindo publicações feitas no celular durante a conexão ou sincronizadas
+pelo histórico do provider. Publicações que não chegam por evento nem pela
+sincronização não podem ser recuperadas do telefone por essa consulta. Status recebidos dos contatos
+não são expostos nessas rotas.
+
+A exclusão solicita a revogação no WhatsApp antes de remover o registro e a
+mídia local. O Baileys usa a lista de destinatários guardada na publicação via
+API; para Status originados no celular, guarda uma fotografia dos contatos
+conhecidos quando recebe o evento (ou usa os contatos atuais se a lista estava
+vazia), pois o evento do dispositivo não traz a audiência original. Se não
+houver destinatários conhecidos, a operação retorna erro e mantém o registro.
+O aceite do provider não confirma a entrega do comando a cada aparelho.
+No ZAPO, a revogação usa o coordenador próprio de Status do provider. Para
+publicações feitas pela API, usa os destinatários registrados na publicação;
+para as originadas no celular sem audiência armazenada, usa os contatos conhecidos
+pela instância. A ausência de destinatários ou uma falha do provider mantém o
+Status no histórico e retorna erro explícito. Uma resposta HTTP de sucesso
+confirma apenas o aceite do comando pelo provider.
+
 ## Templates
 
 ```text

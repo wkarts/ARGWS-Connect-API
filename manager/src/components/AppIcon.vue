@@ -41,9 +41,13 @@ const icons: Record<string, string[]> = {
   close: ['M18 6 6 18','M6 6l12 12'],
   minus: ['M5 12h14'],
   arrow: ['M5 12h14','m13 6 6 6-6 6'],
+  download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4','m7 10 5 5 5-5','M12 15V3'],
   copy: ['M8 8h11v11H8z','M5 16H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1'],
   check: ['m5 12 4 4L19 6'],
   warning: ['M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0z','M12 9v4','M12 17h.01'],
+  pause: ['M8 5v14','M16 5v14'],
+  stop: ['M6 6h12v12H6z'],
+  trash: ['M4 7h16','M10 11v6','M14 11v6','M6 7l1 13h10l1-13','M9 7V4h6v3','M3 7h18'],
 }
 </script>
 

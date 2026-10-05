@@ -42,6 +42,37 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
+Os workers de voz usam o profile `transcription`: um consome `speech.transcription`
+e outro consome `speech.dictation` para manter ditados curtos fora da fila de
+áudios longos. O template `develop` já seleciona esse profile e habilita o
+recurso. Em outras stacks, acrescente `transcription` aos profiles existentes e
+defina `SPEECH_ENABLED=true` (`TRANSCRIPTION_ENABLED=true` segue aceito como
+fallback legado). Ao iniciar, a API baixa a revisão fixada do
+`Xenova/whisper-small` para `./models` se o modelo ainda não estiver instalado;
+os workers aguardam o arquivo ficar pronto. Também é possível iniciar ou repetir
+o download pelo painel Gerenciador → Transcrição de áudio. São cerca de 250 MB
+baixados uma vez; o volume é compartilhado pela API (leitura e escrita) e pelos
+workers (somente leitura), então os arquivos continuam disponíveis depois de
+reiniciar ou atualizar os containers. Preserve `./models` entre implantações.
+Os pesos não são empacotados na imagem GHCR nem guardados em `/tmp`.
+
+```dotenv
+SPEECH_ENABLED=true
+SPEECH_PROVIDER=local
+SPEECH_MODEL=Xenova/whisper-small
+SPEECH_MODELS_HOST_PATH=./models
+SPEECH_MODEL_PATH=/models/Xenova/whisper-small
+TRANSCRIPTION_WORKER_TMPFS_SIZE=1g
+SPEECH_WORKER_MEMORY=4g
+SPEECH_WORKER_CPUS=2.00
+```
+
+Para uma instalação sem acesso à Internet, copie os pesos compatíveis para o
+volume e gere o manifesto SHA-256 com
+`node transcription-worker/scripts/create-model-manifest.cjs <diretório-do-modelo>`.
+Consulte [o guia de voz](../docs/guides/speech.md) para os endpoints, limites e
+passos de provisionamento.
+
 Kafka e ZooKeeper dependem do service interno `volume-init`. Ele fica saudável
 em execução depois de preparar apenas diretórios vazios, por isso não deixa a
 stack como encerrada no Dockge. Diretórios com dados e proprietário incompatível

@@ -45,6 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import os
           import json
           import re
           import subprocess
@@ -76,7 +77,7 @@ jobs:
               },
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
-          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'volume-init')
+          optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'transcription-worker', 'speech-dictation-worker', 'volume-init')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
@@ -112,7 +113,13 @@ jobs:
                   if all_profiles:
                       cmd += ['--profile', '*']
                   cmd += ['-f', compose_path, 'config', '--format', 'json']
-                  return json.loads(subprocess.check_output(cmd, text=True))
+                  environment = None
+                  if not all_profiles:
+                      # An env.example may intentionally enable a profile for
+                      # develop; this assertion checks the profile-free core.
+                      environment = os.environ.copy()
+                      environment['COMPOSE_PROFILES'] = 'operations' if stack in ('production', 'develop') else ''
+                  return json.loads(subprocess.check_output(cmd, text=True, env=environment))
 
               default = compose_json(False)
               full = compose_json(True)
@@ -131,9 +138,13 @@ jobs:
               )
 
               for service_name, cfg in full['services'].items():
-                  assert cfg.get('container_name') == service_name, (
-                      f'{stack}: container_name deve ser igual ao service: {service_name}'
-                  )
+                  if service_name == f'transcription-worker-{suffix}':
+                      assert not cfg.get('container_name'), f'{stack}: worker escalável não pode fixar container_name'
+                      assert int(cfg.get('scale', 0)) >= 1, f'{stack}: escala de transcrição inválida'
+                  else:
+                      assert cfg.get('container_name') == service_name, (
+                          f'{stack}: container_name deve ser igual ao service: {service_name}'
+                      )
                   ports = cfg.get('ports', [])
                   if service_name == f'api-{suffix}':
                       assert len(ports) == 1, f'{stack}: API deve publicar exatamente uma porta'
@@ -174,6 +185,15 @@ jobs:
               assert mysql_volume_init.get('read_only') is True and not mysql_volume_init.get('privileged'), f'{stack}: mysql-volume-init deve ser limitado'
               assert set(mysql_volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: mysql-volume-init recebeu capabilities indevidas'
               assert mysql.get('depends_on', {})[f'mysql-volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: MySQL deve aguardar mysql-volume-init'
+
+              transcription_worker = full['services'][f'transcription-worker-{suffix}']
+              assert transcription_worker.get('profiles') == ['transcription'], f'{stack}: worker de transcricao deve ser opcional'
+              assert not any('transcription-models' in str(mount) or '/home/node/.cache/huggingface' in str(mount) for mount in transcription_worker.get('volumes', [])), f'{stack}: worker nao pode montar cache de modelo no host'
+              assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == 'transcription-models', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
+
+              dictation_worker = full['services'][f'speech-dictation-worker-{suffix}']
+              assert dictation_worker.get('profiles') == ['transcription'], f'{stack}: worker de ditado deve ser opcional'
+              assert dictation_worker.get('environment', {}).get('SPEECH_WORKER_MODE') == 'dictation', f'{stack}: worker de ditado deve consumir somente sua fila'
 
               volume_init = full['services'][f'volume-init-{suffix}']
               assert volume_init.get('profiles') == ['kafka', 'extended'], f'{stack}: volume-init deve acompanhar Kafka'

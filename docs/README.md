@@ -161,7 +161,7 @@ O workflow `Docs Integrity` também constrói a imagem `docs/Dockerfile`, valida
 
 ## Deploy automático de desenvolvimento
 
-A pipeline `GHCR - Publish Development Images`, disparada por push em `develop`, publica API, Manager e DOCs para amd64/arm64. O canal de documentação é:
+A pipeline `GHCR - Publish Development Images`, disparada por push em `develop`, publica API, Manager, DOCs e o worker de transcrição para amd64/arm64. O canal de documentação é:
 
 ```text
 ghcr.io/wkarts/argws-connect-docs:develop
@@ -219,3 +219,9 @@ Em deployments com reverse proxy, a URL canônica é `/docs/`. Existe também `d
 [Guia completo de implantação e autenticação](guides/google-find-hub.md). A chave
 local é definida e preservada diretamente no `.env`, sem rotação automática. O
 Scalar inclui o documento `openapi/findhub.openapi.json`.
+
+## Voz
+
+[Guia de voz, ditado e transcrição](guides/speech.md) cobre as duas filas, a configuração do worker offline, o provisionamento verificado de modelos e os endpoints `/v1/speech`.
+
+[Guia de webhooks por instância](guides/webhooks.md) explica múltiplos destinos, a opção de rota por evento e como recuperar um receptor que responde HTTP 404.
