@@ -419,6 +419,12 @@ export const current = {
     }))
   },
 
+  async statusMedia(id: string, statusId: string): Promise<{ base64: string; mimetype: string }> {
+    return withInstance(id, async (_item, name, token) => api(`/chat/getBase64FromMediaMessage/${encodeURIComponent(name)}`, {
+      method: 'POST', token, data: { message: { key: { id: statusId, remoteJid: 'status@broadcast', fromMe: true } } },
+    }))
+  },
+
   async testMessageContacts(id: string, page = 1): Promise<{ items: ContactItem[]; hasMore: boolean }> {
     if (!featureEnabled('testMessageContacts', false)) throw new CurrentApiError('Seleção de contatos desabilitada.', 403)
     if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new CurrentApiError('Página inválida.', 400)
