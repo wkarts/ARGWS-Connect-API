@@ -57,7 +57,7 @@ onMounted(loadSpeechHealth)
           <div><span>Worker de ditado</span><strong>{{ speechHealth.dictationWorkerReady ? 'Pronto' : 'Indisponível' }}</strong></div>
           <div><span>Fila de transcrição</span><strong>{{ Number(speechHealth.queuedJobs || 0) }}</strong></div>
           <div><span>Fila de ditado</span><strong>{{ Number(speechHealth.dictationQueuedJobs || 0) }}</strong></div>
-          <small>Os modelos são carregados do volume local ou do cache privado configurado. O worker não baixa modelos durante a execução.</small>
+          <small>A API instala o modelo em ./models e os workers reutilizam os arquivos desse volume após reinícios e atualizações.</small>
         </div>
       </PanelCard>
       <PanelCard v-if="accountMode" title="Alterar senha">

@@ -2,9 +2,7 @@ ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
 FROM ${NODE_IMAGE} AS runtime
 
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--enable-source-maps \
-    TRANSFORMERS_CACHE=/tmp/argws-connect-transcription-model-cache \
-    HF_HOME=/tmp/argws-connect-transcription-model-cache
+    NODE_OPTIONS=--enable-source-maps
 
 WORKDIR /opt/argws-connect-transcription-worker
 
@@ -17,8 +15,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY src ./src
 COPY scripts ./scripts
-RUN mkdir -p /tmp/argws-connect-transcription-model-cache \
-  && chown -R node:node /opt/argws-connect-transcription-worker /tmp/argws-connect-transcription-model-cache
+RUN chown -R node:node /opt/argws-connect-transcription-worker
 
 USER node
 

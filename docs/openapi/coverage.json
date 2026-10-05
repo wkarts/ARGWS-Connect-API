@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-04T21:58:36.072Z",
+  "generatedAt": "2026-10-05T01:56:01.173Z",
   "version": "1.1.16",
-  "sourceDigest": "4c359d2f42acc3377bb7a088185fbd78eeeeb3e6bcce85d05de5b4ee01253336",
+  "sourceDigest": "1e590c98da8d07a7a0376886670de65af833549b39ec53f062cf533bb6c4a25f",
   "operations": [
     {
       "method": "GET",
@@ -1311,6 +1311,11 @@
     {
       "method": "POST",
       "path": "/v1/speech/models/{modelId}/activate",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/models/{modelId}/download",
       "source": "src/api/routes/speech.router.ts"
     },
     {

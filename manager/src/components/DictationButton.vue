@@ -6,6 +6,7 @@ import { friendlyError } from '@/services/errors'
 
 type InsertMode = 'append' | 'replace' | 'insert-at-cursor'
 type DictationState = 'idle' | 'requesting_permission' | 'listening' | 'processing' | 'completed' | 'error'
+const MIN_RECORDING_BYTES = 256
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -30,6 +31,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const state = ref<DictationState>('idle')
 const error = ref('')
+const retryAudio = ref<File | null>(null)
+const retryDurationMs = ref(0)
+const retryIdempotencyKey = ref('')
 const elapsedSeconds = ref(0)
 const stage = ref('')
 const progress = ref(0)
@@ -264,21 +268,39 @@ async function finishRecording() {
   chunks = []
   stopAudioResources()
   if (!capturedChunks.length || disposed.value) {
-    state.value = 'idle'
+    if (!disposed.value) {
+      state.value = 'error'
+      error.value = 'O microfone não capturou áudio. Confira a permissão e o nível do microfone e tente novamente.'
+    }
     return
   }
   const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm'
-  const audio = new File([new Blob(capturedChunks, { type: mimeType })], `ditado.${extension}`, { type: mimeType.split(';')[0] })
+  const blob = new Blob(capturedChunks, { type: mimeType })
+  if (blob.size < MIN_RECORDING_BYTES) {
+    state.value = 'error'
+    error.value = 'O áudio ficou vazio ou curto demais. Fale perto do microfone e grave novamente.'
+    return
+  }
+  const audio = new File([blob], `ditado.${extension}`, { type: mimeType.split(';')[0] })
+  await submitAudio(audio, durationMs)
+}
+
+async function submitAudio(audio: File, durationMs: number, idempotencyKey = crypto.randomUUID()) {
   state.value = 'processing'
   stage.value = 'queued'
   progress.value = 0
+  error.value = ''
+  let accepted = false
   try {
     const job = await connect.dictate(audio, {
       language: props.language,
       instanceId: props.instanceId,
       durationMs,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
     })
+    accepted = true
+    retryAudio.value = null
+    retryIdempotencyKey.value = ''
     if (disposed.value || state.value !== 'processing') {
       void connect.cancelDictation(job.id).catch(() => undefined)
       return
@@ -287,10 +309,19 @@ async function finishRecording() {
     await waitForResult(job.id)
   } catch (cause) {
     if (!disposed.value && state.value === 'processing') {
+      if (!accepted) {
+        retryAudio.value = audio
+        retryDurationMs.value = durationMs
+        retryIdempotencyKey.value = idempotencyKey
+      }
       state.value = 'error'
       error.value = friendlyError(cause, 'Não foi possível enviar o áudio para ditado.')
     }
   }
+}
+
+function retryDictation() {
+  if (retryAudio.value) void submitAudio(retryAudio.value, retryDurationMs.value, retryIdempotencyKey.value)
 }
 
 async function toggle() {
@@ -300,6 +331,7 @@ async function toggle() {
   }
   if (state.value === 'requesting_permission' || state.value === 'processing') return
   state.value = 'idle'
+  retryAudio.value = null
   await startRecording()
 }
 
@@ -369,6 +401,7 @@ onBeforeUnmount(() => {
     <button v-if="state === 'listening' || state === 'processing'" class="dictation-cancel" type="button" aria-label="Cancelar ditado" @click="cancel">Cancelar</button>
     <span v-else-if="state === 'completed'" class="dictation-feedback success" role="status">Texto inserido</span>
     <span v-if="error" class="dictation-error" role="alert">{{ error }}</span>
+    <button v-if="state === 'error' && retryAudio" type="button" class="dictation-retry" @click="retryDictation">Tentar este áudio novamente</button>
   </div>
 </template>
 

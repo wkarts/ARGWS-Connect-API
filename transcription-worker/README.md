@@ -10,18 +10,32 @@ TRANSCRIPTION_PROVIDER=local
 TRANSCRIPTION_LOCAL_MODEL=Xenova/whisper-small
 TRANSCRIPTION_LOCAL_DEVICE=cpu
 TRANSCRIPTION_LOCAL_DTYPE=q8
-TRANSCRIPTION_MODEL_CACHE_DIR=/tmp/argws-connect-transcription-model-cache
-TRANSCRIPTION_MODEL_STORAGE_PREFIX=transcription-models
+SPEECH_MODEL_PATH=/models/Xenova/whisper-small
+SPEECH_MODELS_HOST_PATH=./models
 TRANSCRIPTION_SOURCE_RETENTION_SECONDS=86400
 TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS=900
 ```
 
-O primeiro job restaura o modelo configurado do bucket S3/MinIO da aplicação
-para o diretório temporário `TRANSCRIPTION_MODEL_CACHE_DIR` dentro do worker.
-Se ainda não existir no bucket, o Transformers.js baixa o modelo e o worker
-persiste o cache no mesmo bucket. Não há bind mount de
-`./volumes/transcription-models`, serviço de init ou dependência de diretório do
-host; recriar o container só refaz o staging temporário.
+Ao iniciar, a API baixa `Xenova/whisper-small` se ele ainda não estiver no
+diretório persistente `./models`. A tela **Baixar modelo** no Gerenciador
+permite iniciar ou repetir a instalação manualmente. Os workers montam o mesmo
+volume somente para leitura em `/models`. O arquivo de imagem GHCR não inclui
+os pesos. O worker aguarda o modelo no volume, valida o manifesto SHA-256 e
+carrega a pipeline uma vez por processo. Jobs seguintes usam a mesma pipeline
+em memória, e reiniciar ou atualizar containers reutiliza os arquivos locais.
+
+O modelo q8 ocupa aproximadamente 250 MB. Acompanhe o primeiro download em
+**Gerenciador → Transcrição de áudio** e envie novamente quando o modelo e o
+worker estiverem prontos. No ditado pelo microfone, o Manager conserva o áudio
+capturado para nova tentativa.
+
+Para instalações sem acesso à Internet, copie manualmente os arquivos do
+modelo para `./models/Xenova/whisper-small` e crie o manifesto com
+```bash
+node transcription-worker/scripts/create-model-manifest.cjs ./models/Xenova/whisper-small
+```
+
+Faça isso antes de iniciar os workers.
 
 Os áudios enviados ficam no MinIO privado da aplicação; o estado e o resultado
 textual do job continuam no banco da Connect|API.
@@ -68,10 +82,11 @@ docker compose config --services | grep transcription
 docker compose ps -a | grep transcription
 ```
 
-Se a API responder `503` informando que o worker não está ativo, o perfil não
-foi incluído no `COMPOSE_PROFILES` da stack ou o worker ainda não ficou
-`healthy`. Recrie somente o `transcription-worker-*`; o modelo será restaurado
-do bucket automaticamente.
+Se a API responder `503` informando que o modelo está baixando, aguarde a
+conclusão em **Gerenciador → Transcrição de áudio** e tente novamente. Se o
+worker continuar indisponível depois da instalação, confira se o perfil foi
+incluído no `COMPOSE_PROFILES` e se ambos os workers montam o mesmo
+`SPEECH_MODELS_HOST_PATH`.
 
 O Manager também pode gravar pelo microfone usando `MediaRecorder`. A gravação
 é limitada a 60 minutos, pode ser pausada, retomada ou descartada, e mostra o

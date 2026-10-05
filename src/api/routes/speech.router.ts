@@ -33,6 +33,7 @@ export class SpeechRouter {
     this.router.get('/health', (req, res) => void this.health(req, res));
     this.router.get('/models', (req, res) => void this.models(req, res));
     this.router.post('/models/:modelId/activate', (req, res) => void this.activateModel(req, res));
+    this.router.post('/models/:modelId/download', (req, res) => void this.downloadModel(req, res));
 
     this.router.post('/dictation', (req, res) =>
       this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)),
@@ -214,7 +215,7 @@ export class SpeechRouter {
 
   private async models(_req: any, res: Response) {
     try {
-      const health = await this.service.health();
+      const [health, modelDownload] = await Promise.all([this.service.health(), this.service.modelDownloadStatus()]);
       const id = String(health.model || 'Xenova/whisper-small');
       res.set('Cache-Control', 'no-store').json({
         provider: health.provider,
@@ -223,7 +224,15 @@ export class SpeechRouter {
             id,
             name: id.split('/').pop(),
             language: process.env.SPEECH_LANGUAGE || 'pt-BR',
-            status: health.workerReady || health.dictationWorkerReady ? 'ready' : 'unavailable',
+            status: modelDownload.status,
+            downloadAvailable: modelDownload.available,
+            installed: modelDownload.installed,
+            progressPercent: modelDownload.progressPercent,
+            downloadedBytes: modelDownload.downloadedBytes,
+            totalBytes: modelDownload.totalBytes,
+            errorMessage: modelDownload.errorMessage,
+            revision: modelDownload.revision,
+            workerReady: health.workerReady || health.dictationWorkerReady,
             active: true,
           },
         ],
@@ -245,6 +254,18 @@ export class SpeechRouter {
       res
         .set('Cache-Control', 'no-store')
         .json({ id: health.model, active: true, ready: health.workerReady || health.dictationWorkerReady });
+    } catch (error) {
+      this.fail(error, res);
+    }
+  }
+
+  private async downloadModel(req: any, res: Response) {
+    try {
+      const status = await this.service.downloadModel(String(req.params.modelId || ''));
+      res
+        .set('Cache-Control', 'no-store')
+        .status(status.installed ? 200 : 202)
+        .json(status);
     } catch (error) {
       this.fail(error, res);
     }

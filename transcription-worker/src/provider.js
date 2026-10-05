@@ -42,8 +42,6 @@ function decodeAudio(filePath) {
 }
 
 async function prepareModelCache(config) {
-  const cacheDir = path.resolve(config.local.cacheDir);
-  await fsp.mkdir(cacheDir, { recursive: true });
   if (config.local.modelPath) {
     const modelPath = path.resolve(config.local.modelPath);
     try {
@@ -52,8 +50,11 @@ async function prepareModelCache(config) {
       throw withCode(new Error('SPEECH_MODEL_PATH não existe: ' + modelPath), 'MODEL_MISSING');
     }
     await verifyModelDirectory(modelPath);
-    return cacheDir;
+    return modelPath;
   }
+
+  const cacheDir = path.resolve(config.local.cacheDir);
+  await fsp.mkdir(cacheDir, { recursive: true });
 
   const namespace = String(config.local.model || '').split('/').filter(Boolean)[0];
   if (namespace) await fsp.mkdir(path.join(cacheDir, namespace), { recursive: true });
@@ -201,19 +202,21 @@ class SpeechCancelledError extends Error {
   }
 }
 
-function createProvider(config) {
+function createProvider(config, dependencies = {}) {
   if (config.provider !== 'local') throw new Error('SPEECH_PROVIDER não suportado: ' + config.provider);
+  const loadPipeline = dependencies.createPipeline || (() => createPipeline(config));
+  const decode = dependencies.decodeAudio || decodeAudio;
 
   return {
     async warmup() {
-      const transcriber = await createPipeline(config);
+      const transcriber = await loadPipeline();
       await transcriber(new Float32Array(1600), { task: 'transcribe', return_timestamps: false });
       return { model: config.local.model, loaded: true };
     },
 
     async transcribe(filePath, input = {}) {
       await input.onProgress?.({ stage: 'normalizing', progressPercent: 8, processedDurationMs: 0 });
-      const decoded = await decodeAudio(filePath);
+      const decoded = await decode(filePath);
       if (input.isCancelled?.()) throw new SpeechCancelledError();
 
       await input.onProgress?.({ stage: 'voice_activity_detection', progressPercent: 14, processedDurationMs: 0 });
@@ -222,11 +225,14 @@ function createProvider(config) {
         throw Object.assign(new Error('Não foi identificada fala neste áudio.'), { code: 'NO_SPEECH', retryable: false });
       }
       const chunks = chunkRegions(regions, config.chunkSeconds, config.strideSeconds);
-      const transcriber = await createPipeline(config);
+      const transcriber = await loadPipeline();
       let partialText = '';
       let processedSamples = 0;
       const segments = [];
       const requestedLanguage = languageCode(input.language);
+      // Dictation inserts plain text and does not display word timings. Skipping
+      // timestamp decoding removes extra work from the short, interactive path.
+      const returnTimestamps = input.mode !== 'dictation';
       await input.onProgress?.({ stage: 'transcribing', progressPercent: 20, processedDurationMs: 0, partialText });
 
       for (let index = 0; index < chunks.length; index += 1) {
@@ -235,12 +241,12 @@ function createProvider(config) {
         const samples = decoded.samples.subarray(chunk.start, chunk.end);
         const result = await transcriber(samples, {
           task: 'transcribe',
-          return_timestamps: true,
+          return_timestamps: returnTimestamps,
           ...(requestedLanguage ? { language: requestedLanguage } : {}),
         });
         const text = String(result?.text || '').trim();
         partialText = mergeOverlappingText(partialText, text);
-        segments.push(...normalizeSegments(result?.chunks, chunk.start, decoded.durationMs));
+        if (returnTimestamps) segments.push(...normalizeSegments(result?.chunks, chunk.start, decoded.durationMs));
         processedSamples += samples.length;
         await input.onProgress?.({
           stage: 'transcribing',

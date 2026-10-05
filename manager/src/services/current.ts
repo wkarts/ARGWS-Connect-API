@@ -880,6 +880,9 @@ export const current = {
   async transcriptionHealth(): Promise<any> {
     return api<any>('/v1/transcriptions/health')
   },
+  async downloadSpeechModel(modelId: string): Promise<any> {
+    return api<any>(`/v1/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', timeout: 60000 })
+  },
   async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
     const data = new FormData()
     data.append('audio', file, file.name)
