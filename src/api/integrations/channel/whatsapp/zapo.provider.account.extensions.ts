@@ -279,7 +279,8 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
             ),
           ),
         ];
-        if (!recipients.length) throw new BadRequestException('Não há destinatários conhecidos para revogar este Status.');
+        if (!recipients.length)
+          throw new BadRequestException('Não há destinatários conhecidos para revogar este Status.');
         result = await this.connectedClient().status.revokeStatus({ messageId, recipients });
       } else {
         result = await this.connectedClient().message.send(jid, { type: 'revoke', target });
