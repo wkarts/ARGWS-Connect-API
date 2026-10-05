@@ -1597,6 +1597,7 @@ export class BaileysStartupService extends ChannelStartupService {
           if (
             this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
             this.localChatwoot?.enabled &&
+            !isStatusMessage &&
             !received.key.id.includes('@broadcast')
           ) {
             const chatwootSentMessage = await this.chatwootService.eventWhatsapp(
@@ -1612,7 +1613,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
           }
 
-          if (this.configService.get<Openai>('OPENAI').ENABLED && received?.message?.audioMessage) {
+          if (!isStatusMessage && this.configService.get<Openai>('OPENAI').ENABLED && received?.message?.audioMessage) {
             const openAiDefaultSettings = await this.prismaRepository.openaiSetting.findFirst({
               where: { instanceId: this.instanceId },
               include: { OpenaiCreds: true },
@@ -1755,6 +1756,8 @@ export class BaileysStartupService extends ChannelStartupService {
           console.log(messageRaw);
 
           this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
+
+          if (isStatusMessage) continue;
 
           await chatbotController.emit({
             instance: { instanceName: this.instance.name, instanceId: this.instanceId },
@@ -2762,7 +2765,12 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const isVideo = messageSent?.message?.videoMessage;
 
-      if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled && !isIntegration) {
+      if (
+        this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
+        this.localChatwoot?.enabled &&
+        !isIntegration &&
+        messageRaw.key?.remoteJid !== STATUS_BROADCAST_JID
+      ) {
         this.chatwootService.eventWhatsapp(
           Events.SEND_MESSAGE,
           { instanceName: this.instance.name, instanceId: this.instanceId },
@@ -2770,7 +2778,11 @@ export class BaileysStartupService extends ChannelStartupService {
         );
       }
 
-      if (this.configService.get<Openai>('OPENAI').ENABLED && messageRaw?.message?.audioMessage) {
+      if (
+        this.configService.get<Openai>('OPENAI').ENABLED &&
+        messageRaw?.message?.audioMessage &&
+        messageRaw.key?.remoteJid !== STATUS_BROADCAST_JID
+      ) {
         const openAiDefaultSettings = await this.prismaRepository.openaiSetting.findFirst({
           where: { instanceId: this.instanceId },
           include: { OpenaiCreds: true },
