@@ -1434,9 +1434,10 @@ export class TranscriptionService {
   private isStaleJob(job: any): boolean {
     if (String(job?.status) !== 'processing') return false;
     const updatedAt = new Date(job?.updatedAt || job?.heartbeatAt || job?.createdAt || 0).getTime();
-    const retryDelay = String(job?.stage) === 'retrying'
-      ? RETRY_DELAYS_MS[Math.min(RETRY_DELAYS_MS.length - 1, Math.max(0, Number(job?.attempts || 1) - 1))]
-      : 0;
+    const retryDelay =
+      String(job?.stage) === 'retrying'
+        ? RETRY_DELAYS_MS[Math.min(RETRY_DELAYS_MS.length - 1, Math.max(0, Number(job?.attempts || 1) - 1))]
+        : 0;
     return Number.isFinite(updatedAt) && Date.now() - updatedAt >= retryDelay + this.staleJobSeconds() * 1000;
   }
 
