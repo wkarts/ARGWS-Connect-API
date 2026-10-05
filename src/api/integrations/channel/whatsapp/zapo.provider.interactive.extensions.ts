@@ -431,21 +431,31 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
           });
         }
         const s3 = this.configService.get<S3>('S3');
-        if (type !== 'text' && Buffer.isBuffer(content.media) && s3?.ENABLE &&
-          (type !== 'video' || s3.SAVE_VIDEO)) {
+        if (type !== 'text' && Buffer.isBuffer(content.media) && s3?.ENABLE && (type !== 'video' || s3.SAVE_VIDEO)) {
           const fileName = `${this.instanceId}/status@broadcast/${type}/${randomUUID()}`;
-          const uploaded = await s3Service.uploadFile(fileName, content.media, content.media.length, {
-            'Content-Type': content.mimetype,
-          });
-          if (uploaded && !(uploaded instanceof Error)) {
-            await this.prismaRepository.media.upsert({
-              where: { messageId: storedMessage.id },
-              update: { fileName, type, mimetype: content.mimetype, instanceId: this.instanceId },
-              create: { fileName, type, mimetype: content.mimetype, instanceId: this.instanceId,
-                messageId: storedMessage.id },
+          try {
+            const uploaded = await s3Service.uploadFile(fileName, content.media, content.media.length, {
+              'Content-Type': content.mimetype,
             });
-          } else {
-            this.logger.warn(`Status ${result.id} publicado sem prévia de mídia: armazenamento indisponível`);
+            if (!uploaded || uploaded instanceof Error) throw new Error('Armazenamento indisponível');
+            try {
+              await this.prismaRepository.media.upsert({
+                where: { messageId: storedMessage.id },
+                update: { fileName, type, mimetype: content.mimetype, instanceId: this.instanceId },
+                create: {
+                  fileName,
+                  type,
+                  mimetype: content.mimetype,
+                  instanceId: this.instanceId,
+                  messageId: storedMessage.id,
+                },
+              });
+            } catch (error) {
+              await s3Service.deleteStoredFile(fileName);
+              throw error;
+            }
+          } catch (error) {
+            this.logger.warn(`Status ${result.id} publicado sem prévia de mídia: ${(error as Error)?.message || error}`);
           }
         }
       } catch (error) {
