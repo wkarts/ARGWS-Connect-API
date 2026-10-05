@@ -38,7 +38,10 @@ export const webhookSchema: JSONSchema7 = {
             },
             required: ['enabled', 'url'],
             allOf: [
-              { if: { properties: { enabled: { const: true } } }, then: { properties: { url: { pattern: '^https?://' } } } },
+              {
+                if: { properties: { enabled: { const: true } } },
+                then: { properties: { url: { pattern: '^https?://' } } },
+              },
             ],
           },
         },
