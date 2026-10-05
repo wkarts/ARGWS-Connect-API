@@ -1,5 +1,5 @@
-import { IntegrationDto } from '@api/integrations/integration.dto';
 import { AdditionalWebhookTarget } from '@api/integrations/event/event.dto';
+import { IntegrationDto } from '@api/integrations/integration.dto';
 import { JsonValue } from '@prisma/client/runtime/library';
 import { WAPresence } from 'baileys';
 
