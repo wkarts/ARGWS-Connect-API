@@ -189,6 +189,7 @@ export class EventManager {
           headers: data.webhook?.headers,
           base64: data.webhook?.base64,
           byEvents: data.webhook?.byEvents,
+          additionalTargets: data.webhook?.additionalTargets,
         },
       });
     }
