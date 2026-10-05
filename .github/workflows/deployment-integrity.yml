@@ -138,9 +138,13 @@ jobs:
               )
 
               for service_name, cfg in full['services'].items():
-                  assert cfg.get('container_name') == service_name, (
-                      f'{stack}: container_name deve ser igual ao service: {service_name}'
-                  )
+                  if service_name == f'transcription-worker-{suffix}':
+                      assert not cfg.get('container_name'), f'{stack}: worker escalável não pode fixar container_name'
+                      assert int(cfg.get('scale', 0)) >= 1, f'{stack}: escala de transcrição inválida'
+                  else:
+                      assert cfg.get('container_name') == service_name, (
+                          f'{stack}: container_name deve ser igual ao service: {service_name}'
+                      )
                   ports = cfg.get('ports', [])
                   if service_name == f'api-{suffix}':
                       assert len(ports) == 1, f'{stack}: API deve publicar exatamente uma porta'
