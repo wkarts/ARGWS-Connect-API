@@ -2,6 +2,7 @@ import { Button, SendButtonsDto, SendListDto, SendStatusDto, TypeButton } from '
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
+import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { normalizeStatusRecipient, selectStatusRecipientJids } from '@utils/status-recipient.utils';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
@@ -401,21 +402,25 @@ export class ZapoInteractiveStartupService extends ZapoGroupStartupService {
       // Zapo does not emit an outgoing status echo when readStatus is off.
       // Keep a JSON-safe history row so the Manager/API can list and revoke
       // the exact status without storing the binary payload in PostgreSQL.
-      if (result?.id) {
-        const persistedMessage =
-          type === 'text' ? content : { type, caption: data.caption || null, mimetype: content.mimetype || null };
-        await this.prismaRepository.message
-          .create({
-            data: {
-              key: { id: String(result.id), remoteJid: 'status@broadcast', fromMe: true },
-              messageType: `status${type}`,
-              message: { status: persistedMessage },
-              messageTimestamp: Math.floor(Date.now() / 1000),
-              source: 'web',
-              instanceId: this.instanceId,
-            },
-          })
-          .catch((error) => this.logger.warn('Unable to persist outgoing Zapo status: ' + (error?.message || error)));
+      if (!result?.id) throw new InternalServerErrorException('Status enviado sem identificador de publicação pelo provider.');
+      const persistedMessage =
+        type === 'text' ? content : { type, caption: data.caption || null, mimetype: content.mimetype || null };
+      try {
+        const previous = await this.prismaRepository.message.findFirst({
+          where: { instanceId: this.instanceId, key: { path: prismaJsonPath('id'), equals: String(result.id) } },
+        });
+        if (!previous) await this.prismaRepository.message.create({
+          data: {
+            key: { id: String(result.id), remoteJid: 'status@broadcast', fromMe: true, statusRecipients: recipients },
+            messageType: `status${type}`,
+            message: { status: persistedMessage },
+            messageTimestamp: Math.floor(Date.now() / 1000),
+            source: 'web',
+            instanceId: this.instanceId,
+          },
+        });
+      } catch (error) {
+        throw new InternalServerErrorException(`Status ${result.id} enviado, mas falhou ao gravar o histórico.`, (error as Error)?.message);
       }
 
       return {

@@ -245,6 +245,9 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
       }
 
       const storedMessage = await this.findStoredMessage(messageId);
+      if (jid === 'status@broadcast' && !storedMessage) {
+        throw new NotFoundException('Published Status not found for this instance');
+      }
       if (jid === 'status@broadcast' && storedMessage) {
         const statusKey =
           typeof storedMessage?.key === 'object' && storedMessage.key !== null
@@ -265,6 +268,9 @@ export class ZapoAccountStartupService extends ZapoExtendedStartupService {
         type: 'revoke',
         target,
       });
+      if (jid === 'status@broadcast' && !result) {
+        throw new InternalServerErrorException('Status revoke was not confirmed by the provider');
+      }
 
       const logicalDelete = this.configService.get<Database>('DATABASE').DELETE_DATA.LOGICAL_MESSAGE_DELETE;
       let webhookMessage: any = storedMessage;
