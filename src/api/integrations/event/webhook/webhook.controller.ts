@@ -36,7 +36,10 @@ export class WebhookController extends EventController implements EventControlle
     if (config.enabled && !validateUrl(url)) {
       throw new BadRequestException('A URL do webhook principal precisa ser HTTP ou HTTPS.');
     }
-    if (config.additionalTargets !== undefined && (!Array.isArray(config.additionalTargets) || config.additionalTargets.length > 10)) {
+    if (
+      config.additionalTargets !== undefined &&
+      (!Array.isArray(config.additionalTargets) || config.additionalTargets.length > 10)
+    ) {
       throw new BadRequestException('Informe no máximo dez destinos adicionais.');
     }
     if (config.additionalTargets?.some((target) => target.enabled && !validateUrl(target.url))) {
@@ -44,7 +47,7 @@ export class WebhookController extends EventController implements EventControlle
     }
 
     const instance = this.monitor.waInstances[instanceName];
-    const events = config.enabled && !config.events?.length ? EventController.events : config.events ?? [];
+    const events = config.enabled && !config.events?.length ? EventController.events : (config.events ?? []);
     const additionalTargets = config.additionalTargets?.map((target) => ({
       name: target.name?.trim() || '',
       enabled: target.enabled,
@@ -139,16 +142,28 @@ export class WebhookController extends EventController implements EventControlle
         : [];
       for (const target of [primary, ...additional]) {
         if (!target.enabled || !target.url || (target.events?.length && !target.events.includes(we))) continue;
-        deliveries.push(this.deliverTarget(target, payload, transformedWe, origin, serverUrl, enabledLog, webhookConfig));
+        deliveries.push(
+          this.deliverTarget(target, payload, transformedWe, origin, serverUrl, enabledLog, webhookConfig),
+        );
       }
     }
 
     if (webhookConfig.GLOBAL?.ENABLED && webhookConfig.EVENTS[we]) {
-      deliveries.push(this.deliverTarget({
-        enabled: true,
-        url: webhookConfig.GLOBAL.URL,
-        byEvents: webhookConfig.GLOBAL.WEBHOOK_BY_EVENTS,
-      }, payload, transformedWe, `${origin}-Global`, serverUrl, enabledLog, webhookConfig));
+      deliveries.push(
+        this.deliverTarget(
+          {
+            enabled: true,
+            url: webhookConfig.GLOBAL.URL,
+            byEvents: webhookConfig.GLOBAL.WEBHOOK_BY_EVENTS,
+          },
+          payload,
+          transformedWe,
+          `${origin}-Global`,
+          serverUrl,
+          enabledLog,
+          webhookConfig,
+        ),
+      );
     }
     // A failed destination cannot prevent delivery to a different destination.
     await Promise.all(deliveries);
