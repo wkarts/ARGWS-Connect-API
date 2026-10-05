@@ -214,10 +214,12 @@ conhecidos quando recebe o evento (ou usa os contatos atuais se a lista estava
 vazia), pois o evento do dispositivo não traz a audiência original. Se não
 houver destinatários conhecidos, a operação retorna erro e mantém o registro.
 O aceite do provider não confirma a entrega do comando a cada aparelho.
-No ZAPO, uma falha de sessões Signal durante a revogação mantém o Status no
-histórico e retorna erro explícito; reconectar a instância e tentar novamente
-pode ser necessário. Uma resposta HTTP de sucesso confirma apenas o aceite do
-comando pelo provider.
+No ZAPO, a revogação usa o coordenador próprio de Status do provider. Para
+publicações feitas pela API, usa os destinatários registrados na publicação;
+para as originadas no celular sem audiência armazenada, usa os contatos conhecidos
+pela instância. A ausência de destinatários ou uma falha do provider mantém o
+Status no histórico e retorna erro explícito. Uma resposta HTTP de sucesso
+confirma apenas o aceite do comando pelo provider.
 
 ## Templates
 
