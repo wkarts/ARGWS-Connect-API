@@ -42,6 +42,13 @@ export class EventController {
   private readonly instanceConfigCache = new Map<string, { expiresAt: number; data: wa.LocalEvent | null }>();
   private readonly instanceConfigCacheTtlMs = 5_000;
 
+  protected cacheConfig(instanceName: string, data: wa.LocalEvent | null): void {
+    this.instanceConfigCache.set(instanceName, {
+      expiresAt: Date.now() + this.instanceConfigCacheTtlMs,
+      data,
+    });
+  }
+
   constructor(
     prismaRepository: PrismaRepository,
     waMonitor: WAMonitoringService,
@@ -126,10 +133,7 @@ export class EventController {
         instanceId: instance.instanceId,
       },
     });
-    this.instanceConfigCache.set(instanceName, {
-      expiresAt: Date.now() + this.instanceConfigCacheTtlMs,
-      data: result,
-    });
+    this.cacheConfig(instanceName, result);
     return result;
   }
 
@@ -152,10 +156,7 @@ export class EventController {
     });
 
     const normalized = data || null;
-    this.instanceConfigCache.set(instanceName, {
-      expiresAt: Date.now() + this.instanceConfigCacheTtlMs,
-      data: normalized,
-    });
+    this.cacheConfig(instanceName, normalized);
     return normalized;
   }
 
