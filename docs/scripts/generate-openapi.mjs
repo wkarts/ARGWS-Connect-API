@@ -234,6 +234,7 @@ const requestOverrides = {
                 workerReady: { type: 'boolean' },
                 messageCount: { type: 'integer', minimum: 0 },
                 staleJobSeconds: { type: 'integer', minimum: 60 },
+                globalConcurrency: { type: 'integer', minimum: 1, maximum: 8 },
                 maxUploadBytes: { type: 'integer', minimum: 1, maximum: 262144000 },
                 queuedJobs: { type: 'integer', minimum: 0 },
                 processingJobs: { type: 'integer', minimum: 0 },
@@ -338,11 +339,12 @@ const requestOverrides = {
   },
   'POST /v1/transcriptions/{jobId}/retry': {
     summary: 'Reenfileirar transcrição',
-    description: 'Reenfileira jobs que terminaram em falha ou jobs em fila/processamento sem atualização além de TRANSCRIPTION_STALE_JOB_SECONDS.',
+    description: 'Reenfileira somente jobs de transcrição em falha final cujo áudio ainda esteja disponível. Um job ativo mantém sua entrega original no RabbitMQ.',
     responses: {
       '202': { description: 'Job reenfileirado.' },
       '404': { $ref: '#/components/responses/NotFound' },
       '409': { $ref: '#/components/responses/Conflict' },
+      '410': { description: 'Áudio original indisponível; ditado requer nova gravação.' },
     },
   },
   'DELETE /v1/transcriptions/{jobId}': {
@@ -530,13 +532,21 @@ const requestOverrides = {
         'multipart/form-data': {
           schema: {
             type: 'object',
-            properties: { number: { type: 'string' }, mediatype: { type: 'string', enum: ['image', 'video', 'document'] }, mimetype: { type: 'string' }, caption: { type: 'string' }, fileName: { type: 'string' }, file: { type: 'string', format: 'binary' } },
+            properties: { number: { type: 'string' }, mediatype: { type: 'string', enum: ['image', 'video', 'document', 'audio'] }, mimetype: { type: 'string' }, caption: { type: 'string' }, fileName: { type: 'string' }, file: { type: 'string', format: 'binary' } },
             required: ['number', 'file'],
           },
         },
         'application/json': { schema: { type: 'object', additionalProperties: true } },
       },
     },
+  },
+  'POST /message/sendWhatsAppAudio/{instanceName}': {
+    summary: 'Enviar nota de voz PTT ou áudio comum',
+    description: 'Sem intent mantém o PTT legado. intent=auto só classifica como voz com ptt=true ou recordedByMicrophone=true; MIME/nome/duração isolados não bastam. ZAPO/Baileys compartilham o preparo OGG/Opus, duração e waveform para PTT. Áudio comum mantém bytes/MIME. encoding=false exige OGG/Opus válido para PTT. Limites: 25 MiB de entrada, 10 min para PTT. Enviar áudio não cria automaticamente um job STT.',
+    requestBody: { required: true, content: {
+      'application/json': { schema: { $ref: '#/components/schemas/SendAudioRequest' }, example: { number: '5575999999999', audio: 'https://example.com/recording.wav', intent: 'voice_note' } },
+      'multipart/form-data': { schema: { type: 'object', required: ['number', 'file'], properties: { number: { type: 'string' }, file: { type: 'string', format: 'binary' }, intent: { type: 'string', enum: ['auto', 'voice_note', 'dictation', 'transcription', 'attachment', 'music', 'generic_audio'] }, ptt: { type: 'boolean' }, recordedByMicrophone: { type: 'boolean' }, mimetype: { type: 'string' }, encoding: { type: 'boolean' } } } },
+    } },
   },
   'POST /chat/markMessageAsRead/{instanceName}': { summary: 'Marcar mensagem como lida', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageKeyRequest' } } } } },
   'POST /chat/markMessageAsPlayed/{instanceName}': {
@@ -675,8 +685,8 @@ const requestOverrides = {
     responses: { '200': { description: 'Job cancelado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
   },
   'POST /v1/speech/transcriptions/{jobId}/retry': {
-    tags: ['Speech'], summary: 'Reenfileirar transcrição', description: 'Reenfileira um job de transcrição que pode ser tentado novamente.',
-    responses: { '202': { description: 'Job reenfileirado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
+    tags: ['Speech'], summary: 'Reenfileirar transcrição', description: 'Reenfileira somente uma transcrição em falha final com áudio ainda disponível.',
+    responses: { '202': { description: 'Job reenfileirado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '410': { description: 'Áudio original indisponível.' } },
   },
   'DELETE /v1/speech/transcriptions/{jobId}': {
     tags: ['Speech'], summary: 'Remover resultado de transcrição', description: 'Remove o registro do job; mídia associada à mensagem permanece intacta.',
@@ -858,12 +868,18 @@ function nativeSpec(routes, version) {
           required: ['id', 'provider', 'model', 'status', 'attempts', 'createdAt', 'updatedAt'],
           properties: {
             id: { type: 'string' },
+            workerId: { type: ['string', 'null'], description: 'Último worker que enviou atualização para o job.' },
             instanceId: { type: ['string', 'null'] },
             messageId: { type: ['string', 'null'] },
+            mode: { type: 'string', enum: ['transcription', 'dictation'] },
             provider: { type: 'string', example: 'local' },
             model: { type: 'string', example: 'Xenova/whisper-small' },
             language: { type: ['string', 'null'] },
-            status: { type: 'string', enum: ['queued', 'processing', 'completed', 'failed'] },
+            status: { type: 'string', enum: ['queued', 'processing', 'completed', 'cancelled', 'failed'] },
+            stage: { type: 'string', description: 'Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação.' },
+            progressPercent: { type: 'integer', minimum: 0, maximum: 100 },
+            processedDurationMs: { type: 'integer', minimum: 0 },
+            heartbeatAt: { type: ['string', 'null'], format: 'date-time' },
             text: { type: ['string', 'null'] },
             detectedLanguage: { type: ['string', 'null'] },
             durationMs: { type: ['integer', 'null'], minimum: 0 },
@@ -882,6 +898,17 @@ function nativeSpec(routes, version) {
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
         ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
+        SendAudioRequest: {
+          type: 'object', required: ['number', 'audio'], additionalProperties: true,
+          properties: {
+            number: { type: 'string' }, audio: { type: 'string', description: 'URL HTTP(S), base64 ou data URI.' },
+            intent: { type: 'string', enum: ['auto', 'voice_note', 'dictation', 'transcription', 'attachment', 'music', 'generic_audio'], description: 'Omitido mantém o PTT legado; auto usa somente sinais explícitos.' },
+            ptt: { type: 'boolean', description: 'Sinal explícito, incompatível com intent oposto.' },
+            recordedByMicrophone: { type: 'boolean', description: 'Origem informada pelo cliente; usada apenas com intent=auto ou ausente.' },
+            mimetype: { type: 'string' }, fileName: { type: 'string' }, encoding: { type: 'boolean', description: 'false apenas para OGG/Opus PTT já normalizado.' },
+            delay: { type: 'integer', minimum: 0 },
+          },
+        },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
         PlayedMessageRequest: {
           type: 'object',

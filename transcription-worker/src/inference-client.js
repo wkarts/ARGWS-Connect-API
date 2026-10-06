@@ -50,6 +50,7 @@ class InferenceClient {
 
   restartThread(error) {
     const active = this.active;
+    this.killDecoder(active);
     this.active = null;
     if (active) clearTimeout(active.watchdog);
     const previousThread = this.thread;
@@ -69,6 +70,18 @@ class InferenceClient {
   }
 
   onMessage(message) {
+    if (message?.type === 'memory') {
+      if (this.active?.id === message.id) {
+        if (message.phase === 'ffmpeg_spawn') this.active.childPid = message.childPid;
+        if (message.phase === 'ffmpeg_exit' && this.active.childPid === message.childPid) this.active.childPid = null;
+      }
+      console.log(JSON.stringify({ event: 'speech_inference_memory', phase: message.phase,
+        mode: this.config.mode, jobId: this.active?.id === message.id ? this.active.jobId : undefined,
+        attempt: this.active?.id === message.id ? this.active.attempts : undefined,
+        rss: message.rss, heapUsed: message.heapUsed, heapTotal: message.heapTotal,
+        external: message.external, arrayBuffers: message.arrayBuffers, childRss: message.childRss }));
+      return;
+    }
     if (message?.type === 'ready') {
       this.ready = true;
       this.resolveStartup();
@@ -113,12 +126,15 @@ class InferenceClient {
   async transcribe(filePath, input = {}) {
     if (this.recovery) await this.recovery;
     await this.startup;
-    if (this.active || this.stopping) throw Object.assign(new Error('Inferência ocupada ou indisponível.'), { code: 'WORKER_BUSY' });
+    if (this.active || this.stopping) throw Object.assign(new Error('Inferência ocupada ou indisponível.'), {
+      code: this.stopping ? 'WORKER_STOPPING' : 'WORKER_BUSY',
+    });
     const cancelSignal = new SharedArrayBuffer(4);
     const { isCancelled, onProgress, ...serializableInput } = input;
     if (isCancelled?.()) throw Object.assign(new Error('Processamento cancelado.'), { code: 'CANCELLED' });
     return new Promise((resolve, reject) => {
-      this.active = { id: filePath, cancelSignal, onProgress, resolve, reject };
+      this.active = { id: filePath, jobId: input.jobId, attempts: input.attempts,
+        cancelSignal, onProgress, resolve, reject };
       this.watch(this.active);
       this.thread.postMessage({ type: 'transcribe', id: filePath, filePath, input: serializableInput, cancelSignal });
     });
@@ -128,10 +144,30 @@ class InferenceClient {
     if (this.active) Atomics.store(new Int32Array(this.active.cancelSignal), 0, 1);
   }
 
+  killDecoder(active) {
+    if (!active?.childPid) return;
+    try { process.kill(active.childPid, 'SIGKILL'); } catch (error) {
+      if (error.code !== 'ESRCH') console.error('Falha ao encerrar FFmpeg:', error.message);
+    }
+    active.childPid = null;
+  }
+
+  sampleMemory() {
+    if (this.ready && !this.active && !this.stopping) this.thread?.postMessage({ type: 'metrics' });
+  }
+
   async stop() {
     this.stopping = true;
     this.cancel();
-    if (this.active) clearTimeout(this.active.watchdog);
+    if (this.active) {
+      this.killDecoder(this.active);
+      clearTimeout(this.active.watchdog);
+      this.active.reject(Object.assign(new Error('O worker está encerrando; o job será recuperado pela fila.'), {
+        code: 'WORKER_STOPPING', retryable: true,
+      }));
+      this.active = null;
+    }
+    if (!this.ready) this.rejectStartup?.(new Error('Worker encerrado durante a inicialização.'));
     await this.thread?.terminate();
     await this.recovery;
   }

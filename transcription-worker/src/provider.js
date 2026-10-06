@@ -2,6 +2,8 @@
 
 const { spawn } = require('node:child_process');
 const fsp = require('node:fs').promises;
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { verifyModelDirectory } = require('./model-checksum');
 
@@ -13,32 +15,128 @@ function withCode(error, code) {
   return error;
 }
 
-function decodeAudio(filePath) {
-  return new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', [
-      '-hide_banner', '-loglevel', 'error', '-i', filePath, '-vn',
-      '-f', 'f32le', '-ac', '1', '-ar', String(SAMPLE_RATE), 'pipe:1',
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const chunks = [];
-    const errors = [];
-    child.stdout.on('data', (chunk) => chunks.push(chunk));
-    child.stderr.on('data', (chunk) => errors.push(chunk));
-    child.once('error', (error) => reject(withCode(error, error.code === 'ENOENT' ? 'FFMPEG_MISSING' : 'AUDIO_DECODE_FAILED')));
-    child.once('close', (code) => {
-      if (code !== 0) {
-        reject(withCode(new Error('Não foi possível normalizar este áudio com FFmpeg.'), 'INVALID_AUDIO'));
-        return;
-      }
-      const raw = Buffer.concat(chunks);
-      if (!raw.length || raw.length % 4 !== 0) {
-        reject(withCode(new Error('O áudio não contém amostras PCM válidas.'), 'INVALID_AUDIO'));
-        return;
-      }
-      const samples = new Float32Array(raw.length / 4);
-      for (let index = 0; index < samples.length; index += 1) samples[index] = raw.readFloatLE(index * 4);
-      resolve({ samples, durationMs: Math.round((samples.length / SAMPLE_RATE) * 1000) });
+async function decodeAudio(filePath, options = {}) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'speech-pcm-'));
+  const pcmPath = path.join(directory, 'audio.pcm');
+  const maximum = Math.max(1, options.maxDurationSeconds || 3600) * SAMPLE_RATE * 4;
+  const output = fs.createWriteStream(pcmPath, { flags: 'wx', mode: 0o600 });
+  let child;
+  let timer;
+  let written = 0;
+  let failure;
+  let lastProgress = Date.now();
+  let lastMemory = 0;
+  try {
+    await new Promise((resolve, reject) => {
+      child = spawn('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error', '-i', filePath, '-vn',
+        '-f', 'f32le', '-ac', '1', '-ar', String(SAMPLE_RATE), 'pipe:1',
+      ], { stdio: ['ignore', 'pipe', 'ignore'] });
+      options.onMemory?.('ffmpeg_spawn', 0, child.pid);
+      const fail = (error) => {
+        failure ||= error;
+        child.kill('SIGKILL');
+      };
+      timer = setInterval(() => {
+        if (options.isCancelled?.()) fail(new SpeechCancelledError());
+        if (options.onMemory && child.pid && process.platform === 'linux' && Date.now() - lastMemory >= 5000) {
+          lastMemory = Date.now();
+          fsp.readFile(`/proc/${child.pid}/status`, 'utf8').then((status) => {
+            const kib = Number(/VmRSS:\s*(\d+)\s*kB/.exec(status)?.[1] || 0);
+            options.onMemory('ffmpeg_decode', kib * 1024);
+          }).catch(() => {});
+        }
+      }, 250);
+      child.stdout.on('data', (chunk) => {
+        if (failure) return;
+        written += chunk.length;
+        if (written > maximum) {
+          fail(withCode(new Error('O áudio decodificado excedeu a duração permitida.'), 'AUDIO_TOO_LONG'));
+        } else if (!output.write(chunk)) {
+          child.stdout.pause();
+        }
+        if (!failure && Date.now() - lastProgress >= 1000) {
+          lastProgress = Date.now();
+          void Promise.resolve(options.onProgress?.({ stage: 'normalizing', progressPercent: 8,
+            processedDurationMs: Math.round(written / (SAMPLE_RATE * 4) * 1000) })).catch(() => {});
+        }
+      });
+      output.on('drain', () => child.stdout.resume());
+      output.on('error', (error) => { output.destroy(); fail(withCode(error, 'AUDIO_DECODE_FAILED')); });
+      child.once('error', (error) => { failure ||= withCode(error, error.code === 'ENOENT' ? 'FFMPEG_MISSING' : 'AUDIO_DECODE_FAILED'); });
+      child.once('close', (code) => {
+        options.onMemory?.('ffmpeg_exit', 0, child.pid);
+        if (output.destroyed) {
+          reject(failure || withCode(new Error('Não foi possível gravar o PCM temporário.'), 'AUDIO_DECODE_FAILED'));
+          return;
+        }
+        output.end(() => {
+          if (failure) reject(failure);
+          else if (code !== 0) reject(withCode(new Error('Não foi possível normalizar este áudio com FFmpeg.'), 'INVALID_AUDIO'));
+          else resolve();
+        });
+      });
     });
-  });
+    if (!written || written % 4 !== 0) throw withCode(new Error('O áudio não contém amostras PCM válidas.'), 'INVALID_AUDIO');
+    const samplesCount = written / 4;
+    return {
+      pcmPath, samplesCount,
+      durationMs: Math.round(samplesCount / SAMPLE_RATE * 1000),
+      dispose: () => fsp.rm(directory, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    child?.kill('SIGKILL');
+    output.destroy();
+    await fsp.rm(directory, { recursive: true, force: true });
+    throw error;
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+async function detectSpeechRegionsFromFile(handle, samplesCount, thresholdDb, input = {}) {
+  const frameSamples = Math.round(SAMPLE_RATE * 0.03);
+  const frame = Buffer.allocUnsafe(frameSamples * 4);
+  const threshold = 10 ** (Number(thresholdDb) / 20);
+  const padding = Math.round(SAMPLE_RATE * 0.15);
+  const maxGap = Math.round(SAMPLE_RATE * 0.45);
+  const minimum = Math.round(SAMPLE_RATE * 0.09);
+  const regions = [];
+  let start = -1;
+  let lastVoicedEnd = -1;
+  for (let offset = 0; offset < samplesCount; offset += frameSamples) {
+    if (offset % (frameSamples * 1000) === 0) {
+      if (input.isCancelled?.()) throw new SpeechCancelledError();
+      if (offset) await input.onProgress?.({ stage: 'voice_activity_detection', progressPercent: 14, processedDurationMs: 0 });
+    }
+    const count = Math.min(frameSamples, samplesCount - offset);
+    const { bytesRead } = await handle.read(frame, 0, count * 4, offset * 4);
+    if (bytesRead !== count * 4) throw withCode(new Error('Leitura de PCM incompleta.'), 'AUDIO_DECODE_FAILED');
+    let squareSum = 0;
+    for (let i = 0; i < count; i += 1) squareSum += frame.readFloatLE(i * 4) ** 2;
+    if (Math.sqrt(squareSum / count) >= threshold) {
+      if (start < 0) start = offset;
+      lastVoicedEnd = offset + count;
+    } else if (start >= 0 && offset - lastVoicedEnd > maxGap) {
+      regions.push({ start: Math.max(0, start - padding), end: Math.min(samplesCount, lastVoicedEnd + padding) });
+      start = -1;
+    }
+  }
+  if (start >= 0) regions.push({ start: Math.max(0, start - padding), end: Math.min(samplesCount, lastVoicedEnd + padding) });
+  return regions.filter(({ start: begin, end }) => end - begin >= minimum);
+}
+
+async function readPcmChunk(handle, start, end) {
+  const raw = Buffer.allocUnsafe((end - start) * 4);
+  let offset = 0;
+  while (offset < raw.length) {
+    const { bytesRead } = await handle.read(raw, offset, raw.length - offset, start * 4 + offset);
+    if (!bytesRead) throw withCode(new Error('Leitura de PCM incompleta.'), 'AUDIO_DECODE_FAILED');
+    offset += bytesRead;
+  }
+  const samples = new Float32Array(end - start);
+  for (let i = 0; i < samples.length; i += 1) samples[i] = raw.readFloatLE(i * 4);
+  return samples;
 }
 
 async function prepareModelCache(config) {
@@ -216,17 +314,27 @@ function createProvider(config, dependencies = {}) {
 
     async transcribe(filePath, input = {}) {
       await input.onProgress?.({ stage: 'normalizing', progressPercent: 8, processedDurationMs: 0 });
-      const decoded = await decode(filePath);
+      const decoded = await decode(filePath, {
+        isCancelled: input.isCancelled,
+        onProgress: input.onProgress,
+        onMemory: input.onMemory,
+        maxDurationSeconds: input.mode === 'dictation' ? config.dictationMaxDurationSeconds : config.maxDurationSeconds,
+      });
+      let handle;
+      try {
       if (input.isCancelled?.()) throw new SpeechCancelledError();
-
+      if (decoded.pcmPath) handle = await fsp.open(decoded.pcmPath, 'r');
+      const samplesCount = decoded.samples?.length ?? decoded.samplesCount;
       await input.onProgress?.({ stage: 'voice_activity_detection', progressPercent: 14, processedDurationMs: 0 });
-      const detectedRegions = detectSpeechRegions(decoded.samples, config.vadThresholdDb);
+      const detectedRegions = handle
+        ? await detectSpeechRegionsFromFile(handle, samplesCount, config.vadThresholdDb, input)
+        : detectSpeechRegions(decoded.samples, config.vadThresholdDb);
       // VAD is an optimization, not a validation gate: quiet speech can fall
       // below a fixed energy threshold. Give Whisper the full non-empty audio
       // when VAD cannot confidently select any regions.
       const regions = detectedRegions.length
         ? detectedRegions
-        : [{ start: 0, end: decoded.samples.length }];
+        : [{ start: 0, end: samplesCount }];
       const chunks = chunkRegions(regions, config.chunkSeconds, config.strideSeconds);
       const transcriber = await loadPipeline();
       let partialText = '';
@@ -241,7 +349,9 @@ function createProvider(config, dependencies = {}) {
       for (let index = 0; index < chunks.length; index += 1) {
         if (input.isCancelled?.()) throw new SpeechCancelledError();
         const chunk = chunks[index];
-        const samples = decoded.samples.subarray(chunk.start, chunk.end);
+        const samples = handle
+          ? await readPcmChunk(handle, chunk.start, chunk.end)
+          : decoded.samples.subarray(chunk.start, chunk.end);
         const result = await transcriber(samples, {
           task: 'transcribe',
           return_timestamps: returnTimestamps,
@@ -271,6 +381,10 @@ function createProvider(config, dependencies = {}) {
         durationMs: decoded.durationMs,
         segments,
       };
+      } finally {
+        await handle?.close();
+        await decoded.dispose?.();
+      }
     },
   };
 }

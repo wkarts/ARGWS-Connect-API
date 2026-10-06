@@ -6564,6 +6564,13 @@
           "id": {
             "type": "string"
           },
+          "workerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Último worker que enviou atualização para o job."
+          },
           "instanceId": {
             "type": [
               "string",
@@ -6574,6 +6581,13 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "transcription",
+              "dictation"
             ]
           },
           "provider": {
@@ -6596,8 +6610,29 @@
               "queued",
               "processing",
               "completed",
+              "cancelled",
               "failed"
             ]
+          },
+          "stage": {
+            "type": "string",
+            "description": "Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação."
+          },
+          "progressPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "processedDurationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "heartbeatAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "text": {
             "type": [
@@ -6788,6 +6823,58 @@
           "text"
         ],
         "additionalProperties": true
+      },
+      "SendAudioRequest": {
+        "type": "object",
+        "required": [
+          "number",
+          "audio"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "number": {
+            "type": "string"
+          },
+          "audio": {
+            "type": "string",
+            "description": "URL HTTP(S), base64 ou data URI."
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "voice_note",
+              "dictation",
+              "transcription",
+              "attachment",
+              "music",
+              "generic_audio"
+            ],
+            "description": "Omitido mantém o PTT legado; auto usa somente sinais explícitos."
+          },
+          "ptt": {
+            "type": "boolean",
+            "description": "Sinal explícito, incompatível com intent oposto."
+          },
+          "recordedByMicrophone": {
+            "type": "boolean",
+            "description": "Origem informada pelo cliente; usada apenas com intent=auto ou ausente."
+          },
+          "mimetype": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "boolean",
+            "description": "false apenas para OGG/Opus PTT já normalizado."
+          },
+          "delay": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       },
       "MessageKeyRequest": {
         "type": "object",

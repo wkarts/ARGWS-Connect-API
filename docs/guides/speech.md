@@ -2,6 +2,8 @@
 
 O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona uma API para ditado e transcrição de mensagens. O processamento usa o worker local, FFmpeg, VAD e o modelo provisionado. O worker não baixa arquivos durante cada transcrição: a API instala a revisão fixada uma vez no volume persistente compartilhado, e os workers leem os arquivos localmente.
 
+O envio de nota de voz WhatsApp é um fluxo independente: `sendWhatsAppAudio` classifica pela intenção explícita, `ptt` e origem declarada; o áudio comum não vira PTT. A versão para envio PTT é OGG/Opus mono 48 kHz. Para STT, **apenas um job solicitado explicitamente** entra na fila quando a voz estiver habilitada; o worker usa FFmpeg para decodificar PCM float mono 16 kHz temporário e lê o áudio em trechos. A API não cria um WAV persistente nem carrega o modelo durante o envio de mensagem. Consulte [Mensagens e mídia](messages.md#áudio-comum-e-nota-de-voz) para os parâmetros do envio e [diagnóstico operacional](speech-worker-diagnostics.md) para os limites de memória.
+
 ## Habilitar
 
 Somente a stack principal `deploy/develop/` mantém `SPEECH_ENABLED=true` e o profile `transcription`. O profile inicia dois consumidores independentes: o worker de transcrição (`speech.transcription`) e o worker prioritário de ditado (`speech.dictation`). `TRANSCRIPTION_ENABLED` continua aceito como fallback legado nessa stack. `DICTATION_ENABLED=false` desativa apenas o ditado.
@@ -21,8 +23,11 @@ Variáveis principais:
 | `SPEECH_MODELS_HOST_PATH` | `./models` | Diretório persistente do host compartilhado pela API e pelos workers |
 | `SPEECH_TRANSCRIPTION_QUEUE` | `speech.transcription` | Fila de transcrições longas |
 | `SPEECH_DICTATION_QUEUE` | `speech.dictation` | Fila prioritária de ditado |
-| `SPEECH_TRANSCRIPTION_REPLICAS` | `2` | Processos de transcrição em paralelo no Compose; ajuste conforme CPU e memória disponíveis |
-| `SPEECH_WORKER_CONCURRENCY` | `1` | Um job por processo; aumente réplicas para processar simultaneamente |
+| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Réplica inicial de transcrição no develop principal; cada réplica mantém seu próprio modelo |
+| `SPEECH_WORKER_CONCURRENCY` | `1` | Prefetch de um job por processo; valores maiores são rejeitados |
+| `SPEECH_GLOBAL_CONCURRENCY` | `1` | Total máximo de jobs admitidos entre transcrição e ditado no mesmo RabbitMQ e exchange; configure igualmente em todos os workers |
+| `SPEECH_SHUTDOWN_GRACE_SECONDS` | `90` | Prazo para concluir a entrega ativa antes de cancelar a inferência e devolver o job |
+| `SPEECH_MAX_DURATION_SECONDS` | `3600` | Limite real do PCM decodificado na transcrição, antes do modelo |
 | `SPEECH_CHUNK_SECONDS` | `30` | Duração máxima de cada trecho |
 | `SPEECH_STRIDE_SECONDS` | `5` | Sobreposição entre trechos |
 | `SPEECH_HEARTBEAT_INTERVAL_SECONDS` | `5` | Frequência dos heartbeats |
@@ -36,9 +41,11 @@ Variáveis principais:
 
 Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
 
-Cada réplica mantém seu próprio modelo carregado e consome um job por vez. A inferência executa numa thread separada da conexão RabbitMQ, permitindo que o heartbeat continue durante trechos síncronos do modelo. O padrão de duas réplicas permite dois áudios simultâneos; aumente `SPEECH_TRANSCRIPTION_REPLICAS` para mais paralelismo e dimensione CPU/memória por réplica. O ditado conserva sua fila prioritária própria. A velocidade depende da duração do áudio, do processador e do número de réplicas; jobs já reenfileirados pelo watchdog voltam a ser consumidos ao atualizar a stack.
+Cada réplica mantém seu próprio modelo carregado e consome um job por vez. O padrão no develop é uma réplica de transcrição e uma de ditado; a reserva global no RabbitMQ admite apenas **um job de inferência** entre as duas, incluindo a preparação do áudio. O ditado tem fila própria, mas a reserva não garante preempção ou ordem estrita entre modos. Prefetch continua em um por processo: um job aguardando capacidade aparece como `processing`/`waiting_for_capacity` e recebe heartbeat. O áudio PCM fica temporariamente em `/tmp` e é lido por trechos; o limite de 4 GiB por worker continua e precisa de validação com o modelo real. Amplie a capacidade somente após medir o RSS dos modelos residentes, pico de inferência, FFmpeg e outros processos da VPS.
 
-O diagnóstico da API reutiliza a conexão RabbitMQ aberta. Um erro transitório no banco fecha o canal de resultados e devolve a mensagem ainda não confirmada para processamento após a reconexão. Em um retry atrasado, o job permanece com estágio `retrying` até a próxima tentativa; o watchdog respeita o atraso da fila antes de considerar o job abandonado. Se a thread de inferência ficar sem progresso por `SPEECH_INFERENCE_STALL_SECONDS`, o worker a encerra, carrega novamente o modelo do volume persistente e trata a tentativa como falha recuperável. Ajuste esse limite se um trecho legítimo demorar mais no hardware da instalação.
+O diagnóstico da API reutiliza a conexão RabbitMQ aberta. Um erro transitório no banco fecha o canal de resultados e devolve a mensagem ainda não confirmada para processamento após a reconexão. Em um retry atrasado, o job permanece com estágio `retrying` até a próxima tentativa; o watchdog respeita o atraso. Um heartbeat vencido passa a `awaiting_redelivery`, sem publicar uma segunda cópia: o RabbitMQ recupera a entrega original após a perda do canal. Se não houver retomada no período seguinte, o estado passa a `failed` com `WORKER_HEARTBEAT_EXPIRED`; o retry manual desse estado fica bloqueado porque a entrega original pode ainda existir. O limite `SPEECH_MAX_ATTEMPTS` cobre retries publicados pelo worker e entregas repetidas após falhas abruptas pelo cabeçalho `x-delivery-count`. `attempts` representa as tentativas publicadas; o contador de redelivery fica nos logs. Retry manual é aceito para outras falhas finais de transcrição cujo áudio ainda esteja disponível; ditado precisa ser gravado novamente.
+
+Ao parar, o consumidor cancela novas entregas, aguarda até 90 segundos o trabalho ativo, depois interrompe a thread e devolve a mensagem ainda não confirmada. O Compose concede 105 segundos antes de encerrar o container. A API aplica resultados por comparação de status e tentativa; uma conclusão repetida não altera um job terminal. Consulte o [diagnóstico operacional dos workers](speech-worker-diagnostics.md) para medições, limites e atualização segura.
 
 Os sinais de cancelamento usam um canal independente daquele que processa áudio. Cada réplica recebe o evento, inclusive quando outra está ocupada. O endpoint de saúde informa consumidores registrados, mas a prova de operação é observar heartbeats e jobs terminando como `completed` ou `failed`; consumidor registrado sozinho não comprova que a inferência avança.
 

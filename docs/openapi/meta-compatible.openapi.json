@@ -1439,7 +1439,7 @@
       },
       "MetaAudioContent": {
         "type": "object",
-        "description": "Áudio referenciado por link público ou id previamente enviado ao endpoint de mídia.",
+        "description": "Áudio referenciado por link público ou id previamente enviado ao endpoint de mídia. voice é uma extensão Connect|API; ausente envia áudio comum.",
         "properties": {
           "link": {
             "type": "string",
@@ -1453,6 +1453,10 @@
           "mime_type": {
             "type": "string",
             "description": "MIME type opcional."
+          },
+          "voice": {
+            "type": "boolean",
+            "description": "true para normalizar e enviar como nota de voz PTT no ZAPO/Baileys; padrão false."
           }
         },
         "anyOf": [
