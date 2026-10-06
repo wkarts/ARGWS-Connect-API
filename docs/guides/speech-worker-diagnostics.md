@@ -34,6 +34,8 @@ Não há prova de qual mecanismo causou os dois reinícios da réplica 2. També
 
 A vaga é representada por uma fila exclusiva e efêmera cujo nome deriva do exchange e do índice. Uma conexão RabbitMQ a mantém durante o job; a perda da conexão interrompe a inferência e fecha o canal do job. A conexão fecha para liberar a vaga. Essa solução usa o broker existente; requer que os workers compartilhem broker, vhost, exchange e valor de concorrência. Uma vaga controla inferência, mas não elimina o segundo modelo residente. A fila de ditado continua separada, sem prioridade estrita na disputa pela vaga.
 
+O Compose monta `/tmp` como tmpfs de 1 GiB: o PCM gravado ali continua consumindo memória contabilizada pelo cgroup, embora deixe de ocupar várias cópias no heap e nos buffers do Node. Uma hora decodificada ocupa aproximadamente 219,7 MiB desse tmpfs. Compare `memory.current`/`docker stats` e RSS para verificar a economia real; ampliar o limite de duração exige rever tamanho do tmpfs e orçamento do host.
+
 ## Métricas e validação
 
 O log estruturado `speech_memory` registra `workerId`, `jobId`, tentativa, jobs ativos, RSS, `heapUsed`, `heapTotal`, `external`, `arrayBuffers`, tempo do job e pico observado em: antes/depois do modelo, recebimento, admissão, a cada 5 segundos durante trabalho, conclusão e ociosidade a cada 60 segundos. `speech_inference_memory` traz as medidas da thread e RSS do FFmpeg em `/proc/<pid>/status` durante a decodificação. RSS do processo inclui a thread; RSS do FFmpeg é separado. A amostragem não captura necessariamente o pico instantâneo entre intervalos. Nenhum log registra texto transcrito, áudio ou credenciais.
