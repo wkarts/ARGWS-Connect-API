@@ -6564,6 +6564,13 @@
           "id": {
             "type": "string"
           },
+          "workerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Último worker que enviou atualização para o job."
+          },
           "instanceId": {
             "type": [
               "string",
@@ -6574,6 +6581,13 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "transcription",
+              "dictation"
             ]
           },
           "provider": {
@@ -6596,8 +6610,29 @@
               "queued",
               "processing",
               "completed",
+              "cancelled",
               "failed"
             ]
+          },
+          "stage": {
+            "type": "string",
+            "description": "Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação."
+          },
+          "progressPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "processedDurationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "heartbeatAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "text": {
             "type": [

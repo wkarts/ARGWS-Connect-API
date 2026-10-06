@@ -41,6 +41,7 @@ type DictationInput = UploadInput & { durationMs?: number };
 
 type WorkerResult = {
   jobId?: string;
+  workerId?: string;
   attempts?: number;
   status?: string;
   stage?: string | null;
@@ -367,6 +368,10 @@ export class TranscriptionService {
       dictationConsumerCount: 0,
       dictationWorkerReady: false,
       staleJobSeconds: this.staleJobSeconds(),
+      globalConcurrency: Math.min(
+        8,
+        Math.max(1, Number.parseInt(process.env.SPEECH_GLOBAL_CONCURRENCY || '1', 10) || 1),
+      ),
       maxUploadBytes: maxUploadBytes(),
       maxDictationBytes: maxDictationBytes(),
       dictationAudioRetentionMinutes: Math.floor(dictationAudioRetentionMs() / 60_000),
@@ -701,10 +706,21 @@ export class TranscriptionService {
     if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
       throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
     }
-    const canRetry = job.status === 'failed' || this.isStaleJob(job);
-    if (!canRetry) {
+    if (String(job.mode) === 'dictation') {
       throw new TranscriptionServiceError(
-        'O job ainda está em processamento. Aguarde ou remova-o antes de repetir.',
+        'O áudio do ditado não é mantido após o processamento. Grave novamente.',
+        410,
+      );
+    }
+    if (job.status !== 'failed') {
+      throw new TranscriptionServiceError(
+        'A entrega original ainda pode estar na fila. Aguarde o estado final antes de repetir.',
+        409,
+      );
+    }
+    if (job.errorCode === 'WORKER_HEARTBEAT_EXPIRED') {
+      throw new TranscriptionServiceError(
+        'A entrega original pode permanecer na fila. Verifique e resolva essa entrega antes de enviar o áudio novamente.',
         409,
       );
     }
@@ -713,8 +729,7 @@ export class TranscriptionService {
     }
 
     await this.ready(String(job.mode || 'transcription'));
-    const updateWhere: any =
-      job.status === 'failed' ? { id, status: 'failed' } : { id, status: 'processing', updatedAt: job.updatedAt };
+    const updateWhere: any = { id, status: 'failed' };
     const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
       where: updateWhere,
       data: {
@@ -876,6 +891,7 @@ export class TranscriptionService {
       language: job.language,
       model: job.model,
       attempts: job.attempts,
+      queuedAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : new Date().toISOString(),
       ...(inlineAudio ? { inlineAudio: inlineAudio.toString('base64') } : {}),
     };
   }
@@ -883,6 +899,7 @@ export class TranscriptionService {
   private publicJob(job: any) {
     return {
       id: job.id,
+      workerId: job.workerId || null,
       messageId: job.messageId,
       instanceId: job.instanceId,
       mode: job.mode || 'transcription',
@@ -1193,6 +1210,7 @@ export class TranscriptionService {
         ? String(payload.status)
         : 'failed';
       const data: any = { status, updatedAt: new Date() };
+      if (typeof payload.workerId === 'string') data.workerId = payload.workerId.slice(0, 128);
       data.stage =
         status === 'completed' || status === 'failed'
           ? status
@@ -1211,6 +1229,8 @@ export class TranscriptionService {
       data.heartbeatAt = payload.heartbeatAt ? new Date(payload.heartbeatAt) : new Date();
       if (typeof payload.partialText === 'string') data.text = payload.partialText.slice(0, 100_000);
       if (status === 'processing') {
+        data.errorCode = typeof payload.errorCode === 'string' ? payload.errorCode.slice(0, 64) : null;
+        data.errorMessage = null;
         const current = await (this.prismaRepository.transcriptionJob as any).findUnique({
           where: { id: jobId },
           select: { startedAt: true },
@@ -1476,10 +1496,11 @@ export class TranscriptionService {
             });
           }
         }
-        if (!Number(state?.consumerCount)) continue;
-        // A queued database row may already be prefetched by RabbitMQ. Queue
-        // messageCount excludes unacked messages, so only stale processing
-        // heartbeats are recovered; queued rows stay on RabbitMQ's delivery path.
+        // Queue messageCount excludes unacknowledged deliveries. A stale
+        // heartbeat never proves the original delivery has disappeared. The
+        // broker redelivers it after a channel/connection closes; publishing
+        // a second copy here can run the same job in parallel. Dictation's
+        // inline audio is also unavailable in the database for republication.
         const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
           where: { mode, status: 'processing', updatedAt: { lt: cutoff } },
           orderBy: { updatedAt: 'asc' },
@@ -1487,51 +1508,27 @@ export class TranscriptionService {
         });
         for (const job of jobs) {
           if (!this.isStaleJob(job)) continue;
-          if (Number(job.attempts || 0) >= this.maxAttempts()) {
+          if (String(job.stage) === 'awaiting_redelivery' || String(job.stage) === 'retrying') {
             await (this.prismaRepository.transcriptionJob as any).updateMany({
               where: { id: job.id, status: 'processing', updatedAt: job.updatedAt },
               data: {
                 status: 'failed',
                 stage: 'failed',
                 errorCode: 'WORKER_HEARTBEAT_EXPIRED',
-                errorMessage: 'O worker deixou de enviar heartbeat após o limite de tentativas.',
+                errorMessage: 'O trabalho não retomou após o prazo de recuperação da fila.',
                 completedAt: new Date(),
               },
             });
             continue;
           }
-          const changed = await (this.prismaRepository.transcriptionJob as any).updateMany({
+          await (this.prismaRepository.transcriptionJob as any).updateMany({
             where: { id: job.id, status: job.status, updatedAt: job.updatedAt },
             data: {
-              status: 'queued',
-              stage: 'queued',
-              progressPercent: 0,
-              processedDurationMs: 0,
-              heartbeatAt: null,
-              errorCode: null,
-              errorMessage: null,
-              startedAt: null,
-              completedAt: null,
-              attempts: { increment: 1 },
+              stage: 'awaiting_redelivery',
+              errorCode: 'WORKER_HEARTBEAT_EXPIRED',
+              errorMessage: 'Aguardando a entrega original retornar à fila.',
             },
           });
-          if (!Number(changed?.count)) continue;
-          const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: job.id } });
-          if (!updated) continue;
-          try {
-            await this.publish(requestRoutingKey(String(updated.mode || mode)), this.jobPayload(updated));
-          } catch (error) {
-            await (this.prismaRepository.transcriptionJob as any).updateMany({
-              where: { id: updated.id, attempts: updated.attempts, status: 'queued' },
-              data: {
-                status: 'failed',
-                stage: 'failed',
-                errorCode: 'QUEUE_UNAVAILABLE',
-                errorMessage: String(error?.message || error).slice(0, 2000),
-                completedAt: new Date(),
-              },
-            });
-          }
         }
       }
     } catch (error) {

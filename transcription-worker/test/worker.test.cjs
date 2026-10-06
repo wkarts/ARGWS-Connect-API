@@ -17,6 +17,14 @@ test('worker local mantém os tópicos do contrato', () => {
   assert.equal(FAILED, 'transcription.failed');
 });
 
+test('voz desabilitada encerra sem carregar modelo ou abrir MinIO', async () => {
+  const worker = new TranscriptionWorker({ enabled: false, s3: {}, mode: 'transcription' });
+  await worker.start();
+  assert.equal(worker.provider, null);
+  assert.equal(worker.client, null);
+  assert.equal(fs.existsSync('/tmp/transcription-worker.ready'), false);
+});
+
 test('mensagem recebida por canal antigo não recebe ACK no canal substituto', () => {
   const worker = Object.create(TranscriptionWorker.prototype);
   let acknowledged = 0;
@@ -48,6 +56,25 @@ test('ACK e NACK repetidos não reutilizam a mesma delivery tag', () => {
   assert.equal(rejected, 0);
 });
 
+test('SIGTERM cancela novas entregas e aguarda a confirmação do job ativo', async () => {
+  const events = [];
+  const worker = Object.create(TranscriptionWorker.prototype);
+  worker.config = { shutdownGraceSeconds: 1 };
+  worker.channel = { cancel: async () => { events.push('cancel'); }, close: async () => { events.push('channel-close'); } };
+  worker.consumerTag = 'speech-1';
+  worker.controlChannel = { close: async () => { events.push('control-close'); } };
+  worker.connection = { close: async () => { events.push('connection-close'); } };
+  worker.provider = { stop: async () => { events.push('provider-stop'); } };
+  let finish;
+  worker.activeTask = new Promise((resolve) => { finish = resolve; });
+  const stopping = worker.stop();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['cancel']);
+  finish();
+  await stopping;
+  assert.deepEqual(events, ['cancel', 'provider-stop', 'control-close', 'channel-close', 'connection-close']);
+});
+
 test('cancelamento chega durante job ocupado e alcança cada réplica', async () => {
   const originalConnect = amqp.connect;
   const connections = [];
@@ -59,7 +86,7 @@ test('cancelamento chega durante job ocupado e alcança cada réplica', async ()
       async assertQueue(name) { return { queue: name || `cancel-${connections.length}` }; },
       async bindQueue() {},
       async prefetch(count) { this.prefetchCount = count; },
-      async consume(queue, callback) { this.handlers.set(queue, callback); },
+      async consume(queue, callback) { this.handlers.set(queue, callback); return { consumerTag: `tag-${queue}` }; },
       ack() { this.acknowledgements += 1; },
       async close() {},
     });
@@ -111,6 +138,19 @@ test('normaliza um job de áudio sem credencial externa', () => {
   const job = normalizeJob({ jobId: 'job-1', source: { key: 'audio/test.ogg', mimeType: 'audio/ogg' } });
   assert.equal(job.jobId, 'job-1');
   assert.equal(job.sourceMimeType, 'audio/ogg');
+});
+
+test('job inválido com ID conhecido termina com falha observável antes do ACK', async () => {
+  const worker = Object.create(TranscriptionWorker.prototype);
+  const events = [];
+  const channel = { ack: () => events.push('ack') };
+  worker.channel = channel;
+  worker.config = { mode: 'dictation', maxAudioBytes: 1024 };
+  worker.publish = async (status, payload) => { events.push(status); assert.equal(payload.errorCode, 'INVALID_JOB'); };
+  worker.publishDeadLetter = async () => { events.push('dead-letter'); };
+  await worker.handle({ content: Buffer.from(JSON.stringify({ jobId: 'invalid-1', mode: 'dictation',
+    source: { key: 'dictation/invalid-1.webm', mimeType: 'audio/webm' }, inlineAudio: '?' })) }, channel);
+  assert.deepEqual(events, ['failed', 'dead-letter', 'ack']);
 });
 
 test('aceita MIME de gravações WebM do navegador', () => {

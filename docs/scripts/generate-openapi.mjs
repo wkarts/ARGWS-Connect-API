@@ -234,6 +234,7 @@ const requestOverrides = {
                 workerReady: { type: 'boolean' },
                 messageCount: { type: 'integer', minimum: 0 },
                 staleJobSeconds: { type: 'integer', minimum: 60 },
+                globalConcurrency: { type: 'integer', minimum: 1, maximum: 8 },
                 maxUploadBytes: { type: 'integer', minimum: 1, maximum: 262144000 },
                 queuedJobs: { type: 'integer', minimum: 0 },
                 processingJobs: { type: 'integer', minimum: 0 },
@@ -338,11 +339,12 @@ const requestOverrides = {
   },
   'POST /v1/transcriptions/{jobId}/retry': {
     summary: 'Reenfileirar transcrição',
-    description: 'Reenfileira jobs que terminaram em falha ou jobs em fila/processamento sem atualização além de TRANSCRIPTION_STALE_JOB_SECONDS.',
+    description: 'Reenfileira somente jobs de transcrição em falha final cujo áudio ainda esteja disponível. Um job ativo mantém sua entrega original no RabbitMQ.',
     responses: {
       '202': { description: 'Job reenfileirado.' },
       '404': { $ref: '#/components/responses/NotFound' },
       '409': { $ref: '#/components/responses/Conflict' },
+      '410': { description: 'Áudio original indisponível; ditado requer nova gravação.' },
     },
   },
   'DELETE /v1/transcriptions/{jobId}': {
@@ -675,8 +677,8 @@ const requestOverrides = {
     responses: { '200': { description: 'Job cancelado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
   },
   'POST /v1/speech/transcriptions/{jobId}/retry': {
-    tags: ['Speech'], summary: 'Reenfileirar transcrição', description: 'Reenfileira um job de transcrição que pode ser tentado novamente.',
-    responses: { '202': { description: 'Job reenfileirado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
+    tags: ['Speech'], summary: 'Reenfileirar transcrição', description: 'Reenfileira somente uma transcrição em falha final com áudio ainda disponível.',
+    responses: { '202': { description: 'Job reenfileirado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '410': { description: 'Áudio original indisponível.' } },
   },
   'DELETE /v1/speech/transcriptions/{jobId}': {
     tags: ['Speech'], summary: 'Remover resultado de transcrição', description: 'Remove o registro do job; mídia associada à mensagem permanece intacta.',
@@ -858,12 +860,18 @@ function nativeSpec(routes, version) {
           required: ['id', 'provider', 'model', 'status', 'attempts', 'createdAt', 'updatedAt'],
           properties: {
             id: { type: 'string' },
+            workerId: { type: ['string', 'null'], description: 'Último worker que enviou atualização para o job.' },
             instanceId: { type: ['string', 'null'] },
             messageId: { type: ['string', 'null'] },
+            mode: { type: 'string', enum: ['transcription', 'dictation'] },
             provider: { type: 'string', example: 'local' },
             model: { type: 'string', example: 'Xenova/whisper-small' },
             language: { type: ['string', 'null'] },
-            status: { type: 'string', enum: ['queued', 'processing', 'completed', 'failed'] },
+            status: { type: 'string', enum: ['queued', 'processing', 'completed', 'cancelled', 'failed'] },
+            stage: { type: 'string', description: 'Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação.' },
+            progressPercent: { type: 'integer', minimum: 0, maximum: 100 },
+            processedDurationMs: { type: 'integer', minimum: 0 },
+            heartbeatAt: { type: ['string', 'null'], format: 'date-time' },
             text: { type: ['string', 'null'] },
             detectedLanguage: { type: ['string', 'null'] },
             durationMs: { type: ['integer', 'null'], minimum: 0 },

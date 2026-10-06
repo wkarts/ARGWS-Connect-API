@@ -39,3 +39,16 @@ test('inferência travada termina com erro recuperável e o próximo áudio usa 
     await client.stop();
   }
 });
+
+test('parada durante inferência rejeita o job para que o canal possa devolvê-lo', async () => {
+  const client = new InferenceClient({}, {
+    workerPath: path.join(__dirname, 'fixtures/stalling-inference.cjs'),
+    stallTimeoutMs: 10_000,
+  });
+  await client.warmup();
+  const pending = assert.rejects(client.transcribe('em-curso.ogg', { stall: true }), {
+    code: 'WORKER_STOPPING',
+  });
+  await client.stop();
+  await pending;
+});

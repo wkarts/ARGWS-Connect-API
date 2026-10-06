@@ -18992,7 +18992,7 @@
         ],
         "summary": "Reenfileirar transcrição",
         "operationId": "post_v1_speech_transcriptions_jobid_retry",
-        "description": "Reenfileira um job de transcrição que pode ser tentado novamente.",
+        "description": "Reenfileira somente uma transcrição em falha final com áudio ainda disponível.",
         "parameters": [
           {
             "name": "jobId",
@@ -19022,6 +19022,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "description": "Áudio original indisponível."
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -19400,7 +19403,7 @@
         ],
         "summary": "Reenfileirar transcrição",
         "operationId": "post_v1_transcriptions_jobid_retry",
-        "description": "Reenfileira jobs que terminaram em falha ou jobs em fila/processamento sem atualização além de TRANSCRIPTION_STALE_JOB_SECONDS.",
+        "description": "Reenfileira somente jobs de transcrição em falha final cujo áudio ainda esteja disponível. Um job ativo mantém sua entrega original no RabbitMQ.",
         "parameters": [
           {
             "name": "jobId",
@@ -19427,6 +19430,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
+          },
+          "410": {
+            "description": "Áudio original indisponível; ditado requer nova gravação."
           }
         },
         "x-source-file": "src/api/routes/transcription.router.ts",
@@ -19550,6 +19556,11 @@
                     "staleJobSeconds": {
                       "type": "integer",
                       "minimum": 60
+                    },
+                    "globalConcurrency": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 8
                     },
                     "maxUploadBytes": {
                       "type": "integer",
@@ -23491,6 +23502,13 @@
           "id": {
             "type": "string"
           },
+          "workerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Último worker que enviou atualização para o job."
+          },
           "instanceId": {
             "type": [
               "string",
@@ -23501,6 +23519,13 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "transcription",
+              "dictation"
             ]
           },
           "provider": {
@@ -23523,8 +23548,29 @@
               "queued",
               "processing",
               "completed",
+              "cancelled",
               "failed"
             ]
+          },
+          "stage": {
+            "type": "string",
+            "description": "Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação."
+          },
+          "progressPercent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "processedDurationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "heartbeatAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "text": {
             "type": [

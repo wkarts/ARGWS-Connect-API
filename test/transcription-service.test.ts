@@ -70,7 +70,7 @@ test('recovery targets stale processing jobs only, even when RabbitMQ has no rea
   });
 });
 
-test('recovery does not inspect or republish jobs while no worker consumes the queue', async () => {
+test('recuperação observa jobs em execução mesmo quando não há consumidores', async () => {
   await withStaleThreshold(async () => {
     let queried = false;
     const repository = {
@@ -86,7 +86,45 @@ test('recovery does not inspect or republish jobs while no worker consumes the q
 
     await (service as any).recoverStaleJobs();
 
-    assert.equal(queried, false);
+    assert.equal(queried, true);
+  });
+});
+
+test('heartbeat vencido aguarda a entrega original sem criar cópia do job ou perder áudio inline', async () => {
+  await withStaleThreshold(async () => {
+    const old = new Date(Date.now() - 180_000);
+    const job = { id: 'dictation-redelivery', mode: 'dictation', status: 'processing',
+      stage: 'transcribing', attempts: 1, updatedAt: old };
+    const updates: any[] = [];
+    const repository = { transcriptionJob: {
+      findMany: async (query: any) => query.where?.status === 'processing' && query.where.mode === job.mode ? [job] : [],
+      updateMany: async (update: any) => { updates.push(update); return { count: 1 }; },
+    } };
+    const service = new TranscriptionService(repository as any);
+    (service as any).channel = { checkQueue: async () => ({ consumerCount: 1, messageCount: 0 }) };
+    (service as any).publish = async () => { throw new Error('não pode republicar'); };
+    await (service as any).recoverStaleJobs();
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].data.stage, 'awaiting_redelivery');
+    assert.equal(updates[0].data.attempts, undefined);
+    assert.equal(updates[0].data.status, undefined);
+  });
+});
+
+test('entrega interrompida sem recuperação termina em falha identificável', async () => {
+  await withStaleThreshold(async () => {
+    const old = new Date(Date.now() - 180_000);
+    const job = { id: 'lost-job', mode: 'transcription', status: 'processing',
+      stage: 'awaiting_redelivery', attempts: 1, updatedAt: old };
+    let update: any;
+    const service = new TranscriptionService({ transcriptionJob: {
+      findMany: async (query: any) => query.where?.status === 'processing' && query.where.mode === job.mode ? [job] : [],
+      updateMany: async (input: any) => { update = input; return { count: 1 }; },
+    } } as any);
+    (service as any).channel = { checkQueue: async () => ({ consumerCount: 0, messageCount: 0 }) };
+    await (service as any).recoverStaleJobs();
+    assert.equal(update.data.status, 'failed');
+    assert.equal(update.data.errorCode, 'WORKER_HEARTBEAT_EXPIRED');
   });
 });
 
@@ -128,11 +166,12 @@ test('primeiro resultado do retry avança a tentativa persistida sem descartar o
   const service = new TranscriptionService(repository as any);
   (service as any).resultChannel = channel;
   await (service as any).consumeResult({ content: Buffer.from(JSON.stringify({
-    jobId: 'retry-job', attempts: 2, status: 'completed', text: 'teste teste',
+    jobId: 'retry-job', workerId: 'speech-worker-2', attempts: 2, status: 'completed', text: 'teste teste',
   })) }, channel);
   assert.equal(updates.length, 2);
   assert.equal(updates[1].data.attempts, 2);
   assert.equal(updates[1].data.text, 'teste teste');
+  assert.equal(updates[1].data.workerId, 'speech-worker-2');
   assert.equal(channel.acknowledgements, 1);
 });
 
@@ -195,6 +234,17 @@ test('a queued job cannot be manually retried based only on its age', async () =
 
     await assert.rejects(service.retry('queued-job'), (error: any) => error.status === 409);
   });
+});
+
+test('não cria segunda mensagem para processamento antigo e não refaz ditado sem áudio', async () => {
+  const old = new Date(Date.now() - 600_000);
+  const service = new TranscriptionService({ transcriptionJob: {
+    findUnique: async ({ where }: any) => ({ id: where.id, status: where.id === 'dictation' ? 'failed' : 'processing',
+      mode: where.id === 'dictation' ? 'dictation' : 'transcription', updatedAt: old }),
+  } } as any);
+  (service as any).publish = async () => { throw new Error('não deve publicar'); };
+  await assert.rejects(service.retry('transcription'), (error: any) => error.status === 409);
+  await assert.rejects(service.retry('dictation'), (error: any) => error.status === 410);
 });
 
 test('resultado de voz não confirma no canal novo após reconexão do RabbitMQ', async () => {

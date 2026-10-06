@@ -6,6 +6,7 @@ const { spawn } = require('node:child_process');
 const amqp = require('amqplib');
 const { createClient, downloadObjectToFile, writeBufferToTemp, cleanup } = require('./storage');
 const { InferenceClient } = require('./inference-client');
+const { acquire } = require('./admission');
 
 const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
@@ -15,6 +16,8 @@ const READY_FILE = '/tmp/transcription-worker.ready';
 const PERMANENT_ERRORS = new Set([
   'CANCELLED', 'INVALID_AUDIO', 'NO_SPEECH', 'UNSUPPORTED_AUDIO', 'MODEL_MISSING',
   'MODEL_CHECKSUM_MISMATCH', 'FFMPEG_MISSING', 'QUEUE_MODE_MISMATCH',
+  'AUDIO_TOO_LONG',
+  'DICTATION_AUDIO_EXPIRED',
 ]);
 
 function normalizeJob(value, maxAudioBytes = 25 * 1024 * 1024) {
@@ -32,6 +35,7 @@ function normalizeJob(value, maxAudioBytes = 25 * 1024 * 1024) {
 
   let inlineAudio = null;
   if (value.inlineAudio !== undefined && value.inlineAudio !== null) {
+    if (mode !== 'dictation') throw new Error('Áudio inline é reservado ao ditado.');
     const encoded = String(value.inlineAudio);
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
       throw new Error('Áudio inline inválido.');
@@ -54,6 +58,7 @@ function normalizeJob(value, maxAudioBytes = 25 * 1024 * 1024) {
     language: value.language ? String(value.language) : null,
     model: value.model ? String(value.model) : null,
     inlineAudio,
+    queuedAt: Number.isFinite(Date.parse(value.queuedAt)) ? Date.parse(value.queuedAt) : null,
   };
 }
 
@@ -72,27 +77,60 @@ class TranscriptionWorker {
     this.channel = null;
     this.controlChannel = null;
     this.settledMessages = new WeakSet();
-    this.client = createClient(config.s3);
+    this.client = null;
     this.provider = null;
     this.stopping = false;
     this.reconnectTimer = null;
     this.cancelledJobs = new Set();
+    this.activeTask = null;
+    this.workerId = String(process.env.HOSTNAME || process.pid).slice(0, 128);
   }
 
   async start() {
     fs.rmSync(READY_FILE, { force: true });
     if (!this.config.enabled) {
-      fs.writeFileSync(READY_FILE, 'disabled');
-      console.log('Speech worker desabilitado; aguardando ativação por ambiente.');
-      await new Promise(() => {});
+      console.log('Speech worker desabilitado; nenhum modelo ou consumidor iniciado.');
       return;
     }
+    this.client = createClient(this.config.s3);
     await probeFfmpeg();
-    await this.waitForPersistentModel();
+    while (!this.stopping) {
+      await this.waitForPersistentModel();
+      if (this.stopping) return;
+      this.logMemory('before_model');
+      this.provider = new InferenceClient(this.config);
+      try {
+        await this.provider.warmup();
+        break;
+      } catch (error) {
+        console.error('Modelo de voz indisponível; aguardando reparo antes de atender a fila:', error.code || error.message);
+        await this.provider.stop().catch(() => {});
+        this.provider = null;
+        await this.waitForModelRepair();
+      }
+    }
     if (this.stopping) return;
-    this.provider = new InferenceClient(this.config);
-    await this.provider.warmup();
-    await this.connect();
+    this.logMemory('after_model');
+    await this.connect().catch((error) => {
+      console.error('RabbitMQ indisponível no início do worker:', error.message);
+      void this.connection?.close().catch(() => {});
+      this.scheduleReconnect();
+    });
+    this.idleMetrics = setInterval(() => {
+      if (!this.activeTask) {
+        this.logMemory('idle');
+        this.provider.sampleMemory();
+      }
+    }, 60_000);
+    this.idleMetrics.unref?.();
+  }
+
+  logMemory(phase, job = null, extra = {}) {
+    const { rss, heapUsed, heapTotal, external, arrayBuffers } = process.memoryUsage();
+    console.log(JSON.stringify({ event: 'speech_memory', phase, mode: this.config.mode,
+      workerId: this.workerId, jobId: job?.jobId, attempt: job?.attempts,
+      activeJobs: this.activeTask ? 1 : 0,
+      rss, heapUsed, heapTotal, external, arrayBuffers, ...extra }));
   }
 
   async waitForPersistentModel() {
@@ -107,6 +145,18 @@ class TranscriptionWorker {
         lastNotice = Date.now();
       }
       await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+
+  async waitForModelRepair() {
+    const manifest = path.join(path.resolve(this.config.local.modelPath || '/models'), '.speech-model-checksums.json');
+    const revision = () => {
+      try { const stat = fs.statSync(manifest); return `${stat.mtimeMs}:${stat.size}`; } catch { return null; }
+    };
+    const previous = revision();
+    while (!this.stopping) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      if (revision() !== previous) return;
     }
   }
 
@@ -190,9 +240,19 @@ class TranscriptionWorker {
       if (message) this.handleControl(message, controlChannel);
     }, { noAck: false });
     await channel.prefetch(this.config.concurrency);
-    await channel.consume(this.config.queue, (message) => {
-      if (message) void this.handle(message, channel);
+    const consumer = await channel.consume(this.config.queue, (message) => {
+      if (!message) return;
+      if (this.stopping) {
+        this.negativeAcknowledge(channel, message, true);
+        return;
+      }
+      const task = this.handle(message, channel);
+      this.activeTask = task;
+      void task.finally(() => { if (this.activeTask === task) this.activeTask = null; }).catch((error) => {
+        console.error('Falha inesperada no job de voz:', error.message);
+      });
     }, { noAck: false });
+    this.consumerTag = consumer.consumerTag;
     if (this.channel !== channel || this.controlChannel !== controlChannel) return;
     fs.writeFileSync(READY_FILE, 'ready');
     console.log(`Speech ${this.config.mode} worker pronto na fila ${this.config.queue}.`);
@@ -246,6 +306,7 @@ class TranscriptionWorker {
       const jobId = String(payload.jobId || '').trim();
       if (jobId && jobId.length <= 128) {
         this.cancelledJobs.add(jobId);
+        if (this.cancelledJobs.size > 1024) this.cancelledJobs.delete(this.cancelledJobs.values().next().value);
         if (this.activeJobId === jobId) this.provider?.cancel();
       }
       this.acknowledge(channel, message);
@@ -260,6 +321,7 @@ class TranscriptionWorker {
     const routingKey = prefix + status;
     const message = Buffer.from(JSON.stringify({
       ...payload,
+      workerId: this.workerId,
       status,
       mode: payload.mode || this.config.mode,
       heartbeatAt: new Date().toISOString(),
@@ -332,10 +394,27 @@ class TranscriptionWorker {
   async handle(message, channel = this.channel) {
     if (!channel || channel !== this.channel) return;
     let job;
+    let raw;
     try {
-      job = normalizeJob(JSON.parse(message.content.toString('utf8')), this.config.maxAudioBytes);
+      raw = JSON.parse(message.content.toString('utf8'));
+      job = normalizeJob(raw, this.config.maxAudioBytes);
     } catch (error) {
-      console.error('Mensagem de áudio descartada:', error.message);
+      const jobId = typeof raw?.jobId === 'string' && raw.jobId.length <= 128 ? raw.jobId.trim() : '';
+      if (jobId) {
+        const rejected = { jobId, mode: this.config.mode,
+          attempts: Number.isFinite(Number(raw.attempts)) ? Math.max(1, Math.floor(Number(raw.attempts))) : 1 };
+        try {
+          await this.publish('failed', { ...rejected, errorCode: 'INVALID_JOB',
+            errorMessage: 'A mensagem da fila contém áudio ou metadados inválidos.' }, channel);
+          await this.publishDeadLetter(rejected, { code: 'INVALID_JOB' }, channel);
+        } catch (cause) {
+          console.error('Falha ao registrar job inválido:', cause.message);
+          this.negativeAcknowledge(channel, message, true);
+          return;
+        }
+      } else {
+        console.error('Mensagem de áudio sem identificador válido descartada:', error.message);
+      }
       this.acknowledge(channel, message);
       return;
     }
@@ -345,11 +424,30 @@ class TranscriptionWorker {
       this.acknowledge(channel, message);
       return;
     }
+    const deliveryCount = Number(message.properties?.headers?.['x-delivery-count'] || 0);
+    if (job.attempts + deliveryCount > this.config.maxAttempts) {
+      const error = { code: 'WORKER_RESTART_LIMIT' };
+      try {
+        await this.publish('failed', { jobId: job.jobId, mode: job.mode, attempts: job.attempts,
+          errorCode: error.code, errorMessage: 'O job excedeu o limite de entregas após interrupções do worker.' }, channel);
+        await this.publishDeadLetter(job, error, channel);
+        this.acknowledge(channel, message);
+      } catch (cause) {
+        console.error('Falha ao registrar limite de reinícios do job:', cause.message);
+        this.negativeAcknowledge(channel, message, true);
+      }
+      return;
+    }
 
     let downloaded = null;
+    let lease = null;
+    let peakRss = 0;
+    const startedAt = Date.now();
     let heartbeat = null;
-    const state = { stage: 'preparing', progressPercent: 2, processedDurationMs: 0, partialText: '' };
+    const state = { stage: 'waiting_for_capacity', progressPercent: 0, processedDurationMs: 0, partialText: '' };
     const isCancelled = () => this.cancelledJobs.has(job.jobId) || channel !== this.channel;
+    const isExpired = () => job.mode === 'dictation' && job.queuedAt !== null
+      && Date.now() - job.queuedAt >= this.config.dictationAudioRetentionMs;
     const publishProgress = (progress = {}) => {
       Object.assign(state, progress);
       return this.publish('processing', {
@@ -364,12 +462,36 @@ class TranscriptionWorker {
 
     try {
       this.activeJobId = job.jobId;
-      await publishProgress({ stage: 'preparing', progressPercent: 2 });
+      this.logMemory('job_received', job, { encodedBytes: message.content.length, deliveryCount });
+      await publishProgress();
       heartbeat = setInterval(() => {
         if (isCancelled() || this.stopping) return;
         void publishProgress().catch((error) => console.error('Heartbeat de voz não publicado:', error.message));
       }, this.config.heartbeatIntervalSeconds * 1000);
       heartbeat.unref?.();
+      lease = await acquire(this.config, () => isCancelled() || this.stopping || isExpired(), () => {
+        console.error('A reserva global de inferência foi perdida; devolvendo o job à fila.', job.jobId);
+        if (this.stopping) return;
+        this.stopping = true;
+        this.provider?.cancel();
+        void channel.close().catch(() => {});
+        void this.provider?.stop().catch(() => {}).then(async () => {
+          await this.activeTask?.catch(() => {});
+          process.exit(1);
+        });
+      });
+      if (isExpired()) throw Object.assign(new Error('O áudio do ditado expirou enquanto aguardava capacidade.'), {
+        code: 'DICTATION_AUDIO_EXPIRED', retryable: false,
+      });
+      this.logMemory('admitted', job, { slot: lease.slot });
+      const metrics = setInterval(() => {
+        const rss = process.memoryUsage().rss;
+        peakRss = Math.max(peakRss, rss);
+        this.logMemory('job_running', job, { slot: lease.slot, peakRss });
+      }, 5000);
+      metrics.unref?.();
+      try {
+      await publishProgress({ stage: 'preparing', progressPercent: 2 });
 
       if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
       await publishProgress({ stage: job.inlineAudio ? 'normalizing' : 'downloading', progressPercent: 5 });
@@ -388,6 +510,8 @@ class TranscriptionWorker {
         language: job.language,
         model: job.model,
         mode: job.mode,
+        jobId: job.jobId,
+        attempts: job.attempts,
         isCancelled,
         onProgress: publishProgress,
       });
@@ -404,9 +528,14 @@ class TranscriptionWorker {
         ...result,
       }, channel);
       this.acknowledge(channel, message);
+      } finally { clearInterval(metrics); }
     } catch (error) {
       if (channel !== this.channel) return;
-      const code = String(error?.code || 'TRANSCRIPTION_FAILED').slice(0, 64);
+      if (this.stopping) {
+        this.negativeAcknowledge(channel, message, true);
+        return;
+      }
+      const code = String(isExpired() ? 'DICTATION_AUDIO_EXPIRED' : error?.code || 'TRANSCRIPTION_FAILED').slice(0, 64);
       if (code === 'CANCELLED' || isCancelled()) {
         try {
           await this.publish('cancelled', {
@@ -455,14 +584,37 @@ class TranscriptionWorker {
       if (heartbeat) clearInterval(heartbeat);
       if (downloaded) await cleanup(downloaded.directory);
       this.cancelledJobs.delete(job.jobId);
+      await lease?.release();
+      this.logMemory('job_settled', job, { elapsedMs: Date.now() - startedAt, peakRss });
     }
   }
 
   async stop() {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopPromise = this.stopWorker();
+    return this.stopPromise;
+  }
+
+  async stopWorker() {
     this.stopping = true;
-    await this.provider?.stop();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.idleMetrics) clearInterval(this.idleMetrics);
     fs.rmSync(READY_FILE, { force: true });
+    if (this.channel && this.consumerTag) await this.channel.cancel(this.consumerTag).catch(() => {});
+    if (this.activeTask) {
+      let timeout;
+      const settled = await Promise.race([
+        this.activeTask.then(() => true, () => true),
+        new Promise((resolve) => { timeout = setTimeout(() => resolve(false), (this.config.shutdownGraceSeconds || 90) * 1000); }),
+      ]);
+      clearTimeout(timeout);
+      if (!settled) {
+        this.provider?.cancel();
+        await this.provider?.stop();
+        await Promise.race([this.activeTask.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+      }
+    }
+    await this.provider?.stop();
     await this.controlChannel?.close().catch(() => {});
     await this.channel?.close().catch(() => {});
     await this.connection?.close().catch(() => {});
