@@ -7,6 +7,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { decodeAudio, createProvider } = require('../src/provider');
 
+// The API already ships a platform FFmpeg binary for its media tests. GitHub's
+// bare Node runner does not install /usr/bin/ffmpeg; the worker image does.
+try {
+  const bundled = require('@ffmpeg-installer/ffmpeg').path;
+  process.env.PATH = `${path.dirname(bundled)}${path.delimiter}${process.env.PATH || ''}`;
+} catch { /* A standalone worker test can use the system FFmpeg. */ }
+
 async function wav(directory, seconds) {
   const sampleCount = 16000 * seconds;
   const audio = Buffer.alloc(44 + sampleCount * 2);
