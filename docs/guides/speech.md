@@ -4,9 +4,11 @@ O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona
 
 ## Habilitar
 
-Defina `SPEECH_ENABLED=true` e inclua o profile `transcription` no Compose. O profile inicia dois consumidores independentes: o worker de transcrição (`speech.transcription`) e o worker prioritário de ditado (`speech.dictation`). `TRANSCRIPTION_ENABLED` continua aceito como fallback para instalações antigas. `DICTATION_ENABLED=false` desativa apenas o ditado.
+Somente a stack principal `deploy/develop/` mantém `SPEECH_ENABLED=true` e o profile `transcription`. O profile inicia dois consumidores independentes: o worker de transcrição (`speech.transcription`) e o worker prioritário de ditado (`speech.dictation`). `TRANSCRIPTION_ENABLED` continua aceito como fallback legado nessa stack. `DICTATION_ENABLED=false` desativa apenas o ditado.
 
-O exemplo `deploy/develop/env.example` já inclui o profile. Em outras stacks, acrescente `transcription` a `COMPOSE_PROFILES` antes de recriar os serviços.
+Todas as outras stacks, inclusive Fersoft develop e production, têm flags de voz desligadas no Compose e não incluem workers; adicionar o profile a um `.env` antigo não reativa o recurso. O Manager esconde transcrição, ditado e configurações de voz nesses deployments. Não copie o Compose principal de develop para uma VPS de produção.
+
+Para interromper o consumo de RAM em uma VPS que já rodava os workers, atualize para o Compose desta release e execute `docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans` após o `pull`. Verifique com `docker compose ps -a` se não restaram containers antigos dos workers. No CloudPanel, use `-f docker-compose.yml`; se o painel não remove órfãos, pare e remova somente os containers antigos de transcrição e ditado da stack. Preserve os volumes de banco, filas e `./models`; não execute `down -v`.
 
 Variáveis principais:
 
@@ -42,7 +44,7 @@ Os sinais de cancelamento usam um canal independente daquele que processa áudio
 
 ## Baixar e manter o modelo
 
-Ao iniciar, a API confere o volume e baixa automaticamente o modelo se ele ainda não estiver instalado. Isso também acontece depois de instalar ou atualizar a stack. O pacote q8 do `Xenova/whisper-small` tem aproximadamente 250 MB; a API baixa uma revisão fixada da Hugging Face, verifica SHA-256 e grava os arquivos em `./models` por padrão. A tela **Gerenciador → Transcrição de áudio** mostra o progresso e permite iniciar ou repetir o download manualmente.
+Ao iniciar com voz habilitada na stack principal de develop, a API confere o volume e baixa automaticamente o modelo se ele ainda não estiver instalado. Com voz desabilitada, a API não inicia esse download. O pacote q8 do `Xenova/whisper-small` tem aproximadamente 250 MB; a API baixa uma revisão fixada da Hugging Face, verifica SHA-256 e grava os arquivos em `./models` por padrão. A tela **Gerenciador → Transcrição de áudio**, disponível somente no develop principal, mostra o progresso e permite iniciar ou repetir o download manualmente.
 
 O mesmo diretório do host é montado como `/models` com leitura e escrita na API e somente leitura nos workers. Depois da primeira instalação, transcrição e ditado carregam o modelo desse volume; reiniciar ou atualizar os containers reutiliza os arquivos sem baixar os pesos novamente. Preserve `./models` entre implantações. Os pesos não fazem parte da imagem GHCR e não são armazenados em `/tmp`.
 
@@ -97,6 +99,6 @@ Os jobs têm `mode`, `sourceType`, estágio, percentual real, duração processa
 
 ## Limites atuais
 
-O Manager oferece transcrição manual de mensagens de áudio. O VAD reduz o trabalho ao selecionar trechos com atividade de voz, mas não bloqueia sozinho uma gravação: se nenhum trecho superar o limiar de energia, o worker envia o áudio decodificado inteiro ao Whisper, o que permite reconhecer fala capturada em volume baixo. O job só retorna `NO_SPEECH` depois que o modelo também não reconhece texto. No navegador, somente gravações sem dados capturados ou com zero bytes são interrompidas; áudios curtos com conteúdo seguem para processamento.
+No develop principal, o Manager oferece transcrição manual de mensagens de áudio. O VAD reduz o trabalho ao selecionar trechos com atividade de voz, mas não bloqueia sozinho uma gravação: se nenhum trecho superar o limiar de energia, o worker envia o áudio decodificado inteiro ao Whisper, o que permite reconhecer fala capturada em volume baixo. O job só retorna `NO_SPEECH` depois que o modelo também não reconhece texto. No navegador, somente gravações sem dados capturados ou com zero bytes são interrompidas; áudios curtos com conteúdo seguem para processamento.
 
 A transcrição automática de mensagens recebidas, controles de preferência por instância e publicação de `speech.transcription.completed` em Webhooks/flows ainda precisam de integração específica; os endpoints e os dados persistidos já podem ser usados como base para essa etapa.

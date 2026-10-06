@@ -46,6 +46,7 @@ test('API defaults and standalone Manager defaults remain identical', () => {
   const features = managerFeatures({ AUTHENTICATION_API_KEY: 'fixture-secret', OPERATIONS_INTERNAL_TOKEN: 'fixture-agent-secret' });
   for (const key of ['conversations', 'messages', 'contacts', 'testMessageContacts']) assert.equal(features[key], false);
   assert.equal(features.instanceTestMessage, true);
+  assert.equal(features.transcription, false);
   assert.ok(!JSON.stringify(features).includes('secret'));
 });
 

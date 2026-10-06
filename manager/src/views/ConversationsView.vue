@@ -5,6 +5,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import DictationButton from '@/components/DictationButton.vue'
+import { featureEnabled } from '@/config/runtime'
 import { connect } from '@/services/connect'
 import { isFindHub } from '@/services/findhub-channel'
 import { friendlyError } from '@/services/errors'
@@ -236,7 +237,7 @@ onMounted(async () => {
               >
                 <strong v-if="selectedChat.isGroup && message.direction === 'in'" class="message-author">{{ message.participantName || 'Participante' }}</strong>
                 <p>{{ message.text }}</p>
-                <div v-if="message.isAudio" class="message-transcription">
+                <div v-if="featureEnabled('transcription', false) && message.isAudio" class="message-transcription">
                   <button
                     class="message-transcription-action"
                     type="button"
@@ -262,7 +263,7 @@ onMounted(async () => {
           <form class="composer" @submit.prevent="send">
             <div class="composer-field">
               <input ref="draftTarget" v-model="draft" placeholder="Digite uma mensagem..." :disabled="sending" />
-              <DictationButton v-model="draft" :target="draftTarget" :instance-id="selectedInstance" />
+              <DictationButton v-if="featureEnabled('transcription', false)" v-model="draft" :target="draftTarget" :instance-id="selectedInstance" />
             </div>
             <button class="btn primary" :disabled="sending || !draft.trim()">
               {{ sending ? 'Enviando...' : 'Enviar' }}

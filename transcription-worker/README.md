@@ -4,6 +4,8 @@ O worker consome a fila `transcription.requested`, lê o áudio do prefixo priva
 
 ## Configuração mínima
 
+Este componente está temporariamente disponível apenas no Compose `deploy/develop/` principal. Produção, homologação, templates genéricos e os dois canais Fersoft estão desativados; não inicie o worker nessas VPS.
+
 ```dotenv
 TRANSCRIPTION_ENABLED=true
 TRANSCRIPTION_PROVIDER=local
@@ -60,11 +62,11 @@ prefixos do bucket.
 
 ## Compose
 
-O serviço pertence ao perfil opcional `transcription`. Em uma stack que já usa
-outros perfis, acrescente `transcription` à lista existente:
+O serviço pertence ao perfil `transcription` do develop principal. Nesse
+deployment, o exemplo já ativa o profile:
 
 ```dotenv
-COMPOSE_PROFILES=operations,extended,traccar,mysql,transcription
+COMPOSE_PROFILES=operations,transcription
 TRANSCRIPTION_ENABLED=true
 TRANSCRIPTION_PROVIDER=local
 ```
