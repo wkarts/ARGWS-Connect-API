@@ -48,11 +48,11 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
 
     def test_fersoft_production_is_full_stack_selected_by_env(self):
         environment = env_values(ROOT / 'deploy/fersoft/production/env.example')
-        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar,transcription')
+        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar')
         for key in ('OPERATIONS_ENABLED', 'NATS_ENABLED', 'KAFKA_ENABLED', 'MYSQL_SERVICE_ENABLED', 'TRACCAR_ENABLED'):
             self.assertEqual(environment[key], 'true', key)
-        for key in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED'):
-            self.assertEqual(environment[key], 'true', key)
+        for key in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+            self.assertEqual(environment[key], 'false', key)
         self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
         self.assertEqual(environment['TRACCAR_MODE'], 'internal')
         self.assertNotIn('TRACCAR_PUBLIC_URL', environment)
@@ -63,8 +63,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'api-fersoft-connect-production', 'docs-fersoft-connect-production',
             'postgres-fersoft-connect-production', 'redis-fersoft-connect-production',
             'rabbitmq-fersoft-connect-production', 'minio-fersoft-connect-production',
-            'operations-fersoft-connect-production', 'transcription-worker-fersoft-connect-production',
-            'speech-dictation-worker-fersoft-connect-production', 'nats-fersoft-connect-production',
+            'operations-fersoft-connect-production', 'nats-fersoft-connect-production',
             'mysql-fersoft-connect-production', 'zookeeper-fersoft-connect-production',
             'kafka-fersoft-connect-production', 'traccar-fersoft-connect-production',
             'traccar-postgres-fersoft-connect-production',
@@ -118,25 +117,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             traccar_postgres['environment']['TRACCAR_DATABASE_PASSWORD'],
             '${TRACCAR_DATABASE_PASSWORD:-}',
         )
-        transcription_worker = services['transcription-worker-fersoft-connect-production']
-        self.assertEqual(transcription_worker['profiles'], ['transcription'])
-        self.assertEqual(transcription_worker['environment']['SPEECH_WORKER_MODE'], 'transcription')
-        self.assertEqual(
-            transcription_worker['environment']['SPEECH_TRANSCRIPTION_QUEUE'],
-            services['api-fersoft-connect-production']['environment']['SPEECH_TRANSCRIPTION_QUEUE'],
-        )
-        self.assertFalse(any('transcription-models' in str(volume) for volume in transcription_worker.get('volumes', [])))
-        self.assertEqual(
-            transcription_worker['environment']['TRANSCRIPTION_MODEL_CACHE_DIR'],
-            '${TRANSCRIPTION_MODEL_CACHE_DIR:-/models}',
-        )
-        self.assertEqual(environment['SPEECH_MODELS_HOST_PATH'], './models')
-        self.assertEqual(environment['SPEECH_MODEL_PATH'], '/models/Xenova/whisper-small')
-        self.assertIn('${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro', transcription_worker['volumes'])
-        dictation_worker = services['speech-dictation-worker-fersoft-connect-production']
-        self.assertEqual(dictation_worker['profiles'], ['transcription'])
-        self.assertEqual(dictation_worker['environment']['SPEECH_WORKER_MODE'], 'dictation')
-        self.assertEqual(dictation_worker['container_name'], 'speech-dictation-worker-fersoft-connect-production')
+        self.assertFalse(any('/models' in str(volume) for volume in services['api-fersoft-connect-production']['volumes']))
         self.assertIn('psql --no-password', ' '.join(traccar_postgres['healthcheck']['test']))
         self.assertNotIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']
@@ -149,14 +130,39 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertIn('transcription', profiles)
         self.assertEqual(environment['TRANSCRIPTION_ENABLED'], 'true')
         self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
+        self.assertEqual(environment['SPEECH_ENABLED'], 'true')
+        self.assertEqual(environment['MANAGER_FEATURE_TRANSCRIPTION'], 'true')
 
         develop = yaml.safe_load((ROOT / 'deploy/develop/compose.yaml').read_text(encoding='utf-8'))
         worker = develop['services']['transcription-worker-argws-connect-develop']
         self.assertEqual(worker['profiles'], ['transcription'])
 
-        production = yaml.safe_load((ROOT / 'deploy/production/compose.yaml').read_text(encoding='utf-8'))
-        production_worker = production['services']['transcription-worker-argws-connect-production']
-        self.assertEqual(production_worker['profiles'], ['transcription'])
+        dictation = develop['services']['speech-dictation-worker-argws-connect-develop']
+        self.assertEqual(dictation['profiles'], ['transcription'])
+
+    def test_only_primary_develop_can_start_audio_workers_even_with_old_env(self):
+        layouts = {
+            'docker-compose.yaml': '.env.example',
+            'docker-compose.dev.yaml': '.env.example',
+            'deploy/production/compose.yaml': 'deploy/production/env.example',
+            'deploy/canonical/compose.yaml': 'deploy/canonical/env.example',
+            'deploy/cloudpanel/docker-compose.yml': 'deploy/cloudpanel/env.example',
+            'deploy/dockge/compose.yaml': 'deploy/dockge/env.example',
+            'deploy/homologation/compose.yaml': 'deploy/homologation/env.example',
+            'deploy/fersoft/production/compose.yaml': 'deploy/fersoft/production/env.example',
+            'deploy/fersoft/develop/compose.yaml': 'deploy/fersoft/develop/env.example',
+        }
+        for compose_file, environment_file in layouts.items():
+            with self.subTest(compose=compose_file):
+                services = yaml.safe_load((ROOT / compose_file).read_text(encoding='utf-8'))['services']
+                self.assertFalse([name for name in services if 'transcription-worker' in name or 'dictation-worker' in name])
+                api = next(value for name, value in services.items() if name == 'api' or name.startswith('api-'))
+                for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+                    self.assertEqual(api['environment'][flag], 'false', (compose_file, flag))
+                self.assertFalse(any('/models' in str(volume) for volume in api.get('volumes', [])))
+                env = env_values(ROOT / environment_file)
+                self.assertNotIn('transcription', env.get('COMPOSE_PROFILES', '').split(','))
+                self.assertEqual(env['MANAGER_FEATURE_TRANSCRIPTION'], 'false')
 
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')

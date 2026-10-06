@@ -20,7 +20,7 @@ export const MANAGER_FEATURE_DEFAULTS = {
   updates: ['MANAGER_FEATURE_UPDATES', true],
   settings: ['MANAGER_FEATURE_SETTINGS', true],
   storage: ['MANAGER_FEATURE_STORAGE', true],
-  transcription: ['MANAGER_FEATURE_TRANSCRIPTION', true],
+  transcription: ['MANAGER_FEATURE_TRANSCRIPTION', false],
 } as const;
 
 export function managerFeatures(env: Record<string, string | undefined> = process.env) {

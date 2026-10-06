@@ -7,24 +7,29 @@ diretórios `./volumes/*`; não copie nem execute auxiliares externos.
 A full stack é selecionada pelo próprio `.env`:
 
 ```dotenv
-COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar,transcription
+COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar
 OPERATIONS_ENABLED=true
 NATS_ENABLED=true
 KAFKA_ENABLED=true
 MYSQL_SERVICE_ENABLED=true
 TRACCAR_ENABLED=true
-TRANSCRIPTION_ENABLED=true
-SPEECH_ENABLED=true
+TRANSCRIPTION_ENABLED=false
+SPEECH_ENABLED=false
+MANAGER_FEATURE_TRANSCRIPTION=false
 ```
 
-Os exemplos de `develop` e `production` incluem o perfil `transcription`,
-a API habilitada e os workers de transcrição e ditado. O modelo local usa
-`SPEECH_MODELS_HOST_PATH=./models` e as filas do RabbitMQ da mesma stack.
-Em instalações existentes, atualize o `.env` preservando seus segredos e
-volumes: acrescente `transcription` a `COMPOSE_PROFILES` e defina
-`TRANSCRIPTION_ENABLED=true` e `SPEECH_ENABLED=true`. Então recrie a API e os
-dois workers com Compose/Dockge; manter o `.env` antigo desativado não inicia
-os workers mesmo após atualizar a imagem ou o compose.
+Transcrição e ditado estão suspensos em ambos os canais Fersoft. Somente
+`deploy/develop` (o develop principal) mantém esses workers. O Compose Fersoft
+removeu os services de voz e força as flags da API a `false`, inclusive se um
+`.env` antigo contiver `true`. O Manager também oculta a função.
+
+Em instalações existentes, preserve os segredos, banco e volumes. Remova
+`transcription` de `COMPOSE_PROFILES`, defina `TRANSCRIPTION_ENABLED=false`,
+`SPEECH_ENABLED=false`, `DICTATION_ENABLED=false` e
+`MANAGER_FEATURE_TRANSCRIPTION=false`, e atualize o Compose e a imagem da API.
+Remova os containers antigos de transcrição e ditado com a opção de remover
+órfãos do Compose/Dockge; a troca de imagem sozinha não para esses processos.
+Não apague o diretório `./models` ou os dados das filas durante a mitigação.
 
 Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
 O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos

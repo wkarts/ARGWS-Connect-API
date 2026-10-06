@@ -17,7 +17,7 @@ Dockge ou pelo Docker Compose:
 
 ```bash
 docker compose --env-file .env -f compose.yaml pull
-docker compose --env-file .env -f compose.yaml up -d --pull never
+docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans
 docker compose --env-file .env -f compose.yaml ps
 ```
 
@@ -42,19 +42,25 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-Os workers de voz usam o profile `transcription`: um consome `speech.transcription`
-e outro consome `speech.dictation` para manter ditados curtos fora da fila de
-áudios longos. O template `develop` já seleciona esse profile e habilita o
-recurso. Em outras stacks, acrescente `transcription` aos profiles existentes e
-defina `SPEECH_ENABLED=true` (`TRANSCRIPTION_ENABLED=true` segue aceito como
-fallback legado). Ao iniciar, a API baixa a revisão fixada do
-`Xenova/whisper-small` para `./models` se o modelo ainda não estiver instalado;
-os workers aguardam o arquivo ficar pronto. Também é possível iniciar ou repetir
-o download pelo painel Gerenciador → Transcrição de áudio. São cerca de 250 MB
-baixados uma vez; o volume é compartilhado pela API (leitura e escrita) e pelos
-workers (somente leitura), então os arquivos continuam disponíveis depois de
-reiniciar ou atualizar os containers. Preserve `./models` entre implantações.
-Os pesos não são empacotados na imagem GHCR nem guardados em `/tmp`.
+Por enquanto, transcrição e ditado estão disponíveis apenas no `deploy/develop/`
+principal. Os demais Compose, inclusive os dois canais Fersoft, não incluem os
+workers, impõem as flags de voz como `false` no container da API e ocultam o
+recurso no Manager. Mesmo que um `.env` antigo tenha `SPEECH_ENABLED=true` ou
+o profile `transcription`, ele não reativa a voz nessas stacks. A API desativada
+não baixa o modelo. Não adicione novamente os workers em produção.
+
+Ao atualizar uma VPS que já executava a versão anterior, preserve o `.env`,
+substitua o Compose pelo arquivo desta release e rode `up` com
+`--remove-orphans` como no exemplo acima. Isso remove containers antigos dos
+workers que não existem mais no Compose; confira com `docker compose ps -a`.
+Se o painel de deploy não remover órfãos, pare e remova somente os containers
+antigos de transcrição e ditado da respectiva stack. Não remova volumes, filas
+ou `./models`; o modelo já baixado pode permanecer em disco sem consumir RAM.
+
+No `deploy/develop/` principal, o profile `transcription` inicia dois
+consumidores independentes. A API baixa a revisão fixada do
+`Xenova/whisper-small` para `./models` quando o recurso está habilitado. São
+cerca de 250 MB no disco; preserve o diretório entre atualizações.
 
 ```dotenv
 SPEECH_ENABLED=true

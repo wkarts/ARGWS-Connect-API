@@ -109,9 +109,9 @@ test('download gerenciado rejeita modelo diferente do perfil fixado', async () =
   }
 });
 
-test('API provisiona o modelo no início da stack mesmo com a transcrição desativada', async () => {
+test('API não baixa o modelo desativado e o provisiona somente no canal habilitado', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'argws-speech-model-bootstrap-'));
-  const envNames = ['SPEECH_MODELS_PATH', 'SPEECH_MODEL_PATH', 'SPEECH_MODEL', 'SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED'];
+  const envNames = ['SPEECH_MODELS_PATH', 'SPEECH_MODEL_PATH', 'SPEECH_MODEL', 'SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'RABBITMQ_ENABLED'];
   const previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
   const originalFetch = globalThis.fetch;
   const buffers = new Map(MODEL_FILES.map((filename) => [filename, Buffer.from(`fixture:${filename}`)]));
@@ -120,6 +120,7 @@ test('API provisiona o modelo no início da stack mesmo com a transcrição desa
   process.env.SPEECH_MODEL_PATH = path.join(root, 'Xenova', 'whisper-small');
   process.env.SPEECH_MODEL = 'Xenova/whisper-small';
   process.env.SPEECH_ENABLED = 'false';
+  process.env.RABBITMQ_ENABLED = 'false';
   delete process.env.TRANSCRIPTION_ENABLED;
   (globalThis as any).fetch = async (input: any) => {
     const url = String(input);
@@ -139,6 +140,11 @@ test('API provisiona o modelo no início da stack mesmo com a transcrição desa
     const service = new TranscriptionService({} as any);
     await Promise.all([service.init(), service.init()]);
     const statusPath = path.join(root, '.speech-model-download.json');
+    await assert.rejects(stat(statusPath), { code: 'ENOENT' });
+    assert.equal(metadataRequests, 0, 'disabled API must never start the model download');
+
+    process.env.SPEECH_ENABLED = 'true';
+    await Promise.all([service.init(), service.init()]);
     let status: any = null;
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {

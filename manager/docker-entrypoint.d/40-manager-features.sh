@@ -36,6 +36,6 @@ printf ',security:%s' "$(boolean "${MANAGER_FEATURE_SECURITY-}" "false")" >> "$t
 printf ',updates:%s' "$(boolean "${MANAGER_FEATURE_UPDATES-}" "true")" >> "$tmp"
 printf ',settings:%s' "$(boolean "${MANAGER_FEATURE_SETTINGS-}" "true")" >> "$tmp"
 printf ',storage:%s' "$(boolean "${MANAGER_FEATURE_STORAGE-}" "true")" >> "$tmp"
-printf ',transcription:%s' "$(boolean "${MANAGER_FEATURE_TRANSCRIPTION-}" "true")" >> "$tmp"
+printf ',transcription:%s' "$(boolean "${MANAGER_FEATURE_TRANSCRIPTION-}" "false")" >> "$tmp"
 printf '})});\n' >> "$tmp"
 mv "$tmp" "$output"

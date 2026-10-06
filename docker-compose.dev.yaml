@@ -3,6 +3,10 @@ name: ${COMPOSE_PROJECT_NAME:-argws-connect-api-dev}
 services:
   api:
     environment:
+      SPEECH_ENABLED: "false"
+      TRANSCRIPTION_ENABLED: "false"
+      DICTATION_ENABLED: "false"
+      MANAGER_FEATURE_TRANSCRIPTION: "false"
       TRACCAR_ENABLED: "${TRACCAR_ENABLED:-false}"
       TRACCAR_MODE: "${TRACCAR_MODE:-disabled}"
       TRACCAR_URL: "${TRACCAR_URL:-}"
@@ -29,7 +33,6 @@ services:
       OPERATIONS_INTERNAL_TOKEN: ${OPERATIONS_INTERNAL_TOKEN:-}
       OPERATIONS_AGENT_URL: ${OPERATIONS_AGENT_URL:-http://operations:8092}
       OPERATIONS_ENABLED: ${OPERATIONS_ENABLED:-false}
-      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
       SPEECH_MODELS_PATH: ${SPEECH_MODELS_PATH:-/models}
       SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/Xenova/whisper-small}
       TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
@@ -49,7 +52,6 @@ services:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-8080}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
-      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models
     networks:
       - argws-connect-dev-net
     env_file:
@@ -129,49 +131,314 @@ services:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
-  transcription-worker:
-    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-2}
-    profiles: ["transcription"]
-    image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
+  traccar:
+    profiles: [traccar]
+    image: ${ARGWS_CONNECT_TRACCAR_IMAGE:-ghcr.io/wkarts/argws-connect-traccar:6.15.3-alpine}
+    restart: unless-stopped
+    depends_on:
+      traccar-postgres:
+        condition: service_healthy
+    environment:
+      CONFIG_USE_ENVIRONMENT_VARIABLES: "true"
+      DATABASE_DRIVER: org.postgresql.Driver
+      DATABASE_URL: jdbc:postgresql://traccar-postgres:5432/traccar
+      DATABASE_USER: traccar
+      DATABASE_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+      WEB_PORT: "8082"
+      OSMAND_PORT: "5055"
+      OSMAND_ADDRESS: 0.0.0.0
+      PROTOCOLS_ENABLE: osmand
+      SERVER_STATISTICS: ""
+      GEOCODER_ENABLE: "false"
+      TZ: ${TZ:-America/Bahia}
+    expose: ["8082", "5055"]
+    volumes:
+      - ${ARGWS_CONNECT_TRACCAR_DATA_PATH:-./volumes/traccar}:/opt/traccar/data
+    networks:
+      argws-connect-dev-net:
+        aliases: [traccar]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S --spider -T 5 http://127.0.0.1:8082/api/server 2>&1 | grep -Eq 'HTTP/[0-9.]+ (200|401)'"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+  traccar-postgres:
+    profiles: [traccar]
+    image: ${ARGWS_CONNECT_POSTGRES_IMAGE:-ghcr.io/wkarts/argws-connect-postgres:15}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: traccar
+      POSTGRES_USER: traccar
+      POSTGRES_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+      TRACCAR_DATABASE_PASSWORD: ${TRACCAR_DATABASE_PASSWORD:-}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        set -Eeuo pipefail
+        : "$${TRACCAR_DATABASE_PASSWORD:?TRACCAR_DATABASE_PASSWORD nao configurada}"
+        data_directory="$${PGDATA:-/var/lib/postgresql/data}"
+        postgres_pid=''
+        recovery_role_pending=false
+
+        # Empty volume: retain the upstream PostgreSQL initialization behavior.
+        if [ ! -s "$$data_directory/PG_VERSION" ]; then
+          exec /usr/local/bin/docker-entrypoint.sh postgres
+        fi
+
+        # Existing volume: preserve data and reconcile only the missing Traccar identity.
+        if ! command -v gosu >/dev/null 2>&1; then
+          echo 'gosu nao esta disponivel na imagem PostgreSQL do Traccar.' >&2
+          exit 30
+        fi
+
+        start_postgres() {
+          /usr/local/bin/docker-entrypoint.sh postgres &
+          postgres_pid="$$!"
+        }
+
+        shutdown_postgres() {
+          if [ -n "$${postgres_pid:-}" ] && kill -0 "$$postgres_pid" 2>/dev/null; then
+            kill -TERM "$$postgres_pid" 2>/dev/null || true
+          fi
+          if [ -n "$${postgres_pid:-}" ]; then
+            wait "$$postgres_pid" || true
+          fi
+          postgres_pid=''
+        }
+
+        demote_recovery_role() {
+          [ "$$recovery_role_pending" = true ] || return 0
+          if PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -v ON_ERROR_STOP=1 -h 127.0.0.1 -U traccar -d template1 -c 'ALTER ROLE traccar NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS' >/dev/null; then
+            recovery_role_pending=false
+            return 0
+          fi
+          return 1
+        }
+
+        cleanup_recovery_role() {
+          [ "$$recovery_role_pending" = true ] || return 0
+          if demote_recovery_role; then
+            return 0
+          fi
+          shutdown_postgres
+          if printf '%s\n' 'ALTER ROLE traccar NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;' | gosu postgres postgres --single -D "$$data_directory" template1 >/dev/null; then
+            recovery_role_pending=false
+            return 0
+          fi
+          return 1
+        }
+
+        abort_recovery() {
+          code="$$1"
+          message="$$2"
+          echo "$$message" >&2
+          if ! cleanup_recovery_role; then
+            echo 'Nao foi possivel remover os privilegios temporarios de recuperacao do Traccar.' >&2
+          fi
+          shutdown_postgres
+          exit "$$code"
+        }
+
+        on_signal() {
+          cleanup_recovery_role || true
+          shutdown_postgres
+          exit 0
+        }
+        trap on_signal INT TERM
+
+        wait_for_server() {
+          for attempt in $$(seq 1 60); do
+            if [ -S /var/run/postgresql/.s.PGSQL.5432 ]; then
+              return 0
+            fi
+            if ! kill -0 "$$postgres_pid" 2>/dev/null; then
+              wait "$$postgres_pid" || true
+              return 1
+            fi
+            sleep 1
+          done
+          return 1
+        }
+
+        start_postgres
+        if ! wait_for_server; then
+          shutdown_postgres
+          echo 'PostgreSQL do Traccar nao ficou disponivel.' >&2
+          exit 31
+        fi
+
+        # Standard clusters retain the upstream postgres superuser. Prefer that route.
+        admin_ready=false
+        admin_probe=''
+        for attempt in $$(seq 1 60); do
+          if admin_probe="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc 'SELECT 1' 2>&1)"; then
+            admin_ready=true
+            break
+          fi
+          if printf '%s' "$$admin_probe" | grep -Fq 'role "postgres" does not exist'; then
+            break
+          fi
+          if ! kill -0 "$$postgres_pid" 2>/dev/null; then
+            shutdown_postgres
+            exit 31
+          fi
+          sleep 1
+        done
+
+        if [ "$$admin_ready" = true ]; then
+          role_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'traccar'")"
+          role_created=false
+          if [ "$$role_exists" != 1 ]; then
+            gosu postgres psql --no-password -v ON_ERROR_STOP=1 -v traccar_password="$$TRACCAR_DATABASE_PASSWORD" -h /var/run/postgresql -U postgres -d postgres -c "CREATE ROLE traccar LOGIN PASSWORD :'traccar_password'"
+            role_created=true
+          fi
+
+          database_exists="$$(gosu postgres psql --no-password -h /var/run/postgresql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"
+          if [ "$$database_exists" != 1 ]; then
+            gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'CREATE DATABASE traccar OWNER traccar'
+          elif [ "$$role_created" = true ]; then
+            gosu postgres psql --no-password -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -c 'ALTER DATABASE traccar OWNER TO traccar'
+          fi
+        else
+          # A legacy cluster can have a custom initial superuser. Do not mutate an
+          # existing Traccar role or password. Recover only when PostgreSQL proves that
+          # both standard identities are absent, as in a never-finished first startup.
+          target_probe=''
+          if target_probe="$$(PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' 2>&1)" && [ "$$target_probe" = 1 ]; then
+            wait "$$postgres_pid"
+            exit $$?
+          fi
+
+          if ! printf '%s' "$$admin_probe" | grep -Fq 'role "postgres" does not exist' || ! printf '%s' "$$target_probe" | grep -Fq 'role "traccar" does not exist'; then
+            echo 'O volume do PostgreSQL do Traccar possui uma identidade existente que nao sera alterada automaticamente.' >&2
+            [ -z "$$admin_probe" ] || printf '%s\n' "$$admin_probe" >&2
+            [ -z "$$target_probe" ] || printf '%s\n' "$$target_probe" >&2
+            shutdown_postgres
+            exit 32
+          fi
+
+          echo 'Recuperando somente a identidade ausente do PostgreSQL do Traccar.' >&2
+          shutdown_postgres
+          recovery_password="$$(printf '%s' "$$TRACCAR_DATABASE_PASSWORD" | sed "s/'/''/g")"
+          if ! printf "CREATE ROLE traccar LOGIN SUPERUSER CREATEDB CREATEROLE PASSWORD '%s';\n" "$$recovery_password" | gosu postgres postgres --single -D "$$data_directory" template1 >/dev/null; then
+            echo 'Falha ao criar a identidade ausente do Traccar pelo modo de recuperacao do PostgreSQL.' >&2
+            exit 33
+          fi
+          recovery_role_pending=true
+
+          start_postgres
+          if ! wait_for_server; then
+            abort_recovery 33 'PostgreSQL do Traccar nao reiniciou apos a recuperacao da identidade.'
+          fi
+          recovery_ready=false
+          for attempt in $$(seq 1 60); do
+            if PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d template1 -tAc 'SELECT 1' | grep -qx 1; then
+              recovery_ready=true
+              break
+            fi
+            if ! kill -0 "$$postgres_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$$recovery_ready" != true ]; then
+            abort_recovery 33 'A identidade recuperada do Traccar nao conseguiu acessar o PostgreSQL.'
+          fi
+
+          if ! database_exists="$$(PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d template1 -tAc "SELECT 1 FROM pg_database WHERE datname = 'traccar'")"; then
+            abort_recovery 33 'Nao foi possivel verificar o banco dedicado do Traccar.'
+          fi
+          if [ "$$database_exists" != 1 ]; then
+            if ! PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -v ON_ERROR_STOP=1 -h 127.0.0.1 -U traccar -d template1 -c 'CREATE DATABASE traccar OWNER traccar'; then
+              abort_recovery 33 'Nao foi possivel criar o banco dedicado do Traccar.'
+            fi
+          elif ! PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -v ON_ERROR_STOP=1 -h 127.0.0.1 -U traccar -d template1 -c 'ALTER DATABASE traccar OWNER TO traccar'; then
+            abort_recovery 33 'Nao foi possivel atribuir o banco dedicado ao Traccar.'
+          fi
+          if ! demote_recovery_role; then
+            abort_recovery 33 'Nao foi possivel remover os privilegios temporarios de recuperacao do Traccar.'
+          fi
+        fi
+
+        # Existing role passwords are intentionally never changed.
+        PGPASSWORD="$$TRACCAR_DATABASE_PASSWORD" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc 'SELECT 1' | grep -qx 1
+        wait "$$postgres_pid"
+    volumes:
+      - ${ARGWS_CONNECT_TRACCAR_DB_PATH:-./volumes/traccar-postgres}:/var/lib/postgresql/data
+    networks: [argws-connect-dev-net]
+    healthcheck:
+      test: ['CMD-SHELL', 'PGPASSWORD="$${TRACCAR_DATABASE_PASSWORD}" psql --no-password -h 127.0.0.1 -U traccar -d traccar -tAc "SELECT 1" | grep -qx 1']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 75s
+  traccar-bootstrap:
+    profiles: [traccar]
+    image: ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
     pull_policy: always
     restart: unless-stopped
-    env_file:
-      - .env
+    depends_on:
+      traccar:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        node - <<'NODE'
+          'use strict';
+          // Internal-only one-time bootstrap. Never resets users or changes existing passwords.
+          const root = process.env.TRACCAR_INTERNAL_URL || 'http://traccar:8082';
+          const email = process.env.TRACCAR_ADMIN_EMAIL;
+          const password = process.env.TRACCAR_ADMIN_PASSWORD;
+          async function main() {
+            if (!email || !password || password.length < 32) throw new Error('Segredos Traccar nao preparados.');
+            let cookie = '';
+            async function request(path, method='GET', data, form=false) {
+              const response = await fetch(root+path, { method, redirect:'error', signal:AbortSignal.timeout(15000),
+                headers:{ ...(cookie?{Cookie:cookie}:{}), ...(data?{'Content-Type':form?'application/x-www-form-urlencoded':'application/json'}:{}) },
+                body:data ? form ? new URLSearchParams(data).toString() : JSON.stringify(data) : undefined });
+              if(!response.ok) throw new Error('Traccar bootstrap recusado (HTTP '+response.status+').');
+              const set = response.headers.getSetCookie().map(x=>x.split(';')[0]).find(x=>x.startsWith('JSESSIONID=')); if(set) cookie=set;
+              return response.status===204?null:response.json();
+            }
+            let server;
+            for(let n=0;n<40;n++) {try {server=await request('/api/server');break;}catch {if(n===39)throw new Error('Traccar indisponivel no bootstrap.');await new Promise(r=>setTimeout(r,3000));}}
+            if(server.newServer===true) await request('/api/users','POST',{name:'Connect internal service',email,password});
+            await request('/api/session','POST',{email,password},true);
+            server=await request('/api/server');
+            if(server.registration) await request('/api/server','PUT',{...server,registration:false});
+            console.log('Traccar interno validado. Registro publico desabilitado; credenciais existentes preservadas.');
+          }
+          main().catch(()=>{console.error('Falha ao preparar Traccar. Verifique os segredos sem apagar usuarios/volumes. A API principal nao depende deste bootstrap.');process.exitCode=1;});
+        NODE
+        touch /tmp/traccar-bootstrap-ready
+        exec tail -f /dev/null
     environment:
-      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
-      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
-      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-argws-connect.transcription}
-      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
-      TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
-      TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
-      SPEECH_MODEL: ${SPEECH_MODEL:-${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}}
-      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/Xenova/whisper-small}
-      TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
-      TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
-      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/models}
-      TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
-      TRANSCRIPTION_SOURCE_RETENTION_SECONDS: ${TRANSCRIPTION_SOURCE_RETENTION_SECONDS:-86400}
-      TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS: ${TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS:-900}
+      TRACCAR_INTERNAL_URL: http://traccar:8082
+      TRACCAR_ADMIN_EMAIL: ${TRACCAR_ADMIN_EMAIL:-connect-admin@localhost.invalid}
+      TRACCAR_ADMIN_PASSWORD: ${TRACCAR_ADMIN_PASSWORD:-}
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    mem_limit: ${TRANSCRIPTION_WORKER_MEMORY:-2g}
-    cpus: "${TRANSCRIPTION_WORKER_CPUS:-1.00}"
-    pids_limit: 128
-    tmpfs:
-      - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m}
-    volumes:
-      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
-    networks:
-      argws-connect-dev-net:
-        aliases:
-          - transcription-worker
+    tmpfs: [/tmp]
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/transcription-worker.ready"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 15m
+      test: ["CMD-SHELL", "test -f /tmp/traccar-bootstrap-ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    networks: [argws-connect-dev-net]
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+  # END OPTIONAL TRACCAR
 
   # BEGIN OPTIONAL TRACCAR
   traccar:

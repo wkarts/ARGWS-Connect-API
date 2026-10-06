@@ -9,12 +9,13 @@ import { friendlyError } from '@/services/errors'
 import { useSessionStore } from '@/stores/session'
 import { useUiStore } from '@/stores/ui'
 import { useRouter } from 'vue-router'
-import { runtime } from '@/config/runtime'
+import { featureEnabled, runtime } from '@/config/runtime'
 
 const current=ref(''),next=ref(''),confirm=ref(''),message=ref(''),error=ref(''),busy=ref(false)
 const speechHealth=ref<any>(null),speechError=ref('')
 const session=useSessionStore(),ui=useUiStore(),router=useRouter()
 const accountMode = computed(() => runtime.authMode === 'account')
+const speechAvailable = computed(() => featureEnabled('transcription', false))
 
 async function loadSpeechHealth() {
   speechError.value=''
@@ -34,7 +35,7 @@ async function change(){
   }catch(e){error.value=friendlyError(e)}finally{busy.value=false}
 }
 
-onMounted(loadSpeechHealth)
+onMounted(() => { if (speechAvailable.value) void loadSpeechHealth() })
 </script>
 <template>
   <AppShell>
@@ -47,7 +48,7 @@ onMounted(loadSpeechHealth)
         </div>
       </PanelCard>
       <ManagerEmbeddingSettings />
-      <PanelCard title="Voz" description="Ditado nos campos e transcrição de áudio com processamento local.">
+      <PanelCard v-if="speechAvailable" title="Voz" description="Ditado nos campos e transcrição de áudio com processamento local.">
         <div v-if="speechError" class="alert error">{{ speechError }}</div>
         <div v-else-if="!speechHealth" class="muted-block">Consultando o serviço de voz...</div>
         <div v-else class="speech-settings">
