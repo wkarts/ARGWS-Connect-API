@@ -6824,6 +6824,58 @@
         ],
         "additionalProperties": true
       },
+      "SendAudioRequest": {
+        "type": "object",
+        "required": [
+          "number",
+          "audio"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "number": {
+            "type": "string"
+          },
+          "audio": {
+            "type": "string",
+            "description": "URL HTTP(S), base64 ou data URI."
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "voice_note",
+              "dictation",
+              "transcription",
+              "attachment",
+              "music",
+              "generic_audio"
+            ],
+            "description": "Omitido mantém o PTT legado; auto usa somente sinais explícitos."
+          },
+          "ptt": {
+            "type": "boolean",
+            "description": "Sinal explícito, incompatível com intent oposto."
+          },
+          "recordedByMicrophone": {
+            "type": "boolean",
+            "description": "Origem informada pelo cliente; usada apenas com intent=auto ou ausente."
+          },
+          "mimetype": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "boolean",
+            "description": "false apenas para OGG/Opus PTT já normalizado."
+          },
+          "delay": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "MessageKeyRequest": {
         "type": "object",
         "properties": {
