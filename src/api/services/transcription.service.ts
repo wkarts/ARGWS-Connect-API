@@ -284,8 +284,8 @@ export class TranscriptionService {
   }
 
   public async init(): Promise<void> {
-    this.startDefaultModelDownload();
     if (!this.isEnabled()) return;
+    this.startDefaultModelDownload();
     this.startSourceCleanup();
     this.startStaleRecovery();
     if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
