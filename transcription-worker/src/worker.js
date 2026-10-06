@@ -58,7 +58,9 @@ function normalizeJob(value, maxAudioBytes = 25 * 1024 * 1024) {
     language: value.language ? String(value.language) : null,
     model: value.model ? String(value.model) : null,
     inlineAudio,
-    queuedAt: Number.isFinite(Date.parse(value.queuedAt)) ? Date.parse(value.queuedAt) : null,
+    queuedAt: typeof value.queuedAt === 'number' && Number.isFinite(value.queuedAt)
+      ? value.queuedAt
+      : Number.isFinite(Date.parse(value.queuedAt)) ? Date.parse(value.queuedAt) : null,
   };
 }
 
@@ -362,7 +364,13 @@ class TranscriptionWorker {
     if (!channel || channel !== this.channel) throw new Error('RabbitMQ speech channel indisponível.');
     const retryDelays = [30000, 120000, 600000];
     const delay = retryDelays[Math.max(0, job.attempts - 1)] || retryDelays[retryDelays.length - 1];
-    const next = { ...job, attempts: job.attempts + 1, inlineAudio: job.inlineAudio?.toString('base64') || undefined };
+    const next = {
+      jobId: job.jobId, mode: job.mode, messageId: job.messageId, instanceId: job.instanceId,
+      source: { key: job.sourceKey, mimeType: job.sourceMimeType },
+      language: job.language, model: job.model, attempts: job.attempts + 1,
+      queuedAt: job.queuedAt ? new Date(job.queuedAt).toISOString() : undefined,
+      ...(job.inlineAudio ? { inlineAudio: job.inlineAudio.toString('base64') } : {}),
+    };
     const body = Buffer.from(JSON.stringify(next));
     await new Promise((resolve, reject) => {
       channel.sendToQueue(

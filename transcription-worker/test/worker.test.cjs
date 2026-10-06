@@ -153,6 +153,28 @@ test('job inválido com ID conhecido termina com falha observável antes do ACK'
   assert.deepEqual(events, ['failed', 'dead-letter', 'ack']);
 });
 
+test('retry preserva source, áudio do ditado e data para a próxima entrega', async () => {
+  for (const mode of ['transcription', 'dictation']) {
+    const worker = Object.create(TranscriptionWorker.prototype);
+    const queuedAt = new Date(Date.now() - 10_000).toISOString();
+    const input = { jobId: `retry-${mode}`, mode, attempts: 1, queuedAt,
+      source: { key: `${mode}/audio.webm`, mimeType: 'audio/webm' },
+      ...(mode === 'dictation' ? { inlineAudio: Buffer.from('audio').toString('base64') } : {}) };
+    const job = normalizeJob(input);
+    let next;
+    const channel = { sendToQueue(_queue, body, _options, done) { next = JSON.parse(body.toString()); done(); } };
+    worker.channel = channel;
+    worker.config = { retryQueue: `${mode}.retry` };
+    worker.publish = async () => {};
+    await worker.scheduleRetry(job, { code: 'INFERENCE_STALLED' }, channel);
+    const retried = normalizeJob(next);
+    assert.equal(retried.attempts, 2);
+    assert.equal(retried.sourceKey, job.sourceKey);
+    assert.equal(retried.queuedAt, job.queuedAt);
+    assert.equal(retried.inlineAudio?.toString('utf8'), job.inlineAudio?.toString('utf8'));
+  }
+});
+
 test('aceita MIME de gravações WebM do navegador', () => {
   const withCodec = normalizeJob({ jobId: 'job-webm-1', source: { key: 'audio/test.webm', mimeType: 'audio/webm;codecs=opus' } });
   const browserVideoMime = normalizeJob({ jobId: 'job-webm-2', source: { key: 'audio/test.webm', mimeType: 'video/webm' } });
