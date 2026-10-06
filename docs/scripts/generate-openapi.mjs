@@ -532,13 +532,21 @@ const requestOverrides = {
         'multipart/form-data': {
           schema: {
             type: 'object',
-            properties: { number: { type: 'string' }, mediatype: { type: 'string', enum: ['image', 'video', 'document'] }, mimetype: { type: 'string' }, caption: { type: 'string' }, fileName: { type: 'string' }, file: { type: 'string', format: 'binary' } },
+            properties: { number: { type: 'string' }, mediatype: { type: 'string', enum: ['image', 'video', 'document', 'audio'] }, mimetype: { type: 'string' }, caption: { type: 'string' }, fileName: { type: 'string' }, file: { type: 'string', format: 'binary' } },
             required: ['number', 'file'],
           },
         },
         'application/json': { schema: { type: 'object', additionalProperties: true } },
       },
     },
+  },
+  'POST /message/sendWhatsAppAudio/{instanceName}': {
+    summary: 'Enviar nota de voz PTT ou áudio comum',
+    description: 'Sem intent mantém o PTT legado. intent=auto só classifica como voz com ptt=true ou recordedByMicrophone=true; MIME/nome/duração isolados não bastam. ZAPO/Baileys compartilham o preparo OGG/Opus, duração e waveform para PTT. Áudio comum mantém bytes/MIME. encoding=false exige OGG/Opus válido para PTT. Limites: 25 MiB de entrada, 10 min para PTT. Enviar áudio não cria automaticamente um job STT.',
+    requestBody: { required: true, content: {
+      'application/json': { schema: { $ref: '#/components/schemas/SendAudioRequest' }, example: { number: '5575999999999', audio: 'https://example.com/recording.wav', intent: 'voice_note' } },
+      'multipart/form-data': { schema: { type: 'object', required: ['number', 'file'], properties: { number: { type: 'string' }, file: { type: 'string', format: 'binary' }, intent: { type: 'string', enum: ['auto', 'voice_note', 'dictation', 'transcription', 'attachment', 'music', 'generic_audio'] }, ptt: { type: 'boolean' }, recordedByMicrophone: { type: 'boolean' }, mimetype: { type: 'string' }, encoding: { type: 'boolean' } } } },
+    } },
   },
   'POST /chat/markMessageAsRead/{instanceName}': { summary: 'Marcar mensagem como lida', requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/MessageKeyRequest' } } } } },
   'POST /chat/markMessageAsPlayed/{instanceName}': {
@@ -890,6 +898,17 @@ function nativeSpec(routes, version) {
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },
         ProviderMigrationRequest: { type: 'object', properties: { targetProvider: { type: 'string', enum: ['WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO'] }, dryRun: { type: 'boolean', default: false } }, required: ['targetProvider'], additionalProperties: false },
         SendTextRequest: { type: 'object', properties: { number: { type: 'string' }, text: { type: 'string' }, delay: { type: 'integer', minimum: 0 }, linkPreview: { type: 'boolean' }, mentionsEveryOne: { type: 'boolean' }, mentioned: { type: 'array', items: { type: 'string' } }, quoted: { type: 'object', additionalProperties: true } }, required: ['number', 'text'], additionalProperties: true },
+        SendAudioRequest: {
+          type: 'object', required: ['number', 'audio'], additionalProperties: true,
+          properties: {
+            number: { type: 'string' }, audio: { type: 'string', description: 'URL HTTP(S), base64 ou data URI.' },
+            intent: { type: 'string', enum: ['auto', 'voice_note', 'dictation', 'transcription', 'attachment', 'music', 'generic_audio'], description: 'Omitido mantém o PTT legado; auto usa somente sinais explícitos.' },
+            ptt: { type: 'boolean', description: 'Sinal explícito, incompatível com intent oposto.' },
+            recordedByMicrophone: { type: 'boolean', description: 'Origem informada pelo cliente; usada apenas com intent=auto ou ausente.' },
+            mimetype: { type: 'string' }, fileName: { type: 'string' }, encoding: { type: 'boolean', description: 'false apenas para OGG/Opus PTT já normalizado.' },
+            delay: { type: 'integer', minimum: 0 },
+          },
+        },
         MessageKeyRequest: { type: 'object', properties: { readMessages: { type: 'array', items: { type: 'object', properties: { remoteJid: { type: 'string' }, fromMe: { type: 'boolean' }, id: { type: 'string' } }, required: ['remoteJid', 'id'] } } }, additionalProperties: true },
         PlayedMessageRequest: {
           type: 'object',

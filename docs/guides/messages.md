@@ -32,6 +32,36 @@ O middleware de compatibilidade normaliza payloads antes da validação atual. P
 
 A política do projeto não deve criar um segundo armazenamento binário permanente apenas para compatibilidade. S3/MinIO continuam sendo a infraestrutura de mídia do núcleo.
 
+### Áudio comum e nota de voz
+
+`POST /message/sendWhatsAppAudio/{instanceName}` aceita `intent`, `ptt`, `recordedByMicrophone`, `mimetype` e `encoding` em JSON ou multipart (`file`). ZAPO e Baileys compartilham a mesma preparação; outros providers mantêm seus contratos próprios. Enviar um áudio não cria um job de transcrição.
+
+| Parâmetros | Classificação | Resultado ZAPO/Baileys |
+| --- | --- | --- |
+| `intent=voice_note`, `dictation` ou `transcription` | Nota de voz | OGG/Opus mono 48 kHz, `ptt=true`, duração e waveform. |
+| `intent=attachment`, `music` ou `generic_audio` | Áudio comum | Bytes originais, MIME de áudio, `ptt=false`. |
+| `intent=auto` com `ptt=true` ou `recordedByMicrophone=true` | Nota de voz | Normalização PTT. |
+| `intent=auto` sem sinal explícito, ou com `ptt=false` | Áudio comum | Sem conversão para PTT. |
+| `intent` ausente | Nota de voz | Preserva o significado legado de `sendWhatsAppAudio`. |
+
+`ptt` contraditório com `intent` explícito retorna 400. MIME, codec, extensão, nome e duração **não** são sinais confiáveis para inferir fala: um arquivo OGG pode ser música. `recordedByMicrophone` é um parâmetro informado pelo cliente, não uma análise semântica do conteúdo. Para áudio comum também existe `sendMedia` com `mediatype=audio`; documentos continuam em `sendMedia` com `mediatype=document`.
+
+Exemplo de nota de voz:
+
+```json
+{"number":"5575988881111","audio":"https://exemplo.com.br/gravacao.wav","intent":"voice_note"}
+```
+
+Exemplo de áudio comum no mesmo endpoint:
+
+```json
+{"number":"5575988881111","audio":"https://exemplo.com.br/musica.mp3","intent":"music","mimetype":"audio/mpeg"}
+```
+
+Os arquivos de entrada têm limite de 25 MiB nesse endpoint. PTT fica limitado a dez minutos; arquivos extensos devem seguir como áudio comum. `encoding=false` evita recodificar PTT pré-preparado somente se os bytes tiverem a assinatura OGG/Opus. A API produz duração e waveform em uma amostra reduzida, com limite de memória; o original não é alterado e segue a política atual de armazenamento do canal.
+
+No recebimento, o Manager identifica nota de voz pelo `audioMessage.ptt` da mensagem WhatsApp; áudio sem esse sinal permanece áudio comum. Ele não inicia transcrição só porque o arquivo é OGG/Opus. No develop principal, a transcrição de uma mensagem persistida pode ser solicitada explicitamente em `/v1/speech/transcriptions` (ou pelo Manager); o worker cria PCM mono 16 kHz temporário e limitado. Quando `SPEECH_ENABLED=false`, o backend não aceita novos jobs, os workers não iniciam e os controles do Manager ficam ocultos. Enviar ou receber áudios normais continua independente dessa flag.
+
 ## IDs
 
 Nunca invente IDs externos para mensagens. Na camada Meta Compatible o ID retornado precisa continuar sendo o ID real do provider.

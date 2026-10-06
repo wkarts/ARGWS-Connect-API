@@ -58,6 +58,7 @@ import * as s3Service from '@api/integrations/storage/s3/libs/minio.server';
 import { ProviderFiles } from '@api/provider/sessions';
 import { PrismaRepository, Query } from '@api/repository/repository.service';
 import { chatbotController, waMonitor } from '@api/server.module';
+import { prepareOutgoingAudio } from '@api/services/audio-message.service';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
 import {
@@ -3561,44 +3562,16 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async audioWhatsapp(data: SendAudioDto, file?: any, isIntegration = false) {
-    const mediaData: SendAudioDto = { ...data };
-
-    if (file?.buffer) {
-      mediaData.audio = file.buffer.toString('base64');
-    } else if (!isURL(data.audio) && !isBase64(data.audio)) {
-      console.error('Invalid file or audio source');
-      throw new BadRequestException('File buffer, URL, or base64 audio is required');
-    }
-
-    if (!data?.encoding && data?.encoding !== false) {
-      data.encoding = true;
-    }
-
-    if (data?.encoding) {
-      const convert = await this.processAudio(mediaData.audio);
-
-      if (Buffer.isBuffer(convert)) {
-        const result = this.sendMessageWithTyping<AnyMessageContent>(
-          data.number,
-          { audio: convert, ptt: true, mimetype: 'audio/ogg; codecs=opus' },
-          { presence: 'recording', delay: data?.delay },
-          isIntegration,
-        );
-
-        return result;
-      } else {
-        throw new InternalServerErrorException('Failed to convert audio');
-      }
-    }
-
+    const audio = await prepareOutgoingAudio(data, file);
     return await this.sendMessageWithTyping<AnyMessageContent>(
       data.number,
       {
-        audio: isURL(data.audio) ? { url: data.audio } : Buffer.from(data.audio, 'base64'),
-        ptt: true,
-        mimetype: 'audio/ogg; codecs=opus',
+        audio: audio.buffer,
+        ptt: audio.ptt,
+        mimetype: audio.mimetype,
+        ...(audio.ptt ? { seconds: audio.seconds, waveform: audio.waveform } : {}),
       },
-      { presence: 'recording', delay: data?.delay },
+      { presence: audio.ptt ? 'recording' : 'composing', delay: data?.delay },
       isIntegration,
     );
   }

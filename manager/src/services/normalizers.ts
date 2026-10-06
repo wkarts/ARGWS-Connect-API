@@ -457,18 +457,23 @@ export function messages(raw: any): Message[] {
     const hasAudioPayload = Boolean(body.audioMessage || body.pttMessage || body.audio || body.voiceMessage)
     const isAudio = Boolean(media && str(media.mimetype || media.mimeType).toLowerCase().startsWith('audio/')) ||
       hasAudioPayload || messageType.includes('audio') || messageType.includes('ptt')
+    // WhatsApp ptt is the protocol indicator. OGG/Opus and duration alone do
+    // not distinguish a voice note from music or an ordinary audio attachment.
+    const isVoiceNote = Boolean(body.audioMessage?.ptt === true || body.pttMessage?.ptt === true ||
+      body.voiceMessage?.ptt === true || messageType.includes('ptt'))
     const transcript = asArray(item.TranscriptionJob || item.transcriptionJobs)[0]
     return {
       id: str(item.key?.id || item.id || index),
       mediaKind,
       transcriptionMessageId: item.id ? str(item.id) : undefined,
       isAudio,
+      isVoiceNote,
       transcriptionJobId: transcript?.id ? str(transcript.id) : undefined,
       transcriptionStatus: transcript?.status ? str(transcript.status) : undefined,
       transcriptionStage: transcript?.stage ? str(transcript.stage) : undefined,
       transcriptionProgress: Number(transcript?.progressPercent || 0),
       transcriptionText: transcript?.text ? str(transcript.text) : undefined,
-      text: text || '[Conteúdo]',
+      text: isVoiceNote && text === 'Áudio' ? 'Nota de voz' : text || '[Conteúdo]',
       direction: fromMe ? 'out' : 'in',
       participantRef: item.key?.participant || item.participant || undefined,
       participantName: !fromMe && (item.key?.participant || item.participant)

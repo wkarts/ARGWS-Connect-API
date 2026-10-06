@@ -20,7 +20,7 @@ export interface MetaCloudMessageRequest {
   image?: { link?: string; id?: string; caption?: string; mime_type?: string };
   video?: { link?: string; id?: string; caption?: string; mime_type?: string };
   document?: { link?: string; id?: string; filename?: string; caption?: string; mime_type?: string };
-  audio?: { link?: string; id?: string; mime_type?: string };
+  audio?: { link?: string; id?: string; mime_type?: string; voice?: boolean };
   location?: { latitude?: number; longitude?: number; name?: string; address?: string };
   contacts?: any[];
   reaction?: { message_id?: string; emoji?: string };

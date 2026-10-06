@@ -13,10 +13,11 @@ import { MetaCloudWebhookSerializer } from '../../src/api/compat/meta-cloud/meta
 
 async function main() {
   const calls: string[] = [];
+  const audioRequests: any[] = [];
   const send: any = {
     sendText: async () => (calls.push('text'), { key: { id: 'TEXT1' } }),
     sendMedia: async (_i: any, data: any) => (calls.push(data.mediatype), { key: { id: `${data.mediatype}1` } }),
-    sendWhatsAppAudio: async () => (calls.push('audio'), { key: { id: 'AUDIO1' } }),
+    sendWhatsAppAudio: async (_i: any, data: any) => (audioRequests.push(data), calls.push('audio'), { key: { id: 'AUDIO1' } }),
     sendLocation: async () => (calls.push('location'), { key: { id: 'LOCATION1' } }),
     sendContact: async () => (calls.push('contacts'), { key: { id: 'CONTACT1' } }),
     sendReaction: async () => (calls.push('reaction'), { key: { id: 'REACTION1' } }),
@@ -81,6 +82,13 @@ async function main() {
     type: 'audio',
     audio: { link: 'https://e/a.ogg' },
   });
+  assert.equal(audioRequests[0].intent, 'generic_audio');
+  await adapter.execute(identity, {
+    to: '5511888888888',
+    type: 'audio',
+    audio: { link: 'https://e/voice.ogg', voice: true },
+  });
+  assert.equal(audioRequests[1].intent, 'voice_note');
   await adapter.execute(identity, {
     to: '5511888888888',
     type: 'location',

@@ -37,9 +37,27 @@ import multer from 'multer';
 import { HttpStatus } from './index.router';
 
 const upload = multer({ storage: multer.memoryStorage() });
+const audioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+
+const parseAudioUpload: RequestHandler = (req, res, next) => {
+  audioUpload.single('file')(req, res, (error: any) => {
+    if (!error) return next();
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    res.status(status).json({ status, error: status === 413 ? 'O áudio excede 25 MiB.' : 'Upload de áudio inválido.' });
+  });
+};
 
 function normalizeRequestBody(req: Request) {
   req.body = normalizeMessagePayload(req.body);
+}
+
+function normalizeAudioRequestBody(req: Request) {
+  normalizeRequestBody(req);
+  // multer sends all multipart fields as strings. Never coerce arbitrary values.
+  for (const field of ['ptt', 'recordedByMicrophone', 'encoding']) {
+    if (req.body?.[field] === 'true') req.body[field] = true;
+    if (req.body?.[field] === 'false') req.body[field] = false;
+  }
 }
 
 function normalizeStatusRequestBody(req: Request) {
@@ -108,8 +126,8 @@ export class MessageRouter extends RouterBroker {
 
         return res.status(HttpStatus.CREATED).json(response);
       })
-      .post(this.routerPath('sendWhatsAppAudio'), ...guards, upload.single('file'), async (req, res) => {
-        normalizeRequestBody(req);
+      .post(this.routerPath('sendWhatsAppAudio'), ...guards, parseAudioUpload, async (req, res) => {
+        normalizeAudioRequestBody(req);
         const response = await this.dataValidate<SendAudioDto>({
           request: req,
           schema: audioMessageSchema,

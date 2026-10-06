@@ -2,6 +2,8 @@
 
 O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona uma API para ditado e transcrição de mensagens. O processamento usa o worker local, FFmpeg, VAD e o modelo provisionado. O worker não baixa arquivos durante cada transcrição: a API instala a revisão fixada uma vez no volume persistente compartilhado, e os workers leem os arquivos localmente.
 
+O envio de nota de voz WhatsApp é um fluxo independente: `sendWhatsAppAudio` classifica pela intenção explícita, `ptt` e origem declarada; o áudio comum não vira PTT. A versão para envio PTT é OGG/Opus mono 48 kHz. Para STT, **apenas um job solicitado explicitamente** entra na fila quando a voz estiver habilitada; o worker usa FFmpeg para decodificar PCM float mono 16 kHz temporário e lê o áudio em trechos. A API não cria um WAV persistente nem carrega o modelo durante o envio de mensagem. Consulte [Mensagens e mídia](messages.md#áudio-comum-e-nota-de-voz) para os parâmetros do envio e [diagnóstico operacional](speech-worker-diagnostics.md) para os limites de memória.
+
 ## Habilitar
 
 Somente a stack principal `deploy/develop/` mantém `SPEECH_ENABLED=true` e o profile `transcription`. O profile inicia dois consumidores independentes: o worker de transcrição (`speech.transcription`) e o worker prioritário de ditado (`speech.dictation`). `TRANSCRIPTION_ENABLED` continua aceito como fallback legado nessa stack. `DICTATION_ENABLED=false` desativa apenas o ditado.

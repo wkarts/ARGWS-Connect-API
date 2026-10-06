@@ -177,6 +177,14 @@ assert.deepEqual(
 const audio = normalize({ number: '1', audioMessage: { audio: 'https://example.com/a.ogg' } });
 assert.equal(audio.audio, 'https://example.com/a.ogg');
 expectValid(audio, audioMessageSchema);
+const ordinaryAudio = normalize({
+  number: '1',
+  options: { intent: 'auto', ptt: false, mimetype: 'audio/ogg' },
+  audioMessage: { audio: 'https://example.com/music.ogg' },
+});
+assert.equal(ordinaryAudio.intent, 'auto');
+assert.equal(ordinaryAudio.ptt, false);
+expectValid(ordinaryAudio, audioMessageSchema);
 
 const sticker = normalize({ number: '1', stickerMessage: { sticker: 'https://example.com/s.webp' } });
 assert.equal(sticker.sticker, 'https://example.com/s.webp');
