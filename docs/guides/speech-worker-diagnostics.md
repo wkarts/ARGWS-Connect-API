@@ -1,5 +1,13 @@
 # Diagnóstico e operação dos workers de áudio
 
+## Loop de reinício na inicialização do develop (07/10/2026)
+
+Os logs do develop mostram tanto as réplicas de transcrição quanto o ditado saindo com código 1 após `TypeError: Cannot read properties of null (reading 'jobId')` em `InferenceClient.onMessage`. A thread publica `speech_inference_memory` na fase `before_model`, sem identificador de job; o consumidor comparava `this.active?.id` (indefinido quando não há job) com `message.id` (também indefinido) e, por isso, tentava acessar `this.active.jobId` quando `this.active` era `null`. A correção só associa a amostra a um job quando existe uma execução ativa e o identificador da mensagem corresponde a ela. Amostras de inicialização e ociosidade continuam disponíveis sem `jobId`.
+
+Esse encerramento acontece antes do warm-up do modelo; os logs apresentados registram cerca de 75 MiB de RSS nessa fase e não atribuem esse loop a OOM. Isso não esclarece os OOMs históricos da VPS Fersoft, que continuam exigindo correlação própria. A captura do Dockge também mostra duas réplicas de transcrição, enquanto o Compose atual usa `SPEECH_TRANSCRIPTION_REPLICAS=1` por padrão: confira o valor efetivo no `.env`, overrides e escala do painel para manter a capacidade conservadora.
+
+Após a imagem corrigida estar disponível no develop principal, recrie somente os serviços `transcription-worker-argws-connect-develop` e `speech-dictation-worker-argws-connect-develop`. Verifique nos logs `before_model`, `after_model`, ausência do `TypeError`, prontidão do modelo e contagem de reinícios estável; então processe um job curto de cada modo e confirme resultado e métricas vinculadas ao `jobId`. Preserve RabbitMQ, banco, MinIO e modelos; não execute `down -v`. Continue com transcrição e ditado desativados nas produções.
+
 ## Evidências disponíveis em 06/10/2026
 
 O laudo da VPS Fersoft traz duas amostras às 09:26:51 e 09:27:56 (UTC−3), com 65 segundos de intervalo. O host tinha 6 vCPU e 15,61 GiB de RAM. As duas coletas registraram, respectivamente, 2,329/2,328 GiB no ditado, 2,298/2,297 GiB na primeira réplica de transcrição e 1,607/0,990 GiB na segunda. O conjunto passou de 6,234 para 5,615 GiB. A segunda réplica teve dois reinícios (62 → 64) e mudou de PID; o contador de mortes por OOM no host passou de 260 para 262. As amostras **não** demonstram vazamento nem provam que as vítimas contemporâneas do OOM foram os workers. Não foram fornecidos logs de saída, eventos do cgroup ou IDs das vítimas contemporâneas.

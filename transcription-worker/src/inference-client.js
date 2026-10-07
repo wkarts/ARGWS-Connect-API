@@ -71,13 +71,14 @@ class InferenceClient {
 
   onMessage(message) {
     if (message?.type === 'memory') {
-      if (this.active?.id === message.id) {
-        if (message.phase === 'ffmpeg_spawn') this.active.childPid = message.childPid;
-        if (message.phase === 'ffmpeg_exit' && this.active.childPid === message.childPid) this.active.childPid = null;
+      // Startup/idle samples have no job id; never associate them with an absent active job.
+      const active = message.id != null && this.active?.id === message.id ? this.active : null;
+      if (active) {
+        if (message.phase === 'ffmpeg_spawn') active.childPid = message.childPid;
+        if (message.phase === 'ffmpeg_exit' && active.childPid === message.childPid) active.childPid = null;
       }
       console.log(JSON.stringify({ event: 'speech_inference_memory', phase: message.phase,
-        mode: this.config.mode, jobId: this.active?.id === message.id ? this.active.jobId : undefined,
-        attempt: this.active?.id === message.id ? this.active.attempts : undefined,
+        mode: this.config.mode, jobId: active?.jobId, attempt: active?.attempts,
         rss: message.rss, heapUsed: message.heapUsed, heapTotal: message.heapTotal,
         external: message.external, arrayBuffers: message.arrayBuffers, childRss: message.childRss }));
       return;
