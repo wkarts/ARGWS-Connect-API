@@ -251,10 +251,15 @@ function build(options) {
   updates.MYSQL_SERVICE_ENABLED = modules.includes('mysql') ? 'true' : 'false';
   updates.TRACCAR_ENABLED = modules.includes('traccar') ? 'true' : 'false';
   updates.TRACCAR_MODE = modules.includes('traccar') ? 'internal' : 'disabled';
-  updates.TRANSCRIPTION_ENABLED = modules.includes('transcription') ? 'true' : 'false';
-  updates.SPEECH_ENABLED = updates.TRANSCRIPTION_ENABLED;
-  updates.MANAGER_FEATURE_TRANSCRIPTION = updates.TRANSCRIPTION_ENABLED;
-  if (!modules.includes('transcription')) updates.DICTATION_ENABLED = 'false';
+  for (const key of ['TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION', 'DICTATION_ENABLED']) {
+    updates[key] = modules.includes('transcription')
+      ? (options.fromEnv && values.has(key) ? values.get(key) : 'true')
+      : 'false';
+  }
+  updates.SPEECH_WORKER_MODE = 'pool';
+  updates.SPEECH_TRANSCRIPTION_REPLICAS = '1';
+  // The runtime derives a private bucket from this installation's media bucket.
+  updates.SPEECH_S3_BUCKET_NAME = values.get('SPEECH_S3_BUCKET_NAME') || '';
 
   if (options.serverUrl) updates.SERVER_URL = options.serverUrl;
   if (options.docsUrl) updates.ARGWS_CONNECT_DOCS_PUBLIC_URL = options.docsUrl;

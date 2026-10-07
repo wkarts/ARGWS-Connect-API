@@ -1,181 +1,222 @@
 'use strict';
 
 const path = require('node:path');
-const { Worker } = require('node:worker_threads');
+const fs = require('node:fs');
+const os = require('node:os');
+const { fork } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
+const { terminateProcessGroup } = require('./process-supervisor');
+
+const failure = (message, code, retryable = true) => Object.assign(new Error(message), { code, retryable });
 
 class InferenceClient {
   constructor(config, options = {}) {
     this.config = config;
-    this.WorkerClass = options.Worker || Worker;
-    this.workerPath = options.workerPath || path.join(__dirname, 'inference-thread.js');
+    this.fork = options.fork || fork;
+    this.workerPath = options.workerPath || path.join(__dirname, 'inference-process.js');
+    this.guardianPath = options.guardianPath || path.join(__dirname, 'inference-guardian.js');
     this.stallTimeoutMs = options.stallTimeoutMs ?? (config.inferenceStallSeconds || 300) * 1000;
+    this.chunkDeadlineMs = options.chunkDeadlineMs ?? (config.chunkDeadlineSeconds || 180) * 1000;
     this.restartOnFailure = options.restartOnFailure !== false;
-    this.stopping = false;
+    this.terminate = options.terminateProcessGroup || terminateProcessGroup;
     this.active = null;
+    this.child = null;
     this.recovery = null;
-    this.startThread();
-  }
-
-  startThread() {
-    const thread = new this.WorkerClass(this.workerPath, { workerData: this.config });
-    this.thread = thread;
+    this.stopping = false;
     this.ready = false;
-    this.startup = new Promise((resolve, reject) => {
-      this.resolveStartup = resolve;
-      this.rejectStartup = reject;
-    });
-    thread.on('message', (message) => {
-      if (this.thread === thread) this.onMessage(message);
-    });
-    thread.on('error', (error) => {
-      if (this.thread === thread) this.onFailure(error);
-    });
-    thread.on('exit', (code) => {
-      if (this.thread === thread) this.onFailure(new Error(`Inferência encerrada (código ${code}).`));
-    });
+    this.lastSuccessfulInferenceAt = null;
+    this.status = { state: 'cold', modelLoaded: false, modelVerified: false };
   }
 
-  watch(active) {
-    clearTimeout(active.watchdog);
-    active.watchdog = setTimeout(() => this.onStall(active), this.stallTimeoutMs);
-    active.watchdog.unref?.();
-  }
-
-  onStall(active) {
-    if (this.active !== active || this.stopping) return;
-    console.error(`Inferência sem progresso por ${this.stallTimeoutMs} ms; encerrando a thread do modelo.`);
-    this.restartThread(Object.assign(new Error('A inferência não apresentou progresso dentro do prazo.'), {
-      code: 'INFERENCE_STALLED', retryable: true,
-    }));
-  }
-
-  restartThread(error) {
-    const active = this.active;
-    this.killDecoder(active);
-    this.active = null;
-    if (active) clearTimeout(active.watchdog);
-    const previousThread = this.thread;
-    this.thread = null;
+  startProcess() {
+    if (this.child || this.stopping || this.fatalError) return;
+    const childEnv = {};
+    for (const name of ['PATH', 'LD_LIBRARY_PATH', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
+      if (process.env[name]) childEnv[name] = process.env[name];
+    }
+    this.tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'speech-engine-'));
+    Object.assign(childEnv, {
+      TMPDIR: this.tempDirectory, TMP: this.tempDirectory, TEMP: this.tempDirectory,
+      OMP_NUM_THREADS: String(this.config.inferenceThreads || 1),
+      OPENBLAS_NUM_THREADS: '1', MKL_NUM_THREADS: '1', TOKENIZERS_PARALLELISM: 'false',
+    });
+    const child = this.fork(this.guardianPath, [], {
+      detached: process.platform !== 'win32', serialization: 'advanced',
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env: childEnv, execArgv: [],
+    });
+    this.child = child;
+    this.thread = child; // Compatibility for operational introspection; this is a process.
     this.ready = false;
-    this.recovery = previousThread.terminate().then(async () => {
-      if (this.stopping) return;
-      if (!this.restartOnFailure) return;
-      this.startThread();
-      await this.startup;
-    }).catch((error) => {
-      if (!this.stopping) {
-        console.error('Não foi possível encerrar ou reiniciar a inferência:', error.message);
-        process.exit(1);
-      }
+    this.status = { ...this.status, state: 'loading_model', modelLoaded: false };
+    this.startup = new Promise((resolve, reject) => { this.resolveStartup = resolve; this.rejectStartup = reject; });
+    // Prevent a background startup rejection from becoming an unhandled promise.
+    void this.startup.catch(() => {});
+    let stderrBytes = 0;
+    child.stderr?.on('data', (buffer) => {
+      stderrBytes += buffer.length;
+      // Never log decoder output or transcripts; retain a bounded diagnostic count.
+      this.status.stderrBytes = Math.min(stderrBytes, Number.MAX_SAFE_INTEGER);
     });
-    active?.reject(error);
+    child.on('message', (message) => { if (this.child === child) this.onMessage(message); });
+    child.once('error', (error) => { if (this.child === child) void this.onFailure(error); });
+    child.once('exit', (code, signal) => {
+      if (this.child === child) void this.onFailure(failure(`Processo de inferência encerrou (${signal || code}).`, 'INFERENCE_PROCESS_FAILED'));
+    });
+    const { s3, rabbitmq, ...localConfig } = this.config;
+    // Network credentials stay in the coordinator. Engine provisioning is separate.
+    const parentTimeoutMs = Math.min(10000, Math.max(2000, (this.config.executionLeaseSeconds || 30) * 1000 - 5000));
+    child.send({ type: 'init', enginePath: this.workerPath, parentTimeoutMs,
+      config: { ...localConfig, syncModelCache: false } });
+    this.parentHeartbeat = setInterval(() => {
+      if (this.child === child && child.connected) child.send({ type: 'parent-heartbeat' }, (error) => {
+        if (error) void this.reset(failure('Guardião de inferência indisponível.', 'INFERENCE_PROCESS_FAILED'));
+      });
+    }, Math.max(500, Math.floor(parentTimeoutMs / 3)));
+    this.parentHeartbeat.unref?.();
+    this.startupTimer = setTimeout(() => {
+      void this.reset(failure('O modelo não ficou pronto dentro do prazo.', 'MODEL_WARMUP_TIMEOUT'));
+    }, (this.config.modelWarmupTimeoutSeconds || 300) * 1000);
+    this.startupTimer.unref?.();
+  }
+
+  async warmup() {
+    if (this.recovery) await this.recovery;
+    if (this.fatalError) throw this.fatalError;
+    if (this.stopping) throw failure('Worker em encerramento.', 'WORKER_STOPPING');
+    if (!this.child) this.startProcess();
+    await this.startup;
+    return this.status;
   }
 
   onMessage(message) {
-    if (message?.type === 'memory') {
-      // Startup/idle samples have no job id; never associate them with an absent active job.
-      const active = message.id != null && this.active?.id === message.id ? this.active : null;
-      if (active) {
-        if (message.phase === 'ffmpeg_spawn') active.childPid = message.childPid;
-        if (message.phase === 'ffmpeg_exit' && active.childPid === message.childPid) active.childPid = null;
-      }
-      console.log(JSON.stringify({ event: 'speech_inference_memory', phase: message.phase,
-        mode: this.config.mode, jobId: active?.jobId, attempt: active?.attempts,
-        rss: message.rss, heapUsed: message.heapUsed, heapTotal: message.heapTotal,
-        external: message.external, arrayBuffers: message.arrayBuffers, childRss: message.childRss }));
-      return;
-    }
     if (message?.type === 'ready') {
+      clearTimeout(this.startupTimer);
       this.ready = true;
-      this.resolveStartup();
+      this.status = { ...this.status, ...message.capabilities, state: 'ready', modelLoaded: true, modelVerified: true };
+      this.lastSuccessfulInferenceAt = message.capabilities?.lastSuccessfulInferenceAt || null;
+      this.resolveStartup?.(this.status);
       return;
     }
     if (message?.type === 'startup-error') {
-      this.onFailure(Object.assign(new Error(message.error?.message), { code: message.error?.code }));
+      void this.reset(Object.assign(new Error(message.error?.message || 'Modelo indisponível.'), message.error));
+      return;
+    }
+    if (message?.type === 'memory') {
+      this.status.memory = message.memory;
       return;
     }
     const active = this.active;
     if (!active || active.id !== message?.id) return;
     if (message.type === 'progress') {
-      this.watch(active);
-      Promise.resolve().then(() => active.onProgress?.(message.progress)).catch((error) => {
-        console.error('Progresso de inferência não publicado:', error.message);
-      });
+      // Progress cannot extend the absolute per-chunk deadline.
+      clearTimeout(active.stallTimer);
+      active.stallTimer = setTimeout(() => void this.reset(failure('Inferência sem progresso.', 'INFERENCE_STALLED')), this.stallTimeoutMs);
+      active.stallTimer.unref?.();
+      active.progressChain = active.progressChain.then(() => active.onProgress?.(message.progress));
+      void active.progressChain.catch((error) => void this.reset(error));
       return;
     }
-    this.active = null;
-    clearTimeout(active.watchdog);
-    if (message.type === 'result') active.resolve(message.result);
-    else if (message.type === 'error') active.reject(Object.assign(new Error(message.error?.message), {
-      code: message.error?.code, retryable: message.error?.retryable,
-    }));
+    if (!['result', 'error'].includes(message.type)) return;
+    if (message.type === 'error') { void this.reset(Object.assign(new Error(message.error?.message), message.error)); return; }
+    void this.settle(active, message);
   }
 
-  onFailure(error) {
-    if (this.stopping) return;
-    if (!this.ready) {
-      this.rejectStartup(error);
-      void this.thread.terminate();
-      return;
+  async settle(active, message) {
+    try {
+      await active.progressChain;
+      if (this.active !== active) return;
+      this.active = null;
+      clearTimeout(active.stallTimer);
+      clearTimeout(active.deadlineTimer);
+      this.status.state = 'ready';
+      if (message.type === 'result') {
+        this.lastSuccessfulInferenceAt = new Date().toISOString();
+        active.resolve(message.result);
+      } else active.reject(Object.assign(new Error(message.error?.message), message.error));
+    } catch (error) {
+      await this.reset(error);
     }
-    console.error('Thread de inferência falhou:', error.message);
-    this.restartThread(Object.assign(error, { code: 'INFERENCE_THREAD_FAILED', retryable: true }));
   }
 
-  async warmup() {
-    await this.startup;
-  }
-
-  async transcribe(filePath, input = {}) {
+  async run(type, filePath, input = {}) {
     if (this.recovery) await this.recovery;
-    await this.startup;
-    if (!this.thread || !this.ready) throw Object.assign(new Error('Thread de inferência indisponível.'), {
-      code: 'INFERENCE_THREAD_FAILED', retryable: true,
-    });
-    if (this.active || this.stopping) throw Object.assign(new Error('Inferência ocupada ou indisponível.'), {
-      code: this.stopping ? 'WORKER_STOPPING' : 'WORKER_BUSY',
-    });
-    const cancelSignal = new SharedArrayBuffer(4);
-    const { isCancelled, onProgress, ...serializableInput } = input;
-    if (isCancelled?.()) throw Object.assign(new Error('Processamento cancelado.'), { code: 'CANCELLED' });
-    return new Promise((resolve, reject) => {
-      this.active = { id: filePath, jobId: input.jobId, attempts: input.attempts,
-        cancelSignal, onProgress, resolve, reject };
-      this.watch(this.active);
-      this.thread.postMessage({ type: 'transcribe', id: filePath, filePath, input: serializableInput, cancelSignal });
-    });
-  }
-
-  cancel() {
-    if (this.active) Atomics.store(new Int32Array(this.active.cancelSignal), 0, 1);
-  }
-
-  killDecoder(active) {
-    if (!active?.childPid) return;
-    try { process.kill(active.childPid, 'SIGKILL'); } catch (error) {
-      if (error.code !== 'ESRCH') console.error('Falha ao encerrar FFmpeg:', error.message);
+    if (!this.child && !this.restartOnFailure && this.failed) {
+      throw failure('Processo de inferência indisponível.', 'INFERENCE_PROCESS_FAILED');
     }
-    active.childPid = null;
+    await this.warmup();
+    if (this.stopping || !this.child || !this.ready) throw failure('Worker em encerramento.', 'WORKER_STOPPING');
+    if (this.active) throw failure('Inferência ocupada.', 'WORKER_BUSY');
+    const { isCancelled, onProgress, ...serializableInput } = input;
+    if (isCancelled?.()) throw failure('Processamento cancelado.', 'CANCELLED', false);
+    const deadlineAt = Date.parse(input.deadlineAt || '') || Infinity;
+    const deadlineMs = Math.min(this.chunkDeadlineMs, deadlineAt - Date.now());
+    if (deadlineMs <= 0) throw failure('O prazo útil do job expirou.', 'DEADLINE_EXCEEDED', false);
+    return new Promise((resolve, reject) => {
+      const active = { id: randomUUID(), jobId: input.jobId, resolve, reject, onProgress, progressChain: Promise.resolve() };
+      this.active = active;
+      this.status.state = 'transcribing';
+      active.stallTimer = setTimeout(() => void this.reset(failure('Inferência sem progresso.', 'INFERENCE_STALLED')), this.stallTimeoutMs);
+      active.deadlineTimer = setTimeout(() => void this.reset(failure('O chunk excedeu seu prazo de execução.', 'CHUNK_DEADLINE_EXCEEDED')), deadlineMs);
+      active.stallTimer.unref?.(); active.deadlineTimer.unref?.();
+      this.child.send({ type, id: active.id, filePath, input: serializableInput }, (error) => {
+        if (error) void this.reset(failure(error.message, 'INFERENCE_PROCESS_FAILED'));
+      });
+    });
   }
 
-  sampleMemory() {
-    if (this.ready && !this.active && !this.stopping) this.thread?.postMessage({ type: 'metrics' });
+  transcribe(filePath, input) { return this.run('transcribe', filePath, input); }
+  transcribeChunk(filePath, input) { return this.run('chunk', filePath, input); }
+
+  async onFailure(error) {
+    if (this.stopping && !this.child) return;
+    await this.reset(Object.assign(error, { code: error.code || 'INFERENCE_PROCESS_FAILED', retryable: true }));
   }
 
+  async reset(error) {
+    if (this.recovery) return this.recovery;
+    const child = this.child || this.failedChild;
+    const tempDirectory = this.tempDirectory;
+    this.tempDirectory = null;
+    const active = this.active;
+    const rejectStartup = this.rejectStartup;
+    this.child = null; this.thread = null; this.ready = false;
+    this.failed = true;
+    clearTimeout(this.startupTimer);
+    clearInterval(this.parentHeartbeat);
+    if (active) { clearTimeout(active.stallTimer); clearTimeout(active.deadlineTimer); }
+    this.status = { ...this.status, state: 'stopping_model', modelLoaded: false };
+    this.recovery = (async () => {
+      let failureError = error;
+      try {
+        await this.terminate(child, this.config.processKillGraceMs || 1000);
+        this.failedChild = null;
+        if (tempDirectory) await fs.promises.rm(tempDirectory, { recursive: true, force: true });
+      } catch (terminationError) {
+        this.fatalError = terminationError;
+        this.failedChild = child;
+        failureError = terminationError;
+      }
+      this.active = null;
+      this.status.state = this.fatalError ? 'degraded' : 'cold';
+      // A token/slot must not be released until the entire native group is gone.
+      rejectStartup?.(failureError);
+      active?.reject(failureError);
+    })();
+    await this.recovery;
+    this.recovery = null;
+    // The active operation carries termination failure to the coordinator. A
+    // timer callback must not crash it and implicitly release the residency lock.
+  }
+
+  async cancel() {
+    await this.reset(failure('Processamento cancelado.', 'CANCELLED', false));
+    if (this.fatalError) throw this.fatalError;
+  }
+  sampleMemory() { if (this.ready && !this.active) this.child?.send({ type: 'metrics' }); }
   async stop() {
     this.stopping = true;
-    this.cancel();
-    if (this.active) {
-      this.killDecoder(this.active);
-      clearTimeout(this.active.watchdog);
-      this.active.reject(Object.assign(new Error('O worker está encerrando; o job será recuperado pela fila.'), {
-        code: 'WORKER_STOPPING', retryable: true,
-      }));
-      this.active = null;
-    }
-    if (!this.ready) this.rejectStartup?.(new Error('Worker encerrado durante a inicialização.'));
-    await this.thread?.terminate();
-    await this.recovery;
+    await this.reset(failure('Worker em encerramento; o job será recuperado.', 'WORKER_STOPPING'));
+    if (this.fatalError) throw this.fatalError;
   }
 }
 

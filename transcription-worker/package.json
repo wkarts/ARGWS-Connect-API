@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.cjs",
-    "model:manifest": "node scripts/create-model-manifest.cjs"
+    "model:manifest": "node scripts/create-model-manifest.cjs",
+    "smoke:native": "node scripts/native-smoke.cjs"
   },
   "dependencies": {
     "@huggingface/transformers": "3.7.2",

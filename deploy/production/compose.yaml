@@ -8,17 +8,40 @@ x-logging: &default-logging
 
 services:
   transcription-worker-argws-connect-production:
-    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-1}
+    scale: 1
+    cgroup_parent: ${SPEECH_CGROUP_PARENT:-}
     profiles: [transcription]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
     pull_policy: always
-    restart: on-failure
+    restart: on-failure:3
+    init: true
     env_file:
     - .env
     environment:
+      OMP_WAIT_POLICY: PASSIVE
+      MKL_NUM_THREADS: ${SPEECH_INFERENCE_THREADS:-1}
+      OPENBLAS_NUM_THREADS: ${SPEECH_INFERENCE_THREADS:-1}
+      OMP_NUM_THREADS: ${SPEECH_INFERENCE_THREADS:-1}
+      DICTATION_JOB_DEADLINE_SECONDS: ${DICTATION_JOB_DEADLINE_SECONDS:-120}
+      DICTATION_MAX_DURATION_SECONDS: ${DICTATION_MAX_DURATION_SECONDS:-60}
+      SPEECH_WHISPER_MODEL_SHA256: ${SPEECH_WHISPER_MODEL_SHA256:-}
+      SPEECH_WHISPER_MODEL_FILE: ${SPEECH_WHISPER_MODEL_FILE:-/models/whisper.cpp/base-q5_1/ggml-base-q5_1.bin}
+      SPEECH_WHISPER_CPP_PORT: ${SPEECH_WHISPER_CPP_PORT:-8178}
+      SPEECH_WHISPER_CPP_BINARY: ${SPEECH_WHISPER_CPP_BINARY:-/usr/local/bin/whisper-server}
+      SPEECH_CONTROL_TIMEOUT_MS: ${SPEECH_CONTROL_TIMEOUT_MS:-10000}
+      SPEECH_DICTATION_WEIGHT: ${SPEECH_DICTATION_WEIGHT:-3}
+      SPEECH_POOL_PREFETCH: ${SPEECH_POOL_PREFETCH:-10}
+      SPEECH_CHUNK_DEADLINE_SECONDS: ${SPEECH_CHUNK_DEADLINE_SECONDS:-180}
+      SPEECH_CHUNK_SECONDS: ${SPEECH_CHUNK_SECONDS:-30}
+      SPEECH_MODEL_IDLE_TTL_SECONDS: ${SPEECH_MODEL_IDLE_TTL_SECONDS:-300}
+      SPEECH_INFERENCE_INTER_THREADS: ${SPEECH_INFERENCE_INTER_THREADS:-1}
+      SPEECH_INFERENCE_THREADS: ${SPEECH_INFERENCE_THREADS:-1}
+      DICTATION_ENABLED: ${DICTATION_ENABLED:-false}
+      SPEECH_ENGINE: ${SPEECH_ENGINE:-transformers}
+      SPEECH_S3_BUCKET_NAME: ${SPEECH_S3_BUCKET_NAME:-}
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
       SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
-      SPEECH_WORKER_MODE: transcription
+      SPEECH_WORKER_MODE: pool
       SPEECH_GLOBAL_CONCURRENCY: ${SPEECH_GLOBAL_CONCURRENCY:-1}
       SPEECH_WORKER_CONCURRENCY: ${SPEECH_WORKER_CONCURRENCY:-1}
       SPEECH_SHUTDOWN_GRACE_SECONDS: ${SPEECH_SHUTDOWN_GRACE_SECONDS:-90}
@@ -51,11 +74,12 @@ services:
     security_opt:
     - no-new-privileges:true
     mem_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
+    memswap_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
     stop_grace_period: 105s
     cpus: '${SPEECH_WORKER_CPUS:-${TRANSCRIPTION_WORKER_CPUS:-2.00}}'
     pids_limit: 128
     tmpfs:
-    - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
+    - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-256m},mode=1777,noexec,nosuid,nodev
     volumes:
       - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
     networks:
@@ -67,7 +91,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 15m
+      start_period: 30s
     logging:
       driver: json-file
       options:
@@ -81,10 +105,12 @@ services:
     restart: unless-stopped
     env_file: [.env]
     environment:
-      SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-true}}
-      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-true}
-      DICTATION_ENABLED: "false"
-      MANAGER_FEATURE_TRANSCRIPTION: ${MANAGER_FEATURE_TRANSCRIPTION:-true}
+      SPEECH_ENGINE: ${SPEECH_ENGINE:-transformers}
+      SPEECH_S3_BUCKET_NAME: ${SPEECH_S3_BUCKET_NAME:-}
+      SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
+      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
+      DICTATION_ENABLED: ${DICTATION_ENABLED:-false}
+      MANAGER_FEATURE_TRANSCRIPTION: ${MANAGER_FEATURE_TRANSCRIPTION:-false}
       TRACCAR_ENABLED: "${TRACCAR_ENABLED:-false}"
       TRACCAR_MODE: "${TRACCAR_MODE:-disabled}"
       TRACCAR_URL: "${TRACCAR_URL:-}"

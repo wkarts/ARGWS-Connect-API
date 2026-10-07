@@ -229,6 +229,7 @@ router
   .use('/localTemplate', new LocalTemplateRouter(...guards).router)
   .use('/template', new TemplateRouter(configService, ...guards).router)
   .use('/settings', new SettingsRouter(...guards).router)
+  .use('/v1/speech/instances/:instanceName', new SpeechRouter(transcriptionService, authGuard['apikey']).router)
   .use('/v1/speech', new SpeechRouter(transcriptionService, authGuard['apikey']).router)
   .use('/v1/transcriptions', new TranscriptionRouter(transcriptionService, authGuard['apikey']).router)
   .use('/proxy', new ProxyRouter(...guards).router)

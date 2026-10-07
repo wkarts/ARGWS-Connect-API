@@ -72,3 +72,35 @@ test('áudio maior que o limite decodificado falha sem deixar PCM temporário', 
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test('VAD fragmentado agrega frases em janela e não invoca um modelo por frase', async () => {
+  const samples = new Float32Array(16000 * 30);
+  for (let second = 0; second < 30; second += 2) samples.fill(0.2, second * 16000, (second + 1) * 16000);
+  let calls = 0;
+  const provider = createProvider({ provider: 'local', vadThresholdDb: -45,
+    chunkSeconds: 30, strideSeconds: 5 }, {
+    decodeAudio: async () => ({ samples, durationMs: 30000 }),
+    createPipeline: async () => async () => { calls += 1; return { text: 'frases agregadas' }; },
+  });
+  const part = await provider.transcribeChunk('fixture.ogg');
+  assert.equal(calls, 1); assert.equal(part.done, true); assert.equal(part.result.text, 'frases agregadas');
+});
+
+test('checkpoint usa maior offset temporal sem somar os cinco segundos sobrepostos', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'speech-offset-test-'));
+  try {
+    const filePath = await wav(directory, 65);
+    const provider = createProvider({ provider: 'local', vadThresholdDb: -45,
+      chunkSeconds: 30, strideSeconds: 5, maxDurationSeconds: 66 }, {
+      createPipeline: async () => async () => ({ text: 'fala' }),
+    });
+    const a = await provider.transcribeChunk(filePath);
+    const b = await provider.transcribeChunk(filePath, { checkpoint: a.checkpoint });
+    const c = await provider.transcribeChunk(filePath, { checkpoint: b.checkpoint });
+    assert.equal(a.checkpoint.nextOffsetSamples, 25 * 16000);
+    assert.equal(b.checkpoint.processedDurationMs, 55000);
+    assert.equal(c.result.durationMs, 65000);
+    assert.equal(c.checkpoint.durationKnown, true);
+    assert.equal(c.done, true);
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});

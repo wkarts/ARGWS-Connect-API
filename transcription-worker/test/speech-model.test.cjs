@@ -17,7 +17,7 @@ test('ditado usa sua própria fila mesmo com uma fila antiga de transcrição co
     process.env.SPEECH_WORKER_MODE = 'dictation';
     process.env.SPEECH_DICTATION_QUEUE = 'speech.dictation';
     process.env.TRANSCRIPTION_QUEUE = 'legacy.long-audio';
-    assert.equal(loadConfig().queue, 'speech.dictation');
+    assert.equal(loadConfig().queue, 'speech.dictation.v2');
   } finally {
     for (const name of names) {
       if (previous[name] === undefined) delete process.env[name];

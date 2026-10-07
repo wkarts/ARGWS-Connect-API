@@ -164,6 +164,12 @@ jobs:
           cache-from: type=gha,scope=develop-${{ matrix.component }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=develop-${{ matrix.component }}-${{ matrix.arch }}
 
+      - name: Validate native speech before publishing a channel tag
+        if: matrix.component == 'transcription-worker'
+        uses: ./.github/actions/speech-native-smoke
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+
       - name: Export digest
         shell: bash
         run: |

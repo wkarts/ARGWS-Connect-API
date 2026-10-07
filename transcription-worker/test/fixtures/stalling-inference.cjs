@@ -1,15 +1,14 @@
-const { parentPort } = require('node:worker_threads');
-
-parentPort.postMessage({ type: 'memory', phase: 'before_model', rss: process.memoryUsage().rss });
-parentPort.postMessage({ type: 'ready' });
-parentPort.on('message', (message) => {
-  if (message.type === 'metrics') {
-    parentPort.postMessage({ type: 'memory', phase: 'idle', id: null, rss: process.memoryUsage().rss });
-    return;
+'use strict';
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+process.on('message', (message) => {
+  if (message.type === 'init') { process.send({ type: 'ready', capabilities: { engine: 'fixture', lastSuccessfulInferenceAt: new Date().toISOString() } }); return; }
+  if (message.type === 'metrics') { process.send({ type: 'memory', memory: process.memoryUsage() }); return; }
+  if (!['chunk', 'transcribe'].includes(message.type)) return;
+  if (message.input.grandchildPidFile) {
+    const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    fs.writeFileSync(message.input.grandchildPidFile, String(grandchild.pid));
   }
-  if (message.type !== 'transcribe') return;
-  if (message.input.stall) {
-    while (true) { /* simula uma chamada nativa que nunca retorna */ }
-  }
-  parentPort.postMessage({ type: 'result', id: message.id, result: { text: 'recuperado' } });
+  if (message.input.stall) { for (;;) {} }
+  process.send({ type: 'result', id: message.id, result: { text: 'recuperado', pid: process.pid } });
 });

@@ -9,9 +9,8 @@ function boolean(name, fallback) {
 }
 
 function integer(name, fallback, minimum, maximum) {
-  const value = Number.parseInt(process.env[name] || '', 10);
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(maximum, Math.max(minimum, value));
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= minimum ? Math.min(Math.floor(value), maximum) : fallback;
 }
 
 function durationSeconds(name, fallback, maximum = 31_536_000) {
@@ -28,33 +27,60 @@ function endpoint(value) {
 }
 
 function normalizedProvider() {
-  // `openai` was the old value. Treat it as a local migration alias so an
-  // existing .env never causes a restart loop or a network call.
+  // Legacy/external providers require an explicit migration. Never relabel
+  // a request as local or silently substitute a different engine.
   const value = String(process.env.SPEECH_PROVIDER || process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local')
     .trim()
     .toLowerCase();
-  return value === 'openai' ? 'local' : value;
+  return value;
 }
 
 function loadConfig() {
   const modeValue = String(process.env.SPEECH_WORKER_MODE || 'transcription').trim().toLowerCase();
-  const mode = modeValue === 'dictation' ? 'dictation' : 'transcription';
-  const queueDefault = mode === 'dictation' ? 'speech.dictation' : 'speech.transcription';
+  const mode = ['dictation', 'pool'].includes(modeValue) ? modeValue : 'transcription';
+  const engine = String(process.env.SPEECH_ENGINE || 'transformers').trim().toLowerCase();
+  const queueV2 = (value) => String(value).trim().replace(/(?:\.v2)?$/, '.v2');
+  const model = String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim();
+  const modelPath = String(process.env.SPEECH_MODEL_PATH || (engine === 'whisper.cpp' ? '/models/whisper.cpp/base-q5_1' : '/models/' + model)).trim();
+  const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
+  const transcriptionQueue = queueV2(process.env.SPEECH_TRANSCRIPTION_QUEUE || process.env.TRANSCRIPTION_QUEUE || 'speech.transcription');
+  const dictationQueue = queueV2(process.env.SPEECH_DICTATION_QUEUE || 'speech.dictation');
   return {
     enabled: boolean('SPEECH_ENABLED', boolean('TRANSCRIPTION_ENABLED', false)),
     provider: normalizedProvider(),
     mode,
-    queue: String(mode === 'dictation'
-      ? (process.env.SPEECH_DICTATION_QUEUE || queueDefault)
-      : (process.env.SPEECH_TRANSCRIPTION_QUEUE || process.env.TRANSCRIPTION_QUEUE || queueDefault)).trim(),
-    requestRoutingKey: mode === 'dictation' ? 'speech.dictation.requested' : 'transcription.requested',
+    engine,
+    poolId: String(process.env.SPEECH_POOL_ID || exchange).trim(),
+    modes: mode === 'pool' ? ['dictation', 'transcription'] : [mode],
+    queue: mode === 'dictation' ? dictationQueue : transcriptionQueue,
+    queues: { dictation: dictationQueue, transcription: transcriptionQueue },
+    requestRoutingKey: mode === 'dictation' ? 'speech.dictation.requested.v2' : 'transcription.requested.v2',
     resultRoutingPrefix: mode === 'dictation' ? 'speech.dictation.' : 'transcription.',
     cancelRoutingKey: mode === 'dictation' ? 'speech.cancel.dictation' : 'speech.cancel.transcription',
+    controlRoutingKey: 'speech.control.v2',
+    controlTimeoutMs: integer('SPEECH_CONTROL_TIMEOUT_MS', 10000, 1000, 30000),
+    executionLeaseSeconds: integer('SPEECH_LEASE_SECONDS', 30, 10, 120),
+    modelIdleTtlSeconds: durationSeconds('SPEECH_MODEL_IDLE_TTL_SECONDS', 300, 3600),
+    inferenceThreads: integer('SPEECH_INFERENCE_THREADS', 1, 1, 8),
+    inferenceInterThreads: integer('SPEECH_INFERENCE_INTER_THREADS', 1, 1, 4),
+    chunkDeadlineSeconds: integer('SPEECH_CHUNK_DEADLINE_SECONDS', 180, 10, 3600),
+    processKillGraceMs: integer('SPEECH_PROCESS_KILL_GRACE_MS', 1000, 100, 5000),
+    poolPrefetch: integer('SPEECH_POOL_PREFETCH', 10, 1, 50),
+    dictationWeight: integer('SPEECH_DICTATION_WEIGHT', 3, 1, 10),
+    queueMaxJobs: integer('SPEECH_QUEUE_MAX_JOBS', 50, 1, 1000000),
+    queueMaxBytes: integer('SPEECH_QUEUE_MAX_BYTES', 8388608, 1024, 268435456),
+    queueRetentionSeconds: integer('SPEECH_QUEUE_RETENTION_SECONDS', 86400, 60, 604800),
+    deadLetterMaxJobs: integer('SPEECH_DEAD_LETTER_MAX_JOBS', 100, 1, 1000000),
+    deadLetterRetentionSeconds: integer('SPEECH_DEAD_LETTER_RETENTION_SECONDS', 86400, 60, 604800),
+    sourceCacheMaxBytes: integer('SPEECH_SOURCE_CACHE_MAX_BYTES', 50 * 1024 * 1024, 1024 * 1024, 250 * 1024 * 1024),
+    downloadTimeoutSeconds: integer('SPEECH_DOWNLOAD_TIMEOUT_SECONDS', 60, 5, 300),
     concurrency: integer('SPEECH_WORKER_CONCURRENCY', integer('TRANSCRIPTION_WORKER_CONCURRENCY', 1, 1, 8), 1, 8),
     globalConcurrency: integer('SPEECH_GLOBAL_CONCURRENCY', 1, 1, 8),
     shutdownGraceSeconds: integer('SPEECH_SHUTDOWN_GRACE_SECONDS', 90, 5, 300),
-    maxDurationSeconds: integer('SPEECH_MAX_DURATION_SECONDS', 3600, 1, 14400),
-    dictationMaxDurationSeconds: integer('DICTATION_MAX_DURATION_SECONDS', 300, 1, 3600),
+    maxDurationSeconds: integer('TRANSCRIPTION_MAX_DURATION_SECONDS', integer('SPEECH_MAX_DURATION_SECONDS', 3600, 1, 14400), 1, 14400),
+    dictationMaxDurationSeconds: integer('DICTATION_MAX_DURATION_SECONDS', 60, 1, 1800),
+    dictationMaxAudioBytes: integer('DICTATION_MAX_AUDIO_BYTES', 5 * 1024 * 1024, 1, 25 * 1024 * 1024),
+    transcriptionMaxAudioBytes: integer('TRANSCRIPTION_MAX_AUDIO_BYTES', 25 * 1024 * 1024, 1, 250 * 1024 * 1024),
     maxAudioBytes: mode === 'dictation'
       ? integer('DICTATION_MAX_AUDIO_BYTES', 5 * 1024 * 1024, 1, 25 * 1024 * 1024)
       : integer('TRANSCRIPTION_MAX_AUDIO_BYTES', 25 * 1024 * 1024, 1, 250 * 1024 * 1024),
@@ -63,17 +89,24 @@ function loadConfig() {
     heartbeatIntervalSeconds: integer('SPEECH_HEARTBEAT_INTERVAL_SECONDS', 5, 1, 60),
     inferenceStallSeconds: integer('SPEECH_INFERENCE_STALL_SECONDS', 300, 60, 7200),
     modelWarmupTimeoutSeconds: integer('SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS', 300, 60, 1800),
-    chunkSeconds: integer('SPEECH_CHUNK_SECONDS', 30, 5, 120),
+    chunkSeconds: integer('SPEECH_CHUNK_SECONDS', 30, 5, 30),
     strideSeconds: integer('SPEECH_STRIDE_SECONDS', 5, 0, 15),
     vadThresholdDb: Number.parseFloat(process.env.SPEECH_VAD_THRESHOLD_DB || '-45'),
     autoStop: boolean('DICTATION_AUTO_STOP', true),
     silenceTimeoutMs: integer('DICTATION_SILENCE_TIMEOUT_MS', 1500, 500, 10000),
     local: {
-      model: String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim(),
-      modelPath: String(process.env.SPEECH_MODEL_PATH || '/models/Xenova/whisper-small').trim(),
+      model,
+      modelPath,
+      revision: String(process.env.SPEECH_MODEL_REVISION || '').trim(),
       device: String(process.env.SPEECH_DEVICE || process.env.TRANSCRIPTION_LOCAL_DEVICE || 'cpu').trim().toLowerCase(),
       dtype: String(process.env.SPEECH_DTYPE || process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q8').trim().toLowerCase(),
       cacheDir: String(process.env.SPEECH_MODEL_CACHE_DIR || process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/models').trim(),
+    },
+    whisper: {
+      binary: String(process.env.SPEECH_WHISPER_CPP_BINARY || '/usr/local/bin/whisper-server').trim(),
+      port: integer('SPEECH_WHISPER_CPP_PORT', 8178, 1024, 65535),
+      modelFile: String(process.env.SPEECH_WHISPER_MODEL_FILE || require('node:path').join(modelPath, model.includes('small') ? 'ggml-small-q5_1.bin' : 'ggml-base-q5_1.bin')).trim(),
+      modelSha256: String(process.env.SPEECH_WHISPER_MODEL_SHA256 || '').trim().toLowerCase(),
     },
     syncModelCache: boolean('SPEECH_SYNC_MODEL_CACHE', false),
     sourceRetentionSeconds: durationSeconds('TRANSCRIPTION_SOURCE_RETENTION_SECONDS', 0),
@@ -83,7 +116,7 @@ function loadConfig() {
       .replace(/^\/+|\/+$/g, ''),
     rabbitmq: {
       uri: String(process.env.RABBITMQ_URI || '').trim(),
-      exchange: String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim(),
+      exchange,
     },
     s3: {
       endpoint: endpoint(process.env.S3_ENDPOINT),
@@ -91,7 +124,8 @@ function loadConfig() {
       useSSL: boolean('S3_USE_SSL', false),
       accessKey: String(process.env.S3_ACCESS_KEY || '').trim(),
       secretKey: String(process.env.S3_SECRET_KEY || '').trim(),
-      bucket: String(process.env.S3_BUCKET || '').trim(),
+      bucket: String(process.env.S3_BUCKET || process.env.S3_BUCKET_NAME || '').trim(),
+      speechBucket: String(process.env.SPEECH_S3_BUCKET_NAME || (process.env.S3_BUCKET || process.env.S3_BUCKET_NAME || '') + '-speech').trim(),
       region: String(process.env.S3_REGION || 'us-east-1').trim(),
     },
   };
@@ -101,6 +135,9 @@ function validateConfig(config) {
   if (!config.enabled) return;
   if (config.concurrency > 1) {
     throw new Error('Use SPEECH_TRANSCRIPTION_REPLICAS para paralelismo; SPEECH_WORKER_CONCURRENCY deve ser 1 por processo.');
+  }
+  if (process.env.S3_BUCKET && process.env.S3_BUCKET_NAME && process.env.S3_BUCKET.trim() !== process.env.S3_BUCKET_NAME.trim()) {
+    throw new Error('S3_BUCKET e S3_BUCKET_NAME divergem; alinhe o bucket de mídia da API e do worker.');
   }
   const missing = [];
   if (!config.rabbitmq.uri) missing.push('RABBITMQ_URI');
@@ -115,11 +152,17 @@ function validateConfig(config) {
   if (!config.local.model || config.local.model.length > 180 || /[\u0000\r\n]/.test(config.local.model)) {
     missing.push('SPEECH_MODEL');
   }
-  if (config.mode === 'dictation' && config.queue !== String(process.env.SPEECH_DICTATION_QUEUE || 'speech.dictation').trim()) {
+  if (config.mode === 'dictation' && config.queues && config.queue !== config.queues.dictation) {
     throw new Error('SPEECH_WORKER_MODE=dictation precisa consumir SPEECH_DICTATION_QUEUE.');
   }
+  if (config.engine && !['transformers', 'whisper.cpp'].includes(config.engine)) {
+    throw new Error('SPEECH_ENGINE deve ser transformers ou whisper.cpp; não existe fallback automático.');
+  }
+  if (config.poolId && !/^[A-Za-z0-9._-]{1,100}$/.test(config.poolId)) {
+    throw new Error('SPEECH_POOL_ID inválido.');
+  }
   if (!['local'].includes(config.provider)) {
-    throw new Error('TRANSCRIPTION_PROVIDER não suportado pelo worker: ' + config.provider);
+    throw new Error('SPEECH_PROVIDER=' + config.provider + ' não é compatível com o worker local. Configure local e SPEECH_ENGINE explicitamente após migrar o provider.');
   }
   if (!['cpu'].includes(config.local.device)) {
     throw new Error('TRANSCRIPTION_LOCAL_DEVICE inválido: ' + config.local.device);

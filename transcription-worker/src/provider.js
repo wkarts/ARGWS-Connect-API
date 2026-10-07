@@ -18,7 +18,8 @@ function withCode(error, code) {
 async function decodeAudio(filePath, options = {}) {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'speech-pcm-'));
   const pcmPath = path.join(directory, 'audio.pcm');
-  const maximum = Math.max(1, options.maxDurationSeconds || 3600) * SAMPLE_RATE * 4;
+  const maximum = Math.ceil(Math.max(1 / SAMPLE_RATE, options.maxDurationSeconds || 3600) * SAMPLE_RATE) * 4;
+  const startedAt = Date.now();
   const output = fs.createWriteStream(pcmPath, { flags: 'wx', mode: 0o600 });
   let child;
   let timer;
@@ -29,7 +30,11 @@ async function decodeAudio(filePath, options = {}) {
   try {
     await new Promise((resolve, reject) => {
       child = spawn('ffmpeg', [
-        '-hide_banner', '-loglevel', 'error', '-i', filePath, '-vn',
+        '-hide_banner', '-loglevel', 'error', '-nostdin', '-threads', '1', '-filter_threads', '1',
+        '-protocol_whitelist', 'file,pipe',
+        ...(options.startSeconds ? ['-ss', String(options.startSeconds)] : []),
+        '-i', filePath, '-vn',
+        ...(options.chunkSeconds ? ['-t', String(options.chunkSeconds)] : []),
         '-f', 'f32le', '-ac', '1', '-ar', String(SAMPLE_RATE), 'pipe:1',
       ], { stdio: ['ignore', 'pipe', 'ignore'] });
       options.onMemory?.('ffmpeg_spawn', 0, child.pid);
@@ -39,6 +44,9 @@ async function decodeAudio(filePath, options = {}) {
       };
       timer = setInterval(() => {
         if (options.isCancelled?.()) fail(new SpeechCancelledError());
+        if (Date.now() - startedAt > (options.deadlineMs || 60000)) {
+          fail(withCode(new Error('A normalização excedeu o prazo permitido.'), 'AUDIO_DECODE_TIMEOUT'));
+        }
         if (options.onMemory && child.pid && process.platform === 'linux' && Date.now() - lastMemory >= 5000) {
           lastMemory = Date.now();
           fsp.readFile(`/proc/${child.pid}/status`, 'utf8').then((status) => {
@@ -57,8 +65,7 @@ async function decodeAudio(filePath, options = {}) {
         }
         if (!failure && Date.now() - lastProgress >= 1000) {
           lastProgress = Date.now();
-          void Promise.resolve(options.onProgress?.({ stage: 'normalizing', progressPercent: 8,
-            processedDurationMs: Math.round(written / (SAMPLE_RATE * 4) * 1000) })).catch(() => {});
+          void Promise.resolve(options.onProgress?.({ stage: 'normalizing', processedDurationMs: Math.round(written / (SAMPLE_RATE * 4) * 1000) })).catch(() => {});
         }
       });
       output.on('drain', () => child.stdout.resume());
@@ -77,7 +84,7 @@ async function decodeAudio(filePath, options = {}) {
         });
       });
     });
-    if (!written || written % 4 !== 0) throw withCode(new Error('O áudio não contém amostras PCM válidas.'), 'INVALID_AUDIO');
+    if ((!written && !options.allowEmpty) || written % 4 !== 0) throw withCode(new Error('O áudio não contém amostras PCM válidas.'), 'INVALID_AUDIO');
     const samplesCount = written / 4;
     return {
       pcmPath, samplesCount,
@@ -107,7 +114,7 @@ async function detectSpeechRegionsFromFile(handle, samplesCount, thresholdDb, in
   for (let offset = 0; offset < samplesCount; offset += frameSamples) {
     if (offset % (frameSamples * 1000) === 0) {
       if (input.isCancelled?.()) throw new SpeechCancelledError();
-      if (offset) await input.onProgress?.({ stage: 'voice_activity_detection', progressPercent: 14, processedDurationMs: 0 });
+      if (offset) await input.onProgress?.({ stage: 'voice_activity_detection', processedDurationMs: 0 });
     }
     const count = Math.min(frameSamples, samplesCount - offset);
     const { bytesRead } = await handle.read(frame, 0, count * 4, offset * 4);
@@ -181,6 +188,13 @@ async function createPipeline(config) {
         return pipeline('automatic-speech-recognition', modelRef, {
           device: config.local.device,
           dtype: config.local.dtype,
+          revision: config.local.revision || undefined,
+          session_options: {
+            intraOpNumThreads: config.inferenceThreads || 1,
+            interOpNumThreads: config.inferenceInterThreads || 1,
+            executionMode: 'sequential',
+            extra: { session: { intra_op: { allow_spinning: '0' }, inter_op: { allow_spinning: '0' } } },
+          },
         });
       }))
       .then(async (transcriber) => {
@@ -240,12 +254,19 @@ function detectSpeechRegions(samples, thresholdDb = -45) {
 }
 
 function chunkRegions(regions, chunkSeconds, strideSeconds) {
-  const maximum = Math.max(1, Math.floor(Number(chunkSeconds) * SAMPLE_RATE));
-  const stride = Math.min(maximum - 1, Math.max(0, Math.floor(Number(strideSeconds) * SAMPLE_RATE)));
-  const step = maximum - stride;
-  const chunks = [];
+  const maximum = Math.max(1, Math.floor(Math.min(30, Number(chunkSeconds) || 30) * SAMPLE_RATE));
+  const stride = Math.min(maximum - 1, Math.max(0, Math.floor(Number(strideSeconds || 0) * SAMPLE_RATE)));
+  // Merge nearby voiced fragments into the same bounded window. Running one
+  // inference per syllable/phrase repeatedly padded every call to 30 seconds.
+  const aggregated = [];
   for (const region of regions) {
-    for (let start = region.start; start < region.end; start += step) {
+    const previous = aggregated[aggregated.length - 1];
+    if (previous && region.end - previous.start <= maximum) previous.end = Math.max(previous.end, region.end);
+    else aggregated.push({ start: region.start, end: region.end });
+  }
+  const chunks = [];
+  for (const region of aggregated) {
+    for (let start = region.start; start < region.end; start += maximum - stride) {
       const end = Math.min(region.end, start + maximum);
       chunks.push({ start, end });
       if (end >= region.end) break;
@@ -300,101 +321,169 @@ class SpeechCancelledError extends Error {
   }
 }
 
+async function modelIdentity(config) {
+  const engine = config.engine || 'transformers';
+  const model = config.local?.model || null;
+  let manifest = {};
+  let manifestBytes;
+  if (config.local?.modelPath) {
+    manifestBytes = await fsp.readFile(path.join(path.resolve(config.local.modelPath), '.speech-model-checksums.json'));
+    manifest = JSON.parse(manifestBytes.toString('utf8'));
+    if (manifest.engine && manifest.engine !== engine) throw withCode(new Error('O formato do modelo não corresponde ao engine.'), 'MODEL_FORMAT_MISMATCH');
+    if (manifest.model && manifest.model !== model) throw withCode(new Error('SPEECH_MODEL diverge do modelo provisionado.'), 'MODEL_MISMATCH');
+  }
+  return {
+    engine, effectiveModel: manifest.model || model, model: manifest.model || model,
+    modelRevision: manifest.revision || (manifestBytes ? 'sha256:' + require('node:crypto').createHash('sha256').update(manifestBytes).digest('hex') : null),
+    threads: config.inferenceThreads || 1, interThreads: config.inferenceInterThreads || 1,
+    timestamps: true, incrementalChunks: true, maxChunkSeconds: Math.min(30, config.chunkSeconds || 30),
+  };
+}
+
 function createProvider(config, dependencies = {}) {
   if (config.provider !== 'local') throw new Error('SPEECH_PROVIDER não suportado: ' + config.provider);
-  const loadPipeline = dependencies.createPipeline || (() => createPipeline(config));
+  const engine = config.engine || 'transformers';
+  if (!['transformers', 'whisper.cpp'].includes(engine)) throw withCode(new Error('Engine não suportado; não há fallback automático.'), 'ENGINE_UNSUPPORTED');
+  let enginePipeline;
+  const loadPipeline = dependencies.createPipeline || (() => {
+    if (engine === 'whisper.cpp') {
+      enginePipeline ||= require('./whisper-cpp').createWhisperCpp(config);
+      return Promise.resolve(enginePipeline);
+    }
+    return createPipeline(config);
+  });
   const decode = dependencies.decodeAudio || decodeAudio;
+  let identity;
+  const identityForJob = async () => identity ||= dependencies.createPipeline
+    ? { engine, effectiveModel: config.local?.model || null, modelRevision: null }
+    : await modelIdentity(config);
 
-  return {
+  const provider = {
     async warmup() {
+      identity = await identityForJob();
       const transcriber = await loadPipeline();
+      await transcriber.warmup?.();
+      // This tests model execution and backend compatibility, not pt-BR quality.
       await transcriber(new Float32Array(1600), { task: 'transcribe', return_timestamps: false });
-      return { model: config.local.model, loaded: true };
+      return { ...identity, loaded: true, modelVerified: true, lastSuccessfulInferenceAt: new Date().toISOString() };
     },
 
-    async transcribe(filePath, input = {}) {
-      await input.onProgress?.({ stage: 'normalizing', progressPercent: 8, processedDurationMs: 0 });
+    async transcribeChunk(filePath, input = {}) {
+      const effective = await identityForJob();
+      if (input.engine && input.engine !== effective.engine) throw withCode(new Error('O job requer outro engine.'), 'ENGINE_MISMATCH');
+      if (input.modelRevision && input.modelRevision !== effective.modelRevision) throw withCode(new Error('O job requer outra revisão do modelo.'), 'MODEL_REVISION_MISMATCH');
+      if (input.model && input.model !== effective.effectiveModel) throw withCode(new Error('O job requer um modelo diferente do carregado.'), 'MODEL_MISMATCH');
+      const checkpoint = input.checkpoint || {};
+      if (checkpoint.engine && (checkpoint.engine !== effective.engine || checkpoint.effectiveModel !== effective.effectiveModel || checkpoint.modelRevision !== effective.modelRevision)) {
+        throw withCode(new Error('O checkpoint pertence a outra revisão do motor/modelo.'), 'CHECKPOINT_MODEL_MISMATCH');
+      }
+      if (checkpoint.sourceSha256 && input.sourceSha256 && checkpoint.sourceSha256 !== input.sourceSha256) throw withCode(new Error('Checkpoint pertence a outra fonte.'), 'SOURCE_HASH_MISMATCH');
+      const nextOffset = Number(checkpoint.nextOffsetSamples || 0);
+      const nextChunkIndex = Number(checkpoint.nextChunkIndex || 0);
+      if (!Number.isSafeInteger(nextOffset) || nextOffset < 0 || !Number.isSafeInteger(nextChunkIndex) || nextChunkIndex < 0) {
+        throw withCode(new Error('Checkpoint inválido.'), 'INVALID_CHECKPOINT');
+      }
+      const configuredDuration = input.mode === 'dictation' ? (config.dictationMaxDurationSeconds || 60) : (config.maxDurationSeconds || 3600);
+      const maximumDuration = input.maxDurationMs ? Math.min(configuredDuration, input.maxDurationMs / 1000) : configuredDuration;
+      const maximumSamples = maximumDuration * SAMPLE_RATE;
+      if (nextOffset > maximumSamples) throw withCode(new Error('O áudio excedeu a duração permitida.'), 'AUDIO_TOO_LONG');
+      const windowSamples = Math.min(Math.floor(Math.min(30, config.chunkSeconds || 30) * SAMPLE_RATE), maximumSamples - nextOffset);
+      const stride = Math.min(Math.floor((config.strideSeconds || 0) * SAMPLE_RATE), Math.max(0, windowSamples - 1));
       const decoded = await decode(filePath, {
         isCancelled: input.isCancelled,
         onProgress: input.onProgress,
         onMemory: input.onMemory,
-        maxDurationSeconds: input.mode === 'dictation' ? config.dictationMaxDurationSeconds : config.maxDurationSeconds,
+        startSeconds: nextOffset / SAMPLE_RATE,
+        // One sentinel sample distinguishes an exact boundary from true EOF.
+        chunkSeconds: (windowSamples + 1) / SAMPLE_RATE,
+        maxDurationSeconds: (windowSamples + 1) / SAMPLE_RATE,
+        allowEmpty: nextOffset > 0,
+        deadlineMs: (config.chunkDeadlineSeconds || 180) * 1000,
       });
       let handle;
       try {
-      if (input.isCancelled?.()) throw new SpeechCancelledError();
-      if (decoded.pcmPath) handle = await fsp.open(decoded.pcmPath, 'r');
-      const samplesCount = decoded.samples?.length ?? decoded.samplesCount;
-      await input.onProgress?.({ stage: 'voice_activity_detection', progressPercent: 14, processedDurationMs: 0 });
-      const detectedRegions = handle
-        ? await detectSpeechRegionsFromFile(handle, samplesCount, config.vadThresholdDb, input)
-        : detectSpeechRegions(decoded.samples, config.vadThresholdDb);
-      // VAD is an optimization, not a validation gate: quiet speech can fall
-      // below a fixed energy threshold. Give Whisper the full non-empty audio
-      // when VAD cannot confidently select any regions.
-      const regions = detectedRegions.length
-        ? detectedRegions
-        : [{ start: 0, end: samplesCount }];
-      const chunks = chunkRegions(regions, config.chunkSeconds, config.strideSeconds);
-      const transcriber = await loadPipeline();
-      let partialText = '';
-      let processedSamples = 0;
-      const segments = [];
-      const requestedLanguage = languageCode(input.language);
-      // Dictation inserts plain text and does not display word timings. Skipping
-      // timestamp decoding removes extra work from the short, interactive path.
-      const returnTimestamps = input.mode !== 'dictation';
-      await input.onProgress?.({ stage: 'transcribing', progressPercent: 20, processedDurationMs: 0, partialText });
-
-      for (let index = 0; index < chunks.length; index += 1) {
         if (input.isCancelled?.()) throw new SpeechCancelledError();
-        const chunk = chunks[index];
-        const samples = handle
-          ? await readPcmChunk(handle, chunk.start, chunk.end)
-          : decoded.samples.subarray(chunk.start, chunk.end);
+        const decodedCount = decoded.samples?.length ?? decoded.samplesCount;
+        if (decodedCount > windowSamples && nextOffset + windowSamples >= maximumSamples) {
+          throw withCode(new Error('O áudio excedeu a duração permitida.'), 'AUDIO_TOO_LONG');
+        }
+        const sampleCount = Math.min(windowSamples, decodedCount);
+        const done = decodedCount <= windowSamples;
+        if (!sampleCount) {
+          if (!checkpoint.text) throw withCode(new Error('O áudio não contém fala reconhecível.'), 'NO_SPEECH');
+          return { done: true, checkpoint, result: {
+            text: checkpoint.text, segments: checkpoint.segments || [], durationMs: checkpoint.durationMs,
+            language: languageCode(input.language) || null, ...effective,
+          } };
+        }
+        if (decoded.pcmPath) handle = await fsp.open(decoded.pcmPath, 'r');
+        const detected = handle
+          ? await detectSpeechRegionsFromFile(handle, sampleCount, config.vadThresholdDb, input)
+          : detectSpeechRegions(decoded.samples.subarray(0, sampleCount), config.vadThresholdDb);
+        // Aggregate every VAD fragment inside this window. Silence between
+        // phrases is preserved; fixed-threshold VAD never rejects quiet speech.
+        const region = detected.length
+          ? { start: detected[0].start, end: detected[detected.length - 1].end }
+          : { start: 0, end: sampleCount };
+        const samples = handle ? await readPcmChunk(handle, region.start, region.end)
+          : decoded.samples.subarray(region.start, region.end);
+        const transcriber = await loadPipeline();
+        const returnTimestamps = input.mode !== 'dictation';
+        await input.onProgress?.({ stage: 'transcribing', processedDurationMs: checkpoint.durationMs || 0,
+          processedChunks: nextChunkIndex });
         const result = await transcriber(samples, {
-          task: 'transcribe',
-          return_timestamps: returnTimestamps,
-          ...(requestedLanguage ? { language: requestedLanguage } : {}),
+          task: 'transcribe', return_timestamps: returnTimestamps,
+          ...(languageCode(input.language) ? { language: languageCode(input.language) } : {}),
         });
-        const text = String(result?.text || '').trim();
-        partialText = mergeOverlappingText(partialText, text);
-        if (returnTimestamps) segments.push(...normalizeSegments(result?.chunks, chunk.start, decoded.durationMs));
-        processedSamples += samples.length;
-        await input.onProgress?.({
-          stage: 'transcribing',
-          progressPercent: 20 + Math.floor(((index + 1) / chunks.length) * 75),
-          processedDurationMs: Math.min(decoded.durationMs, Math.round((processedSamples / SAMPLE_RATE) * 1000)),
-          partialText,
-          processedChunks: index + 1,
-          totalChunks: chunks.length,
-        });
-      }
-
-      if (input.isCancelled?.()) throw new SpeechCancelledError();
-      if (!partialText) {
-        throw Object.assign(new Error('O motor local não reconheceu fala neste áudio.'), { code: 'NO_SPEECH', retryable: false });
-      }
-      return {
-        text: partialText,
-        language: requestedLanguage || null,
-        durationMs: decoded.durationMs,
-        segments,
-      };
+        if (input.isCancelled?.()) throw new SpeechCancelledError();
+        const text = mergeOverlappingText(checkpoint.text || '', String(result?.text || '').trim());
+        const endMs = Math.round((nextOffset + sampleCount) / SAMPLE_RATE * 1000);
+        const previousSegments = Array.isArray(checkpoint.segments) ? checkpoint.segments : [];
+        const previousEnd = previousSegments[previousSegments.length - 1]?.endMs || 0;
+        const currentSegments = returnTimestamps
+          ? normalizeSegments(result?.chunks, nextOffset + region.start, endMs)
+            .filter((segment) => segment.endMs > previousEnd)
+            .map((segment) => ({ ...segment, startMs: Math.max(previousEnd, segment.startMs) }))
+          : [];
+        const nextCheckpoint = {
+          version: 1, ...effective, sourceSha256: input.sourceSha256 || checkpoint.sourceSha256 || null,
+          nextChunkIndex: nextChunkIndex + 1,
+          nextOffsetSamples: done ? nextOffset + sampleCount : nextOffset + windowSamples - stride,
+          offsetSamples: nextOffset + sampleCount, processedDurationMs: endMs,
+          durationMs: endMs, durationKnown: done, text, segments: [...previousSegments, ...currentSegments],
+        };
+        if (Buffer.byteLength(JSON.stringify(nextCheckpoint), 'utf8') > 250 * 1024) {
+          throw withCode(new Error('O resultado parcial excedeu o limite permitido.'), 'CHECKPOINT_TOO_LARGE');
+        }
+        await input.onProgress?.({ stage: done ? 'finalizing' : 'chunk_completed',
+          processedDurationMs: endMs,
+          processedChunks: nextChunkIndex + 1, partialText: text });
+        if (done && !text) throw withCode(new Error('O motor local não reconheceu fala neste áudio.'), 'NO_SPEECH');
+        return {
+          done, checkpoint: nextCheckpoint,
+          result: done ? { text, language: languageCode(input.language) || null,
+            durationMs: endMs, segments: nextCheckpoint.segments, ...effective } : null,
+        };
       } finally {
         await handle?.close();
         await decoded.dispose?.();
       }
     },
+
+    async transcribe(filePath, input = {}) {
+      let checkpoint = input.checkpoint;
+      for (;;) {
+        const part = await provider.transcribeChunk(filePath, { ...input, checkpoint });
+        if (part.done) return part.result;
+        checkpoint = part.checkpoint;
+        await input.onCheckpoint?.(checkpoint);
+      }
+    },
   };
+  return provider;
 }
 
 module.exports = {
-  createProvider,
-  decodeAudio,
-  prepareModelCache,
-  detectSpeechRegions,
-  chunkRegions,
-  mergeOverlappingText,
-  SpeechCancelledError,
+  createProvider, decodeAudio, prepareModelCache, detectSpeechRegions,
+  chunkRegions, mergeOverlappingText, SpeechCancelledError, modelIdentity,
 };

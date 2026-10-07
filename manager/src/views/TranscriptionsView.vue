@@ -6,31 +6,13 @@ import PageHeader from '@/components/PageHeader.vue'
 import PanelCard from '@/components/PanelCard.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
+import { errorRetryAfterSeconds } from '@/services/retry-after'
 
-type TranscriptionJob = {
-  id: string
-  workerId?: string | null
-  mode?: string
-  status: 'queued' | 'processing' | 'completed' | 'failed' | string
-  stage?: string | null
-  progressPercent?: number
-  processedDurationMs?: number | null
-  text?: string | null
-  language?: string | null
-  detectedLanguage?: string | null
-  durationMs?: number | null
-  model?: string | null
-  provider?: string | null
-  errorCode?: string | null
-  errorMessage?: string | null
-  createdAt?: string
-  updatedAt?: string
-  completedAt?: string | null
-  attempts?: number
-}
+import type { SpeechHealth, TranscriptionJob } from '@/types/domain'
+import { reportedSpeechProgress, speechPollDelay, speechPoolLabel, speechProgressToken, speechStageLabel } from '@/services/speech-status'
 
 const jobs = ref<TranscriptionJob[]>([])
-const workerHealth = ref<any>(null)
+const workerHealth = ref<SpeechHealth | null>(null)
 const modelBusy = ref(false)
 const selectedFile = ref<File | null>(null)
 const language = ref('pt')
@@ -63,6 +45,13 @@ let meterFrame: number | null = null
 let audioContext: AudioContext | null = null
 let analyser: AnalyserNode | null = null
 let timer: number | null = null
+let disposed = false
+let refreshing = false
+let unchangedPolls = 0
+let lastJobsToken = ''
+let retryAfterUntil = 0
+const poolLabel = computed(() => speechPoolLabel(workerHealth.value))
+const acceptingJobs = computed(() => workerHealth.value?.enabled !== false && workerHealth.value?.acceptingJobs !== false)
 
 const selected = computed(() => jobs.value.find((job) => job.id === selectedId.value) || jobs.value[0] || null)
 const active = computed(() => jobs.value.filter((job) => ['queued', 'processing'].includes(job.status)).length)
@@ -100,6 +89,7 @@ function modelDownloadLabel(status?: string) {
   return ({
     not_installed: 'Ainda não instalado',
     downloading: 'Baixando para o volume persistente',
+    verifying: 'Verificando a integridade dos arquivos',
     ready: 'Instalado neste servidor',
     failed: 'O download falhou',
     unavailable: 'Instalação manual',
@@ -119,23 +109,6 @@ function statusLabel(status: string) {
   return ({ queued: 'Na fila', processing: 'Processando', completed: 'Concluída', cancelled: 'Cancelada', failed: 'Falhou' } as Record<string, string>)[status] || status
 }
 
-function stageLabel(stage?: string | null) {
-  return ({
-    queued: 'Aguardando a vez na fila',
-    waiting_for_capacity: 'Aguardando capacidade de áudio',
-    awaiting_redelivery: 'Aguardando retorno da entrega original',
-    retrying: 'Aguardando nova tentativa',
-    preparing: 'Preparando áudio',
-    normalizing: 'Normalizando áudio',
-    voice_activity_detection: 'Identificando voz',
-    finalizing: 'Salvando resultado',
-    downloading: 'Buscando áudio privado no MinIO',
-    loading_model: 'Preparando o modelo local',
-    transcribing: 'Transcrevendo por trechos',
-    completed: 'Transcrição concluída',
-    failed: 'Processamento interrompido',
-  } as Record<string, string>)[String(stage || '')] || 'Preparando processamento'
-}
 
 function canDelete(job?: TranscriptionJob | null) {
   return !!job
@@ -307,18 +280,24 @@ async function load() {
     connect.transcriptionHealth(),
   ])
   if (jobsResult.status === 'fulfilled') {
+    const token = jobsResult.value.map(speechProgressToken).join('\n')
+    unchangedPolls = token === lastJobsToken ? unchangedPolls + 1 : 0
+    lastJobsToken = token
     jobs.value = jobsResult.value
     if (!jobs.value.some((job) => job.id === selectedId.value)) selectedId.value = jobs.value[0]?.id || ''
   } else {
+    deferAfterError(jobsResult.reason)
+    unchangedPolls += 1
     error.value = friendlyError(jobsResult.reason, 'Não foi possível consultar as transcrições.')
   }
   if (healthResult.status === 'fulfilled') {
     workerHealth.value = healthResult.value
-  } else if (!error.value) {
-    error.value = friendlyError(healthResult.reason, 'Não foi possível consultar o estado do worker.')
+  } else {
+    deferAfterError(healthResult.reason)
+    if (!error.value) error.value = friendlyError(healthResult.reason, 'Não foi possível consultar o estado do worker.')
   }
   loading.value = false
-  schedulePolling()
+  if (!disposed) schedulePolling()
 }
 
 async function downloadModel() {
@@ -328,7 +307,7 @@ async function downloadModel() {
   error.value = ''
   success.value = ''
   try {
-    const result = await connect.downloadSpeechModel(String(model.id || workerHealth.value?.model || 'Xenova/whisper-small'))
+    const result = await connect.downloadSpeechModel(String(model.id || workerHealth.value?.model || 'Xenova/whisper-small'), model.status === 'failed')
     workerHealth.value = {
       ...workerHealth.value,
       modelDownload: { ...model, ...result },
@@ -345,39 +324,55 @@ async function downloadModel() {
   }
 }
 
+function deferAfterError(cause: unknown) {
+  retryAfterUntil = Math.max(retryAfterUntil, Date.now() + errorRetryAfterSeconds(cause) * 1000)
+}
+
 function schedulePolling() {
   if (timer !== null) window.clearTimeout(timer)
   timer = null
-  const needsWorkerCheck = !workerHealth.value || (workerHealth.value.enabled && (!workerHealth.value.workerReady || modelDownload.value?.status === 'downloading'))
-  if (active.value || needsWorkerCheck) {
-    timer = window.setTimeout(() => {
-      timer = null
-      void refreshActive()
-    }, 5000)
-  }
+  if (disposed) return
+  const status = jobs.value.some((job) => job.status === 'processing')
+    ? 'processing' : active.value ? 'queued' : 'idle'
+  const retryAfter = Math.max(Number(workerHealth.value?.retryAfterSeconds || 0), (retryAfterUntil - Date.now()) / 1000)
+  const delay = speechPollDelay(status, unchangedPolls, document.hidden, retryAfter)
+  timer = window.setTimeout(() => {
+    timer = null
+    void refreshActive()
+  }, delay)
 }
 
 async function refreshActive() {
+  if (disposed || refreshing) return
+  refreshing = true
   const [jobsResult, healthResult] = await Promise.allSettled([
     connect.transcriptionList(100),
     connect.transcriptionHealth(),
   ])
   if (jobsResult.status === 'fulfilled') {
+    const token = jobsResult.value.map(speechProgressToken).join('\n')
+    unchangedPolls = token === lastJobsToken ? unchangedPolls + 1 : 0
+    lastJobsToken = token
     jobs.value = jobsResult.value
     if (!jobs.value.some((job) => job.id === selectedId.value)) selectedId.value = jobs.value[0]?.id || ''
     error.value = ''
   } else {
+    deferAfterError(jobsResult.reason)
+    unchangedPolls += 1
     error.value = friendlyError(jobsResult.reason, 'Não foi possível atualizar a fila de transcrição.')
   }
   if (healthResult.status === 'fulfilled') {
     workerHealth.value = healthResult.value
-  } else if (jobsResult.status === 'fulfilled') {
-    error.value = friendlyError(healthResult.reason, 'Não foi possível consultar o estado do worker.')
+  } else {
+    deferAfterError(healthResult.reason)
+    if (jobsResult.status === 'fulfilled') error.value = friendlyError(healthResult.reason, 'Não foi possível consultar o estado do worker.')
   }
+  refreshing = false
   schedulePolling()
 }
 
 async function upload() {
+  if (!acceptingJobs.value) { error.value = poolLabel.value; return }
   if (!selectedFile.value) { error.value = 'Selecione um arquivo de áudio antes de enviar.'; return }
   if (selectedFile.value.size === 0) {
     error.value = 'O arquivo está vazio. Grave novamente ou selecione outro áudio.'
@@ -396,9 +391,10 @@ async function upload() {
     selectedId.value = job.id
     setSelectedFile(null)
     if (fileInput.value) fileInput.value.value = ''
-    success.value = 'Áudio recebido. O motor local começou o processamento.'
+    success.value = 'Áudio aceito na fila. Acompanhe abaixo o início e a evolução do processamento.'
     schedulePolling()
   } catch (cause) {
+    deferAfterError(cause)
     error.value = friendlyError(cause, 'Não foi possível enviar o áudio.')
     try { workerHealth.value = await connect.transcriptionHealth() } catch { /* Preserve the upload error and the last status. */ }
     schedulePolling()
@@ -408,7 +404,7 @@ async function upload() {
 }
 
 async function retry() {
-  if (!canRetry(selected.value)) return
+  if (!selected.value || !canRetry(selected.value)) return
   busy.value = true
   error.value = ''
   try {
@@ -423,7 +419,7 @@ async function retry() {
 
 async function removeSelected() {
   const job = selected.value
-  if (!canDelete(job)) return
+  if (!job || !canDelete(job)) return
   const activeJob = ['queued', 'processing'].includes(job.status)
   if (!window.confirm(activeJob
     ? 'Cancelar e excluir esta transcrição agora? O áudio temporário será removido do MinIO quando aplicável e um resultado atrasado será ignorado.'
@@ -450,6 +446,7 @@ async function copyText() {
 
 onMounted(() => void load())
 onBeforeUnmount(() => {
+  disposed = true
   if (timer !== null) window.clearTimeout(timer)
   if (recorder) stopRecording(true)
   clearPreview()
@@ -465,16 +462,13 @@ onBeforeUnmount(() => {
       <section class="privacy-note"><AppIcon name="shield" :size="21" /><div><strong>Processamento privado</strong><p>O arquivo fica no MinIO privado e é processado pelo worker local. O painel recebe apenas o estado do job e o texto resultante.</p></div></section>
       <p v-if="error" class="notice error" role="alert">{{ error }}</p>
       <p v-if="success" class="notice success" role="status">{{ success }}</p>
-      <p v-if="workerHealth?.enabled && modelDownload?.status === 'downloading'" class="notice worker-ready" role="status">Baixando o modelo de voz · {{ modelDownload.progressPercent || 0 }}% concluído. O áudio será processado após o download e o primeiro carregamento.</p>
-      <p v-else-if="workerHealth && !workerHealth.workerReady && modelDownload?.installed" class="notice error" role="alert">Modelo instalado. O worker ainda está carregando o modelo ou não está ativo; aguarde e confira se o perfil <code>transcription</code> está habilitado.</p>
-      <p v-else-if="workerHealth && !workerHealth.workerReady && modelDownload?.available" class="notice worker-ready" role="status">A API baixa o modelo automaticamente ao iniciar. Acompanhe o progresso aqui ou repita o download manualmente se necessário.</p>
-      <p v-else-if="workerHealth && !workerHealth.workerReady" class="notice error" role="alert">O worker local não está consumindo a fila. Ative o perfil <code>transcription</code> no <code>COMPOSE_PROFILES</code> e recrie somente o container do worker.</p>
-      <p v-else-if="workerHealth" class="notice worker-ready" role="status">Worker local ativo · {{ workerHealth.consumerCount }} consumidor(es) · {{ workerHealth.queuedJobs || 0 }} na fila persistida · {{ workerHealth.processingJobs || 0 }} em processamento<span v-if="workerHealth.oldestQueuedSeconds"> · mais antigo há {{ clock(workerHealth.oldestQueuedSeconds) }}</span></p>
+      <p class="notice" :class="{ error: workerHealth?.state === 'degraded' || workerHealth?.state === 'offline', 'worker-ready': workerHealth?.workerReady }" role="status" aria-live="polite">{{ poolLabel }}</p>
+      <p v-if="workerHealth" class="pool-metrics">{{ workerHealth.queuedJobs || 0 }} na fila<span v-if="workerHealth.pendingLimit"> de {{ workerHealth.pendingLimit }} vagas</span> · {{ workerHealth.processingJobs || 0 }} em processamento<span v-if="workerHealth.oldestQueuedSeconds"> · espera mais antiga {{ clock(workerHealth.oldestQueuedSeconds) }}</span><span v-if="workerHealth.instancePendingLimit"> · até {{ workerHealth.instancePendingLimit }} pendentes por instância</span><br /><span v-if="workerHealth.lastSuccessfulInferenceAt">Último reconhecimento concluído: {{ stamp(workerHealth.lastSuccessfulInferenceAt) }}</span><span v-else>Esta execução do serviço ainda não informou um reconhecimento concluído.</span></p>
 
       <section v-if="workerHealth?.enabled && modelDownload" class="model-card" aria-live="polite">
         <div class="model-copy">
           <strong>Modelo de voz · {{ modelDownload.id || workerHealth.model }}</strong>
-          <p>{{ modelDownloadLabel(modelDownload.status) }} · Baixa aproximadamente 250 MB uma vez e mantém os arquivos no volume persistente entre reinícios e atualizações. Português, inglês e espanhol usam o mesmo modelo.</p>
+          <p>{{ modelDownloadLabel(modelDownload.status) }} · Os arquivos verificados são reutilizados entre reinícios. O modelo permanece residente durante uso próximo; seu carregamento e o reconhecimento têm estados separados.</p>
           <div v-if="modelDownload.status === 'downloading'" class="model-progress">
             <progress :value="modelDownload.progressPercent || 0" max="100">{{ modelDownload.progressPercent || 0 }}%</progress>
             <small>{{ modelDownload.progressPercent || 0 }}% · {{ formatSize(modelDownload.downloadedBytes || 0) }} baixados<span v-if="modelDownload.totalBytes"> de {{ formatSize(modelDownload.totalBytes) }}</span></small>
@@ -507,7 +501,7 @@ onBeforeUnmount(() => {
           <audio v-if="previewUrl && !recording" class="audio-preview" controls preload="metadata" :src="previewUrl"></audio>
           <div class="upload-options">
             <label class="field"><span>Idioma do áudio</span><select v-model="language"><option value="pt">Português</option><option value="en">English</option><option value="es">Español</option><option value="">Detecção automática</option></select></label>
-            <button class="btn primary upload-button" :disabled="busy || !selectedFile" @click="upload"><AppIcon name="arrow" :size="16" />{{ busy ? 'Enviando…' : 'Transcrever áudio' }}</button>
+            <button class="btn primary upload-button" :disabled="busy || !selectedFile || !acceptingJobs" @click="upload"><AppIcon name="arrow" :size="16" />{{ busy ? 'Enviando…' : 'Transcrever áudio' }}</button>
           </div>
           <p v-if="!recordingSupported" class="recording-support"><AppIcon name="warning" :size="13" /> A gravação exige HTTPS ou localhost e permissão para o microfone.</p>
           <p class="privacy-hint"><AppIcon name="shield" :size="13" /> Nenhuma chave de OpenAI ou outro provedor é necessária.</p>
@@ -516,22 +510,25 @@ onBeforeUnmount(() => {
         <PanelCard title="Atividade" :description="active ? String(active) + ' áudio(s) na fila ou em processamento' : 'Histórico e situação da fila desta instalação.'">
           <div v-if="loading" class="empty-state"><AppIcon name="refresh" :size="24" /><strong>Consultando jobs…</strong></div>
           <div v-else-if="!jobs.length" class="empty-state"><AppIcon name="mic" :size="25" /><strong>Nenhuma transcrição ainda</strong><span>Envie o primeiro áudio para começar.</span></div>
-          <div v-else class="job-list"><button v-for="job in jobs" :key="job.id" type="button" class="job-row" :class="{ active: selected?.id === job.id }" @click="selectedId = job.id"><span class="job-state" :class="job.status"><i></i></span><span class="job-main"><strong>{{ job.text ? job.text.slice(0, 72) : statusLabel(job.status) }}</strong><small>{{ stamp(job.createdAt) }} · {{ job.status === 'processing' ? stageLabel(job.stage) : job.status === 'queued' ? `Na fila há ${queuedAge(job.createdAt)}` : duration(job.durationMs) }}</small></span><span class="job-status">{{ job.status === 'processing' ? `${job.progressPercent || 0}%` : statusLabel(job.status) }}</span></button></div>
+          <div v-else class="job-list"><button v-for="job in jobs" :key="job.id" type="button" class="job-row" :class="{ active: selected?.id === job.id }" @click="selectedId = job.id"><span class="job-state" :class="job.status"><i></i></span><span class="job-main"><strong>{{ job.text ? job.text.slice(0, 72) : statusLabel(job.status) }}</strong><small>{{ stamp(job.createdAt) }} · {{ job.status === 'processing' ? speechStageLabel(job.stage) : job.status === 'queued' ? `Na fila há ${queuedAge(job.createdAt)}` : duration(job.durationMs) }}</small></span><span class="job-status">{{ reportedSpeechProgress(job) !== null ? `${reportedSpeechProgress(job)}%` : statusLabel(job.status) }}</span></button></div>
         </PanelCard>
       </div>
 
       <PanelCard v-if="selected" title="Resultado" :description="statusLabel(selected.status) + ' · ' + (selected.provider === 'local' ? 'motor local' : (selected.provider || 'worker'))">
         <template #actions><button v-if="canRetry(selected)" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />{{ selected.status === 'failed' ? 'Tentar novamente' : 'Reenfileirar' }}</button><button v-if="selected.text" class="btn ghost compact" :disabled="busy" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button><button v-if="canDelete(selected)" class="btn ghost compact danger-button" :disabled="busy" @click="removeSelected"><AppIcon name="trash" :size="14" />{{ ['queued', 'processing'].includes(selected.status) ? 'Cancelar e excluir' : 'Excluir' }}</button></template>
-        <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div class="processing-copy"><strong>{{ statusLabel(selected.status) }} · {{ stageLabel(selected.stage) }}</strong><p v-if="selected.status === 'queued'">Este áudio permanece na fila. A tela mostra a idade da fila e atualiza o estado automaticamente.</p><p v-else>Áudio processado: {{ duration(selected.processedDurationMs) }}. Tentativa {{ selected.attempts || 1 }}<template v-if="selected.workerId"> · worker {{ selected.workerId }}</template>.</p><div v-if="selected.status === 'processing'" class="job-progress" role="progressbar" :aria-valuenow="selected.progressPercent || 0" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${Math.max(4, selected.progressPercent || 0)}%` }"></span></div></div></div>
+        <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div class="processing-copy"><strong>{{ statusLabel(selected.status) }} · {{ speechStageLabel(selected.stage) }}</strong><p v-if="selected.status === 'queued'">Este áudio permanece na fila. A tela mostra a idade da fila e atualiza o estado automaticamente.</p><p v-else>Áudio processado: {{ duration(selected.processedDurationMs) }}. Tentativa {{ selected.attempts || 1 }}<template v-if="selected.workerId"> · worker {{ selected.workerId }}</template>.</p><div v-if="reportedSpeechProgress(selected) !== null" class="job-progress" role="progressbar" :aria-valuenow="reportedSpeechProgress(selected) ?? undefined" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${reportedSpeechProgress(selected)}%` }"></span></div><p v-else>O motor ainda não informou avanço de reconhecimento.</p><p v-if="selected.engineProgressAt">Último avanço real: {{ stamp(selected.engineProgressAt) }}</p><p v-if="selected.controlHeartbeatAt">Último sinal de supervisão: {{ stamp(selected.controlHeartbeatAt) }}</p><p v-if="selected.deadlineAt">Prazo do trabalho: {{ stamp(selected.deadlineAt) }}</p></div></div>
         <div v-else-if="selected.status === 'failed'" class="result-error"><AppIcon name="warning" :size="19" /><div><strong>Não foi possível concluir</strong><p>{{ selected.errorMessage || 'O worker retornou uma falha sem detalhes.' }}</p><p v-if="selected.workerId">Worker: {{ selected.workerId }} · tentativa {{ selected.attempts || 1 }}</p></div></div>
         <div v-else-if="selected.status === 'completed'" class="result-body"><p>{{ selected.text || 'Sem texto reconhecido.' }}</p><footer><span>Idioma: {{ selected.detectedLanguage || selected.language || 'detectado automaticamente' }}</span><span>Duração: {{ duration(selected.durationMs) }}</span><span>Concluída: {{ stamp(selected.completedAt) }}</span><span v-if="selected.workerId">Worker: {{ selected.workerId }}</span><span>Tentativa: {{ selected.attempts || 1 }}</span></footer></div>
         <div v-else class="result-error"><AppIcon name="warning" :size="19" /><div><strong>{{ statusLabel(selected.status) }}</strong><p>Este trabalho foi interrompido.</p></div></div>
+        <p v-if="selected.status === 'processing' && selected.text" class="partial-result"><strong>Texto parcial</strong><br />{{ selected.text }}</p>
+        <p class="execution-model">Motor: {{ selected.engine || selected.provider }} · modelo efetivo: {{ selected.effectiveModel || selected.model }}<span v-if="selected.requestedModel && selected.requestedModel !== (selected.effectiveModel || selected.model)"> · solicitado: {{ selected.requestedModel }}</span><span v-if="selected.modelRevision"> · revisão: {{ selected.modelRevision }}</span></p>
       </PanelCard>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
+.pool-metrics,.execution-model{margin:0;color:var(--muted);font-size:11px;line-height:1.6;overflow-wrap:anywhere}.partial-result{white-space:pre-wrap;font-size:13px;line-height:1.7}.execution-model{margin-top:12px}
 .transcription-page{display:grid;gap:18px;min-width:0}.transcription-page :deep(.page-header){margin-bottom:0}.privacy-note{display:flex;gap:12px;align-items:flex-start;padding:15px 17px;border:1px solid var(--border);border-radius:13px;background:var(--primary-soft);color:var(--primary)}.privacy-note strong{font-size:13px}.privacy-note p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.notice{margin:0;padding:12px 14px;border-radius:9px;font-size:12px;line-height:1.5}.notice.error{background:var(--danger-soft);color:var(--danger)}.notice.success{background:var(--success-soft);color:var(--success)}.transcription-layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(0,1.1fr);gap:16px}.capture-actions{display:flex;align-items:center;gap:10px;margin-bottom:12px}.capture-actions>span{color:var(--muted);font-size:10px}.record-button{min-height:38px}.recording-panel{display:grid;gap:11px;margin-bottom:12px;padding:16px;border:1px solid color-mix(in srgb,var(--danger) 35%,var(--border));border-radius:12px;background:var(--danger-soft)}.recording-heading,.recording-meta{display:flex;align-items:center;gap:8px}.recording-heading strong{font-size:12px}.recording-heading time{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}.record-dot{width:9px;height:9px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 18%,transparent);animation:pulse 1.2s infinite}.level-meter{height:9px;overflow:hidden;border-radius:99px;background:color-mix(in srgb,var(--danger) 15%,var(--surface))}.level-meter span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--success),#eab308,var(--danger));transition:width .08s linear}.recording-meta{justify-content:space-between;color:var(--muted);font-size:10px}.recording-meta span:first-child{color:var(--text);font-variant-numeric:tabular-nums;font-weight:700}.recording-controls{display:flex;flex-wrap:wrap;gap:8px}.danger-button{color:var(--danger)}.audio-preview{width:100%;height:38px;margin-top:11px}.drop-zone{display:grid;justify-items:center;gap:7px;padding:30px 18px;border:1px dashed var(--border);border-radius:12px;background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}.drop-zone:hover,.drop-zone:focus-visible,.drop-zone.selected{border-color:var(--primary);background:var(--primary-soft);outline:none}.drop-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:var(--surface);color:var(--primary);box-shadow:var(--shadow)}.drop-zone strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.drop-zone small{color:var(--muted);font-size:10px}.upload-options{display:flex;align-items:flex-end;gap:12px;margin-top:15px}.field{display:grid;gap:5px;min-width:0;flex:1}.field span{color:var(--muted);font-size:10px;font-weight:700}.field select{min-height:38px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);padding:8px;font-size:11px}.upload-button{min-height:38px;white-space:nowrap}.recording-support{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--danger);font-size:10px}.privacy-hint{display:flex;align-items:center;gap:5px;margin:13px 0 0;color:var(--muted);font-size:10px}.job-list{display:grid;gap:3px;max-height:280px;overflow:auto}.job-row{display:flex;align-items:center;gap:10px;width:100%;padding:10px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--text);text-align:left;cursor:pointer}.job-row:hover,.job-row.active{border-color:var(--border);background:var(--surface-2)}.job-state{display:grid;place-items:center;width:20px;height:20px;border-radius:7px;background:var(--surface-2);flex:none}.job-state i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.job-state.completed{background:var(--success-soft)}.job-state.completed i{background:var(--success)}.job-state.processing{background:var(--primary-soft)}.job-state.processing i{background:var(--primary);animation:pulse 1.2s infinite}.job-state.failed{background:var(--danger-soft)}.job-state.failed i{background:var(--danger)}.job-main{display:grid;gap:3px;min-width:0;flex:1}.job-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.job-main small{color:var(--muted);font-size:9px}.job-status{color:var(--muted);font-size:9px;white-space:nowrap}.empty-state{display:grid;justify-items:center;gap:7px;padding:35px 12px;color:var(--muted);text-align:center}.empty-state strong{color:var(--text);font-size:12px}.empty-state span{font-size:10px}.processing-state,.result-error{display:flex;align-items:flex-start;gap:12px;padding:16px;border-radius:10px;background:var(--surface-2);color:var(--primary)}.processing-state strong,.result-error strong{font-size:12px;color:var(--text)}.processing-state p,.result-error p{margin:4px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.result-error{background:var(--danger-soft);color:var(--danger)}.result-body p{margin:0;min-height:80px;white-space:pre-wrap;font-size:13px;line-height:1.7}.result-body footer{display:flex;flex-wrap:wrap;gap:12px;margin-top:17px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:10px}.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;flex:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{opacity:.25}}@media(max-width:860px){.transcription-layout{grid-template-columns:1fr}}@media(max-width:520px){.upload-options{align-items:stretch;flex-direction:column}.upload-button{width:100%}.transcription-page{gap:13px}.privacy-note{padding:13px}.capture-actions{align-items:stretch;flex-direction:column}.capture-actions>span{line-height:1.4}.recording-heading time{font-size:11px}.recording-controls>*{flex:1}.result-body p{font-size:12px}}
 </style>
 

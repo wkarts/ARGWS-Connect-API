@@ -174,25 +174,46 @@ function extensionFor(mimetype, sourceKey) {
   return /^[.][a-z0-9]{1,8}$/.test(ext) ? ext : '.audio';
 }
 
-async function downloadObjectToFile(client, bucket, sourceKey, mimetype, maxBytes) {
-  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'argws-connect-transcription-'));
+async function downloadObjectToFile(client, bucket, sourceKey, mimetype, maxBytes, options = {}) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'speech-source-'));
   const filePath = path.join(directory, 'audio' + extensionFor(mimetype, sourceKey));
   let total = 0;
+  const hash = createHash('sha256');
   const limiter = new Transform({
     transform(chunk, _encoding, callback) {
       total += chunk.length;
       if (total > maxBytes) {
-        callback(new Error('Áudio excede TRANSCRIPTION_MAX_AUDIO_BYTES.'));
+        callback(Object.assign(new Error('Áudio excede o limite de bytes permitido.'), { code: 'AUDIO_TOO_LARGE', retryable: false }));
         return;
       }
+      hash.update(chunk);
       callback(null, chunk);
     },
   });
 
   try {
-    const source = await client.getObject(bucket, objectKey(sourceKey));
-    await pipeline(source, limiter, fs.createWriteStream(filePath, { mode: 0o600 }));
-    return { directory, filePath, bytes: total };
+    const signal = options.signal || AbortSignal.timeout(options.timeoutMs || 60000);
+    signal.throwIfAborted();
+    let abort;
+    const pendingSource = client.getObject(bucket, objectKey(sourceKey));
+    // If getObject resolves after cancellation, its socket still must be closed.
+    void pendingSource.then((source) => { if (signal.aborted) source.destroy(); }, () => {});
+    const source = await Promise.race([
+      pendingSource,
+      new Promise((_, reject) => {
+        abort = () => reject(Object.assign(new Error('Download de áudio cancelado ou expirado.'), { code: 'AUDIO_DOWNLOAD_ABORTED', retryable: true }));
+        signal.addEventListener('abort', abort, { once: true });
+      }),
+    ]).finally(() => signal.removeEventListener('abort', abort));
+    await pipeline(source, limiter, fs.createWriteStream(filePath, { mode: 0o600, flags: 'wx' }), { signal });
+    const digest = hash.digest('hex');
+    if (options.sha256 && digest !== options.sha256) {
+      throw Object.assign(new Error('A fonte de áudio não corresponde ao SHA-256 autorizado.'), { code: 'SOURCE_HASH_MISMATCH', retryable: false });
+    }
+    if (options.expectedBytes !== undefined && Number(options.expectedBytes) !== total) {
+      throw Object.assign(new Error('O tamanho da fonte diverge do job autorizado.'), { code: 'SOURCE_SIZE_MISMATCH', retryable: false });
+    }
+    return { directory, filePath, bytes: total, sha256: digest };
   } catch (error) {
     await cleanup(directory);
     throw error;
