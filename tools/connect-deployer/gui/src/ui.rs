@@ -167,6 +167,7 @@ const ID_KAFKA: i32 = 302;
 const ID_EXTENDED: i32 = 303;
 const ID_MYSQL: i32 = 304;
 const ID_TRACCAR: i32 = 305;
+const ID_TRANSCRIPTION: i32 = 306;
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
@@ -411,6 +412,7 @@ unsafe fn request(hwnd: H) -> Result<GuiGenerateRequest, String> {
         (ID_EXTENDED, "extended"),
         (ID_MYSQL, "mysql"),
         (ID_TRACCAR, "traccar"),
+        (ID_TRANSCRIPTION, "transcription"),
     ] {
         if checked(hwnd, id) {
             modules.push(name.to_string());
@@ -550,7 +552,9 @@ unsafe extern "system" fn procedure(hwnd: H, message: u32, wparam: usize, _lpara
             checkbox(hwnd, ID_EXTENDED, "Extended", 550, 380, 120);
             checkbox(hwnd, ID_MYSQL, "MySQL", 680, 380, 100);
             checkbox(hwnd, ID_TRACCAR, "Traccar", 190, 412, 130);
+            checkbox(hwnd, ID_TRANSCRIPTION, "Transcrição", 330, 412, 145);
             SendMessageW(GetDlgItem(hwnd, ID_OPERATIONS), 0x00f1, 1, 0);
+            SendMessageW(GetDlgItem(hwnd, ID_TRANSCRIPTION), 0x00f1, 1, 0);
 
             label(hwnd, "Autenticação Traccar", 26, 454, 160, 26);
             radio(hwnd, ID_CREDENTIALS, "Credenciais internas (recomendado)", 190, 450, 270);

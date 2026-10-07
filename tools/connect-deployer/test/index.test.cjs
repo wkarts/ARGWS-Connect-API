@@ -16,12 +16,24 @@ test('seleciona modulos sem ativar extended acidentalmente', () => {
   });
   const env = parseEnv(result.env);
   assert.equal(env.get('COMPOSE_PROFILES'), 'operations,traccar');
+  assert.equal(env.get('SPEECH_ENABLED'), 'false');
+  assert.equal(env.get('MANAGER_FEATURE_TRANSCRIPTION'), 'false');
   assert.equal(env.get('TRACCAR_ENABLED'), 'true');
   assert.equal(env.get('TRACCAR_MODE'), 'internal');
   assert.equal(env.get('TRACCAR_TOKEN'), '');
   assert.notEqual(env.get('TRACCAR_ADMIN_PASSWORD'), '');
   assert.notEqual(env.get('TRACCAR_DATABASE_PASSWORD'), '');
   assert.notEqual(env.get('AUTHENTICATION_API_KEY'), '');
+});
+
+test('preserva perfil de transcricao no template e ao selecionar explicitamente', () => {
+  const standard = parseEnv(build({ flavor: 'production', sets: [] }).env);
+  assert.equal(standard.get('COMPOSE_PROFILES'), 'operations,transcription');
+  assert.equal(standard.get('SPEECH_ENABLED'), 'true');
+  assert.equal(standard.get('TRANSCRIPTION_ENABLED'), 'true');
+  const selected = parseEnv(build({ flavor: 'canonical', modules: 'transcription', sets: [] }).env);
+  assert.equal(selected.get('COMPOSE_PROFILES'), 'transcription');
+  assert.equal(selected.get('ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE'), 'ghcr.io/wkarts/argws-connect-transcription-worker:1.3.0');
 });
 
 test('extended seleciona NATS e Kafka', () => {

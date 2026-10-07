@@ -21,7 +21,7 @@ extern "system" {
     ) -> i32;
 }
 
-const MODULE_ORDER: &[&str] = &["operations", "nats", "kafka", "extended", "mysql", "traccar"];
+const MODULE_ORDER: &[&str] = &["operations", "nats", "kafka", "extended", "mysql", "traccar", "transcription"];
 const SECRET_KEYS: &[&str] = &[
     "METRICS_PASSWORD",
     "POSTGRES_PASSWORD",
@@ -42,13 +42,13 @@ const USAGE: &str = r#"Connect|API Deployer (Rust nativo)
 
 Uso:
   argws-connect-deployer list
-  argws-connect-deployer plan --flavor develop --modules operations,traccar
-  argws-connect-deployer generate --flavor develop --modules operations,traccar --output ./stack
+  argws-connect-deployer plan --flavor develop --modules operations,traccar,transcription
+  argws-connect-deployer generate --flavor develop --modules operations,traccar,transcription --output ./stack
   argws-connect-deployer validate --directory ./stack
 
 Opcoes:
   --flavor <nome>              develop, homologation, production, canonical, dockge ou cloudpanel
-  --modules <lista>            operations,nats,kafka,extended,mysql,traccar
+  --modules <lista>            operations,nats,kafka,extended,mysql,traccar,transcription
   --output <diretorio>         destino do compose.yaml e .env
   --directory <diretorio>      stack existente para validar
   --from-env <arquivo>         importa um .env existente sem reordenar variaveis
@@ -389,9 +389,10 @@ fn build(options: &Options) -> Result<BuildResult, String> {
         Some(path) => fs::read_to_string(path).map_err(|error| format!("nao foi possivel ler {path}: {error}"))?,
         None => template_env.to_string(),
     };
-    let modules = parse_modules(options.modules.as_deref())?;
-    let profiles = compose_profiles(&modules);
     let mut values = parse_env(&env_text);
+    let selected_profiles = values.get("COMPOSE_PROFILES");
+    let modules = parse_modules(options.modules.as_deref().or(Some(selected_profiles.as_str())))?;
+    let profiles = compose_profiles(&modules);
     let mut generated = Vec::new();
 
     values.set("COMPOSE_PROFILES", profiles.clone());
@@ -401,6 +402,13 @@ fn build(options: &Options) -> Result<BuildResult, String> {
     values.set("MYSQL_SERVICE_ENABLED", if modules.iter().any(|item| item == "mysql") { "true" } else { "false" });
     values.set("TRACCAR_ENABLED", if modules.iter().any(|item| item == "traccar") { "true" } else { "false" });
     values.set("TRACCAR_MODE", if modules.iter().any(|item| item == "traccar") { "internal" } else { "disabled" });
+    let transcription = modules.iter().any(|item| item == "transcription");
+    for key in ["TRANSCRIPTION_ENABLED", "SPEECH_ENABLED", "MANAGER_FEATURE_TRANSCRIPTION"] {
+        values.set(key, if transcription { "true" } else { "false" });
+    }
+    if !transcription {
+        values.set("DICTATION_ENABLED", "false");
+    }
     if let Some(value) = &options.server_url {
         values.set("SERVER_URL", value.clone());
     }
@@ -707,7 +715,7 @@ pub const GUI_FLAVORS: &[&str] = &[
 ];
 
 /// Optional Compose profiles accepted by both deployer frontends.
-pub const GUI_MODULES: &[&str] = &["operations", "nats", "kafka", "extended", "mysql", "traccar"];
+pub const GUI_MODULES: &[&str] = &["operations", "nats", "kafka", "extended", "mysql", "traccar", "transcription"];
 
 #[derive(Clone, Debug)]
 pub struct GuiGenerateRequest {
@@ -857,5 +865,14 @@ mod tests {
         assert!(values.get("TRACCAR_TOKEN").is_empty());
         assert!(!values.get("TRACCAR_ADMIN_PASSWORD").is_empty());
         assert!(!values.get("TRACCAR_DATABASE_PASSWORD").is_empty());
+    }
+
+    #[test]
+    fn production_template_keeps_transcription_by_default() {
+        let result = build(&Options { flavor: Some("production".to_string()), ..Options::default() }).unwrap();
+        let values = parse_env(&result.env);
+        assert_eq!(values.get("COMPOSE_PROFILES"), "operations,transcription");
+        assert_eq!(values.get("SPEECH_ENABLED"), "true");
+        assert_eq!(values.get("TRANSCRIPTION_ENABLED"), "true");
     }
 }

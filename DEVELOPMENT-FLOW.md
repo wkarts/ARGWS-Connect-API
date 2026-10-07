@@ -44,7 +44,7 @@ Quando o estado de `develop` estiver aprovado em homologação:
 3. fazer merge;
 4. somente o push resultante em `main` dispara o workflow de release;
 5. o workflow calcula a próxima versão SemVer;
-6. constrói API, Manager e DOCs em `amd64` e `arm64`;
+6. constrói API, Manager, DOCs e worker de transcrição em `amd64` e `arm64`;
 7. publica imagens versionadas e `:latest`;
 8. cria Git tag e GitHub Release;
 9. alinha a versão em `develop`, preservando trabalho novo, e reconstrói API, Manager, DOCs e worker `:develop`.

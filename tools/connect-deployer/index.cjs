@@ -25,7 +25,7 @@ const FLAVORS = Object.freeze({
   canonical: {
     compose: 'deploy/canonical/compose.yaml',
     env: 'deploy/canonical/env.example',
-    channel: '1.0.21',
+    channel: '1.3.0',
   },
   dockge: {
     compose: 'deploy/dockge/compose.yaml',
@@ -39,7 +39,7 @@ const FLAVORS = Object.freeze({
   },
 });
 
-const MODULE_ORDER = ['operations', 'nats', 'kafka', 'extended', 'mysql', 'traccar'];
+const MODULE_ORDER = ['operations', 'nats', 'kafka', 'extended', 'mysql', 'traccar', 'transcription'];
 const MODULES = new Set(MODULE_ORDER);
 
 const SECRET_KEYS = [
@@ -65,13 +65,13 @@ function usage() {
 
 Uso:
   argws-connect-deployer list
-  argws-connect-deployer plan --flavor develop --modules operations,traccar
-  argws-connect-deployer generate --flavor develop --modules operations,traccar --output ./stack
+  argws-connect-deployer plan --flavor develop --modules operations,traccar,transcription
+  argws-connect-deployer generate --flavor develop --modules operations,traccar,transcription --output ./stack
   argws-connect-deployer validate --directory ./stack
 
 Opcoes:
   --flavor <nome>              develop, homologation, production, canonical, dockge ou cloudpanel
-  --modules <lista>            operations,nats,kafka,extended,mysql,traccar
+  --modules <lista>            operations,nats,kafka,extended,mysql,traccar,transcription
   --output <diretorio>         destino do compose.yaml e .env
   --directory <diretorio>      stack existente para validar
   --from-env <arquivo>         importa um .env existente sem reordenar variaveis
@@ -239,8 +239,8 @@ function loadBase(options) {
 
 function build(options) {
   const base = loadBase(options);
-  const modules = parseModules(options.modules);
   const values = parseEnv(base.env);
+  const modules = parseModules(options.modules === undefined ? values.get('COMPOSE_PROFILES') : options.modules);
   const generated = new Set();
   const updates = {};
 
@@ -251,6 +251,10 @@ function build(options) {
   updates.MYSQL_SERVICE_ENABLED = modules.includes('mysql') ? 'true' : 'false';
   updates.TRACCAR_ENABLED = modules.includes('traccar') ? 'true' : 'false';
   updates.TRACCAR_MODE = modules.includes('traccar') ? 'internal' : 'disabled';
+  updates.TRANSCRIPTION_ENABLED = modules.includes('transcription') ? 'true' : 'false';
+  updates.SPEECH_ENABLED = updates.TRANSCRIPTION_ENABLED;
+  updates.MANAGER_FEATURE_TRANSCRIPTION = updates.TRANSCRIPTION_ENABLED;
+  if (!modules.includes('transcription')) updates.DICTATION_ENABLED = 'false';
 
   if (options.serverUrl) updates.SERVER_URL = options.serverUrl;
   if (options.docsUrl) updates.ARGWS_CONNECT_DOCS_PUBLIC_URL = options.docsUrl;

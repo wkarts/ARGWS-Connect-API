@@ -78,7 +78,6 @@ jobs:
           }
           core_resources = ('api', 'docs', 'postgres', 'redis', 'rabbitmq', 'minio')
           optional_resources = ('nats', 'zookeeper', 'kafka', 'mysql', 'mysql-volume-init', 'traccar', 'traccar-postgres', 'traccar-bootstrap', 'volume-init')
-          develop_voice_resources = ('transcription-worker', 'speech-dictation-worker')
           infra_images = {
               'postgres': 'ghcr.io/wkarts/argws-connect-postgres:15',
               'redis': 'ghcr.io/wkarts/argws-connect-redis:latest',
@@ -127,8 +126,9 @@ jobs:
               suffix = f'argws-connect-{stack}'
               core = {f'{r}-{suffix}' for r in core_resources}
               optional = {f'{r}-{suffix}' for r in optional_resources}
+              optional.add(f'transcription-worker-{suffix}')
               if stack == 'develop':
-                  optional.update(f'{r}-{suffix}' for r in develop_voice_resources)
+                  optional.add(f'speech-dictation-worker-{suffix}')
               if stack in ('production', 'develop'):
                   optional.add(f'operations-{suffix}')
 
@@ -189,20 +189,24 @@ jobs:
               assert set(mysql_volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: mysql-volume-init recebeu capabilities indevidas'
               assert mysql.get('depends_on', {})[f'mysql-volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: MySQL deve aguardar mysql-volume-init'
 
+              transcription_worker = full['services'][f'transcription-worker-{suffix}']
+              assert transcription_worker.get('profiles') == ['transcription'], f'{stack}: worker de transcricao deve ser opcional'
+              assert int(transcription_worker.get('scale', 0)) == 1, f'{stack}: uma replica por stack inicialmente'
+              assert transcription_worker.get('environment', {}).get('SPEECH_GLOBAL_CONCURRENCY') == '1', f'{stack}: admissao global conservadora'
+              assert not any('transcription-models' in str(mount) or '/home/node/.cache/huggingface' in str(mount) for mount in transcription_worker.get('volumes', [])), f'{stack}: worker nao pode montar cache de modelo no host'
+              assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == 'transcription-models', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
+              assert all(env.get(flag) == 'true' for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION')), f'{stack}: transcricao deve estar habilitada'
+              if stack != 'develop':
+                  assert env.get('DICTATION_ENABLED') == 'false', f'{stack}: ditado nao solicitado permanece desativado'
+              assert any(mount.get('target') == '/models' for mount in api_service.get('volumes', [])), f'{stack}: modelo deve estar montado na API'
               if stack == 'develop':
-                  transcription_worker = full['services'][f'transcription-worker-{suffix}']
-                  assert transcription_worker.get('profiles') == ['transcription'], f'{stack}: worker de transcricao deve ser opcional'
-                  assert not any('transcription-models' in str(mount) or '/home/node/.cache/huggingface' in str(mount) for mount in transcription_worker.get('volumes', [])), f'{stack}: worker nao pode montar cache de modelo no host'
-                  assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == 'transcription-models', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
-
                   dictation_worker = full['services'][f'speech-dictation-worker-{suffix}']
                   assert dictation_worker.get('profiles') == ['transcription'], f'{stack}: worker de ditado deve ser opcional'
                   assert dictation_worker.get('environment', {}).get('SPEECH_WORKER_MODE') == 'dictation', f'{stack}: worker de ditado deve consumir somente sua fila'
               else:
-                  assert 'transcription' not in env.get('COMPOSE_PROFILES', '').split(','), f'{stack}: voz suspensa'
-                  assert all(env.get(flag) == 'false' for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION')), f'{stack}: flags de voz devem permanecer desativadas'
-                  assert all(api_service['environment'].get(flag) == 'false' for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION')), f'{stack}: Compose deve ignorar .env legado de voz'
-                  assert not any(mount.get('target') == '/models' for mount in api_service.get('volumes', [])), f'{stack}: modelo nao pode ser montado na API'
+                  assert 'transcription' in env.get('COMPOSE_PROFILES', '').split(','), f'{stack}: perfil de transcricao ausente'
+                  assert api_service['environment'].get('DICTATION_ENABLED') == 'false', f'{stack}: ditado desativado'
+                  assert not any(name.startswith('speech-dictation-worker-') for name in full['services']), f'{stack}: ditado nao deve iniciar'
 
               volume_init = full['services'][f'volume-init-{suffix}']
               assert volume_init.get('profiles') == ['kafka', 'extended'], f'{stack}: volume-init deve acompanhar Kafka'

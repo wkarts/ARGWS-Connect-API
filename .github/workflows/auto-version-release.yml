@@ -175,7 +175,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager, docs]
+        component: [api, manager, docs, transcription-worker]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -196,6 +196,10 @@ jobs:
             context: .
             dockerfile: ./docs/Dockerfile
             image: argws-connect-docs
+          - component: transcription-worker
+            context: ./transcription-worker
+            dockerfile: ./transcription-worker/Dockerfile
+            image: argws-connect-transcription-worker
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout validated source
@@ -315,6 +319,8 @@ jobs:
             image: argws-connect-manager
           - component: docs
             image: argws-connect-docs
+          - component: transcription-worker
+            image: argws-connect-transcription-worker
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5
@@ -519,6 +525,7 @@ jobs:
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-docs:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-transcription-worker:${version}"
             echo
             for f in release-digests/*.txt; do
               echo "===== $(basename "$f") ====="

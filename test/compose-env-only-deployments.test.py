@@ -48,11 +48,13 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
 
     def test_fersoft_production_is_full_stack_selected_by_env(self):
         environment = env_values(ROOT / 'deploy/fersoft/production/env.example')
-        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar')
+        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar,transcription')
         for key in ('OPERATIONS_ENABLED', 'NATS_ENABLED', 'KAFKA_ENABLED', 'MYSQL_SERVICE_ENABLED', 'TRACCAR_ENABLED'):
             self.assertEqual(environment[key], 'true', key)
-        for key in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
-            self.assertEqual(environment[key], 'false', key)
+        for key in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+            self.assertEqual(environment[key], 'true', key)
+        self.assertEqual(environment['DICTATION_ENABLED'], 'false')
+        self.assertEqual(environment['SPEECH_TRANSCRIPTION_REPLICAS'], '1')
         self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
         self.assertEqual(environment['TRACCAR_MODE'], 'internal')
         self.assertNotIn('TRACCAR_PUBLIC_URL', environment)
@@ -69,6 +71,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'traccar-postgres-fersoft-connect-production',
             'traccar-bootstrap-fersoft-connect-production', 'volume-init-fersoft-connect-production',
             'mysql-volume-init-fersoft-connect-production',
+            'transcription-worker-fersoft-connect-production',
         }
         self.assertEqual(set(services), expected)
         self.assertNotIn('ports', services['docs-fersoft-connect-production'])
@@ -117,7 +120,8 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             traccar_postgres['environment']['TRACCAR_DATABASE_PASSWORD'],
             '${TRACCAR_DATABASE_PASSWORD:-}',
         )
-        self.assertFalse(any('/models' in str(volume) for volume in services['api-fersoft-connect-production']['volumes']))
+        self.assertTrue(any('/models' in str(volume) for volume in services['api-fersoft-connect-production']['volumes']))
+        self.assertNotIn('speech-dictation-worker-fersoft-connect-production', services)
         self.assertIn('psql --no-password', ' '.join(traccar_postgres['healthcheck']['test']))
         self.assertNotIn('pg_isready', ' '.join(traccar_postgres['healthcheck']['test']))
         bootstrap = services['traccar-bootstrap-fersoft-connect-production']
@@ -140,7 +144,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         dictation = develop['services']['speech-dictation-worker-argws-connect-develop']
         self.assertEqual(dictation['profiles'], ['transcription'])
 
-    def test_only_primary_develop_can_start_audio_workers_even_with_old_env(self):
+    def test_transcription_is_available_in_every_application_deployment(self):
         layouts = {
             'docker-compose.yaml': '.env.example',
             'docker-compose.dev.yaml': '.env.example',
@@ -155,14 +159,28 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         for compose_file, environment_file in layouts.items():
             with self.subTest(compose=compose_file):
                 services = yaml.safe_load((ROOT / compose_file).read_text(encoding='utf-8'))['services']
-                self.assertFalse([name for name in services if 'transcription-worker' in name or 'dictation-worker' in name])
+                workers = [value for name, value in services.items() if name.startswith('transcription-worker')]
+                self.assertEqual(len(workers), 1)
+                self.assertEqual(workers[0]['profiles'], ['transcription'])
+                self.assertEqual(workers[0]['environment']['SPEECH_WORKER_MODE'], 'transcription')
+                self.assertEqual(workers[0]['environment']['SPEECH_GLOBAL_CONCURRENCY'], '${SPEECH_GLOBAL_CONCURRENCY:-1}')
+                self.assertEqual(workers[0]['scale'], '${SPEECH_TRANSCRIPTION_REPLICAS:-1}')
+                self.assertTrue(any('/models:ro' in str(volume) for volume in workers[0]['volumes']))
+                self.assertFalse([name for name in services if 'dictation-worker' in name])
                 api = next(value for name, value in services.items() if name == 'api' or name.startswith('api-'))
-                for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
-                    self.assertEqual(api['environment'][flag], 'false', (compose_file, flag))
-                self.assertFalse(any('/models' in str(volume) for volume in api.get('volumes', [])))
+                for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+                    self.assertIn('${', api['environment'][flag], (compose_file, flag))
+                self.assertEqual(api['environment']['DICTATION_ENABLED'], 'false')
+                self.assertTrue(any('/models' in str(volume) for volume in api.get('volumes', [])))
                 env = env_values(ROOT / environment_file)
-                self.assertNotIn('transcription', env.get('COMPOSE_PROFILES', '').split(','))
-                self.assertEqual(env['MANAGER_FEATURE_TRANSCRIPTION'], 'false')
+                self.assertIn('transcription', env.get('COMPOSE_PROFILES', '').split(','))
+                self.assertEqual(env['TRANSCRIPTION_ENABLED'], 'true')
+                self.assertEqual(env['SPEECH_ENABLED'], 'true')
+                self.assertEqual(env['DICTATION_ENABLED'], 'false')
+                self.assertEqual(env['MANAGER_FEATURE_TRANSCRIPTION'], 'true')
+                self.assertEqual(env['SPEECH_TRANSCRIPTION_REPLICAS'], '1')
+                self.assertEqual(env['SPEECH_GLOBAL_CONCURRENCY'], '1')
+                self.assertEqual(env['TRANSCRIPTION_WORKER_TMPFS_SIZE'], '1g')
 
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')

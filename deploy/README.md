@@ -42,23 +42,24 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-Por enquanto, transcrição e ditado estão disponíveis apenas no `deploy/develop/`
-principal. Os demais Compose, inclusive os dois canais Fersoft, não incluem os
-workers, impõem as flags de voz como `false` no container da API e ocultam o
-recurso no Manager. Mesmo que um `.env` antigo tenha `SPEECH_ENABLED=true` ou
-o profile `transcription`, ele não reativa a voz nessas stacks. A API desativada
-não baixa o modelo. Não adicione novamente os workers em produção.
+Todos os Compose de aplicação incluem um worker de transcrição no profile
+`transcription`, inclusive Fersoft develop e production. O worker de ditado
+continua somente no develop principal. A release estável publica a imagem do
+worker junto com a API e o Manager; use o mesmo canal de imagem na stack.
 
-Ao atualizar uma VPS que já executava a versão anterior, preserve o `.env`,
-substitua o Compose pelo arquivo desta release e rode `up` com
-`--remove-orphans` como no exemplo acima. Isso remove containers antigos dos
-workers que não existem mais no Compose; confira com `docker compose ps -a`.
-Se o painel de deploy não remover órfãos, pare e remova somente os containers
-antigos de transcrição e ditado da respectiva stack. Não remova volumes, filas
-ou `./models`; o modelo já baixado pode permanecer em disco sem consumir RAM.
+Ao atualizar uma VPS, preserve o `.env`, segredos, volumes, filas e `./models`.
+Altere o `.env` efetivo: adicione `transcription` em `COMPOSE_PROFILES`, defina
+`SPEECH_ENABLED=true`, `TRANSCRIPTION_ENABLED=true`,
+`MANAGER_FEATURE_TRANSCRIPTION=true`, `DICTATION_ENABLED=false` fora do develop
+principal, `SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e
+`TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. Atualize o Compose e execute os comandos
+acima; `env.example` não modifica um `.env` instalado. Confira os containers
+e o resultado de um job curto. `--remove-orphans` retira o ditado legado nas
+stacks Fersoft sem excluir volumes.
 
 No `deploy/develop/` principal, o profile `transcription` inicia dois
-consumidores independentes. A API baixa a revisão fixada do
+consumidores independentes; nos demais deploys inicia somente transcrição.
+A API baixa a revisão fixada do
 `Xenova/whisper-small` para `./models` quando o recurso está habilitado. São
 cerca de 250 MB no disco; preserve o diretório entre atualizações.
 
@@ -72,6 +73,12 @@ TRANSCRIPTION_WORKER_TMPFS_SIZE=1g
 SPEECH_WORKER_MEMORY=4g
 SPEECH_WORKER_CPUS=2.00
 ```
+
+Os logs após a correção de inicialização mediram cerca de 2,5 GiB de RSS por
+worker com o modelo carregado, antes de inferências. Os limites de 4 GiB por
+container não controlam a soma entre stacks. Em especial, Fersoft develop e
+production na mesma VPS carregam dois modelos independentes; confira a margem
+do host antes de ativar o perfil em ambas e acompanhe RSS, OOM e reinícios.
 
 Para uma instalação sem acesso à Internet, copie os pesos compatíveis para o
 volume e gere o manifesto SHA-256 com
@@ -111,10 +118,10 @@ máquina do operador:
 ```powershell
 .\argws-connect-deployer-win-x64.exe plan `
   --flavor develop `
-  --modules operations,traccar
+  --modules operations,traccar,transcription
 .\argws-connect-deployer-win-x64.exe generate `
   --flavor develop `
-  --modules operations,traccar `
+  --modules operations,traccar,transcription `
   --output .\out\argws-connect-develop
 .\argws-connect-deployer-win-x64.exe validate `
   --directory .\out\argws-connect-develop
