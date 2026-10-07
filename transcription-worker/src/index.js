@@ -14,8 +14,11 @@ try {
 
 if (process.exitCode !== 1) {
   const worker = new TranscriptionWorker(config);
-  process.once('SIGTERM', () => worker.stop().finally(() => process.exit(0)));
-  process.once('SIGINT', () => worker.stop().finally(() => process.exit(0)));
+  const shutdown = () => worker.stop()
+    .then(() => process.exit(0))
+    .catch((error) => { console.error('Falha ao encerrar worker:', error); process.exit(1); });
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
   worker.start().catch((error) => {
     console.error('Transcription worker não iniciou:', error);
     process.exitCode = 1;

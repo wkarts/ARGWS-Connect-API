@@ -8,7 +8,7 @@ const TEMPLATES: &[(&str, &str, &str, &str)] = &[
     ("develop", "develop", "deploy/develop/compose.yaml", "deploy/develop/env.example"),
     ("homologation", "develop", "deploy/homologation/compose.yaml", "deploy/homologation/env.example"),
     ("production", "latest", "deploy/production/compose.yaml", "deploy/production/env.example"),
-    ("canonical", "1.0.21", "deploy/canonical/compose.yaml", "deploy/canonical/env.example"),
+    ("canonical", "1.3.0", "deploy/canonical/compose.yaml", "deploy/canonical/env.example"),
     ("dockge", "latest", "deploy/dockge/compose.yaml", "deploy/dockge/env.example"),
     ("cloudpanel", "latest", "deploy/cloudpanel/docker-compose.yml", "deploy/cloudpanel/env.example"),
 ];

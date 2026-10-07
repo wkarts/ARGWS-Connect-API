@@ -51,6 +51,10 @@ function loadConfig() {
     resultRoutingPrefix: mode === 'dictation' ? 'speech.dictation.' : 'transcription.',
     cancelRoutingKey: mode === 'dictation' ? 'speech.cancel.dictation' : 'speech.cancel.transcription',
     concurrency: integer('SPEECH_WORKER_CONCURRENCY', integer('TRANSCRIPTION_WORKER_CONCURRENCY', 1, 1, 8), 1, 8),
+    globalConcurrency: integer('SPEECH_GLOBAL_CONCURRENCY', 1, 1, 8),
+    shutdownGraceSeconds: integer('SPEECH_SHUTDOWN_GRACE_SECONDS', 90, 5, 300),
+    maxDurationSeconds: integer('SPEECH_MAX_DURATION_SECONDS', 3600, 1, 14400),
+    dictationMaxDurationSeconds: integer('DICTATION_MAX_DURATION_SECONDS', 300, 1, 3600),
     maxAudioBytes: mode === 'dictation'
       ? integer('DICTATION_MAX_AUDIO_BYTES', 5 * 1024 * 1024, 1, 25 * 1024 * 1024)
       : integer('TRANSCRIPTION_MAX_AUDIO_BYTES', 25 * 1024 * 1024, 1, 250 * 1024 * 1024),

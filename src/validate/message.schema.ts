@@ -174,6 +174,15 @@ export const audioMessageSchema: JSONSchema7 = {
   properties: {
     number: { ...numberDefinition },
     audio: { type: 'string' },
+    intent: {
+      type: 'string',
+      enum: ['auto', 'voice_note', 'dictation', 'transcription', 'attachment', 'music', 'generic_audio'],
+    },
+    ptt: { type: 'boolean' },
+    recordedByMicrophone: { type: 'boolean' },
+    mimetype: { type: 'string' },
+    fileName: { type: 'string' },
+    encoding: { type: 'boolean' },
     delay: {
       type: 'integer',
       description: 'Enter a value in milliseconds',

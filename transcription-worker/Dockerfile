@@ -1,8 +1,11 @@
 ARG NODE_IMAGE=ghcr.io/wkarts/argws-connect-node:22-bookworm-slim
+ARG APP_VERSION=1.0.0
 FROM ${NODE_IMAGE} AS runtime
+ARG APP_VERSION
 
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--enable-source-maps
+    NODE_OPTIONS=--enable-source-maps \
+    CONNECT_API_VERSION=${APP_VERSION}
 
 WORKDIR /opt/argws-connect-transcription-worker
 
@@ -19,7 +22,8 @@ RUN chown -R node:node /opt/argws-connect-transcription-worker
 
 USER node
 
-LABEL org.opencontainers.image.title="ARGWS Connect|API Local Transcription Worker" \
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.title="ARGWS Connect|API Local Transcription Worker" \
       org.opencontainers.image.description="Private local Whisper transcription worker for ARGWS Connect|API" \
       org.opencontainers.image.source="https://github.com/wkarts/ARGWS-Connect-API"
 

@@ -132,7 +132,7 @@ deploy/canonical   → :X.Y.Z
 
 - `latest` = última release estável da `main`;
 - `develop` = última build validada da branch `develop`;
-- Canonical = fallback independente e reproduzível, congelado em `1.0.21`; releases novas não alteram esse deployment histórico.
+- Canonical = stack independente pinada em `1.3.0` para transcrição; o workflow de release não altera automaticamente sua versão. Revise o pin de API, DOCs e worker em uma atualização deliberada.
 
 ## Deployments oficiais
 
@@ -195,4 +195,4 @@ Os workflows de imagens de `develop` usam `contents: read` e `packages: write`. 
 
 ## Connect|API DOCs
 
-A release de `main` publica `ghcr.io/wkarts/argws-connect-docs` com a mesma SemVer da API, incluindo `X.Y.Z`, `X.Y`, `X` e `latest`. O worker de transcrição é publicado apenas em `:develop` enquanto o recurso está suspenso nas produções e no Fersoft. O `deploy/canonical` mantém API e DOCs pinados na mesma versão.
+A release de `main` publica `ghcr.io/wkarts/argws-connect-docs` e `ghcr.io/wkarts/argws-connect-transcription-worker` com a mesma SemVer da API, incluindo `X.Y.Z`, `X.Y`, `X` e `latest`. O `deploy/canonical` mantém API, DOCs e worker pinados na mesma versão.

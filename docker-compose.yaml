@@ -7,6 +7,73 @@ x-logging: &default-logging
     max-file: "${DOCKER_LOG_MAX_FILE:-5}"
 
 services:
+  transcription-worker:
+    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-1}
+    profiles: [transcription]
+    image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:latest}
+    pull_policy: always
+    restart: on-failure
+    env_file:
+    - .env
+    environment:
+      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
+      SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
+      SPEECH_WORKER_MODE: transcription
+      SPEECH_GLOBAL_CONCURRENCY: ${SPEECH_GLOBAL_CONCURRENCY:-1}
+      SPEECH_WORKER_CONCURRENCY: ${SPEECH_WORKER_CONCURRENCY:-1}
+      SPEECH_SHUTDOWN_GRACE_SECONDS: ${SPEECH_SHUTDOWN_GRACE_SECONDS:-90}
+      SPEECH_MAX_DURATION_SECONDS: ${SPEECH_MAX_DURATION_SECONDS:-3600}
+      SPEECH_TRANSCRIPTION_QUEUE: ${SPEECH_TRANSCRIPTION_QUEUE:-${TRANSCRIPTION_QUEUE:-speech.transcription}}
+      SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
+      SPEECH_PROVIDER: ${SPEECH_PROVIDER:-${TRANSCRIPTION_PROVIDER:-local}}
+      SPEECH_MODEL: ${SPEECH_MODEL:-${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}}
+      SPEECH_DEVICE: ${SPEECH_DEVICE:-${TRANSCRIPTION_LOCAL_DEVICE:-cpu}}
+      SPEECH_DTYPE: ${SPEECH_DTYPE:-${TRANSCRIPTION_LOCAL_DTYPE:-q8}}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-local}
+      TRANSCRIPTION_QUEUE: ${TRANSCRIPTION_QUEUE:-speech.transcription}
+      TRANSCRIPTION_WORKER_CONCURRENCY: ${TRANSCRIPTION_WORKER_CONCURRENCY:-1}
+      TRANSCRIPTION_MAX_AUDIO_BYTES: ${TRANSCRIPTION_MAX_AUDIO_BYTES:-26214400}
+      TRANSCRIPTION_LOCAL_MODEL: ${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}
+      TRANSCRIPTION_LOCAL_DEVICE: ${TRANSCRIPTION_LOCAL_DEVICE:-cpu}
+      TRANSCRIPTION_LOCAL_DTYPE: ${TRANSCRIPTION_LOCAL_DTYPE:-q8}
+      TRANSCRIPTION_MODEL_CACHE_DIR: ${TRANSCRIPTION_MODEL_CACHE_DIR:-/models}
+      SPEECH_MODEL_PATH: ${SPEECH_MODEL_PATH:-/models/Xenova/whisper-small}
+      SPEECH_MODEL_CACHE_DIR: ${SPEECH_MODEL_CACHE_DIR:-/models}
+      TRANSCRIPTION_MODEL_STORAGE_PREFIX: ${TRANSCRIPTION_MODEL_STORAGE_PREFIX:-transcription-models}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
+    stop_grace_period: 105s
+    cpus: '${SPEECH_WORKER_CPUS:-${TRANSCRIPTION_WORKER_CPUS:-2.00}}'
+    pids_limit: 128
+    tmpfs:
+    - /tmp:size=${TRANSCRIPTION_WORKER_TMPFS_SIZE:-1g}
+    volumes:
+      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models:ro
+    networks:
+    - argws-connect-net
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - test -f /tmp/transcription-worker.ready
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15m
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
+
   api:
     image: ${ARGWS_CONNECT_API_IMAGE:-ghcr.io/wkarts/argws-connect-api:latest}
     pull_policy: always
@@ -15,10 +82,10 @@ services:
     env_file:
       - .env
     environment:
-      SPEECH_ENABLED: "false"
-      TRANSCRIPTION_ENABLED: "false"
+      SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-true}}
+      TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-true}
       DICTATION_ENABLED: "false"
-      MANAGER_FEATURE_TRANSCRIPTION: "false"
+      MANAGER_FEATURE_TRANSCRIPTION: ${MANAGER_FEATURE_TRANSCRIPTION:-true}
       TRACCAR_ENABLED: "${TRACCAR_ENABLED:-false}"
       TRACCAR_MODE: "${TRACCAR_MODE:-disabled}"
       TRACCAR_URL: "${TRACCAR_URL:-}"
@@ -77,6 +144,7 @@ services:
       - "${ARGWS_CONNECT_BIND_ADDRESS:-127.0.0.1}:${ARGWS_CONNECT_API_HOST_PORT:-38080}:8080"
     volumes:
       - ${ARGWS_CONNECT_INSTANCES_DATA_PATH:-./volumes/instances}:/argws-connect/instances
+      - ${SPEECH_MODELS_HOST_PATH:-./models}:/models
     networks:
       - argws-connect-net
     healthcheck:

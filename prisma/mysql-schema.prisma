@@ -448,6 +448,7 @@ model Media {
 }
 model TranscriptionJob {
   id                String    @id @default(cuid())
+  workerId          String?   @db.VarChar(128)
   instanceId        String?
   messageId         String?
   mode              String    @default("transcription") @db.VarChar(20)

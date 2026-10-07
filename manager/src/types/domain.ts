@@ -37,6 +37,7 @@ export type ManagerStorageResource = {
 
 export type TranscriptionJob = {
   id: string
+  workerId?: string | null
   instanceId?: string | null
   messageId?: string | null
   mode?: 'dictation' | 'transcription' | string
@@ -204,6 +205,7 @@ export type Message = {
   id: string
   transcriptionMessageId?: string
   isAudio?: boolean
+  isVoiceNote?: boolean
   transcriptionJobId?: string
   transcriptionStatus?: string
   transcriptionStage?: string | null

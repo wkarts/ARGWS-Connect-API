@@ -5,6 +5,21 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { InferenceClient } = require('../src/inference-client');
 
+test('medidas sem job durante inicialização e ociosidade não derrubam o worker', async () => {
+  const client = new InferenceClient({ mode: 'transcription' }, {
+    workerPath: path.join(__dirname, 'fixtures/stalling-inference.cjs'),
+  });
+  try {
+    await client.warmup();
+    client.sampleMemory();
+    const result = await client.transcribe('audio.ogg', { jobId: 'job-1', attempts: 1 });
+    assert.equal(result.text, 'recuperado');
+    assert.doesNotThrow(() => client.onMessage({ type: 'memory', phase: 'idle', id: null }));
+  } finally {
+    await client.stop();
+  }
+});
+
 test('heartbeats continuam na thread principal durante inferência síncrona', async () => {
   const client = new InferenceClient({}, { workerPath: path.join(__dirname, 'fixtures/blocking-inference.cjs') });
   let heartbeats = 0;
@@ -38,4 +53,17 @@ test('inferência travada termina com erro recuperável e o próximo áudio usa 
   } finally {
     await client.stop();
   }
+});
+
+test('parada durante inferência rejeita o job para que o canal possa devolvê-lo', async () => {
+  const client = new InferenceClient({}, {
+    workerPath: path.join(__dirname, 'fixtures/stalling-inference.cjs'),
+    stallTimeoutMs: 10_000,
+  });
+  await client.warmup();
+  const pending = assert.rejects(client.transcribe('em-curso.ogg', { stall: true }), {
+    code: 'WORKER_STOPPING',
+  });
+  await client.stop();
+  await pending;
 });

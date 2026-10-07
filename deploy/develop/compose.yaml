@@ -42,6 +42,7 @@ services:
       DATABASE_MIGRATION_RETRY_SECONDS: ${DATABASE_MIGRATION_RETRY_SECONDS:-2}
       LOG_QRCODE: ${LOG_QRCODE:-true}
       SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
+      MANAGER_FEATURE_TRANSCRIPTION: ${MANAGER_FEATURE_TRANSCRIPTION:-true}
       SPEECH_MODELS_PATH: ${SPEECH_MODELS_PATH:-/models}
       SPEECH_TRANSCRIPTION_QUEUE: ${SPEECH_TRANSCRIPTION_QUEUE:-${TRANSCRIPTION_QUEUE:-speech.transcription}}
       SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
@@ -133,17 +134,21 @@ services:
         max-size: ${DOCKER_LOG_MAX_SIZE:-20m}
         max-file: "${DOCKER_LOG_MAX_FILE:-5}"
   transcription-worker-argws-connect-develop:
-    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-2}
+    scale: ${SPEECH_TRANSCRIPTION_REPLICAS:-1}
     profiles: [transcription]
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
     pull_policy: always
-    restart: unless-stopped
+    restart: on-failure
     env_file:
     - .env
     environment:
       TRANSCRIPTION_ENABLED: ${TRANSCRIPTION_ENABLED:-false}
       SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
       SPEECH_WORKER_MODE: transcription
+      SPEECH_GLOBAL_CONCURRENCY: ${SPEECH_GLOBAL_CONCURRENCY:-1}
+      SPEECH_WORKER_CONCURRENCY: ${SPEECH_WORKER_CONCURRENCY:-1}
+      SPEECH_SHUTDOWN_GRACE_SECONDS: ${SPEECH_SHUTDOWN_GRACE_SECONDS:-90}
+      SPEECH_MAX_DURATION_SECONDS: ${SPEECH_MAX_DURATION_SECONDS:-3600}
       SPEECH_TRANSCRIPTION_QUEUE: ${SPEECH_TRANSCRIPTION_QUEUE:-${TRANSCRIPTION_QUEUE:-speech.transcription}}
       SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
       SPEECH_PROVIDER: ${SPEECH_PROVIDER:-${TRANSCRIPTION_PROVIDER:-local}}
@@ -172,6 +177,7 @@ services:
     security_opt:
     - no-new-privileges:true
     mem_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
+    stop_grace_period: 105s
     cpus: '${SPEECH_WORKER_CPUS:-${TRANSCRIPTION_WORKER_CPUS:-2.00}}'
     pids_limit: 128
     tmpfs:
@@ -200,12 +206,16 @@ services:
     image: ${ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE:-ghcr.io/wkarts/argws-connect-transcription-worker:develop}
     pull_policy: always
     container_name: speech-dictation-worker-argws-connect-develop
-    restart: unless-stopped
+    restart: on-failure
     env_file:
     - .env
     environment:
       SPEECH_ENABLED: ${SPEECH_ENABLED:-${TRANSCRIPTION_ENABLED:-false}}
       SPEECH_WORKER_MODE: dictation
+      SPEECH_GLOBAL_CONCURRENCY: ${SPEECH_GLOBAL_CONCURRENCY:-1}
+      SPEECH_WORKER_CONCURRENCY: ${SPEECH_WORKER_CONCURRENCY:-1}
+      SPEECH_SHUTDOWN_GRACE_SECONDS: ${SPEECH_SHUTDOWN_GRACE_SECONDS:-90}
+      DICTATION_MAX_DURATION_SECONDS: ${DICTATION_MAX_DURATION_SECONDS:-300}
       SPEECH_DICTATION_QUEUE: ${SPEECH_DICTATION_QUEUE:-speech.dictation}
       SPEECH_PROVIDER: ${SPEECH_PROVIDER:-${TRANSCRIPTION_PROVIDER:-local}}
       SPEECH_MODEL: ${SPEECH_MODEL:-${TRANSCRIPTION_LOCAL_MODEL:-Xenova/whisper-small}}
@@ -236,6 +246,7 @@ services:
     security_opt:
     - no-new-privileges:true
     mem_limit: ${SPEECH_WORKER_MEMORY:-${TRANSCRIPTION_WORKER_MEMORY:-4g}}
+    stop_grace_period: 105s
     cpus: '${SPEECH_WORKER_CPUS:-${TRANSCRIPTION_WORKER_CPUS:-2.00}}'
     pids_limit: 128
     tmpfs:

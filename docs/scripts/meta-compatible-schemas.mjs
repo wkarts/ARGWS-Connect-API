@@ -91,11 +91,12 @@ export const metaCompatibleSchemas = {
   },
   MetaAudioContent: {
     type: 'object',
-    description: 'Áudio referenciado por link público ou id previamente enviado ao endpoint de mídia.',
+    description: 'Áudio referenciado por link público ou id previamente enviado ao endpoint de mídia. voice é uma extensão Connect|API; ausente envia áudio comum.',
     properties: {
       link: string('URL do áudio.', { format: 'uri' }),
       id: string('ID de mídia temporário retornado por /media.'),
       mime_type: string('MIME type opcional.'),
+      voice: { type: 'boolean', description: 'true para normalizar e enviar como nota de voz PTT no ZAPO/Baileys; padrão false.' },
     },
     anyOf: [{ required: ['link'] }, { required: ['id'] }],
     additionalProperties: false,

@@ -87,7 +87,12 @@ export class MetaCloudMessageAdapter {
       case 'audio': {
         const media = payload.audio;
         const url = await this.mediaService.resolveOutbound(media, identity);
-        result = await this.sendController.sendWhatsAppAudio(instance, { number: to, audio: url });
+        result = await this.sendController.sendWhatsAppAudio(instance, {
+          number: to,
+          audio: url,
+          intent: media?.voice === true ? 'voice_note' : 'generic_audio',
+          mimetype: media?.mime_type,
+        });
         break;
       }
       case 'location':

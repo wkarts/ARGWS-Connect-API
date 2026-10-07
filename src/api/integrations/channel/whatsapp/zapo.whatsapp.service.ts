@@ -12,25 +12,23 @@ import {
 } from '@api/dto/sendMessage.dto';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { chatbotController } from '@api/server.module';
+import { prepareOutgoingAudio } from '@api/services/audio-message.service';
 import { CacheService } from '@api/services/cache.service';
 import { ChannelStartupService } from '@api/services/channel.service';
 import { STATUS_BROADCAST_JID, StatusBroadcastRetentionService } from '@api/services/status-broadcast-retention.service';
 import { Events, Integration, wa } from '@api/types/wa.types';
 import { Chatwoot, ConfigService, ConfigSessionPhone, Database, QrCode } from '@config/env.config';
 import { BadRequestException, InternalServerErrorException } from '@exceptions';
-import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { createJid } from '@utils/createJid';
 import { prismaJsonPath } from '@utils/prismaJsonPath';
 import { createPostgresStore } from '@zapo-js/store-postgres';
 import axios from 'axios';
 import { isBase64, isURL } from 'class-validator';
 import EventEmitter2 from 'eventemitter2';
-import ffmpeg from 'fluent-ffmpeg';
 import mimeTypes from 'mime-types';
 import { Pool } from 'pg';
 import qrcode, { QRCodeToDataURLOptions } from 'qrcode';
 import sharp from 'sharp';
-import { PassThrough } from 'stream';
 import { getContentType } from 'zapo-js';
 
 import { diagnostics } from '../../../../diagnostics/diagnostics.service';
@@ -495,21 +493,14 @@ export class ZapoStartupService extends ChannelStartupService {
     await this.ensureConnected();
     const jid = createJid(data.number);
     await this.applyDelay(data.delay);
-
-    let audio: Buffer;
-    if (data.encoding !== false) {
-      audio = await this.convertVoiceNote(data.audio, file);
-    } else {
-      audio = (await this.resolveMediaInput(data.audio, file, 'audio/ogg; codecs=opus', 'audio/ogg; codecs=opus'))
-        .buffer;
-    }
-
+    const audio = await prepareOutgoingAudio(data, file);
     const contextInfo = this.buildContextInfo(data, jid);
     const result = await this.client.message.send(jid, {
       type: 'audio',
-      media: audio,
-      mimetype: 'audio/ogg; codecs=opus',
-      ptt: true,
+      media: audio.buffer,
+      mimetype: audio.mimetype,
+      ptt: audio.ptt,
+      ...(audio.ptt ? { seconds: audio.seconds, waveform: audio.waveform } : {}),
       ...(contextInfo ? { contextInfo } : {}),
     });
     return this.outgoingMessageResult(result?.id, jid, 'audioMessage');
@@ -1911,40 +1902,6 @@ export class ZapoStartupService extends ChannelStartupService {
       document: 'application/octet-stream',
     };
     return defaults[type] || 'application/octet-stream';
-  }
-
-  private async convertVoiceNote(value: string, file?: any): Promise<Buffer> {
-    const source = await this.resolveMediaInput(value, file, file?.mimetype, 'application/octet-stream');
-    const input = new PassThrough();
-    input.end(source.buffer);
-
-    ffmpeg.setFfmpegPath(ffmpegPath.path);
-    return await new Promise<Buffer>((resolve, reject) => {
-      const output = new PassThrough();
-      const chunks: Buffer[] = [];
-      output.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      output.on('end', () => resolve(Buffer.concat(chunks)));
-      output.on('error', reject);
-
-      ffmpeg(input)
-        .noVideo()
-        .audioCodec('libopus')
-        .audioChannels(1)
-        .audioFrequency(48000)
-        .audioBitrate('128k')
-        .outputFormat('ogg')
-        .addOutputOptions([
-          '-avoid_negative_ts make_zero',
-          '-compression_level 10',
-          '-application voip',
-          '-fflags +bitexact',
-          '-flags +bitexact',
-          '-map_metadata -1',
-          '-map_chapters -1',
-        ])
-        .on('error', reject)
-        .pipe(output, { end: true });
-    });
   }
 
   private outgoingMessageResult(id: string | undefined, jid: string, messageType: string) {

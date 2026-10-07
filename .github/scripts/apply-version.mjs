@@ -36,7 +36,8 @@ if (manifest) {
 
 fs.writeFileSync('VERSION', `${version}\n`);
 
-// deploy/canonical is the frozen 1.0.21 fallback, not a moving release template.
+// deploy/canonical is deliberately pinned to the 1.3.0 speech-capable stack,
+// not a moving release template; later version bumps never rewrite it.
 // New deployments use the active production layout with :latest or an explicit
 // immutable version/digest override. Existing tags and canonical files stay intact.
 console.log(`Connect|API version set to ${version}`);

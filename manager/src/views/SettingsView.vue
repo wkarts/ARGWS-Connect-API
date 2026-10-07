@@ -56,6 +56,7 @@ onMounted(() => { if (speechAvailable.value) void loadSpeechHealth() })
           <div><span>Modelo local</span><strong>{{ speechHealth.model || 'Não configurado' }}</strong></div>
           <div><span>Worker de transcrição</span><strong>{{ speechHealth.workerReady ? 'Pronto' : 'Indisponível' }}</strong></div>
           <div><span>Worker de ditado</span><strong>{{ speechHealth.dictationWorkerReady ? 'Pronto' : 'Indisponível' }}</strong></div>
+          <div><span>Áudios simultâneos</span><strong>{{ Number(speechHealth.globalConcurrency || 1) }}</strong></div>
           <div><span>Fila de transcrição</span><strong>{{ Number(speechHealth.queuedJobs || 0) }}</strong></div>
           <div><span>Fila de ditado</span><strong>{{ Number(speechHealth.dictationQueuedJobs || 0) }}</strong></div>
           <small>A API instala o modelo em ./models e os workers reutilizam os arquivos desse volume após reinícios e atualizações.</small>

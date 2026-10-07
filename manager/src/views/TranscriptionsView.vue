@@ -9,6 +9,8 @@ import { friendlyError } from '@/services/errors'
 
 type TranscriptionJob = {
   id: string
+  workerId?: string | null
+  mode?: string
   status: 'queued' | 'processing' | 'completed' | 'failed' | string
   stage?: string | null
   progressPercent?: number
@@ -19,6 +21,7 @@ type TranscriptionJob = {
   durationMs?: number | null
   model?: string | null
   provider?: string | null
+  errorCode?: string | null
   errorMessage?: string | null
   createdAt?: string
   updatedAt?: string
@@ -113,12 +116,19 @@ function queuedAge(value?: string) {
 }
 
 function statusLabel(status: string) {
-  return ({ queued: 'Na fila', processing: 'Transcrevendo', completed: 'Concluída', failed: 'Falhou' } as Record<string, string>)[status] || status
+  return ({ queued: 'Na fila', processing: 'Processando', completed: 'Concluída', cancelled: 'Cancelada', failed: 'Falhou' } as Record<string, string>)[status] || status
 }
 
 function stageLabel(stage?: string | null) {
   return ({
     queued: 'Aguardando a vez na fila',
+    waiting_for_capacity: 'Aguardando capacidade de áudio',
+    awaiting_redelivery: 'Aguardando retorno da entrega original',
+    retrying: 'Aguardando nova tentativa',
+    preparing: 'Preparando áudio',
+    normalizing: 'Normalizando áudio',
+    voice_activity_detection: 'Identificando voz',
+    finalizing: 'Salvando resultado',
     downloading: 'Buscando áudio privado no MinIO',
     loading_model: 'Preparando o modelo local',
     transcribing: 'Transcrevendo por trechos',
@@ -132,12 +142,7 @@ function canDelete(job?: TranscriptionJob | null) {
 }
 
 function canRetry(job?: TranscriptionJob | null) {
-  if (!job) return false
-  if (job.status === 'failed') return true
-  if (job.status !== 'processing') return false
-  const staleSeconds = Number(workerHealth.value?.staleJobSeconds || 1800)
-  const updatedAt = new Date(job.updatedAt || job.createdAt || 0).getTime()
-  return Number.isFinite(updatedAt) && updatedAt > 0 && Date.now() - updatedAt >= Math.max(60, staleSeconds) * 1000
+  return !!job && job.status === 'failed' && job.mode !== 'dictation' && job.errorCode !== 'WORKER_HEARTBEAT_EXPIRED'
 }
 
 function clearPreview() {
@@ -517,9 +522,10 @@ onBeforeUnmount(() => {
 
       <PanelCard v-if="selected" title="Resultado" :description="statusLabel(selected.status) + ' · ' + (selected.provider === 'local' ? 'motor local' : (selected.provider || 'worker'))">
         <template #actions><button v-if="canRetry(selected)" class="btn ghost compact" :disabled="busy" @click="retry"><AppIcon name="refresh" :size="14" />{{ selected.status === 'failed' ? 'Tentar novamente' : 'Reenfileirar' }}</button><button v-if="selected.text" class="btn ghost compact" :disabled="busy" @click="copyText"><AppIcon name="copy" :size="14" />Copiar texto</button><button v-if="canDelete(selected)" class="btn ghost compact danger-button" :disabled="busy" @click="removeSelected"><AppIcon name="trash" :size="14" />{{ ['queued', 'processing'].includes(selected.status) ? 'Cancelar e excluir' : 'Excluir' }}</button></template>
-        <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div class="processing-copy"><strong>{{ statusLabel(selected.status) }} · {{ stageLabel(selected.stage) }}</strong><p v-if="selected.status === 'queued'">Este áudio permanece na fila. A tela mostra a idade da fila e atualiza o estado automaticamente.</p><p v-else>O worker envia atualizações durante o download, carregamento do modelo e processamento por trechos. Áudio processado: {{ duration(selected.processedDurationMs) }}.</p><div v-if="selected.status === 'processing'" class="job-progress" role="progressbar" :aria-valuenow="selected.progressPercent || 0" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${Math.max(4, selected.progressPercent || 0)}%` }"></span></div></div></div>
-        <div v-else-if="selected.status === 'failed'" class="result-error"><AppIcon name="warning" :size="19" /><div><strong>Não foi possível concluir</strong><p>{{ selected.errorMessage || 'O worker retornou uma falha sem detalhes.' }}</p></div></div>
-        <div v-else class="result-body"><p>{{ selected.text || 'A transcrição terminou sem texto reconhecido.' }}</p><footer><span>Idioma: {{ selected.detectedLanguage || selected.language || 'detectado automaticamente' }}</span><span>Duração: {{ duration(selected.durationMs) }}</span><span>Concluída: {{ stamp(selected.completedAt) }}</span></footer></div>
+        <div v-if="selected.status === 'queued' || selected.status === 'processing'" class="processing-state"><span class="spinner"></span><div class="processing-copy"><strong>{{ statusLabel(selected.status) }} · {{ stageLabel(selected.stage) }}</strong><p v-if="selected.status === 'queued'">Este áudio permanece na fila. A tela mostra a idade da fila e atualiza o estado automaticamente.</p><p v-else>Áudio processado: {{ duration(selected.processedDurationMs) }}. Tentativa {{ selected.attempts || 1 }}<template v-if="selected.workerId"> · worker {{ selected.workerId }}</template>.</p><div v-if="selected.status === 'processing'" class="job-progress" role="progressbar" :aria-valuenow="selected.progressPercent || 0" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${Math.max(4, selected.progressPercent || 0)}%` }"></span></div></div></div>
+        <div v-else-if="selected.status === 'failed'" class="result-error"><AppIcon name="warning" :size="19" /><div><strong>Não foi possível concluir</strong><p>{{ selected.errorMessage || 'O worker retornou uma falha sem detalhes.' }}</p><p v-if="selected.workerId">Worker: {{ selected.workerId }} · tentativa {{ selected.attempts || 1 }}</p></div></div>
+        <div v-else-if="selected.status === 'completed'" class="result-body"><p>{{ selected.text || 'Sem texto reconhecido.' }}</p><footer><span>Idioma: {{ selected.detectedLanguage || selected.language || 'detectado automaticamente' }}</span><span>Duração: {{ duration(selected.durationMs) }}</span><span>Concluída: {{ stamp(selected.completedAt) }}</span><span v-if="selected.workerId">Worker: {{ selected.workerId }}</span><span>Tentativa: {{ selected.attempts || 1 }}</span></footer></div>
+        <div v-else class="result-error"><AppIcon name="warning" :size="19" /><div><strong>{{ statusLabel(selected.status) }}</strong><p>Este trabalho foi interrompido.</p></div></div>
       </PanelCard>
     </div>
   </AppShell>

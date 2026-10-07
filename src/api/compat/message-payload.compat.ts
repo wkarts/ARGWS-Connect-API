@@ -23,6 +23,10 @@ const OPTION_FIELDS = [
   'quoted',
   'linkPreview',
   'encoding',
+  'intent',
+  'ptt',
+  'recordedByMicrophone',
+  'mimetype',
   'webhookUrl',
   'notConvertSticker',
 ] as const;

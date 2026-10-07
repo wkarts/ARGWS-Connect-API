@@ -93,6 +93,11 @@ export class SendStickerDto extends Metadata {
 
 export class SendAudioDto extends Metadata {
   audio: string;
+  intent?: 'auto' | 'voice_note' | 'dictation' | 'transcription' | 'attachment' | 'music' | 'generic_audio';
+  ptt?: boolean;
+  recordedByMicrophone?: boolean;
+  mimetype?: string;
+  fileName?: string;
 }
 
 export type TypeButton = 'reply' | 'copy' | 'url' | 'call' | 'pix';
