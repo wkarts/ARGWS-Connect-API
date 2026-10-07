@@ -382,11 +382,26 @@ jobs:
         run: |
           set -euo pipefail
           canonical_image="$(grep '^ARGWS_CONNECT_API_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
+          canonical_tag="${canonical_image##*:}"
+          # The canonical stack may pin the version being prepared in this PR.
+          # A tag is published only after all release images exist.
+          if git ls-remote --exit-code --tags origin "refs/tags/v${canonical_tag}" >/dev/null; then
+            for image in \
+              "ghcr.io/wkarts/argws-connect-api:${canonical_tag}" \
+              "ghcr.io/wkarts/argws-connect-docs:${canonical_tag}" \
+              "ghcr.io/wkarts/argws-connect-transcription-worker:${canonical_tag}" \
+              ghcr.io/wkarts/argws-connect-transcription-worker:latest; do
+              echo "Checking published release image $image"
+              docker manifest inspect "$image" >/dev/null
+            done
+          else
+            echo "::notice::v${canonical_tag} ainda não foi publicada; o workflow de release verificará as imagens versionadas."
+          fi
           for image in \
             ghcr.io/wkarts/argws-connect-api:latest \
             ghcr.io/wkarts/argws-connect-api:develop \
             ghcr.io/wkarts/argws-connect-docs:develop \
-            "$canonical_image" \
+            ghcr.io/wkarts/argws-connect-transcription-worker:develop \
             ghcr.io/wkarts/argws-connect-postgres:15 \
             ghcr.io/wkarts/argws-connect-redis:latest \
             ghcr.io/wkarts/argws-connect-rabbitmq:management \
