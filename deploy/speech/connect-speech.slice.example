@@ -1,0 +1,16 @@
+[Unit]
+Description=Aggregate resource budget for Connect speech pools
+
+[Slice]
+# Example for TWO canary pools. Set the budget after measuring all co-located
+# workloads. Container limits remain necessary and count inside this slice.
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes
+CPUQuota=200%
+MemoryMax=2560M
+MemorySwapMax=0
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

@@ -1,139 +1,166 @@
 # Voz, ditado e transcrição
 
-O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona uma API para ditado e transcrição de mensagens. O processamento usa o worker local, FFmpeg, VAD e o modelo provisionado. O worker não baixa arquivos durante cada transcrição: a API instala a revisão fixada uma vez no volume persistente compartilhado, e os workers leem os arquivos localmente.
+O subsistema de fala usa um **pool local persistente**, compartilhado por ditado e transcrição. A API recebe e controla os trabalhos; um coordenador consome as filas; o reconhecimento roda em outro processo, que mantém o modelo entre trabalhos e pode ser encerrado integralmente em caso de falha. Novos uploads e ditados usam armazenamento privado; a fila transporta somente metadados. Mídias de mensagens mantêm seu bucket de origem.
 
-**Publicação suspensa:** a release que habilita transcrição nas produções ainda
-não foi liberada. O marcador de bloqueio em `main` exige validação sustentada
-no develop antes de retirar essa restrição. As instruções abaixo descrevem a
-configuração futura; não ativam o recurso nas instalações existentes.
+**Release em validação.** Os exemplos de produção, Fersoft, CloudPanel, Dockge, homologação e da raiz deixam a fala desativada por padrão. O develop principal e o exemplo de canário permitem o ensaio. O `.env` instalado sempre prevalece: atualizar o repositório não altera uma configuração já habilitada. O bloqueio de release existente deve permanecer até a homologação sustentada. Consulte a [matriz da correção](../reviews/speech-correction-2026-10-07.md) e o [procedimento operacional](speech-worker-diagnostics.md).
 
-O envio de nota de voz WhatsApp é um fluxo independente: `sendWhatsAppAudio` classifica pela intenção explícita, `ptt` e origem declarada; o áudio comum não vira PTT. A versão para envio PTT é OGG/Opus mono 48 kHz. Para STT, **apenas um job solicitado explicitamente** entra na fila quando a voz estiver habilitada; o worker usa FFmpeg para decodificar PCM float mono 16 kHz temporário e lê o áudio em trechos. A API não cria um WAV persistente nem carrega o modelo durante o envio de mensagem. Consulte [Mensagens e mídia](messages.md#áudio-comum-e-nota-de-voz) para os parâmetros do envio e [diagnóstico operacional](speech-worker-diagnostics.md) para os limites de memória.
+## Arquitetura e execução durável
 
-## Habilitar no develop principal para validação
+A admissão verifica autenticação, disponibilidade e cotas antes de receber um upload. O multipart é gravado em arquivo temporário, com prazo e limite de bytes; não usa `multer.memoryStorage`. Novos ditados e uploads são enviados para um bucket MinIO/S3 dedicado e privado (`SPEECH_S3_BUCKET_NAME`; por padrão, bucket de mídia seguido de `-speech`). Uma política pública preexistente nesse destino impede a gravação, sem ser sobrescrita automaticamente. Áudios de mensagens reutilizam a fonte já persistida no bucket de origem; sua política de acesso permanece a da instalação.
 
-Todas as stacks de aplicação incluem o profile `transcription` e um worker de transcrição (`speech.transcription`). Os `env.example` habilitam uma réplica, `SPEECH_GLOBAL_CONCURRENCY=1` e o painel de transcrição. Somente o `deploy/develop/` principal inclui também o worker de ditado (`speech.dictation`); nas demais stacks, `DICTATION_ENABLED=false` e o serviço de ditado não existe. `TRANSCRIPTION_ENABLED` continua como fallback legado para `SPEECH_ENABLED`.
+O banco é a autoridade da execução. A criação do job e de sua **outbox** acontece na mesma transação. Um publicador entrega a referência às filas quorum `speech.transcription.v2` e `speech.dictation.v2`, com confirmação e `mandatory`; uma mensagem sem rota não é considerada publicada. A outbox permite retomar após queda da API sem depender de uma chamada HTTP aberta.
 
-No develop principal, altere o `.env` já existente: inclua `transcription` em `COMPOSE_PROFILES`, defina `TRANSCRIPTION_ENABLED=true`, `SPEECH_ENABLED=true`, `MANAGER_FEATURE_TRANSCRIPTION=true`, `SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e `TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. Alinhe a API e o worker à imagem `:develop` correspondente. O `env.example` novo não substitui o `.env` instalado. Mantenha transcrição e ditado desativados nas produções, incluindo Fersoft, até remover o bloqueio de release após a validação.
+Antes de carregar o motor, o worker pede uma execução ao controle da API. Essa execução recebe `generation`, `executionId`, lease e prazo absoluto. Checkpoints, conclusão e falha só são aceitos se pertencerem à execução atual. O resultado é confirmado no SQL antes do ACK da entrega AMQP. Mensagens repetidas de uma geração antiga ou de um job terminal não iniciam reconhecimento.
 
-No develop principal, execute `docker compose --env-file .env -f compose.yaml pull` e `docker compose --env-file .env -f compose.yaml up -d --pull never` para atualizar os serviços desejados. Verifique `docker compose ps -a`, `GET /v1/speech/health` e um job curto terminado. Preserve os volumes de banco, filas, MinIO e `./models`; não execute `down -v`. A limpeza de containers órfãos nas produções deve ser tratada separadamente durante uma atualização aprovada para esse ambiente.
+O pool usa uma conexão AMQP reutilizada e uma reserva exclusiva de residência por slot. Com `SPEECH_GLOBAL_CONCURRENCY=1`, apenas o dono desse slot mantém um motor residente no mesmo broker/vhost/pool. O modelo permanece carregado durante a atividade e é descarregado depois de `SPEECH_MODEL_IDLE_TTL_SECONDS` sem uso. No modo `pool`, o coordenador continua dono do slot ocioso; workers excedentes ficam em espera. A reconexão ou parada libera a reserva.
 
-Variáveis principais:
+A decodificação FFmpeg e a inferência trabalham em janelas de até 30 segundos. O VAD agrupa a atividade dentro de cada janela; não cria uma chamada do modelo para cada pausa curta. A sobreposição é conciliada com o checkpoint. Um áudio longo devolve a vez entre janelas. O escalonador pondera ditado e transcrição em 3:1 e alterna as instâncias entre os trabalhos recebidos na janela limitada de prefetch. Não há preempção no meio de uma inferência nativa.
 
-| Variável | Padrão | Uso |
-| --- | --- | --- |
-| `SPEECH_ENABLED` | `true` nos `env.example` das stacks de aplicação | Habilita os endpoints e workers; o `.env` instalado prevalece |
-| `SPEECH_PROVIDER` | `local` | Provider local |
-| `SPEECH_MODEL` | `Xenova/whisper-small` | Modelo configurado |
-| `SPEECH_MODEL_PATH` | `/models/Xenova/whisper-small` | Caminho do modelo local verificado |
-| `SPEECH_MODELS_HOST_PATH` | `./models` | Diretório persistente do host compartilhado pela API e pelos workers |
-| `SPEECH_TRANSCRIPTION_QUEUE` | `speech.transcription` | Fila de transcrições longas |
-| `SPEECH_DICTATION_QUEUE` | `speech.dictation` | Fila prioritária de ditado |
-| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma réplica por stack; o modelo só fica residente durante um job admitido |
-| `SPEECH_WORKER_CONCURRENCY` | `1` | Prefetch de um job por processo; valores maiores são rejeitados |
-| `SPEECH_GLOBAL_CONCURRENCY` | `1` | Total máximo de jobs admitidos entre transcrição e ditado no mesmo RabbitMQ e exchange; configure igualmente em todos os workers |
-| `SPEECH_SHUTDOWN_GRACE_SECONDS` | `90` | Prazo para concluir a entrega ativa antes de cancelar a inferência e devolver o job |
-| `SPEECH_MAX_DURATION_SECONDS` | `3600` | Limite real do PCM decodificado na transcrição, antes do modelo |
-| `SPEECH_CHUNK_SECONDS` | `30` | Duração máxima de cada trecho |
-| `SPEECH_STRIDE_SECONDS` | `5` | Sobreposição entre trechos |
-| `SPEECH_HEARTBEAT_INTERVAL_SECONDS` | `5` | Frequência dos heartbeats |
-| `SPEECH_INFERENCE_STALL_SECONDS` | `300` | Tempo máximo sem progresso do motor antes de encerrar a thread e agendar retry; o worker só volta a carregar o modelo no próximo job admitido |
-| `SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS` | `300` | Tempo máximo para carregar e preparar o modelo depois da admissão; timeout gera retry limitado |
-| `SPEECH_JOB_STALE_AFTER` | `120` | Limite para considerar heartbeat parado |
-| `SPEECH_MAX_ATTEMPTS` | `3` | Tentativas antes de registrar falha definitiva |
-| `DICTATION_MAX_AUDIO_BYTES` | `5242880` | Limite do áudio enviado pelo navegador |
-| `DICTATION_MAX_DURATION_SECONDS` | `300` | Duração máxima do ditado |
-| `DICTATION_AUDIO_RETENTION_MINUTES` | `5` | Tempo máximo de áudio inline aguardando na fila |
-| `TRANSCRIPTION_SOURCE_RETENTION_SECONDS` | `2592000` | Retenção de uploads privados em MinIO |
+O heartbeat de controle renova a lease, mas **não equivale a progresso do reconhecimento**. `engineProgressAt` e `processedDurationMs` avançam com trabalho real. O prazo absoluto do job não é prorrogado por heartbeats. Sem duração total conhecida, o progresso é indeterminado; a conclusão vale 100%.
 
-Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
+O cancelamento fica registrado no banco. O worker interrompe o grupo de processos do motor, confirma sua morte e só então libera a execução. Perda de lease ou de conexão de controle também encerra o motor. Um processo cuja morte não foi confirmada impede nova inferência naquele coordenador. Cancelar pode deixar a lease visível por alguns segundos; excluir a fonte nesse intervalo retorna `409` para permitir a parada segura.
 
-O worker verifica os arquivos do modelo ao iniciar, mas não carrega a pipeline
-nativa enquanto estiver ocioso. Depois de obter a reserva global no mesmo
-RabbitMQ e exchange, baixa o áudio privado, carrega o modelo, processa um job,
-encerra a thread e só então libera a vaga. Isso impede dois modelos residentes
-ao mesmo tempo entre transcrição e ditado no **mesmo broker** com
-`SPEECH_GLOBAL_CONCURRENCY=1`. Cada novo job tem custo de carregamento e
-recebe o estágio `loading_model` e heartbeats nesse período. Stacks com brokers
-independentes têm reservas independentes e ainda podem carregar modelos ao
-mesmo tempo na mesma VPS. Prefetch permanece em um por processo; um job
-aguardando capacidade aparece como `processing`/`waiting_for_capacity`. O PCM
-temporário em `/tmp` e o limite de 4 GiB por worker ainda exigem medição na
-VPS. Amplie a capacidade somente após medir RSS, pico de inferência, FFmpeg e
-margem de RAM/CPU do host.
+## Motores e identidade do modelo
 
-A API inicia a conexão das filas de voz em segundo plano, com prazo de cinco
-segundos para a conexão AMQP. A indisponibilidade do broker de áudio não impede
-o servidor HTTP e as instâncias WhatsApp de iniciarem. Os endpoints de voz
-continuam verificando consumidor e modelo antes de publicar novos jobs.
+O catálogo permitido está em [`scripts/speech-models.json`](../../scripts/speech-models.json). A seleção deve ser igual na API e no worker. O perfil atual permanece explícito; não há troca automática por um modelo menor.
 
-O diagnóstico da API reutiliza a conexão RabbitMQ aberta. Um erro transitório no banco fecha o canal de resultados e devolve a mensagem ainda não confirmada para processamento após a reconexão. Em um retry atrasado, o job permanece com estágio `retrying` até a próxima tentativa; o watchdog respeita o atraso. Um heartbeat vencido passa a `awaiting_redelivery`, sem publicar uma segunda cópia: o RabbitMQ recupera a entrega original após a perda do canal. Se não houver retomada no período seguinte, o estado passa a `failed` com `WORKER_HEARTBEAT_EXPIRED`; o retry manual desse estado fica bloqueado porque a entrega original pode ainda existir. O limite `SPEECH_MAX_ATTEMPTS` cobre retries publicados pelo worker e entregas repetidas após falhas abruptas pelo cabeçalho `x-delivery-count`. `attempts` representa as tentativas publicadas; o contador de redelivery fica nos logs. Retry manual é aceito para outras falhas finais de transcrição cujo áudio ainda esteja disponível; ditado precisa ser gravado novamente.
+| Motor | `SPEECH_MODEL` | Formato e revisão | Perfil de memória inicial |
+| --- | --- | --- | --- |
+| `transformers` | `Xenova/whisper-small` | ONNX q8, `2d67713f236afa48a18992566e7647f6ca848e13` | Compatibilidade: teto de 4 GiB por pool |
+| `whisper.cpp` | `whisper-base-q5_1` | GGML q5_1, `5359861c739e955e79d9a303bcbc70fb988958b1` | Canário: teto de 1280 MiB por pool |
+| `whisper.cpp` | `whisper-small-q5_1` | GGML q5_1, mesma revisão fixada | Catálogo: referência inicial de 2048 MiB; requer ensaio próprio |
 
-Ao parar, o consumidor cancela novas entregas, aguarda até 90 segundos o trabalho ativo, depois interrompe a thread e devolve a mensagem ainda não confirmada. O Compose concede 105 segundos antes de encerrar o container. A API aplica resultados por comparação de status e tentativa; uma conclusão repetida não altera um job terminal. Consulte o [diagnóstico operacional dos workers](speech-worker-diagnostics.md) para medições, limites e atualização segura.
+Esses valores são **orçamentos de configuração**, não medições universais de consumo. O teto do container inclui coordenador, motor, FFmpeg, cache e tmpfs. Não aplique o teto do modelo base ao perfil Transformers sem medir o conjunto.
 
-Os sinais de cancelamento usam um canal independente daquele que processa áudio. Cada réplica recebe o evento, inclusive quando outra está ocupada. O endpoint de saúde informa consumidores registrados, mas a prova de operação é observar heartbeats e jobs terminando como `completed` ou `failed`; consumidor registrado sozinho não comprova que a inferência avança.
+O arquivo base q5_1 tem 59.707.625 bytes; o small q5_1 tem 190.085.487 bytes. Seus hashes SHA-256 estão fixados no catálogo. O binário whisper.cpp usa o commit `4979e04f5dcaccb36057e059bbaed8a2f5288315` (v1.8.2), build CPU sem CUDA. Em amd64, inclui variantes de CPU escolhidas pelo GGML conforme as instruções disponíveis; em arm64, usa ARMv8-a/NEON. O build e os detalhes de cgroups estão em [deploy/speech](../../deploy/speech/README.md).
 
-## Baixar e manter o modelo
+`provider=local`, `requestedModel`, `effectiveModel`, `engine` e `modelRevision` distinguem solicitação e execução. `SPEECH_PROVIDER=openai` não é um apelido de local: configurações incompatíveis falham claramente. Um modelo/revisão diferente do motor residente não é atendido por fallback silencioso.
 
-Ao iniciar com transcrição habilitada em qualquer stack, a API confere o volume e baixa automaticamente o modelo se ele ainda não estiver instalado. Com voz desabilitada, a API não inicia esse download. O pacote q8 do `Xenova/whisper-small` tem aproximadamente 250 MB; a API baixa uma revisão fixada da Hugging Face, verifica SHA-256 e grava os arquivos em `./models` por padrão. A tela **Gerenciador → Transcrição de áudio** mostra o progresso e permite iniciar ou repetir o download manualmente.
+### Canário whisper.cpp no develop
 
-O mesmo diretório do host é montado como `/models` com leitura e escrita na API e somente leitura nos workers. Depois da primeira instalação, transcrição e ditado carregam o modelo desse volume; reiniciar ou atualizar os containers reutiliza os arquivos sem baixar os pesos novamente. Preserve `./models` entre implantações. Os pesos não fazem parte da imagem GHCR e não são armazenados em `/tmp`.
-
-O resultado do ditado contém somente texto, então o worker não calcula timestamps para esse caminho curto. O upload de transcrição continua produzindo segmentos temporizados. O navegador interrompe somente gravações sem trechos capturados ou com zero bytes; uma gravação curta que contenha dados segue para o worker.
-
-Se uma transcrição for enviada antes de o download terminar, a API pede para tentar novamente quando o modelo estiver pronto. O arquivo selecionado na tela de transcrição é mantido; no ditado pelo microfone, o áudio capturado fica disponível no botão de nova tentativa enquanto o modelo baixa.
-
-O provisionamento manual continua disponível para ambientes sem acesso à Internet. Copie os arquivos compatíveis para o diretório do host e gere o manifesto SHA-256:
-
-Gere o manifesto SHA-256 antes de subir os workers:
-
-```bash
-node transcription-worker/scripts/create-model-manifest.cjs ./models/Xenova/whisper-small
-```
-
-Exemplo de `.env`:
+Incorpore [`canary-whisper-cpp.env.example`](../../deploy/speech/canary-whisper-cpp.env.example) ao `.env` existente, preservando segredos, paths e outros perfis. Os campos essenciais são:
 
 ```dotenv
-SPEECH_MODELS_HOST_PATH=./models
-SPEECH_MODEL_PATH=/models/Xenova/whisper-small
-SPEECH_MODEL=Xenova/whisper-small
+SPEECH_ENABLED=true
+TRANSCRIPTION_ENABLED=true
+DICTATION_ENABLED=true
+MANAGER_FEATURE_TRANSCRIPTION=true
+SPEECH_PROVIDER=local
+SPEECH_ENGINE=whisper.cpp
+SPEECH_WORKER_MODE=pool
+SPEECH_MODEL=whisper-base-q5_1
+SPEECH_MODEL_PATH=/models/whisper.cpp/base-q5_1
+SPEECH_WHISPER_MODEL_FILE=/models/whisper.cpp/base-q5_1/ggml-base-q5_1.bin
+SPEECH_WHISPER_MODEL_SHA256=422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898
+SPEECH_GLOBAL_CONCURRENCY=1
+SPEECH_INFERENCE_THREADS=1
+SPEECH_INFERENCE_INTER_THREADS=1
+SPEECH_WORKER_MEMORY=1280m
+SPEECH_WORKER_CPUS=1.00
+TRANSCRIPTION_WORKER_TMPFS_SIZE=128m
 ```
 
-O worker valida o manifesto e todos os hashes antes de registrar o consumidor;
-o warm-up acontece somente depois que um job obtém a vaga global. Sem
-manifesto, com checksum inválido ou sem modelo compatível, o worker não fica
-pronto. Enquanto o download gerenciado termina, os workers aguardam o modelo
-no volume compartilhado. O Transformers.js documenta o carregamento local e a
-desativação de modelos remotos em sua [referência de ambiente](https://huggingface.co/docs/transformers.js/v3.8.1/api/env).
+Inclua `transcription` em `COMPOSE_PROFILES` sem retirar os perfis das demais integrações. Há um único serviço de worker para os dois modos; os manifests fixam uma réplica para reconciliar instalações com o valor antigo `SPEECH_TRANSCRIPTION_REPLICAS=2`. O serviço separado de ditado não deve continuar ativo. API e worker precisam usar imagens da mesma revisão da correção.
 
-O endpoint `GET /v1/speech/models` informa instalação, progresso e prontidão do modelo. `POST /v1/speech/models/{modelId}/download` inicia o download do modelo configurado. A troca de modelo continua exigindo provisionar arquivos compatíveis, atualizar `SPEECH_MODEL`/`SPEECH_MODEL_PATH` e reiniciar os workers.
+### Orçamento agregado da VPS
 
-## API
+O limite AMQP só abrange participantes do mesmo broker/vhost/pool. Duas stacks com brokers independentes ainda podem consumir seus tetos individuais ao mesmo tempo. Para limitar a soma, configure um cgroup pai comum em **todas** as stacks de fala do host, usando `SPEECH_CGROUP_PARENT` e o exemplo [connect-speech.slice](../../deploy/speech/connect-speech.slice.example). A documentação de [orçamento por host](../../deploy/speech/README.md#teto-agregado-para-stacks-no-mesmo-host) explica os requisitos do driver e a verificação.
 
-Todos os endpoints usam o header `apikey`.
+A associação ao cgroup é opt-in. Um valor vazio mantém somente os limites por container. Reserve separadamente a memória da API, banco, RabbitMQ, MinIO, WhatsApp e sistema operacional.
 
-| Método e caminho | Descrição |
+## Provisionamento e reparo
+
+O download automático no início é **opt-in**, por `SPEECH_MODEL_AUTO_PROVISION=true`. Sem essa opção, o administrador inicia o download pelo Manager ou pela API. Verificação SHA-256, transferência e reparo rodam em um processo supervisionado, separado do servidor HTTP. Consultas de status usam um fingerprint pequeno dos arquivos; uma mudança dispara nova verificação e retira a prontidão até ela terminar.
+
+A API monta o volume persistente em leitura/escrita e o worker em somente leitura. O provisionador fixa a revisão remota, limita bytes e tempo, valida hashes, prepara uma pasta temporária e troca o diretório de forma controlada. A trava é compartilhada no volume, evitando downloads simultâneos entre réplicas. Um journal permite recuperar uma instalação interrompida e remover o estágio registrado, preservando o modelo anterior quando a troca não terminou.
+
+No endpoint administrativo:
+
+```http
+POST /v1/speech/models/whisper-base-q5_1/download
+apikey: SUA_CHAVE_ADMINISTRATIVA
+Content-Type: application/json
+
+{"force": true}
+```
+
+`force=true` permite reparar uma instalação corrompida. Para modelos com `/` no identificador, codifique o segmento de caminho, por exemplo `Xenova%2Fwhisper-small`. Somente o modelo configurado e permitido pode ser baixado por esse endpoint. `activate` confirma a configuração; trocar motor/modelo requer provisionar, alinhar as variáveis e reiniciar o pool. Faça essa troca depois de drenar os jobs que pedem o modelo anterior.
+
+Também é possível provisionar no host ou em um container administrativo:
+
+```bash
+node scripts/speech-model-provision.cjs whisper-base-q5_1 ./models
+node scripts/speech-model-provision.cjs whisper-base-q5_1 ./models --verify
+```
+
+Para um host sem acesso à internet, execute o provisionador em ambiente autorizado e transfira o diretório completo, incluindo `.speech-model-checksums.json`. Preserve a estrutura definida no catálogo. O worker não baixa pesos durante a inferência. A API aceita os diretórios do catálogo sob `SPEECH_MODELS_PATH` (padrão `/models`); um caminho arbitrário ou modelo fora do catálogo fica indisponível.
+
+## Limites de admissão, armazenamento e execução
+
+| Configuração | Padrão do código | Efeito |
+| --- | --- | --- |
+| `SPEECH_MAX_PENDING_JOBS` | 50 | Jobs ativos mais reservas de upload por pool |
+| `SPEECH_MAX_PENDING_JOBS_PER_INSTANCE` | 5 | Limite por instância; administração sem instância usa escopo global próprio |
+| `SPEECH_MAX_UPLOADS` / `SPEECH_MAX_UPLOADS_PER_INSTANCE` | 2 / 1 | Reservas de recepção simultânea no banco |
+| `SPEECH_MAX_UPLOAD_BYTES` | 50 MiB | Soma dos bytes reservados para uploads em andamento |
+| `TRANSCRIPTION_MAX_AUDIO_BYTES` / `DICTATION_MAX_AUDIO_BYTES` | 25 MiB / 5 MiB | Limite por arquivo |
+| `SPEECH_MAX_PENDING_AUDIO_BYTES` / `..._PER_INSTANCE` | 1250 MiB / 125 MiB | Orçamento dos jobs ativos |
+| `SPEECH_MAX_PENDING_AUDIO_SECONDS` / `..._PER_INSTANCE` | 180000 / 18000 s | Duração máxima reservada dos trabalhos pendentes |
+| `SPEECH_UPLOAD_TIMEOUT_SECONDS` | 60 s | Prazo para receber o multipart |
+| `SPEECH_UPLOAD_RESERVATION_SECONDS` | 180 s | Expiração da reserva, incluindo persistência |
+| `SPEECH_QUEUE_MAX_JOBS` / `SPEECH_QUEUE_MAX_BYTES` | 50 / 8 MiB | Limites adicionais de cada fila quorum; overflow rejeita publicação |
+| `SPEECH_POOL_PREFETCH` | 10 | Janela limitada total, dividida entre os consumidores dos dois modos |
+| `SPEECH_DICTATION_WEIGHT` | 3 | Peso do ditado por rodada em relação à transcrição |
+| `SPEECH_CHUNK_SECONDS` / `SPEECH_STRIDE_SECONDS` | 30 / 5 s | Janela máxima e sobreposição |
+| `SPEECH_LEASE_SECONDS` / `SPEECH_HEARTBEAT_INTERVAL_SECONDS` | 30 / 5 s | Lease e frequência de supervisão |
+| `SPEECH_CHUNK_DEADLINE_SECONDS` | 180 s | Prazo absoluto de uma operação no motor |
+| `SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS` | 300 s | Limite de carga e reconhecimento inicial; também sujeito ao prazo do job |
+| `SPEECH_JOB_DEADLINE_SECONDS` / `DICTATION_JOB_DEADLINE_SECONDS` | 900 / 120 s | Prazo total desde a aceitação do job, incluindo fila |
+| `TRANSCRIPTION_MAX_DURATION_SECONDS` / `DICTATION_MAX_DURATION_SECONDS` | 3600 / 60 s | Duração máxima real aceita pelo processamento |
+| `SPEECH_MODEL_IDLE_TTL_SECONDS` | 300 s | Descarregamento do motor sem uso |
+| `SPEECH_MAX_ATTEMPTS` | 3 | Tentativas automáticas limitadas; geração muda também ao ceder uma janela |
+| `SPEECH_SOURCE_CACHE_MAX_BYTES` | 50 MiB | Cache local limitado de fontes comprimidas |
+
+A reserva de duração é conservadora e usa o máximo permitido por job antes de conhecer o áudio. A duração declarada pelo cliente não autoriza exceder o limite real. O corpo JSON/form dos endpoints nativos `/v1/speech` e `/v1/transcriptions` tem limite de 64 KiB; áudio deve usar multipart.
+
+O banco limita o conjunto de uploads entre réplicas da API. Os objetos privados usam nomes gerados pelo servidor. Ditado retém a fonte por cinco minutos (`DICTATION_AUDIO_RETENTION_MINUTES`); uploads de transcrição, por 30 dias (`TRANSCRIPTION_SOURCE_RETENTION_SECONDS`). A limpeza respeita execução/lease e usa consultas paginadas, mantendo resultados. Objetos cuja transferência falhou têm registro de reserva para recuperação. A DLQ tem limite próprio, retenção de um dia e não contém áudio inline. Esses prazos não substituem a política de retenção da instalação.
+
+## API e isolamento de instância
+
+Todos os endpoints usam `apikey`. Os caminhos globais `/v1/speech` e `/v1/transcriptions` exigem a chave administrativa. O prefixo `/v1/speech/instances/{instanceName}` permite a chave da instância correspondente e aplica o escopo às consultas, criações e mutações. Uma instância não acessa nem cancela o job de outra. Download e ativação de modelo continuam administrativos, inclusive quando acessados por um caminho escopado.
+
+Para uploads administrativos associados a uma instância, prefira `X-Speech-Instance-Id`: permite reservar a cota da instância antes de receber o corpo. O campo multipart histórico `instanceId` continua aceito pelo administrador, com revalidação e associação atômica antes de gravar no S3. Uma identidade definida pela rota ou pelo header não pode ser substituída pelo corpo.
+
+| Método e caminho relativo a `/v1/speech` | Resultado |
 | --- | --- |
-| `GET /v1/speech/live` | Liveness da API |
-| `GET /v1/speech/ready` | Readiness de pelo menos um worker |
-| `GET /v1/speech/health` | Estado das filas, modelo e contagens |
-| `GET /v1/speech/models` | Modelo configurado e progresso de instalação |
-| `POST /v1/speech/models/{modelId}/download` | Inicia ou consulta o download gerenciado do modelo |
-| `POST /v1/speech/models/{modelId}/activate` | Confirma o modelo já configurado |
-| `POST /v1/speech/dictation` | Recebe áudio curto em `multipart/form-data`, campo `audio` |
-| `GET /v1/speech/dictation/{jobId}` | Lê estado e resultado do ditado |
-| `POST /v1/speech/dictation/{jobId}/cancel` | Cancela o ditado |
-| `POST /v1/speech/transcriptions` | Recebe JSON com `messageId` ou upload multipart |
-| `POST /v1/speech/transcriptions/upload` | Alias multipart para upload |
-| `GET /v1/speech/transcriptions` | Lista jobs recentes |
-| `GET /v1/speech/transcriptions/{jobId}` | Lê estado e resultado |
-| `POST /v1/speech/transcriptions/{jobId}/cancel` | Cancela o job |
-| `POST /v1/speech/transcriptions/{jobId}/retry` | Reenfileira job elegível |
-| `DELETE /v1/speech/transcriptions/{jobId}` | Remove o resultado sem apagar a mídia original da mensagem |
+| `GET /live` | Liveness do processo HTTP |
+| `GET /health` | Estado de controle, capacidades, modelo, fila e limites |
+| `GET /ready?mode=all\|dictation\|transcription` | `200` somente com motor verificado e inferência inicial concluída no modo solicitado; caso contrário `503` |
+| `GET /models` | Modelo configurado e estados `not_installed`, `verifying`, `downloading`, `ready`, `failed` ou `unavailable` |
+| `POST /models/{modelId}/download` | Provisionamento ou reparo administrativo, corpo opcional `force` |
+| `POST /models/{modelId}/activate` | Confirmação do modelo já configurado |
+| `POST /dictation` | Multipart no campo `audio`; retorna `202` com identificador |
+| `GET /dictation/{jobId}` / `POST /dictation/{jobId}/cancel` | Consulta e cancelamento de ditado |
+| `POST /transcriptions` | JSON com `messageId` ou multipart com `audio` |
+| `POST /transcriptions/upload` | Alias para multipart |
+| `GET /transcriptions?limit=30` | Lista recente; máximo 100 |
+| `GET /transcriptions/{jobId}` | Estado e resultado persistidos |
+| `POST /transcriptions/{jobId}/cancel` | Cancelamento durável |
+| `POST /transcriptions/{jobId}/retry` | Nova tentativa controlada de transcrição elegível |
+| `DELETE /transcriptions/{jobId}` | Remove resultado e fonte de upload própria após encerrar execução; preserva mídia de mensagem |
 
-Os jobs têm `mode`, `sourceType`, estágio, percentual real, duração processada, heartbeat, tentativas, hash, idempotency key e resultado. A deduplicação usa mensagem, chave de idempotência e hash do áudio com modelo e idioma. O Manager acompanha o ditado por polling e insere o texto no campo ativo; na conversa, a ação “Transcrever áudio” guarda o resultado no mesmo job e permite mostrá-lo novamente após recarregar a página.
+Os endpoints legados de transcrição permanecem. `POST /v1/transcriptions/cleanup` exige `confirm=true`, aceita lote limitado e `cursor`, devolve `hasMore`/`nextCursor` e remove fontes expiradas, preservando resultados. A rotina de retenção continua mesmo quando novas submissões estão desativadas.
 
-## Limites atuais
+A saturação retorna `429` com `Retry-After`; indisponibilidade retorna `503`, também podendo informar espera. Violações de formato/tamanho usam `400`, `413` ou `415`; conflito de execução/modelo usa `409`; fonte expirada, `410`. Reutilize `Idempotency-Key` para a mesma operação lógica. A deduplicação por conteúdo considera escopo, modo, fonte, idioma, modelo, motor e revisão.
 
-Em todas as stacks habilitadas, o Manager oferece transcrição manual de mensagens de áudio. O VAD reduz o trabalho ao selecionar trechos com atividade de voz, mas não bloqueia sozinho uma gravação: se nenhum trecho superar o limiar de energia, o worker envia o áudio decodificado inteiro ao Whisper, o que permite reconhecer fala capturada em volume baixo. O job só retorna `NO_SPEECH` depois que o modelo também não reconhece texto. No navegador, somente gravações sem dados capturados ou com zero bytes são interrompidas; áudios curtos com conteúdo seguem para processamento.
+`/health` distingue `processAlive`, `brokerConnected`, `modelVerified`, `engineReady`, `acceptingJobs` e `lastSuccessfulInferenceAt`. Um pool frio com arquivos verificados pode aceitar seu primeiro trabalho e carregar o motor dentro do prazo desse job. `/ready` continua falso até o reconhecimento inicial; não use esse endpoint como condição circular que impeça o primeiro upload. A contagem de consumidores sozinha não prova prontidão.
 
-A transcrição automática de mensagens recebidas, controles de preferência por instância e publicação de `speech.transcription.completed` em Webhooks/flows ainda precisam de integração específica; os endpoints e os dados persistidos já podem ser usados como base para essa etapa.
+## Manager e compatibilidade
+
+O Manager mostra espera, preparação, carregamento, processamento por trechos, retomada e estado terminal. O polling desacelera quando não há mudança, quando a aba está oculta e conforme `Retry-After`. O ditado respeita o prazo informado pela API e permite nova gravação em falhas finais. Duração processada e heartbeat de supervisão são apresentados sem inventar avanço percentual.
+
+Os contratos e fluxos de envio/recebimento ZAPO, Baileys e Meta Compatible permanecem preservados. A conversão de PTT e o sistema geral de logs/eventos não foram alterados nesta correção. O reconhecimento continua separado do envio de notas de voz. Consulte [Mensagens e mídia](messages.md#áudio-comum-e-nota-de-voz).
+
+A fachada Graph mantém seu parser e payloads existentes. Quando chama o serviço de transcrição, recebe os limites de execução, cotas e fila com metadados; seus novos uploads usam o bucket privado, enquanto mídias de mensagens mantêm a origem; a reserva anterior ao recebimento do multipart aplica-se às rotas nativas de fala. Alterar o parser da fachada Graph ficou fora do escopo por orientação do responsável.
+
+Transcrição automática de toda mensagem recebida e publicação de novos eventos de resultado em Webhooks/flows não fazem parte desta correção. O reconhecimento continua sendo solicitado explicitamente. Falhas criptográficas de sessão WhatsApp exigem investigação própria; esta mudança não apaga nem recria sessões.

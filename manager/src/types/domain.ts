@@ -46,15 +46,27 @@ export type TranscriptionJob = {
   sizeBytes?: number | null
   provider: string
   model: string
+  requestedModel?: string | null
+  effectiveModel?: string | null
+  engine?: string | null
+  modelRevision?: string | null
+  generation?: number
   language?: string | null
   status: 'queued' | 'processing' | 'completed' | 'failed' | string
   stage?: string | null
   progressPercent?: number
   processedDurationMs?: number | null
   heartbeatAt?: string | null
+  controlHeartbeatAt?: string | null
+  engineProgressAt?: string | null
+  leaseExpiresAt?: string | null
+  deadlineAt?: string | null
+  queueWaitMs?: number | null
+  cancelRequestedAt?: string | null
   text?: string | null
   detectedLanguage?: string | null
   durationMs?: number | null
+  durationKnown?: boolean
   segments?: unknown[] | null
   errorCode?: string | null
   errorMessage?: string | null
@@ -65,7 +77,50 @@ export type TranscriptionJob = {
   updatedAt?: string
 }
 
-export type DictationAccepted = { id: string; mode: 'dictation'; status: string }
+export type DictationAccepted = { id: string; mode: 'dictation'; status: string; deadlineAt?: string | null }
+
+export type SpeechHealth = {
+  enabled?: boolean
+  dictationEnabled?: boolean
+  workerReady?: boolean
+  dictationWorkerReady?: boolean
+  poolId?: string
+  state?: 'disabled' | 'offline' | 'warming' | 'ready' | 'busy' | 'capacity_exhausted' | 'degraded'
+  processAlive?: boolean
+  brokerConnected?: boolean
+  modelVerified?: boolean
+  engineReady?: boolean
+  acceptingJobs?: boolean
+  lastSuccessfulInferenceAt?: string | null
+  capabilities?: { dictation?: boolean; transcription?: boolean }
+  engine?: string
+  model?: string
+  modelReady?: boolean
+  consumerCount?: number
+  queuedJobs?: number
+  processingJobs?: number
+  oldestQueuedSeconds?: number
+  pendingLimit?: number
+  instancePendingLimit?: number
+  uploadLimit?: number
+  uploadBytesLimit?: number
+  maxUploadBytes?: number
+  maxDurationSeconds?: number
+  dictationMaxDurationSeconds?: number
+  dictationDeadlineSeconds?: number
+  retryAfterSeconds?: number
+  modelDownload?: {
+    id?: string
+    status?: string
+    available?: boolean
+    installed?: boolean
+    verified?: boolean
+    progressPercent?: number
+    downloadedBytes?: number
+    totalBytes?: number
+    errorMessage?: string | null
+  } | null
+}
 
 export type ManagerStorageOverview = {
   enabled: boolean

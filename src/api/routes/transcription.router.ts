@@ -1,16 +1,7 @@
 import { TranscriptionService, TranscriptionServiceError } from '@api/services/transcription.service';
 import { RequestHandler, Response, Router } from 'express';
-import multer from 'multer';
 
-function uploadLimit(): number {
-  const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
-  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
-}
-
-const uploadAudio = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: uploadLimit(), files: 1 },
-});
+import { receiveSpeechUpload, speechUploadFailure } from './speech-upload.middleware';
 
 export class TranscriptionRouter {
   public readonly router = Router();
@@ -24,19 +15,13 @@ export class TranscriptionRouter {
     this.router.get('/health', (req, res) => void this.health(req, res));
     this.router.post('/', (req, res) => void this.create(req, res));
     this.router.post('/cleanup', (req, res) => void this.cleanup(req, res));
-    this.router.post('/upload', (req, res) => {
-      uploadAudio.single('audio')(req, res, (error: any) => {
-        if (error) {
-          const status = error?.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-          res.status(status).json({
-            status,
-            error: status === 413 ? 'O áudio excede o limite configurado.' : 'Upload de áudio inválido.',
-          });
-          return;
-        }
-        void this.upload(req, res);
-      });
-    });
+    this.router.post(
+      '/upload',
+      (req, res) =>
+        void receiveSpeechUpload(this.service, 'transcription', req, res, (filePath) =>
+          this.upload(req, res, filePath),
+        ),
+    );
     this.router.get('/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/:jobId/retry', (req, res) => void this.retry(req, res));
     this.router.post('/:jobId/cancel', (req, res) => void this.cancel(req, res));
@@ -76,16 +61,22 @@ export class TranscriptionRouter {
     }
   }
 
-  private async upload(req: any, res: Response) {
+  private async upload(req: any, res: Response, filePath: string) {
     try {
+      if (req.body?.instanceId && String(req.body.instanceId) !== String(req.speechUploadInstanceId || ''))
+        throw new TranscriptionServiceError(
+          'Informe X-Speech-Instance-Id antes do corpo para associar o upload a uma instância.',
+          400,
+        );
       if (!req.file) throw new TranscriptionServiceError('Selecione um arquivo de áudio.', 400);
       const job = await this.service.enqueueUpload({
-        buffer: req.file.buffer,
+        filePath,
+        reservationId: req.speechReservationId,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         language: req.body?.language,
         model: req.body?.model,
-        instanceId: req.body?.instanceId,
+        instanceId: req.speechUploadInstanceId,
         idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey,
       });
       res.status(202).json(job);
@@ -108,6 +99,7 @@ export class TranscriptionRouter {
         await this.service.cleanupExpiredUploads({
           olderThanSeconds: body.olderThanSeconds,
           limit: body.limit,
+          cursor: typeof body.cursor === 'string' ? body.cursor : undefined,
         }),
       );
     } catch (error) {
@@ -151,11 +143,6 @@ export class TranscriptionRouter {
   }
 
   private fail(error: unknown, res: Response) {
-    const known = error instanceof TranscriptionServiceError;
-    const status = known ? error.status : 503;
-    res.status(status).json({
-      status,
-      error: known ? error.message : 'Serviço de transcrição temporariamente indisponível.',
-    });
+    speechUploadFailure(error, res);
   }
 }

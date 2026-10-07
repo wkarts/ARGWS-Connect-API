@@ -7,6 +7,7 @@ import { diagnosticOperations, diagnosticSchemas } from './diagnostics-schema.mj
 import { metaCompatibleSchemas, metaCompatibilityAdminSchemas } from './meta-compatible-schemas.mjs';
 import { videoCallOperations, videoCallSchemas } from './video-call-schemas.mjs';
 import { findHubOperations, findHubSchemas, findHubEventMessages } from './findhub-schemas.mjs';
+import { speechOperations, legacySpeechOperations, speechJobSchema, speechHealthSchema } from './speech-schemas.mjs';
 
 const ROOT = process.cwd();
 const API_DIRS = [
@@ -278,7 +279,7 @@ const requestOverrides = {
   },
   'POST /v1/transcriptions/cleanup': {
     summary: 'Limpar áudios temporários expirados',
-    description: 'Remove somente objetos de áudio e registros/resultado de jobs enviados diretamente para a API que já passaram da retenção. Mídias e jobs de mensagens existentes não são removidos. Exige confirm=true no corpo para evitar exclusão acidental.',
+    description: 'Remove fontes próprias expiradas em lotes limitados, preservando resultados e mídias de mensagens. Considera lease e execução antes de apagar o objeto. Exige confirm=true no corpo.',
     requestBody: {
       required: true,
       content: {
@@ -290,13 +291,14 @@ const requestOverrides = {
               confirm: { type: 'boolean', enum: [true] },
               olderThanSeconds: { type: 'integer', minimum: 1, maximum: 31536000, example: 86400 },
               limit: { type: 'integer', minimum: 1, maximum: 1000, example: 250 },
+              cursor: { type: 'string', maxLength: 191, description: 'nextCursor retornado no lote anterior.' },
             },
           },
         },
       },
     },
     responses: {
-      '200': { description: 'Resumo da limpeza executada.' },
+      '200': { description: 'Resumo da limpeza executada; resultados preservados, hasMore e nextCursor indicam continuação.' },
       '400': { $ref: '#/components/responses/BadRequest' },
       '401': { $ref: '#/components/responses/Unauthorized' },
       '503': { description: 'MinIO ou banco indisponível.' },
@@ -610,88 +612,8 @@ const requestOverrides = {
       '404': { $ref: '#/components/responses/NotFound' },
     },
   },
-  'GET /v1/speech/live': {
-    tags: ['Speech'], summary: 'Verificar liveness do serviço de voz',
-    description: 'Confirma que o processo da API está vivo. Não verifica filas nem modelo.',
-    responses: { '200': { description: 'API de voz ativa.', content: { 'application/json': { schema: { type: 'object', properties: { status: { type: 'string', const: 'alive' } }, required: ['status'] } } } }, '401': { $ref: '#/components/responses/Unauthorized' } },
-  },
-  'GET /v1/speech/ready': {
-    tags: ['Speech'], summary: 'Verificar readiness de voz',
-    description: 'Retorna 200 quando pelo menos um worker de voz está consumindo a fila correspondente; caso contrário retorna 503.',
-    responses: { '200': { description: 'Ao menos um worker está pronto.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '503': { description: 'API, fila ou workers de voz indisponíveis.' } },
-  },
-  'GET /v1/speech/health': {
-    tags: ['Speech'], summary: 'Consultar saúde do subsistema de voz',
-    description: 'Retorna configuração local, estado das filas, disponibilidade dos dois workers e contagens de jobs; não altera jobs.',
-    responses: { '200': { description: 'Diagnóstico do subsistema.' }, '401': { $ref: '#/components/responses/Unauthorized' } },
-  },
-  'GET /v1/speech/models': {
-    tags: ['Speech'], summary: 'Listar modelo configurado',
-    description: 'Lista o modelo configurado e informa se os arquivos estão instalados, disponíveis para download, em transferência ou prontos para uso.',
-    responses: { '200': { description: 'Modelo configurado e estado dos workers.' }, '401': { $ref: '#/components/responses/Unauthorized' } },
-  },
-  'POST /v1/speech/models/{modelId}/download': {
-    tags: ['Speech'], summary: 'Baixar modelo de voz para armazenamento persistente',
-    description: 'Inicia em segundo plano o download da revisão fixada de Xenova/whisper-small para o volume SPEECH_MODELS_HOST_PATH. A API também inicia esse provisionamento ao subir se o modelo estiver ausente. O download é validado por SHA-256 e reutilizado pelos workers após reinícios e atualizações; somente esse modelo predefinido pode ser baixado pelo endpoint.',
-    responses: { '200': { description: 'O modelo já está instalado.' }, '202': { description: 'Download iniciado ou em andamento.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '409': { $ref: '#/components/responses/Conflict' } },
-  },
-  'POST /v1/speech/models/{modelId}/activate': {
-    tags: ['Speech'], summary: 'Confirmar ativação do modelo local',
-    description: 'Aceita somente o modelo já configurado em SPEECH_MODEL; a ativação efetiva requer provisionar o modelo e reiniciar os workers.',
-    responses: { '200': { description: 'Modelo configurado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
-  },
-  'POST /v1/speech/dictation': {
-    tags: ['Speech'], summary: 'Enfileirar ditado do microfone',
-    description: 'Recebe um áudio curto em multipart/form-data e o envia inline para a fila prioritária speech.dictation. O áudio não é copiado para MinIO; o job e o resultado ficam persistidos.',
-    requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', format: 'binary' }, language: { type: 'string', example: 'pt-BR' }, durationMs: { type: 'integer', minimum: 0 }, instanceId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 128 } } } } } },
-    responses: { '202': { description: 'Ditado aceito.', content: { 'application/json': { schema: { type: 'object', properties: { id: { type: 'string' }, mode: { const: 'dictation' }, status: { type: 'string', const: 'queued' } }, required: ['id', 'mode', 'status'] } } } }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '413': { description: 'Limite de tamanho ou duração excedido.' }, '415': { description: 'Formato de áudio não suportado.' }, '503': { description: 'Fila ou worker de ditado indisponível.' } },
-  },
-  'GET /v1/speech/dictation/{jobId}': {
-    tags: ['Speech'], summary: 'Consultar ditado', description: 'Retorna estado, progresso e texto do job de ditado.',
-    responses: { '200': { description: 'Estado atual do ditado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } },
-  },
-  'POST /v1/speech/dictation/{jobId}/cancel': {
-    tags: ['Speech'], summary: 'Cancelar ditado', description: 'Marca o job como cancelado e sinaliza o worker para parar entre trechos.',
-    responses: { '200': { description: 'Job cancelado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
-  },
-  'GET /v1/speech/transcriptions': {
-    tags: ['Speech'], summary: 'Listar transcrições', description: 'Lista jobs recentes de transcrição; use limit para ajustar a quantidade.',
-    parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200, default: 30 } }],
-    responses: {
-      '200': { description: 'Jobs recentes.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/TranscriptionJob' } } } } },
-      '401': { $ref: '#/components/responses/Unauthorized' },
-    },
-  },
-  'POST /v1/speech/transcriptions': {
-    tags: ['Speech'], summary: 'Criar transcrição', description: 'Cria um job para mídia já persistida de uma mensagem (JSON) ou recebe um arquivo para transcrição (multipart/form-data). Uploads diretos são armazenados em MinIO privado.',
-    requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['messageId'], properties: { messageId: { type: 'string' }, instanceId: { type: 'string' }, language: { type: 'string', example: 'pt-BR' }, idempotencyKey: { type: 'string', maxLength: 128 } } } }, 'multipart/form-data': { schema: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', format: 'binary' }, language: { type: 'string', example: 'pt-BR' }, instanceId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 128 } } } } } },
-    responses: { '202': { description: 'Job aceito.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '413': { description: 'O áudio excede o limite configurado.' }, '415': { description: 'Formato de áudio não suportado.' }, '503': { description: 'MinIO, fila ou worker indisponível.' } },
-  },
-  'POST /v1/speech/transcriptions/upload': {
-    tags: ['Speech'], summary: 'Enviar áudio para transcrição', description: 'Alias multipart/form-data de POST /v1/speech/transcriptions.',
-    requestBody: { required: true, content: { 'multipart/form-data': { schema: { type: 'object', required: ['audio'], properties: { audio: { type: 'string', format: 'binary' }, language: { type: 'string' }, instanceId: { type: 'string' }, idempotencyKey: { type: 'string', maxLength: 128 } } } } } },
-    responses: { '202': { description: 'Job aceito.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '413': { description: 'O áudio excede o limite configurado.' }, '415': { description: 'Formato de áudio não suportado.' }, '503': { description: 'MinIO, fila ou worker indisponível.' } },
-  },
-  'GET /v1/speech/transcriptions/{jobId}': {
-    tags: ['Speech'], summary: 'Consultar transcrição', description: 'Retorna estágio, progresso, heartbeat e resultado persistido.',
-    responses: {
-      '200': { description: 'Estado atual do job.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TranscriptionJob' } } } },
-      '401': { $ref: '#/components/responses/Unauthorized' },
-      '404': { $ref: '#/components/responses/NotFound' },
-    },
-  },
-  'POST /v1/speech/transcriptions/{jobId}/cancel': {
-    tags: ['Speech'], summary: 'Cancelar transcrição', description: 'Marca o job como cancelado e sinaliza o worker para interromper o processamento entre trechos.',
-    responses: { '200': { description: 'Job cancelado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' } },
-  },
-  'POST /v1/speech/transcriptions/{jobId}/retry': {
-    tags: ['Speech'], summary: 'Reenfileirar transcrição', description: 'Reenfileira somente uma transcrição em falha final com áudio ainda disponível.',
-    responses: { '202': { description: 'Job reenfileirado.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '409': { $ref: '#/components/responses/Conflict' }, '410': { description: 'Áudio original indisponível.' } },
-  },
-  'DELETE /v1/speech/transcriptions/{jobId}': {
-    tags: ['Speech'], summary: 'Remover resultado de transcrição', description: 'Remove o registro do job; mídia associada à mensagem permanece intacta.',
-    responses: { '200': { description: 'Job removido.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } },
-  },
+  ...speechOperations,
+  ...legacySpeechOperations,
 };
 
 function mergeOperation(base, override = {}) {
@@ -862,37 +784,8 @@ function nativeSpec(routes, version) {
         },
         ManagerStorageCleanupRequest: { type: 'object', additionalProperties: false, required: ['planId', 'confirm'], properties: { planId: { type: 'string', minLength: 1 }, confirm: { type: 'boolean', const: true } } },
         ManagerStorageCleanupResult: { type: 'object', required: ['status', 'requested', 'removed', 'skipped', 'failed', 'freedBytes', 'failures'], properties: { status: { type: 'string', enum: ['completed', 'partial'] }, requested: { type: 'integer' }, removed: { type: 'integer' }, skipped: { type: 'integer' }, failed: { type: 'integer' }, freedBytes: { type: 'integer' }, failures: { type: 'array', items: { type: 'string' } } } },
-        TranscriptionJob: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['id', 'provider', 'model', 'status', 'attempts', 'createdAt', 'updatedAt'],
-          properties: {
-            id: { type: 'string' },
-            workerId: { type: ['string', 'null'], description: 'Último worker que enviou atualização para o job.' },
-            instanceId: { type: ['string', 'null'] },
-            messageId: { type: ['string', 'null'] },
-            mode: { type: 'string', enum: ['transcription', 'dictation'] },
-            provider: { type: 'string', example: 'local' },
-            model: { type: 'string', example: 'Xenova/whisper-small' },
-            language: { type: ['string', 'null'] },
-            status: { type: 'string', enum: ['queued', 'processing', 'completed', 'cancelled', 'failed'] },
-            stage: { type: 'string', description: 'Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação.' },
-            progressPercent: { type: 'integer', minimum: 0, maximum: 100 },
-            processedDurationMs: { type: 'integer', minimum: 0 },
-            heartbeatAt: { type: ['string', 'null'], format: 'date-time' },
-            text: { type: ['string', 'null'] },
-            detectedLanguage: { type: ['string', 'null'] },
-            durationMs: { type: ['integer', 'null'], minimum: 0 },
-            segments: { type: ['array', 'null'], items: { type: 'object', additionalProperties: true } },
-            errorCode: { type: ['string', 'null'] },
-            errorMessage: { type: ['string', 'null'] },
-            attempts: { type: 'integer', minimum: 1 },
-            createdAt: { type: 'string', format: 'date-time' },
-            startedAt: { type: ['string', 'null'], format: 'date-time' },
-            completedAt: { type: ['string', 'null'], format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
+        TranscriptionJob: speechJobSchema,
+        SpeechHealth: speechHealthSchema,
         GenericResponse: { type: 'object', additionalProperties: true },
         ErrorResponse: { type: 'object', additionalProperties: true, properties: { status: { type: ['integer', 'string', 'null'] }, error: { type: ['string', 'boolean', 'object', 'null'] }, message: { type: ['string', 'array', 'null'] } } },
         CreateInstanceRequest: { type: 'object', properties: { instanceName: { type: 'string' }, integration: { type: 'string', enum: ['WHATSAPP-BUSINESS', 'WHATSAPP-BAILEYS', 'WHATSAPP-ZAPO', 'GOOGLE-FIND-HUB'] }, token: { type: 'string' }, number: { type: 'string' }, qrcode: { type: 'boolean' }, syncFullHistory: { type: 'boolean' } }, required: ['instanceName'], additionalProperties: true },

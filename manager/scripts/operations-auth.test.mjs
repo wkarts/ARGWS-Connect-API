@@ -13,6 +13,7 @@ const read = (file) => fs.readFileSync(path.join(manager, file), 'utf8');
 const sources = {
   current: read('src/services/current.ts'),
   operations: read('src/services/operations.ts'),
+  'retry-after': read('src/services/retry-after.ts'),
 };
 const compiled = Object.fromEntries(Object.entries(sources).map(([name, source]) => [name,
   ts.transpileModule(source, {
@@ -78,6 +79,7 @@ function documentSession(options = {}) {
     vm.runInNewContext(compiled[name], { ...context, module, exports: module.exports }, { filename: `${name}.js` });
     return module.exports;
   }
+  dependencies['./retry-after'] = load('retry-after');
   const current = load('current');
   dependencies['./current'] = current;
   const { operations } = load('operations');

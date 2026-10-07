@@ -68,7 +68,8 @@
     "Docker/rabbitmq/docker-compose.yaml",
     "Docker/redis/docker-compose.yaml",
     "deploy/docs-develop/compose.yaml",
-    "deploy/docs/compose.yaml"
+    "deploy/docs/compose.yaml",
+    "deploy/speech/host-budget.compose.yaml"
   ],
   "environmentVariables": {
     "FINDHUB_CREDENTIALS_KEY": "",

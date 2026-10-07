@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { SpeechModelDownloadService } from '@api/services/speech-model-download.service';
-import { TranscriptionService } from '@api/services/transcription.service';
+const { provisionModel } = require('../scripts/speech-model-provision.cjs');
 import { verifyModelDirectory } from '../transcription-worker/src/model-checksum';
 
 const MODEL_FILES = [
@@ -46,7 +46,7 @@ test('modelo de voz baixa para o volume persistente, valida e reutiliza os arqui
   };
 
   try {
-    const downloader = new SpeechModelDownloadService();
+    const downloader = new SpeechModelDownloadService({ run: (options) => provisionModel(options, { fetch: globalThis.fetch }) });
     const initial = await downloader.status();
     assert.equal(initial.available, true);
     assert.equal(initial.installed, false);
@@ -73,6 +73,26 @@ test('modelo de voz baixa para o volume persistente, valida e reutiliza os arqui
 
     const manifest = JSON.parse(await readFile(path.join(modelPath, '.speech-model-checksums.json'), 'utf8'));
     assert.equal(manifest.revision, '2d67713f236afa48a18992566e7647f6ca848e13');
+    const fileToCorrupt = path.join(modelPath, MODEL_FILES[12]);
+    const original = await readFile(fileToCorrupt);
+    await writeFile(fileToCorrupt, Buffer.alloc(original.length, 120));
+    let corrupted = await downloader.status();
+    assert.equal(corrupted.installed, false, 'same-size corruption must not remain ready');
+    while (corrupted.status === 'verifying') {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      corrupted = await downloader.status();
+    }
+    assert.equal(corrupted.status, 'failed');
+    assert.match(corrupted.errorMessage || '', /Checksum/);
+    await downloader.start('Xenova/whisper-small', { force: true });
+    let repaired = await downloader.status();
+    while (['downloading', 'verifying'].includes(repaired.status)) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      repaired = await downloader.status();
+    }
+    assert.equal(repaired.installed, true, repaired.errorMessage || 'repair did not complete');
+    assert.equal(await verifyModelDirectory(modelPath), MODEL_FILES.length);
+
   } finally {
     (globalThis as any).fetch = originalFetch;
     if (previousRoot === undefined) delete process.env.SPEECH_MODELS_PATH;
@@ -94,7 +114,7 @@ test('download gerenciado rejeita modelo diferente do perfil fixado', async () =
   process.env.SPEECH_MODEL_PATH = path.join(root, 'custom', 'model');
   process.env.SPEECH_MODEL = 'custom/model';
   try {
-    const downloader = new SpeechModelDownloadService();
+    const downloader = new SpeechModelDownloadService({ run: (options) => provisionModel(options, { fetch: globalThis.fetch }) });
     const status = await downloader.status();
     assert.equal(status.available, false);
     await assert.rejects(downloader.start('Xenova/whisper-small'), /somente para o modelo configurado/);
@@ -109,57 +129,47 @@ test('download gerenciado rejeita modelo diferente do perfil fixado', async () =
   }
 });
 
-test('API não baixa o modelo desativado e o provisiona somente no canal habilitado', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'argws-speech-model-bootstrap-'));
-  const envNames = ['SPEECH_MODELS_PATH', 'SPEECH_MODEL_PATH', 'SPEECH_MODEL', 'SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'RABBITMQ_ENABLED'];
-  const previousEnv = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
-  const originalFetch = globalThis.fetch;
-  const buffers = new Map(MODEL_FILES.map((filename) => [filename, Buffer.from(`fixture:${filename}`)]));
-  let metadataRequests = 0;
-  process.env.SPEECH_MODELS_PATH = root;
-  process.env.SPEECH_MODEL_PATH = path.join(root, 'Xenova', 'whisper-small');
-  process.env.SPEECH_MODEL = 'Xenova/whisper-small';
-  process.env.SPEECH_ENABLED = 'false';
-  process.env.RABBITMQ_ENABLED = 'false';
-  delete process.env.TRANSCRIPTION_ENABLED;
-  (globalThis as any).fetch = async (input: any) => {
-    const url = String(input);
-    if (url.includes('/api/models/')) {
-      metadataRequests += 1;
-      return new Response(JSON.stringify(MODEL_FILES.map((filename) => {
-        const bytes = buffers.get(filename)!;
-        return { type: 'file', path: filename, size: bytes.length, lfs: { oid: `sha256:${hash(bytes)}` } };
-      })), { status: 200 });
+
+test('download valida tamanho remoto e remove trava após erro', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'speech-model-overflow-'));
+  const fetcher = async (input: any) => {
+    if (String(input).includes('/api/models/')) {
+      return new Response(JSON.stringify(MODEL_FILES.map((name) => ({ type: 'file', path: name, size: 1 }))));
     }
-    const filename = MODEL_FILES.find((value) => new URL(url).pathname.endsWith(`/${value}`));
-    assert.ok(filename, `unexpected model file URL: ${url}`);
-    return new Response(buffers.get(filename) as any, { status: 200 });
+    return new Response(Buffer.alloc(100));
   };
-
   try {
-    const service = new TranscriptionService({} as any);
-    await Promise.all([service.init(), service.init()]);
-    const statusPath = path.join(root, '.speech-model-download.json');
-    await assert.rejects(stat(statusPath), { code: 'ENOENT' });
-    assert.equal(metadataRequests, 0, 'disabled API must never start the model download');
+    await assert.rejects(provisionModel({ modelId: 'Xenova/whisper-small', root }, { fetch: fetcher }), /tamanho publicado/);
+    const state = JSON.parse(await readFile(path.join(root, '.speech-model-download.json'), 'utf8'));
+    assert.equal(state.status, 'failed');
+    await assert.rejects(stat(path.join(root, '.speech-model-download.lock')), { code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
-    process.env.SPEECH_ENABLED = 'true';
-    await Promise.all([service.init(), service.init()]);
-    let status: any = null;
-    const deadline = Date.now() + 8000;
-    while (Date.now() < deadline) {
-      try { status = JSON.parse(await readFile(statusPath, 'utf8')); } catch { /* Download has not written status yet. */ }
-      if (status?.status === 'ready') break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+test('instalação interrompida restaura o modelo anterior e remove somente o estágio registrado', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'speech-model-recovery-'));
+  const modelId = 'Xenova/whisper-small';
+  const fetcher = async (input: any) => String(input).includes('/api/models/')
+    ? new Response(JSON.stringify(MODEL_FILES.map((name) => ({ type: 'file', path: name, size: 3 }))))
+    : new Response(Buffer.from('abc'));
+  try {
+    await provisionModel({ modelId, root }, { fetch: fetcher });
+    const target = path.join(root, 'Xenova', 'whisper-small');
+    const backupId = '11111111-1111-4111-8111-111111111111';
+    const stage = '.speech-model-staging-22222222-2222-4222-8222-222222222222';
+    await rename(target, target + '.previous-' + backupId);
+    await mkdir(path.join(root, stage));
+    await writeFile(path.join(root, stage, 'download.part'), 'partial');
+    await writeFile(path.join(root, 'keep.txt'), 'preserve');
+    await writeFile(path.join(root, '.speech-model-transaction.json'), JSON.stringify({ modelId, stage, backupId }));
+    await provisionModel({ modelId, root, operation: 'verify' }, {
+      fetch: async () => { throw new Error('Recovery must not download'); },
+    });
+    assert.equal(await verifyModelDirectory(target), MODEL_FILES.length);
+    assert.equal(await readFile(path.join(root, 'keep.txt'), 'utf8'), 'preserve');
+    for (const item of [stage, '.speech-model-transaction.json', '.speech-model-download.lock']) {
+      await assert.rejects(stat(path.join(root, item)), { code: 'ENOENT' });
     }
-    assert.equal(status?.status, 'ready', status?.errorMessage || 'API did not provision the model on startup');
-    assert.equal(metadataRequests, 1, 'repeated init must not start a second download');
-  } finally {
-    (globalThis as any).fetch = originalFetch;
-    for (const name of envNames) {
-      if (previousEnv[name] === undefined) delete process.env[name];
-      else process.env[name] = previousEnv[name];
-    }
-    await rm(root, { recursive: true, force: true });
-  }
+    await assert.rejects(stat(target + '.previous-' + backupId), { code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -51,6 +51,9 @@ async function bootstrap() {
     logger.warn('Fila de transcrição indisponível durante a inicialização: ' + (error?.message || error));
   });
 
+  const speechJson = json({ limit: '64kb' });
+  const speechForm = urlencoded({ extended: false, limit: '64kb', parameterLimit: 32 });
+
   app.use(
     cors({
       origin(requestOrigin, callback) {
@@ -65,8 +68,13 @@ async function bootstrap() {
       },
       methods: [...configService.get<Cors>('CORS').METHODS],
       credentials: configService.get<Cors>('CORS').CREDENTIALS,
-      exposedHeaders: ['X-Request-Id'],
+      exposedHeaders: ['X-Request-Id', 'Retry-After'],
     }),
+    // Speech metadata never needs the large media payload budget used by other APIs.
+    (req: Request, res: Response, next: NextFunction) => {
+      if (!/^\/v1\/(?:speech|transcriptions)(?:\/|$)/.test(req.path)) return next();
+      speechJson(req, res, (error) => (error ? next(error) : speechForm(req, res, next)));
+    },
     urlencoded({ extended: true, limit: '136mb' }),
     json({ limit: '136mb' }),
     compression(),
