@@ -1,5 +1,35 @@
 # Diagnóstico e operação dos workers de áudio
 
+## Release suspensa após novas amostras do develop (07/10/2026)
+
+A coleta das 04:58:52 às 05:58:52 UTC registrou 41 amostras ociosas de
+transcrição entre 2,620 e 2,633 GiB de RSS e 44 amostras ociosas de ditado
+entre 2,426 e 2,437 GiB. Os dois workers registraram `Heartbeat timeout` na
+conexão RabbitMQ e voltaram a anunciar o consumidor. O export de diagnóstico
+da API registrou seis requisições acima de 30 segundos, incluindo duas de
+mensagem acima de seis minutos. A API tinha 199–271 MiB de RSS nas amostras,
+o que não mede memória total da stack. A captura termina com os dois workers
+saindo com código 0; não comprova morte por OOM ou vazamento de memória.
+
+Sem eventos Docker, contador de reinícios, `memory.events` do cgroup e
+métricas do host, ainda não é possível atribuir os timeouts à inferência, ao
+broker ou à pressão geral da VPS. Tampouco há job de transcrição concluído
+nessa captura: `activeJobs` ficou em zero nas amostras ociosas. A publicação
+de uma nova versão está suspensa pelo marcador `.github/RELEASE_HOLD.md` até
+que o ensaio sustentado e os casos reais ali descritos sejam verificados.
+O novo workflow interrompe também disparos manuais antes dos builds. A execução
+de release que já estava em andamento foi bloqueada antes da etapa de
+publicação pela mudança de `main` entre validação e persistência da versão.
+
+Para investigar no host, colete `docker inspect` (ID, `RestartCount`,
+`State.ExitCode`, `State.OOMKilled`, horários), `docker events`, RSS e CPU de
+todos os containers, `memory.events` e mensagens do kernel no intervalo.
+Compare os horários dos heartbeats com os jobs e com o orçamento total de
+memória. Não some `speech_memory.rss` com `speech_inference_memory.rss`: as
+duas amostras incluem o mesmo processo e sua thread. Uma parada graciosa de
+Compose pode explicar o código 0, mas o comando que a provocou não está no
+export.
+
 ## Loop de reinício na inicialização do develop (07/10/2026)
 
 Os logs do develop mostram tanto as réplicas de transcrição quanto o ditado saindo com código 1 após `TypeError: Cannot read properties of null (reading 'jobId')` em `InferenceClient.onMessage`. A thread publica `speech_inference_memory` na fase `before_model`, sem identificador de job; o consumidor comparava `this.active?.id` (indefinido quando não há job) com `message.id` (também indefinido) e, por isso, tentava acessar `this.active.jobId` quando `this.active` era `null`. A correção só associa a amostra a um job quando existe uma execução ativa e o identificador da mensagem corresponde a ela. Amostras de inicialização e ociosidade continuam disponíveis sem `jobId`.
