@@ -455,15 +455,15 @@ model TranscriptionJob {
   idempotencyHash   String?   @unique @db.VarChar(64)
   generation        Int       @default(1) @db.Int
   executionId       String?   @db.VarChar(64)
-  leaseExpiresAt    DateTime? @db.Timestamp
-  deadlineAt        DateTime? @db.Timestamp
-  controlHeartbeatAt DateTime? @db.Timestamp
-  engineProgressAt  DateTime? @db.Timestamp
-  cancelRequestedAt DateTime? @db.Timestamp
+  leaseExpiresAt    DateTime? @db.Timestamp(0)
+  deadlineAt        DateTime? @db.Timestamp(0)
+  controlHeartbeatAt DateTime? @db.Timestamp(0)
+  engineProgressAt  DateTime? @db.Timestamp(0)
+  cancelRequestedAt DateTime? @db.Timestamp(0)
   sourceDeletionToken String? @db.VarChar(64)
   sourceDeletionStartedAt DateTime? @db.Timestamp(3)
-  sourceDeletedAt   DateTime? @db.Timestamp
-  sourceExpiresAt   DateTime? @db.Timestamp
+  sourceDeletedAt   DateTime? @db.Timestamp(0)
+  sourceExpiresAt   DateTime? @db.Timestamp(0)
   checkpoint        Json?     @db.Json
   requestedEngine   String?   @db.VarChar(32)
   requestedRevision String?   @db.VarChar(128)
@@ -522,8 +522,8 @@ model TranscriptionJob {
 model SpeechPool {
   id        String   @id @db.VarChar(100)
   revision  Int      @default(0) @db.Int
-  createdAt DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp
-  updatedAt DateTime @updatedAt @db.Timestamp
+  createdAt DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  updatedAt DateTime @updatedAt @db.Timestamp(0)
 }
 
 model SpeechUploadReservation {
@@ -533,8 +533,8 @@ model SpeechUploadReservation {
   reservedBytes Int      @db.Int
   sourceBucket  String?  @db.VarChar(63)
   sourceKey     String?  @db.VarChar(500)
-  expiresAt     DateTime @db.Timestamp
-  createdAt     DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp
+  expiresAt     DateTime @db.Timestamp(0)
+  createdAt     DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
 
   @@index([poolId, expiresAt])
   @@index([poolId, scopeKey, expiresAt])
@@ -548,13 +548,13 @@ model SpeechOutbox {
   generation    Int       @db.Int
   payload       Json      @db.Json
   status        String    @default("pending") @db.VarChar(20)
-  availableAt   DateTime  @db.Timestamp
+  availableAt   DateTime  @db.Timestamp(0)
   dispatchToken String?   @db.VarChar(64)
-  lockedUntil   DateTime? @db.Timestamp
+  lockedUntil   DateTime? @db.Timestamp(0)
   attempts      Int       @default(0) @db.Int
   lastError     String?   @db.VarChar(500)
-  createdAt     DateTime  @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp
-  publishedAt   DateTime? @db.Timestamp
+  createdAt     DateTime  @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  publishedAt   DateTime? @db.Timestamp(0)
 
   @@unique([jobId, generation])
   @@index([poolId, status, availableAt])
@@ -566,9 +566,9 @@ model SpeechWorker {
   poolId      String   @db.VarChar(100)
   modes       Json     @db.Json
   health      Json     @db.Json
-  heartbeatAt DateTime @db.Timestamp
-  createdAt   DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp
-  updatedAt   DateTime @updatedAt @db.Timestamp
+  heartbeatAt DateTime @db.Timestamp(0)
+  createdAt   DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  updatedAt   DateTime @updatedAt @db.Timestamp(0)
 
   @@index([poolId, heartbeatAt])
 }

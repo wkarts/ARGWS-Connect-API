@@ -27,7 +27,7 @@ test('MinIO real: áudio exige autenticação e bucket público preexistente é 
   const key='transcriptions/integration/audio.ogg';
   const object='argws-connect-api/'+key;
   try{
-    const stored=await storage.upload(key,Readable.from(['audio']),5,'audio/ogg','abc');
+    const stored=await storage.upload(key,Readable.from([Buffer.from('audio')]),5,'audio/ogg','abc');
     assert.equal(stored.bucket,privateBucket);
     const anonymous=await fetch(`http://${endpoint}:${port}/${privateBucket}/${object}`,{signal:AbortSignal.timeout(5000)});
     assert.equal(anonymous.status,403);await anonymous.body?.cancel();
@@ -37,7 +37,7 @@ test('MinIO real: áudio exige autenticação e bucket público preexistente é 
 
     const publicPolicy=JSON.stringify({Version:'2012-10-17',Statement:[{Effect:'Allow',Principal:'*',Action:['s3:GetObject'],Resource:[`arn:aws:s3:::${privateBucket}/*`]}]});
     await client.setBucketPolicy(privateBucket,publicPolicy);
-    await assert.rejects(storage.upload(key,Readable.from(['audio']),5,'audio/ogg','abc'),/permite acesso anônimo/);
+    await assert.rejects(storage.upload(key,Readable.from([Buffer.from('audio')]),5,'audio/ogg','abc'),/permite acesso anônimo/);
     assert.deepEqual(JSON.parse(await client.getBucketPolicy(privateBucket)),JSON.parse(publicPolicy));
     assert.equal(await storage.exists(stored.bucket,key),false);
   }finally{
