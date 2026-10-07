@@ -11,7 +11,7 @@ O resultado é código e configuração em validação. Não representa aplicaç
 | Achado do PDF | Correção implementada | Evidência e limite de validação |
 | --- | --- | --- |
 | F01 — ciclo frio a cada áudio | Processo de inferência residente, compartilhado pelo pool; descarregamento por ociosidade | Dois reconhecimentos reais no mesmo PID; medir carga fria e idle TTL na VPS |
-| F02 — threads implícitas | ONNX intra/inter threads explícitas, FFmpeg limitado, whisper.cpp CPU e pool HTTP de duas threads | Código primário das opções conferido; smoke nativo x64; imagem arm64 em CI |
+| F02 — threads implícitas | ONNX intra/inter threads explícitas, FFmpeg limitado, whisper.cpp CPU e pool HTTP de duas threads | Código primário das opções conferido; imagens e reconhecimento real AMD64/ARM64 aprovados na CI |
 | F03 — VAD fragmentado | Atividade agrupada em janelas de até 30 s com sobreposição/checkpoint | Testes de áudio e chamadas por janela; qualidade das emendas exige corpus |
 | F04 — PCM integral em tmpfs | Decodificação por janela, cache de fonte comprimida limitado e remoção do diretório após matar o grupo | Testes de limites e limpeza; tmpfs integra o orçamento do container |
 | F05 — orçamento individual confundido com VPS | Um pool por stack, memory=memswap, canário 1280 MiB/1 CPU; cgroup pai comum opcional | Contratos dos dez manifests; associação e pico agregado do host ainda exigem aplicação e medição |
@@ -28,7 +28,7 @@ O resultado é código e configuração em validação. Não representa aplicaç
 | F16 — modelo configurado diferente do executado | Catálogo fixado, engines explícitos, requested/effective/revision; sem alias openai→local | Testes de incompatibilidade e resultado real identificam base q5_1 |
 | F17 — corrupção sem reparo confiável | Verificação em subprocesso, fingerprint de invalidação, force repair, deadlines e journal de recuperação | Corrupção do mesmo tamanho detectada; reparo e recuperação de troca interrompida testados |
 | F18 — templates divergentes | Dez manifests, Fersoft gerado, deployers Node/Rust e flags consistentes | Compose/deployer aprovados localmente; Cargo e aplicação no host ficam para CI/homologação |
-| F19 — build não reprodutível/sem inferência real | Lockfile/npm ci, bloqueio de CUDA indesejada, whisper.cpp pinado, smoke antes de promover tags | Build nativo x64 e reconhecimento reais; imagens/arm64 precisam da matriz CI |
+| F19 — build não reprodutível/sem inferência real | Lockfile/npm ci, bloqueio de CUDA indesejada, whisper.cpp pinado, smoke antes de promover tags | Build e reconhecimento reais AMD64/ARM64 em Docker aprovados; promoção continua condicionada à homologação |
 | F20 — limpeza lê histórico inteiro | Lotes SQL limitados, índices, fonte/lease cercadas e resultados preservados | Testes de cleanup e corrida com retry; retenção operacional exige acompanhamento |
 | F21 — conversão de PTT | Fora deste patch por orientação explícita do responsável | Conversão e contratos de envio de áudio existentes preservados |
 | F22 — logs/eventos gerais | Fora deste patch por orientação explícita do responsável | Sistema de eventos e logs das integrações existentes preservado |
@@ -52,6 +52,20 @@ Executor Linux x64, Node 24.19.0. O binário foi compilado do commit upstream `4
 A variante inicial sem SIMD funcionou, mas levou cerca de 70–79 segundos para a mesma amostra, além do custo de warmup. Ela foi reprovada para o canário. A variante final usa dispatch de CPU do GGML, incluindo baseline e implementações selecionadas conforme o hardware.
 
 Esses tempos são amostras de smoke, não percentis de produção. RSS do servidor nativo não é RSS total do pool: faltam coordenador, supervisor, processo de adaptação, FFmpeg, page cache e tmpfs. O cgroup de 8 GiB do executor é compartilhado por todo o trabalho e não serve como medição de pico do pool. A CI executa o smoke Docker com teto de 1280 MiB/1 CPU; a VPS precisa do ensaio operacional completo.
+
+### Reconhecimento real nas imagens da CI
+
+No primeiro head publicado da [PR #221](https://github.com/wkarts/ARGWS-Connect-API/pull/221), `5c13ade99ff77af0b1c678c0e2b1c498666d4505`, os dois jobs nativos do [run 37676500195](https://github.com/wkarts/ARGWS-Connect-API/actions/runs/37676500195) concluíram com sucesso. O modelo e a amostra são os mesmos descritos acima; cada contêiner executou duas inferências no mesmo processo, com limite confirmado de 1280 MiB, uma CPU e swap adicional desabilitado.
+
+| Medida do smoke Docker | AMD64 | ARM64 |
+| --- | --- | --- |
+| Primeira / segunda inferência | 2,918 s / 2,950 s | 11,217 s / 11,164 s |
+| RTF | 0,265 / 0,268 | 1,020 / 1,015 |
+| Pico de RSS nativo | 165328 KiB | 159224 KiB |
+| Pico do cgroup do smoke | 212738048 bytes (202,88 MiB) | 216420352 bytes (206,39 MiB) |
+| Pico de threads nativas | 4 | 4 |
+
+Essa medição cobre o script de smoke e o servidor nativo. Não mede o conjunto coordenador/guardião/fila sob carga, nem a API e os provedores na VPS. Os [resultados AMD64](https://github.com/wkarts/ARGWS-Connect-API/actions/runs/37676500195/artifacts/11507575241) e [ARM64](https://github.com/wkarts/ARGWS-Connect-API/actions/runs/37676500195/artifacts/11506639023) foram preservados como artifacts. Os tempos entre arquiteturas refletem runners diferentes e não constituem comparação controlada de hardware.
 
 ## Testes e gates
 
@@ -82,6 +96,8 @@ npm run docs:check
 ```
 
 A compilação completa passou com heap de 4 GiB somente no comando de build. A primeira tentativa atingiu o heap de 2 GiB do compilador; isso não alterou limites ou configuração do runtime de produção. A verificação de escopo confirmou 253 caminhos nativos fora de fala com definições idênticas à base; OpenAPI Meta Compatible e AsyncAPI de eventos permaneceram byte a byte iguais. Também passaram os testes existentes de payload, roteamento Graph, templates e os 48 cenários de webhook Meta. A PR registra o resultado final de cada gate. Testes opt-in ignorados por falta de infraestrutura não contam como aprovados. Este executor não possui Docker, Cargo nem serviços PostgreSQL/MySQL/RabbitMQ. As integrações com esses serviços foram preparadas para runners próprios da CI; geração/validação de schema local não comprova comportamento transacional real.
+
+O primeiro ciclo de CI levou a quatro ajustes restritos à integração de fala: os geradores passaram a preservar o opt-in fora do develop principal; os testes isolados do Manager passaram a carregar o helper real de Retry-After; o teste de rollback SQL passou a provocar uma violação real de unicidade na outbox; e as rotas passaram a receber do middleware o caminho temporário criado pelo servidor, sem obter esse caminho de `req.file`. A última correção é coberta por uploads com nomes/campos de caminho adulterados, mantendo os contratos HTTP. A instalação do Manager segue o comando já utilizado nos seus workflows, pois ele não versiona lockfile. O gate de upgrade reproduz as migrations históricas da base e exige que a migração de fala não introduza nenhum drift, conforme o [diagnóstico operacional](../guides/speech-worker-diagnostics.md).
 
 ## Homologação e promoção
 

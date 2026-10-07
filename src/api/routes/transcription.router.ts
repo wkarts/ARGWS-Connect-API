@@ -17,7 +17,10 @@ export class TranscriptionRouter {
     this.router.post('/cleanup', (req, res) => void this.cleanup(req, res));
     this.router.post(
       '/upload',
-      (req, res) => void receiveSpeechUpload(this.service, 'transcription', req, res, () => this.upload(req, res)),
+      (req, res) =>
+        void receiveSpeechUpload(this.service, 'transcription', req, res, (filePath) =>
+          this.upload(req, res, filePath),
+        ),
     );
     this.router.get('/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/:jobId/retry', (req, res) => void this.retry(req, res));
@@ -58,7 +61,7 @@ export class TranscriptionRouter {
     }
   }
 
-  private async upload(req: any, res: Response) {
+  private async upload(req: any, res: Response, filePath: string) {
     try {
       if (req.body?.instanceId && String(req.body.instanceId) !== String(req.speechUploadInstanceId || ''))
         throw new TranscriptionServiceError(
@@ -67,7 +70,7 @@ export class TranscriptionRouter {
         );
       if (!req.file) throw new TranscriptionServiceError('Selecione um arquivo de áudio.', 400);
       const job = await this.service.enqueueUpload({
-        filePath: req.file.path,
+        filePath,
         reservationId: req.speechReservationId,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,

@@ -97,6 +97,14 @@ O smoke local com JFK verifica o caminho nativo e a residência entre trabalhos.
 
 Registre critérios numéricos de latência e qualidade antes de aprovar o perfil. O teto de 1280 MiB/1 CPU é a configuração inicial do ensaio. O smoke Docker em CI testa o binário sob esse teto; o ensaio operacional precisa cobrir API, coordenador, fila, fonte e motor juntos.
 
+## Verificação de upgrade de banco na CI
+
+O job **Durable speech** recria a base fixada em `SPEECH_MIGRATION_BASE_SHA` com as migrations originais, aplica somente `20261007193000_speech_durable_pool` e executa os testes reais de SQL, RabbitMQ e armazenamento. Esse caminho reproduz o upgrade de uma instalação existente. A criação de banco vazio com todas as migrations continua coberta pelo workflow **Database Integrity**.
+
+O gate registra o SQL de diferença entre o banco da base e seu schema Prisma antes do upgrade. Depois da migration de fala, exige que a diferença para o schema atual seja exatamente a mesma. Uma base sem divergências precisa continuar sem divergências; qualquer alteração nova de coluna, índice, default ou tabela reprova o job. Não há filtro que descarte diferenças novas da fala ou de outros módulos.
+
+A comparação antes/depois é necessária porque o schema MySQL herdado contém campos `@default(now()) @db.Timestamp`, enquanto suas migrations usam `CURRENT_TIMESTAMP` sem precisão fracionária. Recriar essa base com `prisma db push` falha em `createdAt` antes da migration de fala. A CI usa o histórico real e preserva essa diferença preexistente, sem modificar os modelos de outros contratos. Os testes de rollback provocam uma violação real do índice único da outbox dentro da transação e verificam que nem o job nem a outbox ficaram gravados.
+
 ## Rollback
 
 Interrompa novas admissões e pare o pool do canário com shutdown supervisionado. Registre jobs/gerações em andamento e preserve banco, filas, fontes e modelos. Restaure os parâmetros do adaptador Transformers e sua imagem compatível se for reverter somente o motor; trabalhos que pedem whisper.cpp não devem ser atendidos como outro modelo.

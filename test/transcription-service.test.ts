@@ -2,12 +2,15 @@ import { strict as assert } from 'node:assert';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import { PassThrough } from 'node:stream';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import express from 'express';
 
 import { receiveSpeechUpload } from '@api/routes/speech-upload.middleware';
 import { SpeechRouter } from '@api/routes/speech.router';
+import { TranscriptionRouter } from '@api/routes/transcription.router';
 import { SpeechDurableService } from '@api/services/speech-durable.service';
 import { getConfiguredSpeechModel } from '@api/services/speech-model-download.service';
 import { publishSpeechConfirmed, speechHash, speechScopeKey, TranscriptionServiceError } from '@api/services/speech-policy';
@@ -271,6 +274,41 @@ test('HTTP conserva multipart administrativo e roteia credencial de instância s
     assert.equal(owned.status,200);
     const another=await fetch(base+'/v1/speech/instances/a/transcriptions/owned-instance-b',{headers:{apikey:'key-a'}});assert.equal(another.status,404);
     const wrongKey=await fetch(base+'/v1/speech/instances/b/transcriptions/owned-instance-b',{headers:{apikey:'key-a'}});assert.equal(wrongKey.status,401);
+  }finally{server.closeAllConnections();await new Promise<void>((resolve)=>server.close(()=>resolve()));}
+});
+
+test('uploads usam somente o caminho temporário criado pelo servidor, independente dos metadados', {timeout:10_000}, async()=>{
+  const app=express();
+  const received:any[]=[];
+  const accept=async(input:any)=>{
+    const root=path.resolve(process.env.SPEECH_UPLOAD_DIR || path.join(os.tmpdir(),'speech-uploads'));
+    const relative=path.relative(root,input.filePath);
+    assert.match(relative,new RegExp('^upload-[a-zA-Z0-9]+'+path.sep.replace(/\\/g,'\\\\')+'audio$'));
+    assert.equal(await readFile(input.filePath,'utf8'),'audio');
+    received.push(input);
+    return {id:'job',mode:'transcription',status:'queued'};
+  };
+  const service:any={
+    reserveUpload:async()=>({id:'reservation',expiresAt:new Date(Date.now()+180_000)}),
+    releaseUpload:async()=>{},enqueueUpload:accept,enqueueDictation:accept,
+  };
+  const guard:any=(_req:any,_res:any,next:any)=>next();
+  app.use('/v1/speech',new SpeechRouter(service,guard).router);
+  app.use('/v1/transcriptions',new TranscriptionRouter(service,guard).router);
+  const server=app.listen(0,'127.0.0.1');
+  await new Promise<void>((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject);});
+  const base='http://127.0.0.1:'+(server.address() as any).port;
+  try{
+    for(const route of ['/v1/speech/dictation','/v1/speech/transcriptions/upload','/v1/transcriptions/upload']){
+      const form=new FormData();
+      form.append('filePath','../../outside-upload');
+      form.append('path','/outside-upload');
+      form.append('audio',new Blob(['audio'],{type:'audio/ogg'}),'../../outside-upload.ogg');
+      const response=await fetch(base+route,{method:'POST',body:form});
+      assert.equal(response.status,202,await response.text());
+    }
+    assert.equal(received.length,3);
+    assert.equal(new Set(received.map(input=>input.filePath)).size,3);
   }finally{server.closeAllConnections();await new Promise<void>((resolve)=>server.close(()=>resolve()));}
 });
 

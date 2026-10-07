@@ -29,7 +29,8 @@ export class SpeechRouter {
 
     this.router.post(
       '/dictation',
-      (req, res) => void receiveSpeechUpload(this.service, 'dictation', req, res, () => this.dictate(req, res)),
+      (req, res) =>
+        void receiveSpeechUpload(this.service, 'dictation', req, res, (filePath) => this.dictate(req, res, filePath)),
     );
     this.router.get('/dictation/:jobId', (req, res) => void this.readDictation(req, res));
     this.router.post('/dictation/:jobId/cancel', (req, res) => void this.cancel(req, res, 'dictation'));
@@ -38,14 +39,19 @@ export class SpeechRouter {
     this.router.post('/transcriptions', (req, res) => {
       const contentType = String(req.headers['content-type'] || '').toLowerCase();
       if (contentType.startsWith('multipart/form-data')) {
-        void receiveSpeechUpload(this.service, 'transcription', req, res, () => this.upload(req, res));
+        void receiveSpeechUpload(this.service, 'transcription', req, res, (filePath) =>
+          this.upload(req, res, filePath),
+        );
       } else {
         void this.createFromMessage(req, res);
       }
     });
     this.router.post(
       '/transcriptions/upload',
-      (req, res) => void receiveSpeechUpload(this.service, 'transcription', req, res, () => this.upload(req, res)),
+      (req, res) =>
+        void receiveSpeechUpload(this.service, 'transcription', req, res, (filePath) =>
+          this.upload(req, res, filePath),
+        ),
     );
     this.router.get('/transcriptions/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/transcriptions/:jobId/cancel', (req, res) => void this.cancel(req, res, 'transcription'));
@@ -53,11 +59,11 @@ export class SpeechRouter {
     this.router.delete('/transcriptions/:jobId', (req, res) => void this.remove(req, res, 'transcription'));
   }
 
-  private async dictate(req: any, res: Response) {
+  private async dictate(req: any, res: Response, filePath: string) {
     try {
       if (!req.file) throw new TranscriptionServiceError('Grave uma fala antes de iniciar o ditado.', 400);
       const job = await this.service.enqueueDictation({
-        filePath: req.file.path,
+        filePath,
         reservationId: req.speechReservationId,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
@@ -73,11 +79,11 @@ export class SpeechRouter {
     }
   }
 
-  private async upload(req: any, res: Response) {
+  private async upload(req: any, res: Response, filePath: string) {
     try {
       if (!req.file) throw new TranscriptionServiceError('Selecione um arquivo de áudio.', 400);
       const job = await this.service.enqueueUpload({
-        filePath: req.file.path,
+        filePath,
         reservationId: req.speechReservationId,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,

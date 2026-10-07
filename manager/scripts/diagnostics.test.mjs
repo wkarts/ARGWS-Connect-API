@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const ts = require('typescript')
 const manager = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const compiled = Object.fromEntries(['current', 'diagnostics'].map(name => [name, ts.transpileModule(
+const compiled = Object.fromEntries(['current', 'diagnostics', 'retry-after'].map(name => [name, ts.transpileModule(
   fs.readFileSync(path.join(manager, `src/services/${name}.ts`), 'utf8'),
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
 ).outputText]))
@@ -54,6 +54,7 @@ function browser(respond) {
     vm.runInNewContext(compiled[name], { ...context, module, exports: module.exports }, { filename: `${name}.js` })
     return module.exports
   }
+  dependencies['./retry-after'] = load('retry-after')
   const current = load('current')
   dependencies['./current'] = current
   return { current, ...load('diagnostics'), requests, links, blobs, removed, revoked, errors, timers, listeners }

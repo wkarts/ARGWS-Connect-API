@@ -33,7 +33,7 @@ export async function receiveSpeechUpload(
   mode: 'dictation' | 'transcription',
   request: SpeechRequest,
   response: Response,
-  completed: () => Promise<void>,
+  completed: (filePath: string) => Promise<void>,
 ) {
   let reservationId: string | undefined;
   let directory: string | undefined;
@@ -105,7 +105,9 @@ export async function receiveSpeechUpload(
       await service.reassignAdministrativeUpload(reservationId!, instanceId);
       request.speechUploadInstanceId = instanceId;
     }
-    await completed();
+    // The disk destination and filename belong to this middleware. Keep that
+    // capability out of req.file/body so client metadata never selects a path.
+    await completed(path.join(directory, 'audio'));
   } catch (error) {
     fail(error, response);
   } finally {

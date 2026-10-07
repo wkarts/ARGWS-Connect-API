@@ -28,12 +28,11 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             transcription-worker/package-lock.json
-            manager/package-lock.json
-      - name: Install exact dependencies
+      - name: Install locked API and worker dependencies plus the Manager toolchain
         run: |
           npm ci
           npm ci --prefix transcription-worker --omit=dev --no-audit --no-fund
-          npm ci --prefix manager --no-audit --no-fund
+          npm install --prefix manager --ignore-scripts --no-audit --no-fund
           npm run db:generate
       - name: Install bounded-audio and Compose test dependencies
         run: |
@@ -183,22 +182,38 @@ jobs:
             --env MINIO_ROOT_USER=speech_test \
             --env MINIO_ROOT_PASSWORD=speech_test_password \
             "${storage_image}" server /data
-      - name: Upgrade the fixed base schema using only the additive speech migration
+      - name: Upgrade the fixed migration history without introducing schema drift
         shell: bash
         run: |
           set -euo pipefail
-          speech_baseline_schema="${RUNNER_TEMP}/speech-${DATABASE_PROVIDER}-baseline.prisma"
+          speech_baseline_root="${RUNNER_TEMP}/speech-${DATABASE_PROVIDER}-baseline"
           speech_current_schema="prisma/${DATABASE_PROVIDER}-schema.prisma"
           speech_upgrade_sql="prisma/${DATABASE_PROVIDER}-migrations/20261007193000_speech_durable_pool/migration.sql"
-          git show "${SPEECH_MIGRATION_BASE_SHA}:${speech_current_schema}" > "${speech_baseline_schema}"
+          mkdir -p "${speech_baseline_root}"
+          git archive "${SPEECH_MIGRATION_BASE_SHA}" \
+            "${speech_current_schema}" "prisma/${DATABASE_PROVIDER}-migrations" \
+            | tar -x -C "${speech_baseline_root}"
+          speech_baseline_schema="${speech_baseline_root}/${speech_current_schema}"
+          mv "${speech_baseline_root}/prisma/${DATABASE_PROVIDER}-migrations" \
+            "${speech_baseline_root}/prisma/migrations"
           test -s "${speech_baseline_schema}"
           test -s "${speech_upgrade_sql}"
-          npx --no-install prisma db push --skip-generate --schema "${speech_baseline_schema}"
+          # Reproduce a deployed base through its immutable migration history.
+          # db push cannot recreate the inherited MySQL @default(now()) @db.Timestamp
+          # fields: Prisma renders a fractional CURRENT_TIMESTAMP against TIMESTAMP(0).
+          # Record inherited drift, then require exactly the same SQL after this upgrade.
+          # A drift-free base must remain drift-free; no speech or unrelated drift is ignored.
+          npx --no-install prisma migrate deploy --schema "${speech_baseline_schema}"
+          npx --no-install prisma migrate diff \
+            --from-schema-datasource "${speech_baseline_schema}" \
+            --to-schema-datamodel "${speech_baseline_schema}" \
+            --script --output "${speech_baseline_root}/drift-before.sql"
           npx --no-install prisma db execute --schema "${speech_baseline_schema}" --file "${speech_upgrade_sql}"
           npx --no-install prisma migrate diff \
             --from-schema-datasource "${speech_baseline_schema}" \
             --to-schema-datamodel "${speech_current_schema}" \
-            --exit-code
+            --script --output "${speech_baseline_root}/drift-after.sql"
+          diff --unified "${speech_baseline_root}/drift-before.sql" "${speech_baseline_root}/drift-after.sql"
       - name: Generate the current provider client after the upgrade gate
         run: |
           npm run db:generate

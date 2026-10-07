@@ -43,6 +43,7 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
   };
   try {
     await database.$connect();
+    context.afterEach(cleanup);
     await channel.assertExchange(poolId,'topic',{durable:true});
     for (const mode of ['transcription','dictation']) {
       await channel.assertQueue(speechQueue(mode)+'.dead-letter',{durable:true,arguments:speechDeadLetterArguments()});
@@ -51,8 +52,17 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
     }
 
     await context.test('SQL reverte job quando outbox falha após o insert',async()=>{
-      const id=randomUUID();const failing=new SpeechDurableService(database,()=>({unsupported:1n}));
-      await assert.rejects(failing.createJob(jobData({id})));
+      // Prisma can encode BigInt inside JSON. Force an actual database unique-key
+      // violation after both INSERTs, so this proves the transaction rolls back.
+      class OutboxConstraintFailure extends SpeechDurableService {
+        async writeOutbox(tx:any,job:any) {
+          await super.writeOutbox(tx,job);
+          const inserted = await tx.speechOutbox.findUnique({where:{jobId_generation:{jobId:job.id,generation:job.generation}}});
+          await tx.speechOutbox.create({data:inserted});
+        }
+      }
+      const id=randomUUID();const failing=new OutboxConstraintFailure(database,(job)=>({version:2,jobId:job.id}));
+      await assert.rejects(failing.createJob(jobData({id})),(error:any)=>error.code==='P2002');
       assert.equal(await database.transcriptionJob.count({where:{id}}),0);
       assert.equal(await database.speechOutbox.count({where:{jobId:id}}),0);
     });
@@ -63,7 +73,6 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
       assert.equal(new Set(results.map(job=>job.id)).size,1);
       assert.equal(await database.transcriptionJob.count({where:{poolId}}),1);
       assert.equal(await database.speechOutbox.count({where:{jobId:data.id}}),1);
-      await cleanup();
     });
 
     await context.test('SQL claim concorrente concede uma execução e cerca duplicatas',async()=>{
@@ -76,14 +85,12 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
       assert.equal(stale.applied,true);
       assert.equal((await database.transcriptionJob.findUnique({where:{id:job.id}})).status,'cancelled');
       const duplicate=await durable.control(control(job,'claim'));assert.equal(duplicate.granted,false);
-      await cleanup();
     });
 
     await context.test('reserva de upload impõe quota entre coordenadores SQL concorrentes',async()=>{
       const results=await Promise.allSettled(Array.from({length:4},()=>durable.reserveUpload(undefined,26_214_400)));
       assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
       assert.equal(await database.speechUploadReservation.count({where:{poolId}}),1);
-      await cleanup();
     });
 
     await context.test('confirm de exchange sem binding é rejected por basic.return real',async()=>{
@@ -104,7 +111,6 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
       const restarted=new TranscriptionService(database);(restarted as any).channel=channel;
       await (restarted as any).dispatchOutbox();
       const redelivery=await channel.get(speechQueue('transcription'),{noAck:false});assert.ok(redelivery);if(redelivery)channel.ack(redelivery);
-      await cleanup();
     });
 
     await context.test('checkpoint SQL atravessa nova geração e resultado antigo não modifica texto',async()=>{
@@ -114,7 +120,6 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
       const second=await durable.control(control(resumed,'claim'));assert.notEqual(second.executionId,first.executionId);
       const old=await durable.control(control(job,'finish',{executionId:first.executionId,status:'completed',result:{text:'velho'}}));
       assert.equal(old.reason,'STALE_GENERATION');assert.equal((await database.transcriptionJob.findUnique({where:{id:job.id}})).text,'persistido');
-      await cleanup();
     });
   } finally {
     await cleanup();
