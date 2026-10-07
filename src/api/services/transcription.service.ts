@@ -1022,7 +1022,7 @@ export class TranscriptionService {
       { mode: 'dictation', queue: queueFor('dictation') },
     ];
 
-    const connection = await amqp.connect(uri);
+    const connection = await amqp.connect(uri, { timeout: 5000, keepAlive: true });
     this.connection = connection;
     connection.on('error', (error) => this.logger.warn('RabbitMQ transcription: ' + (error?.message || error)));
     connection.on('close', () => {

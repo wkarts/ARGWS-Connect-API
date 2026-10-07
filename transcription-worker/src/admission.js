@@ -15,7 +15,7 @@ async function acquire(config, isCancelled, onLost = () => {}, connect = amqp.co
       let connection;
       let owned = false;
       try {
-        connection = await connect(config.rabbitmq.uri);
+        connection = await connect(config.rabbitmq.uri, { timeout: 5000, keepAlive: true });
         const channel = await connection.createChannel();
         await channel.assertQueue(`speech.admission.${namespace}.${slot}`, {
           durable: false, exclusive: true, autoDelete: true,

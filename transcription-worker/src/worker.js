@@ -7,6 +7,7 @@ const amqp = require('amqplib');
 const { createClient, downloadObjectToFile, writeBufferToTemp, cleanup } = require('./storage');
 const { InferenceClient } = require('./inference-client');
 const { acquire } = require('./admission');
+const { verifyModelDirectory } = require('./model-checksum');
 
 const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
@@ -73,8 +74,17 @@ function probeFfmpeg() {
 }
 
 class TranscriptionWorker {
-  constructor(config) {
+  constructor(config, dependencies = {}) {
     this.config = config;
+    this.createInferenceClient = dependencies.createInferenceClient || ((value) => new InferenceClient(value, {
+      restartOnFailure: false,
+    }));
+    this.verifyModel = dependencies.verifyModel || verifyModelDirectory;
+    this.acquireSlot = dependencies.acquireSlot || acquire;
+    this.downloadAudio = dependencies.downloadAudio || ((job) => job.inlineAudio
+      ? writeBufferToTemp(job.inlineAudio, job.sourceMimeType, this.config.maxAudioBytes)
+      : downloadObjectToFile(this.client, this.config.s3.bucket, job.sourceKey,
+        job.sourceMimeType, this.config.maxAudioBytes));
     this.connection = null;
     this.channel = null;
     this.controlChannel = null;
@@ -99,20 +109,18 @@ class TranscriptionWorker {
     while (!this.stopping) {
       await this.waitForPersistentModel();
       if (this.stopping) return;
-      this.logMemory('before_model');
-      this.provider = new InferenceClient(this.config);
       try {
-        await this.provider.warmup();
+        if (this.config.local.modelPath) await this.verifyModel(this.config.local.modelPath);
         break;
       } catch (error) {
-        console.error('Modelo de voz indisponível; aguardando reparo antes de atender a fila:', error.code || error.message);
-        await this.provider.stop().catch(() => {});
-        this.provider = null;
+        console.error('Modelo de voz inválido; aguardando reparo antes de atender a fila:', error.code || error.message);
         await this.waitForModelRepair();
       }
     }
     if (this.stopping) return;
-    this.logMemory('after_model');
+    // The admission lease must be acquired before native model allocation.
+    // A consumer can be ready while its inference thread is absent.
+    this.logMemory('model_verified');
     await this.connect().catch((error) => {
       console.error('RabbitMQ indisponível no início do worker:', error.message);
       void this.connection?.close().catch(() => {});
@@ -121,7 +129,7 @@ class TranscriptionWorker {
     this.idleMetrics = setInterval(() => {
       if (!this.activeTask) {
         this.logMemory('idle');
-        this.provider.sampleMemory();
+        this.provider?.sampleMemory();
       }
     }, 60_000);
     this.idleMetrics.unref?.();
@@ -133,6 +141,62 @@ class TranscriptionWorker {
       workerId: this.workerId, jobId: job?.jobId, attempt: job?.attempts,
       activeJobs: this.activeTask ? 1 : 0,
       rss, heapUsed, heapTotal, external, arrayBuffers, ...extra }));
+  }
+
+  async loadProvider(job) {
+    if (this.stopping) throw Object.assign(new Error('Worker em encerramento.'), { code: 'WORKER_STOPPING' });
+    this.logMemory('before_model', job);
+    const provider = this.createInferenceClient(this.config);
+    this.provider = provider;
+    let timeout;
+    try {
+      await Promise.race([
+        provider.warmup(),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(Object.assign(new Error('O modelo não ficou pronto dentro do prazo.'), {
+            code: 'MODEL_WARMUP_TIMEOUT', retryable: true,
+          })), (this.config.modelWarmupTimeoutSeconds || 300) * 1000);
+        }),
+      ]);
+      if (this.stopping || this.provider !== provider) {
+        throw Object.assign(new Error('Worker em encerramento.'), { code: 'WORKER_STOPPING' });
+      }
+      this.logMemory('after_model', job);
+      return provider;
+    } catch (error) {
+      if (this.provider === provider) this.provider = null;
+      await this.terminateProvider(provider);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async unloadProvider(job) {
+    const provider = this.provider;
+    this.provider = null;
+    if (!provider) return;
+    await this.terminateProvider(provider);
+    this.logMemory('model_unloaded', job);
+  }
+
+  async terminateProvider(provider) {
+    let timeout;
+    try {
+      await Promise.race([
+        provider.stop(),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('A thread nativa não encerrou em cinco segundos.')), 5000);
+        }),
+      ]);
+    } catch (error) {
+      // A stuck native thread cannot keep its model while another process
+      // acquires the slot. Broker redelivery recovers any unacknowledged job.
+      console.error('Falha fatal ao descarregar o modelo; encerrando somente o worker:', error.message);
+      process.exit(1);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async waitForPersistentModel() {
@@ -164,7 +228,7 @@ class TranscriptionWorker {
 
   async connect() {
     if (this.stopping) return;
-    const connection = await amqp.connect(this.config.rabbitmq.uri);
+    const connection = await amqp.connect(this.config.rabbitmq.uri, { timeout: 5000, keepAlive: true });
     this.connection = connection;
     connection.on('error', (error) => console.error('RabbitMQ speech error:', error.message));
     connection.on('close', () => {
@@ -477,13 +541,13 @@ class TranscriptionWorker {
         void publishProgress().catch((error) => console.error('Heartbeat de voz não publicado:', error.message));
       }, this.config.heartbeatIntervalSeconds * 1000);
       heartbeat.unref?.();
-      lease = await acquire(this.config, () => isCancelled() || this.stopping || isExpired(), () => {
+      lease = await this.acquireSlot(this.config, () => isCancelled() || this.stopping || isExpired(), () => {
         console.error('A reserva global de inferência foi perdida; devolvendo o job à fila.', job.jobId);
         if (this.stopping) return;
         this.stopping = true;
         this.provider?.cancel();
         void channel.close().catch(() => {});
-        void this.provider?.stop().catch(() => {}).then(async () => {
+        void this.unloadProvider(job).catch(() => {}).then(async () => {
           await this.activeTask?.catch(() => {});
           process.exit(1);
         });
@@ -503,18 +567,16 @@ class TranscriptionWorker {
 
       if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
       await publishProgress({ stage: job.inlineAudio ? 'normalizing' : 'downloading', progressPercent: 5 });
-      downloaded = job.inlineAudio
-        ? await writeBufferToTemp(job.inlineAudio, job.sourceMimeType, this.config.maxAudioBytes)
-        : await downloadObjectToFile(
-          this.client,
-          this.config.s3.bucket,
-          job.sourceKey,
-          job.sourceMimeType,
-          this.config.maxAudioBytes,
-        );
+      downloaded = await this.downloadAudio(job);
       if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
 
-      const result = await this.provider.transcribe(downloaded.filePath, {
+      await publishProgress({ stage: 'loading_model', progressPercent: 8 });
+      const provider = await this.loadProvider(job);
+      if (isExpired()) throw Object.assign(new Error('O áudio do ditado expirou durante a preparação do modelo.'), {
+        code: 'DICTATION_AUDIO_EXPIRED', retryable: false,
+      });
+      if (isCancelled()) throw Object.assign(new Error('O processamento foi cancelado.'), { code: 'CANCELLED', retryable: false });
+      const result = await provider.transcribe(downloaded.filePath, {
         language: job.language,
         model: job.model,
         mode: job.mode,
@@ -590,9 +652,17 @@ class TranscriptionWorker {
     } finally {
       this.activeJobId = null;
       if (heartbeat) clearInterval(heartbeat);
-      if (downloaded) await cleanup(downloaded.directory);
-      this.cancelledJobs.delete(job.jobId);
-      await lease?.release();
+      try {
+        if (downloaded) await cleanup(downloaded.directory);
+      } finally {
+        this.cancelledJobs.delete(job.jobId);
+        // Keep the distributed slot until the model thread has actually exited.
+        try {
+          await this.unloadProvider(job);
+        } finally {
+          await lease?.release();
+        }
+      }
       this.logMemory('job_settled', job, { elapsedMs: Date.now() - startedAt, peakRss });
     }
   }
@@ -618,11 +688,11 @@ class TranscriptionWorker {
       clearTimeout(timeout);
       if (!settled) {
         this.provider?.cancel();
-        await this.provider?.stop();
+        await this.unloadProvider();
         await Promise.race([this.activeTask.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
       }
     }
-    await this.provider?.stop();
+    await this.unloadProvider();
     await this.controlChannel?.close().catch(() => {});
     await this.channel?.close().catch(() => {});
     await this.connection?.close().catch(() => {});

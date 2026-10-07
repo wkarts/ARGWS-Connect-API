@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 import { diagnosticContext } from './diagnostic-context';
 import { sanitizeDiagnostic } from './diagnostic-sanitizer';
@@ -10,6 +11,7 @@ export class DiagnosticsService {
   private readonly startedAt = new Date().toISOString();
   private started?: Promise<void>;
   private sampleTimer?: ReturnType<typeof setInterval>;
+  private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
   private version = 'unknown';
 
   constructor(private readonly store: DiagnosticStore) {}
@@ -22,6 +24,7 @@ export class DiagnosticsService {
 
   private async initialize(): Promise<void> {
     await this.store.init();
+    this.eventLoopDelay.enable();
     this.record({
       code: 'runtime.started',
       version: this.version,
@@ -45,7 +48,9 @@ export class DiagnosticsService {
       externalBytes: memory.external,
       cpuUserMicros: cpu.user,
       cpuSystemMicros: cpu.system,
+      eventLoopDelayMs: Math.round((this.eventLoopDelay.max / 1e6) * 100) / 100,
     });
+    this.eventLoopDelay.reset();
   }
 
   record(input: any): void {
@@ -106,6 +111,7 @@ export class DiagnosticsService {
   }
   async stop() {
     clearInterval(this.sampleTimer);
+    this.eventLoopDelay.disable();
     await this.flush();
   }
 }

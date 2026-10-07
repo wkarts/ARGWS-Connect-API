@@ -9,6 +9,7 @@ class InferenceClient {
     this.WorkerClass = options.Worker || Worker;
     this.workerPath = options.workerPath || path.join(__dirname, 'inference-thread.js');
     this.stallTimeoutMs = options.stallTimeoutMs ?? (config.inferenceStallSeconds || 300) * 1000;
+    this.restartOnFailure = options.restartOnFailure !== false;
     this.stopping = false;
     this.active = null;
     this.recovery = null;
@@ -42,7 +43,7 @@ class InferenceClient {
 
   onStall(active) {
     if (this.active !== active || this.stopping) return;
-    console.error(`Inferência sem progresso por ${this.stallTimeoutMs} ms; reiniciando a thread do modelo.`);
+    console.error(`Inferência sem progresso por ${this.stallTimeoutMs} ms; encerrando a thread do modelo.`);
     this.restartThread(Object.assign(new Error('A inferência não apresentou progresso dentro do prazo.'), {
       code: 'INFERENCE_STALLED', retryable: true,
     }));
@@ -58,11 +59,12 @@ class InferenceClient {
     this.ready = false;
     this.recovery = previousThread.terminate().then(async () => {
       if (this.stopping) return;
+      if (!this.restartOnFailure) return;
       this.startThread();
       await this.startup;
     }).catch((error) => {
       if (!this.stopping) {
-        console.error('Não foi possível reiniciar a inferência:', error.message);
+        console.error('Não foi possível encerrar ou reiniciar a inferência:', error.message);
         process.exit(1);
       }
     });
@@ -127,6 +129,9 @@ class InferenceClient {
   async transcribe(filePath, input = {}) {
     if (this.recovery) await this.recovery;
     await this.startup;
+    if (!this.thread || !this.ready) throw Object.assign(new Error('Thread de inferência indisponível.'), {
+      code: 'INFERENCE_THREAD_FAILED', retryable: true,
+    });
     if (this.active || this.stopping) throw Object.assign(new Error('Inferência ocupada ou indisponível.'), {
       code: this.stopping ? 'WORKER_STOPPING' : 'WORKER_BUSY',
     });
