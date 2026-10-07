@@ -45,6 +45,15 @@ jobs:
           ref: ${{ github.sha }}
           submodules: recursive
           fetch-depth: 0
+      - name: Enforce release hold
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f .github/RELEASE_HOLD.md ]]; then
+            cat .github/RELEASE_HOLD.md
+            echo 'Release suspended until worker validation is complete.' >&2
+            exit 1
+          fi
       - name: Install Node
         uses: actions/setup-node@v5
         with:
