@@ -522,7 +522,7 @@ model TranscriptionJob {
 model SpeechPool {
   id        String   @id @db.VarChar(100)
   revision  Int      @default(0) @db.Int
-  createdAt DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  createdAt DateTime @default(now()) @db.Timestamp(0)
   updatedAt DateTime @updatedAt @db.Timestamp(0)
 }
 
@@ -534,7 +534,7 @@ model SpeechUploadReservation {
   sourceBucket  String?  @db.VarChar(63)
   sourceKey     String?  @db.VarChar(500)
   expiresAt     DateTime @db.Timestamp(0)
-  createdAt     DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  createdAt     DateTime @default(now()) @db.Timestamp(0)
 
   @@index([poolId, expiresAt])
   @@index([poolId, scopeKey, expiresAt])
@@ -553,7 +553,7 @@ model SpeechOutbox {
   lockedUntil   DateTime? @db.Timestamp(0)
   attempts      Int       @default(0) @db.Int
   lastError     String?   @db.VarChar(500)
-  createdAt     DateTime  @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  createdAt     DateTime  @default(now()) @db.Timestamp(0)
   publishedAt   DateTime? @db.Timestamp(0)
 
   @@unique([jobId, generation])
@@ -567,7 +567,7 @@ model SpeechWorker {
   modes       Json     @db.Json
   health      Json     @db.Json
   heartbeatAt DateTime @db.Timestamp(0)
-  createdAt   DateTime @default(dbgenerated("CURRENT_TIMESTAMP")) @db.Timestamp(0)
+  createdAt   DateTime @default(now()) @db.Timestamp(0)
   updatedAt   DateTime @updatedAt @db.Timestamp(0)
 
   @@index([poolId, heartbeatAt])

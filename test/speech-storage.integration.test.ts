@@ -37,8 +37,11 @@ test('MinIO real: áudio exige autenticação e bucket público preexistente é 
 
     const publicPolicy=JSON.stringify({Version:'2012-10-17',Statement:[{Effect:'Allow',Principal:'*',Action:['s3:GetObject'],Resource:[`arn:aws:s3:::${privateBucket}/*`]}]});
     await client.setBucketPolicy(privateBucket,publicPolicy);
+    // MinIO canonicalizes Principal '*' to {AWS:['*']}. Compare the persisted
+    // policy before and after admission, proving the service never rewrites it.
+    const persistedPolicy=JSON.parse(await client.getBucketPolicy(privateBucket));
     await assert.rejects(storage.upload(key,Readable.from([Buffer.from('audio')]),5,'audio/ogg','abc'),/permite acesso anônimo/);
-    assert.deepEqual(JSON.parse(await client.getBucketPolicy(privateBucket)),JSON.parse(publicPolicy));
+    assert.deepEqual(JSON.parse(await client.getBucketPolicy(privateBucket)),persistedPolicy);
     assert.equal(await storage.exists(stored.bucket,key),false);
   }finally{
     await client.removeObject(privateBucket,object).catch(()=>{});
