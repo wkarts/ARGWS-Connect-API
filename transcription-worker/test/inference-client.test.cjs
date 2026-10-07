@@ -55,6 +55,23 @@ test('inferência travada termina com erro recuperável e o próximo áudio usa 
   }
 });
 
+test('worker de job isolado não inicia um segundo modelo após inferência travada', async () => {
+  const client = new InferenceClient({}, {
+    workerPath: path.join(__dirname, 'fixtures/stalling-inference.cjs'),
+    stallTimeoutMs: 80,
+    restartOnFailure: false,
+  });
+  try {
+    await client.warmup();
+    await assert.rejects(client.transcribe('travado.ogg', { stall: true }), { code: 'INFERENCE_STALLED' });
+    await client.recovery;
+    assert.equal(client.thread, null);
+    await assert.rejects(client.transcribe('seguinte.ogg'), { code: 'INFERENCE_THREAD_FAILED' });
+  } finally {
+    await client.stop();
+  }
+});
+
 test('parada durante inferência rejeita o job para que o canal possa devolvê-lo', async () => {
   const client = new InferenceClient({}, {
     workerPath: path.join(__dirname, 'fixtures/stalling-inference.cjs'),

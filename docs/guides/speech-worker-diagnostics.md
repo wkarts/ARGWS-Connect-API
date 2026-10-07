@@ -1,12 +1,71 @@
 # Diagnóstico e operação dos workers de áudio
 
+## Correção em validação no develop
+
+O código anterior carregava uma pipeline `Xenova/whisper-small` q8 em cada
+worker **antes** de registrar consumidores e antes de adquirir a vaga global.
+Isso explica os dois modelos residentes na ociosidade (~5,05 GiB somados) da
+coleta de 07/10. A reserva limitava inferência simultânea, mas não o número de
+modelos em memória. A correção verifica o manifesto sem carregar a pipeline,
+adquire a vaga antes do carregamento e encerra a thread antes de liberá-la.
+O startup da API não aguarda o RabbitMQ de áudio; conexões AMQP de voz têm
+prazo de cinco segundos. O warm-up tem prazo configurável de 300 segundos,
+com falha recuperável e tentativas limitadas.
+Após uma inferência sem progresso, o worker encerra a thread antiga sem
+carregar outra em paralelo; o retry obtém nova vaga antes de criar a próxima.
+Se a thread nativa não encerrar em cinco segundos, somente o processo do
+worker termina e o broker recupera a entrega ainda não confirmada.
+
+Isso elimina a residência dupla ociosa **por código**, mas ainda exige medir
+RSS depois da thread terminar com modelo real na VPS. A mudança aumenta a
+latência de cada job pelo carregamento frio; a interface recebe
+`loading_model` e heartbeat durante a espera. A vaga global só abrange
+workers no mesmo broker/vhost/exchange. Não atribua os atrasos da API ou os
+timeouts de heartbeat exclusivamente a esse mecanismo sem os eventos do host.
+O bloqueio de release permanece até a medição sustentada e os testes de jobs
+reais descritos no marcador em `main`.
+As próximas amostras `runtime.sample` da API incluem também
+`eventLoopDelayMs`, o maior atraso do loop no minuto. Compare esse valor com
+latência HTTP e com os eventos do host; a medição distingue bloqueio local do
+processo de hipóteses de contenção externa, sem registrar payloads.
+
+## Release suspensa após novas amostras do develop (07/10/2026)
+
+A coleta das 04:58:52 às 05:58:52 UTC registrou 41 amostras ociosas de
+transcrição entre 2,620 e 2,633 GiB de RSS e 44 amostras ociosas de ditado
+entre 2,426 e 2,437 GiB. Os dois workers registraram `Heartbeat timeout` na
+conexão RabbitMQ e voltaram a anunciar o consumidor. O export de diagnóstico
+da API registrou seis requisições acima de 30 segundos, incluindo duas de
+mensagem acima de seis minutos. A API tinha 199–271 MiB de RSS nas amostras,
+o que não mede memória total da stack. A captura termina com os dois workers
+saindo com código 0; não comprova morte por OOM ou vazamento de memória.
+
+Sem eventos Docker, contador de reinícios, `memory.events` do cgroup e
+métricas do host, ainda não é possível atribuir os timeouts à inferência, ao
+broker ou à pressão geral da VPS. Tampouco há job de transcrição concluído
+nessa captura: `activeJobs` ficou em zero nas amostras ociosas. A publicação
+de uma nova versão está suspensa pelo marcador `.github/RELEASE_HOLD.md` em `main` até
+que o ensaio sustentado e os casos reais ali descritos sejam verificados.
+O novo workflow interrompe também disparos manuais antes dos builds. A execução
+de release que já estava em andamento foi bloqueada antes da etapa de
+publicação pela mudança de `main` entre validação e persistência da versão.
+
+Para investigar no host, colete `docker inspect` (ID, `RestartCount`,
+`State.ExitCode`, `State.OOMKilled`, horários), `docker events`, RSS e CPU de
+todos os containers, `memory.events` e mensagens do kernel no intervalo.
+Compare os horários dos heartbeats com os jobs e com o orçamento total de
+memória. Não some `speech_memory.rss` com `speech_inference_memory.rss`: as
+duas amostras incluem o mesmo processo e sua thread. Uma parada graciosa de
+Compose pode explicar o código 0, mas o comando que a provocou não está no
+export.
+
 ## Loop de reinício na inicialização do develop (07/10/2026)
 
 Os logs do develop mostram tanto as réplicas de transcrição quanto o ditado saindo com código 1 após `TypeError: Cannot read properties of null (reading 'jobId')` em `InferenceClient.onMessage`. A thread publica `speech_inference_memory` na fase `before_model`, sem identificador de job; o consumidor comparava `this.active?.id` (indefinido quando não há job) com `message.id` (também indefinido) e, por isso, tentava acessar `this.active.jobId` quando `this.active` era `null`. A correção só associa a amostra a um job quando existe uma execução ativa e o identificador da mensagem corresponde a ela. Amostras de inicialização e ociosidade continuam disponíveis sem `jobId`.
 
 Esse encerramento acontece antes do warm-up do modelo; os logs apresentados registram cerca de 75 MiB de RSS nessa fase e não atribuem esse loop a OOM. Isso não esclarece os OOMs históricos da VPS Fersoft, que continuam exigindo correlação própria. A captura do Dockge também mostra duas réplicas de transcrição, enquanto o Compose atual usa `SPEECH_TRANSCRIPTION_REPLICAS=1` por padrão: confira o valor efetivo no `.env`, overrides e escala do painel para manter a capacidade conservadora.
 
-Após a imagem corrigida estar disponível no develop principal, recrie somente os serviços `transcription-worker-argws-connect-develop` e `speech-dictation-worker-argws-connect-develop`. Verifique nos logs `before_model`, `after_model`, ausência do `TypeError`, prontidão do modelo e contagem de reinícios estável; então processe um job curto de cada modo e confirme resultado e métricas vinculadas ao `jobId`. Preserve RabbitMQ, banco, MinIO e modelos; não execute `down -v`. A nova release também publica o worker estável para transcrição nos demais deploys; ditado continua limitado ao develop principal.
+Após a imagem corrigida estar disponível no develop principal, recrie somente os serviços `transcription-worker-argws-connect-develop` e `speech-dictation-worker-argws-connect-develop`. Na partida, verifique `model_verified` sem `after_model` ocioso; durante cada job, verifique `before_model`, `after_model`, `model_unloaded` e resultado final. Confirme ausência do `TypeError`, jobs curtos de cada modo e contagem de reinícios estável. Preserve RabbitMQ, banco, MinIO e modelos; não execute `down -v`. A release para produção continua suspensa.
 
 ## Amostras após correção do warm-up (07/10/2026)
 
@@ -16,7 +75,7 @@ Os logs posteriores à PR #216 registram `before_model` perto de 75 MiB, `after_
 
 O worker atual mantém uma única pipeline Transformers.js com `Xenova/whisper-small` q8 por processo; reduzir as réplicas evita modelos duplicados dentro da mesma stack. `whisper.cpp` oferece modelos multilíngues `tiny`, `base` e `small` e quantização, com estimativas publicadas de memória para o motor que não incluem o nosso Node, FFmpeg, buffers, tmpfs e filas. `faster-whisper` int8 também tem medições publicadas menores que a execução fp32 em CPU em um benchmark específico. Consulte [whisper.cpp](https://github.com/ggml-org/whisper.cpp#memory-usage) e [faster-whisper](https://github.com/SYSTRAN/faster-whisper#benchmark).
 
-Esta release mantém o motor atual para preservar contratos e permitir o retorno da transcrição sem introduzir outro pipeline não ensaiado. Para trocar, primeiro compare o mesmo conjunto de áudios em português (curtos, longos, ruído e sem fala) em execução isolada: RSS antes/depois, pico, duração, precisão, cancelamento e recuperação do job. A API atualmente baixa uma revisão fixada somente de `Xenova/whisper-small`; configurar apenas `SPEECH_MODEL` para outro modelo não provisiona seus pesos nem garante que o worker fique pronto. Uma migração de motor exigirá provisionamento verificado, integração e testes de regressão.
+Esta correção mantém o motor atual para preservar contratos durante a validação no develop. Para trocá-lo, primeiro compare o mesmo conjunto de áudios em português (curtos, longos, ruído e sem fala) em execução isolada: RSS antes/depois, pico, duração, precisão, cancelamento e recuperação do job. A API atualmente baixa uma revisão fixada somente de `Xenova/whisper-small`; configurar apenas `SPEECH_MODEL` para outro modelo não provisiona seus pesos nem garante que o worker fique pronto. Uma migração de motor exigirá provisionamento verificado, integração e testes de regressão.
 
 ## Evidências disponíveis em 06/10/2026
 
@@ -28,7 +87,7 @@ Os ZIPs de stacks anteriores às PRs #213/#214 contêm Compose e `.env`, não lo
 
 | Mecanismo anterior | Efeito demonstrável | Mudança |
 | --- | --- | --- |
-| Uma pipeline Whisper q8 por processo, mantida em singleton na thread | Três processos podem manter três modelos residentes mesmo ociosos; 4 GiB por container não limita o conjunto | Develop inicia uma réplica de transcrição e uma de ditado; uma reserva RabbitMQ limita a uma inferência global inicialmente |
+| Uma pipeline Whisper q8 por processo, carregada na partida | Dois processos mantinham dois modelos residentes mesmo ociosos; 4 GiB por container não limita o conjunto | A nova rotina verifica o modelo sem inferência, carrega depois da reserva RabbitMQ e descarrega antes de liberá-la |
 | FFmpeg acumulava stdout em `Buffer[]`, concatenava em novo `Buffer` e copiava para `Float32Array` | Pelo menos três representações do PCM inteiro coexistiam no pico; 1 hora mono 16 kHz f32 representa ~219,7 MiB por cópia | FFmpeg grava PCM em arquivo temporário com backpressure; VAD lê quadros e Whisper recebe trechos limitados; limite de duração é verificado durante a decodificação |
 | Watchdog da API republicava jobs `processing` quando o heartbeat envelhecia | A entrega original ainda poderia estar não confirmada; o ditado republicado perderia o payload inline | Estado `awaiting_redelivery`, sem republicação; a entrega original volta pelo broker quando o canal se fecha, ou termina em falha identificável após novo prazo |
 | Retry do worker serializava o job normalizado sem o objeto `source` | A próxima entrega falhava na validação e não podia voltar ao processamento; no ditado, duração de retenção também não era preservada | Retry monta novamente o contrato da fila, preserva `source`, áudio inline e data de entrada; teste normaliza a mensagem da segunda tentativa |
@@ -41,16 +100,17 @@ Não há prova de qual mecanismo causou os dois reinícios da réplica 2. També
 
 | Configuração | Padrão | Efeito |
 | --- | --- | --- |
-| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma pipeline de transcrição residente; ditado mantém outra |
+| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma réplica consumidora; modelo carregado somente após obter a vaga para um job |
 | `SPEECH_WORKER_CONCURRENCY` | `1` | Prefetch por processo; valores maiores falham na validação |
 | `SPEECH_GLOBAL_CONCURRENCY` | `1` | Vagas exclusivas compartilhadas pelo mesmo exchange RabbitMQ para os dois modos; todas as réplicas devem usar o mesmo valor |
+| `SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS` | `300` | Prazo para carregar o modelo depois da admissão; falha recuperável ao ultrapassar |
 | `SPEECH_MAX_DURATION_SECONDS` | `3600` | PCM de transcrição acima do limite falha com `AUDIO_TOO_LONG` |
 | `DICTATION_MAX_DURATION_SECONDS` | `300` | O worker valida o áudio decodificado, independentemente da duração informada pelo cliente |
 | `SPEECH_SHUTDOWN_GRACE_SECONDS` | `90` | Conclusão voluntária antes de interromper e devolver a entrega |
 | `SPEECH_MAX_ATTEMPTS` | `3` | Limita retries e redeliveries por falhas de processo observadas em quorum queues |
 | `SPEECH_JOB_STALE_AFTER` | `120` | Prazo após o último heartbeat para começar a aguardar redelivery; o estágio `retrying` respeita antes seu atraso |
 
-A vaga é representada por uma fila exclusiva e efêmera cujo nome deriva do exchange e do índice. Uma conexão RabbitMQ a mantém durante o job; a perda da conexão interrompe a inferência e fecha o canal do job. A conexão fecha para liberar a vaga. Essa solução usa o broker existente; requer que os workers compartilhem broker, vhost, exchange e valor de concorrência. Uma vaga controla inferência, mas não elimina o segundo modelo residente. A fila de ditado continua separada, sem prioridade estrita na disputa pela vaga.
+A vaga é representada por uma fila exclusiva e efêmera cujo nome deriva do exchange e do índice. Uma conexão RabbitMQ a mantém durante o job; a perda da conexão interrompe a inferência e fecha o canal do job. A conexão fecha para liberar a vaga. Essa solução usa o broker existente; requer que os workers compartilhem broker, vhost, exchange e valor de concorrência. Com o carregamento sob demanda e a liberação da thread antes da vaga, uma vaga agora limita também o número de modelos residentes em processamento no mesmo broker. A fila de ditado continua separada, sem prioridade estrita na disputa pela vaga.
 
 O Compose monta `/tmp` como tmpfs de 1 GiB: o PCM gravado ali continua consumindo memória contabilizada pelo cgroup, embora deixe de ocupar várias cópias no heap e nos buffers do Node. Uma hora decodificada ocupa aproximadamente 219,7 MiB desse tmpfs. Compare `memory.current`/`docker stats` e RSS para verificar a economia real; ampliar o limite de duração exige rever tamanho do tmpfs e orçamento do host.
 
@@ -75,8 +135,8 @@ Para esclarecer os reinícios antigos, obtenha logs com timestamps imediatamente
 ## Atualização sem perder dados
 
 1. Preserve os volumes de banco, RabbitMQ, MinIO e `./models`. Verifique o orçamento por **host**: cada stack carrega o próprio modelo; uma vaga global em brokers separados não coordena as stacks.
-2. Atualize o Compose da stack, a imagem da API e a imagem estável do worker. No `.env` efetivo inclua `transcription` em `COMPOSE_PROFILES`, habilite `SPEECH_ENABLED`, `TRANSCRIPTION_ENABLED`, `MANAGER_FEATURE_TRANSCRIPTION`, mantenha `DICTATION_ENABLED=false` nas produções, fixe uma réplica, concorrência global um e tmpfs de 1 GiB. Execute `docker compose --env-file .env -f compose.yaml pull` e `docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans` no projeto correto. Confira `docker compose ps -a`; não execute `down -v`.
-3. No develop principal, mantenha o worker de ditado e sua flag apenas se houver margem de RAM. Aplique as migrations de `TranscriptionJob.workerId`, atualize API e workers juntos. Confira que o modelo foi instalado e que os containers não estão reiniciando antes de ampliar carga.
+2. No develop principal, atualize o Compose e as imagens `:develop` da API e do worker da mesma revisão. No `.env` efetivo inclua `transcription` em `COMPOSE_PROFILES`, habilite `SPEECH_ENABLED`, `TRANSCRIPTION_ENABLED`, `MANAGER_FEATURE_TRANSCRIPTION`, fixe uma réplica, concorrência global um e tmpfs de 1 GiB. Recrie os serviços de API e áudio específicos da stack sem recriar banco, RabbitMQ ou MinIO; confira `docker compose ps -a` e não execute `down -v`.
+3. Mantenha o worker de ditado e sua flag apenas se houver margem de RAM. Aplique as migrations de `TranscriptionJob.workerId`, atualize API e workers juntos. Confira que o modelo foi instalado e que os containers não estão reiniciando antes de ampliar carga. Nas produções, incluindo Fersoft, mantenha os workers e a criação de jobs de voz desativados até concluir a validação e retirar o bloqueio de release.
 4. Monitore jobs `queued`, `waiting_for_capacity`, `retrying`, `awaiting_redelivery`, `completed`, `cancelled` e `failed`. Para um job de transcrição terminal com áudio persistente, o retry manual é possível; no ditado, solicite nova gravação. Não delete volumes nem republique mensagens brutas para resolver filas antigas.
 
 Permanecem pendentes o ensaio sustentado com Whisper real, uma medição de RSS antes/depois no mesmo hardware, a confirmação das vítimas do OOM e os testes de recuperação e prioridade em broker real. A habilitação da transcrição em produção requer observar a soma de memória de todas as stacks do host e o resultado efetivo dos jobs.

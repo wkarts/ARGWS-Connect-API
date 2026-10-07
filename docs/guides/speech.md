@@ -2,15 +2,20 @@
 
 O subsistema de voz mantém os endpoints legados `/v1/transcriptions` e adiciona uma API para ditado e transcrição de mensagens. O processamento usa o worker local, FFmpeg, VAD e o modelo provisionado. O worker não baixa arquivos durante cada transcrição: a API instala a revisão fixada uma vez no volume persistente compartilhado, e os workers leem os arquivos localmente.
 
+**Publicação suspensa:** a release que habilita transcrição nas produções ainda
+não foi liberada. O marcador de bloqueio em `main` exige validação sustentada
+no develop antes de retirar essa restrição. As instruções abaixo descrevem a
+configuração futura; não ativam o recurso nas instalações existentes.
+
 O envio de nota de voz WhatsApp é um fluxo independente: `sendWhatsAppAudio` classifica pela intenção explícita, `ptt` e origem declarada; o áudio comum não vira PTT. A versão para envio PTT é OGG/Opus mono 48 kHz. Para STT, **apenas um job solicitado explicitamente** entra na fila quando a voz estiver habilitada; o worker usa FFmpeg para decodificar PCM float mono 16 kHz temporário e lê o áudio em trechos. A API não cria um WAV persistente nem carrega o modelo durante o envio de mensagem. Consulte [Mensagens e mídia](messages.md#áudio-comum-e-nota-de-voz) para os parâmetros do envio e [diagnóstico operacional](speech-worker-diagnostics.md) para os limites de memória.
 
-## Habilitar
+## Habilitar no develop principal para validação
 
 Todas as stacks de aplicação incluem o profile `transcription` e um worker de transcrição (`speech.transcription`). Os `env.example` habilitam uma réplica, `SPEECH_GLOBAL_CONCURRENCY=1` e o painel de transcrição. Somente o `deploy/develop/` principal inclui também o worker de ditado (`speech.dictation`); nas demais stacks, `DICTATION_ENABLED=false` e o serviço de ditado não existe. `TRANSCRIPTION_ENABLED` continua como fallback legado para `SPEECH_ENABLED`.
 
-Na atualização de uma instalação, altere o `.env` já existente: inclua `transcription` em `COMPOSE_PROFILES`, defina `TRANSCRIPTION_ENABLED=true`, `SPEECH_ENABLED=true`, `MANAGER_FEATURE_TRANSCRIPTION=true`, `DICTATION_ENABLED=false` fora do develop principal, `SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e `TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. Alinhe a imagem da API e a imagem do worker à mesma release (`:latest` nas produções, `:develop` em develop/homologação, mesma SemVer no canonical). O `env.example` novo não substitui o `.env` instalado.
+No develop principal, altere o `.env` já existente: inclua `transcription` em `COMPOSE_PROFILES`, defina `TRANSCRIPTION_ENABLED=true`, `SPEECH_ENABLED=true`, `MANAGER_FEATURE_TRANSCRIPTION=true`, `SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e `TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. Alinhe a API e o worker à imagem `:develop` correspondente. O `env.example` novo não substitui o `.env` instalado. Mantenha transcrição e ditado desativados nas produções, incluindo Fersoft, até remover o bloqueio de release após a validação.
 
-Execute `docker compose --env-file .env -f compose.yaml pull` e `docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans` no projeto correto. Verifique `docker compose ps -a`, `GET /v1/speech/health` e um job curto terminado. No CloudPanel use `-f docker-compose.yml`. O serviço antigo de ditado das stacks Fersoft pode ficar órfão; `--remove-orphans` o retira. Preserve os volumes de banco, filas, MinIO e `./models`; não execute `down -v`.
+No develop principal, execute `docker compose --env-file .env -f compose.yaml pull` e `docker compose --env-file .env -f compose.yaml up -d --pull never` para atualizar os serviços desejados. Verifique `docker compose ps -a`, `GET /v1/speech/health` e um job curto terminado. Preserve os volumes de banco, filas, MinIO e `./models`; não execute `down -v`. A limpeza de containers órfãos nas produções deve ser tratada separadamente durante uma atualização aprovada para esse ambiente.
 
 Variáveis principais:
 
@@ -23,7 +28,7 @@ Variáveis principais:
 | `SPEECH_MODELS_HOST_PATH` | `./models` | Diretório persistente do host compartilhado pela API e pelos workers |
 | `SPEECH_TRANSCRIPTION_QUEUE` | `speech.transcription` | Fila de transcrições longas |
 | `SPEECH_DICTATION_QUEUE` | `speech.dictation` | Fila prioritária de ditado |
-| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma réplica por stack; cada réplica mantém seu próprio modelo |
+| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma réplica por stack; o modelo só fica residente durante um job admitido |
 | `SPEECH_WORKER_CONCURRENCY` | `1` | Prefetch de um job por processo; valores maiores são rejeitados |
 | `SPEECH_GLOBAL_CONCURRENCY` | `1` | Total máximo de jobs admitidos entre transcrição e ditado no mesmo RabbitMQ e exchange; configure igualmente em todos os workers |
 | `SPEECH_SHUTDOWN_GRACE_SECONDS` | `90` | Prazo para concluir a entrega ativa antes de cancelar a inferência e devolver o job |
@@ -31,7 +36,8 @@ Variáveis principais:
 | `SPEECH_CHUNK_SECONDS` | `30` | Duração máxima de cada trecho |
 | `SPEECH_STRIDE_SECONDS` | `5` | Sobreposição entre trechos |
 | `SPEECH_HEARTBEAT_INTERVAL_SECONDS` | `5` | Frequência dos heartbeats |
-| `SPEECH_INFERENCE_STALL_SECONDS` | `300` | Tempo máximo sem progresso do motor antes de reiniciar a thread e agendar retry |
+| `SPEECH_INFERENCE_STALL_SECONDS` | `300` | Tempo máximo sem progresso do motor antes de encerrar a thread e agendar retry; o worker só volta a carregar o modelo no próximo job admitido |
+| `SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS` | `300` | Tempo máximo para carregar e preparar o modelo depois da admissão; timeout gera retry limitado |
 | `SPEECH_JOB_STALE_AFTER` | `120` | Limite para considerar heartbeat parado |
 | `SPEECH_MAX_ATTEMPTS` | `3` | Tentativas antes de registrar falha definitiva |
 | `DICTATION_MAX_AUDIO_BYTES` | `5242880` | Limite do áudio enviado pelo navegador |
@@ -41,7 +47,24 @@ Variáveis principais:
 
 Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
 
-Cada réplica mantém seu próprio modelo carregado e consome um job por vez. O padrão é uma réplica de transcrição por stack; no develop principal há também uma de ditado. A reserva global no mesmo RabbitMQ e exchange admite apenas **um job de inferência** entre os modos. Stacks com brokers independentes têm reservas independentes, portanto dois deploys na mesma VPS podem manter dois modelos residentes e processar simultaneamente. Prefetch continua em um por processo: um job aguardando capacidade aparece como `processing`/`waiting_for_capacity` e recebe heartbeat. O áudio PCM fica temporariamente em `/tmp`; o limite de 4 GiB por worker ainda precisa de validação sob carga. Amplie a capacidade somente após medir RSS, pico de inferência, FFmpeg e margem de RAM/CPU do host.
+O worker verifica os arquivos do modelo ao iniciar, mas não carrega a pipeline
+nativa enquanto estiver ocioso. Depois de obter a reserva global no mesmo
+RabbitMQ e exchange, baixa o áudio privado, carrega o modelo, processa um job,
+encerra a thread e só então libera a vaga. Isso impede dois modelos residentes
+ao mesmo tempo entre transcrição e ditado no **mesmo broker** com
+`SPEECH_GLOBAL_CONCURRENCY=1`. Cada novo job tem custo de carregamento e
+recebe o estágio `loading_model` e heartbeats nesse período. Stacks com brokers
+independentes têm reservas independentes e ainda podem carregar modelos ao
+mesmo tempo na mesma VPS. Prefetch permanece em um por processo; um job
+aguardando capacidade aparece como `processing`/`waiting_for_capacity`. O PCM
+temporário em `/tmp` e o limite de 4 GiB por worker ainda exigem medição na
+VPS. Amplie a capacidade somente após medir RSS, pico de inferência, FFmpeg e
+margem de RAM/CPU do host.
+
+A API inicia a conexão das filas de voz em segundo plano, com prazo de cinco
+segundos para a conexão AMQP. A indisponibilidade do broker de áudio não impede
+o servidor HTTP e as instâncias WhatsApp de iniciarem. Os endpoints de voz
+continuam verificando consumidor e modelo antes de publicar novos jobs.
 
 O diagnóstico da API reutiliza a conexão RabbitMQ aberta. Um erro transitório no banco fecha o canal de resultados e devolve a mensagem ainda não confirmada para processamento após a reconexão. Em um retry atrasado, o job permanece com estágio `retrying` até a próxima tentativa; o watchdog respeita o atraso. Um heartbeat vencido passa a `awaiting_redelivery`, sem publicar uma segunda cópia: o RabbitMQ recupera a entrega original após a perda do canal. Se não houver retomada no período seguinte, o estado passa a `failed` com `WORKER_HEARTBEAT_EXPIRED`; o retry manual desse estado fica bloqueado porque a entrega original pode ainda existir. O limite `SPEECH_MAX_ATTEMPTS` cobre retries publicados pelo worker e entregas repetidas após falhas abruptas pelo cabeçalho `x-delivery-count`. `attempts` representa as tentativas publicadas; o contador de redelivery fica nos logs. Retry manual é aceito para outras falhas finais de transcrição cujo áudio ainda esteja disponível; ditado precisa ser gravado novamente.
 
@@ -75,7 +98,12 @@ SPEECH_MODEL_PATH=/models/Xenova/whisper-small
 SPEECH_MODEL=Xenova/whisper-small
 ```
 
-O worker valida o manifesto e todos os hashes antes do warm-up. Sem manifesto, com checksum inválido ou sem modelo compatível, o worker não fica pronto. Enquanto o download gerenciado termina, os workers aguardam o modelo no volume compartilhado. O Transformers.js documenta o carregamento local e a desativação de modelos remotos em sua [referência de ambiente](https://huggingface.co/docs/transformers.js/v3.8.1/api/env).
+O worker valida o manifesto e todos os hashes antes de registrar o consumidor;
+o warm-up acontece somente depois que um job obtém a vaga global. Sem
+manifesto, com checksum inválido ou sem modelo compatível, o worker não fica
+pronto. Enquanto o download gerenciado termina, os workers aguardam o modelo
+no volume compartilhado. O Transformers.js documenta o carregamento local e a
+desativação de modelos remotos em sua [referência de ambiente](https://huggingface.co/docs/transformers.js/v3.8.1/api/env).
 
 O endpoint `GET /v1/speech/models` informa instalação, progresso e prontidão do modelo. `POST /v1/speech/models/{modelId}/download` inicia o download do modelo configurado. A troca de modelo continua exigindo provisionar arquivos compatíveis, atualizar `SPEECH_MODEL`/`SPEECH_MODEL_PATH` e reiniciar os workers.
 

@@ -45,7 +45,11 @@ async function bootstrap() {
 
   const prismaRepository = new PrismaRepository(configService);
   await prismaRepository.onModuleInit();
-  await transcriptionService.init();
+  // Audio queue initialization must not delay HTTP and WhatsApp startup when
+  // the speech broker is slow or unavailable. Audio requests check readiness.
+  void transcriptionService.init().catch((error) => {
+    logger.warn('Fila de transcrição indisponível durante a inicialização: ' + (error?.message || error));
+  });
 
   app.use(
     cors({

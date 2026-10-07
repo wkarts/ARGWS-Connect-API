@@ -355,6 +355,7 @@ function stageLabel(value: string) {
   return ({
     queued: 'Na fila prioritária',
     preparing: 'Preparando áudio',
+    loading_model: 'Carregando o modelo local',
     downloading: 'Carregando áudio',
     normalizing: 'Normalizando áudio',
     voice_activity_detection: 'Localizando trechos de fala',

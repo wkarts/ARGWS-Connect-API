@@ -25,6 +25,74 @@ test('voz desabilitada encerra sem carregar modelo ou abrir MinIO', async () => 
   assert.equal(fs.existsSync('/tmp/transcription-worker.ready'), false);
 });
 
+test('worker ocioso atende a fila sem carregar a pipeline nativa', async () => {
+  const events = [];
+  const worker = new TranscriptionWorker({
+    enabled: true, mode: 'transcription', local: { modelPath: '/models/model' },
+    s3: { endpoint: 'localhost', port: 9000, accessKey: 'key', secretKey: 'secret' },
+  }, {
+    probeFfmpeg: async () => { events.push('ffmpeg'); },
+    verifyModel: async () => { events.push('verify'); },
+    createInferenceClient: () => { events.push('load'); throw new Error('modelo não pode carregar ocioso'); },
+  });
+  worker.waitForPersistentModel = async () => {};
+  worker.connect = async () => { events.push('consumer'); };
+  worker.logMemory = () => {};
+  try {
+    await worker.start();
+    assert.deepEqual(events, ['ffmpeg', 'verify', 'consumer']);
+    assert.equal(worker.provider, null);
+  } finally {
+    await worker.stop();
+  }
+});
+
+test('o slot global cobre carregamento, processamento e liberação do modelo', async () => {
+  const events = [];
+  const worker = new TranscriptionWorker({
+    enabled: true, mode: 'transcription', maxAudioBytes: 1024, maxAttempts: 3,
+    heartbeatIntervalSeconds: 5, modelWarmupTimeoutSeconds: 1,
+    local: { model: 'Xenova/whisper-small' }, provider: 'local',
+  }, {
+    acquireSlot: async () => {
+      events.push('acquire');
+      return { slot: 0, release: async () => { events.push('release'); } };
+    },
+    downloadAudio: async () => { events.push('download'); return { filePath: '/tmp/mock.ogg' }; },
+    createInferenceClient: () => {
+      events.push('load');
+      return {
+        warmup: async () => { events.push('warmup'); },
+        transcribe: async () => { events.push('infer'); return { text: 'olá', durationMs: 1000 }; },
+        stop: async () => { events.push('unload'); },
+      };
+    },
+  });
+  worker.channel = { ack: () => { events.push('ack'); } };
+  worker.publish = async (status) => { if (status === 'completed') events.push('completed'); };
+  worker.logMemory = () => {};
+  const message = { content: Buffer.from(JSON.stringify({
+    jobId: 'job-1', mode: 'transcription', source: { key: 'media/voice.ogg', mimeType: 'audio/ogg' },
+  })) };
+  await worker.handle(message, worker.channel);
+  assert.deepEqual(events, ['acquire', 'download', 'load', 'warmup', 'infer', 'completed', 'ack', 'unload', 'release']);
+  assert.equal(worker.provider, null);
+});
+
+test('warm-up sem progresso devolve erro recuperável e libera a thread', async () => {
+  let stopped = 0;
+  const worker = new TranscriptionWorker({ mode: 'transcription', modelWarmupTimeoutSeconds: 0.02 }, {
+    createInferenceClient: () => ({
+      warmup: () => new Promise(() => {}),
+      stop: async () => { stopped += 1; },
+    }),
+  });
+  worker.logMemory = () => {};
+  await assert.rejects(worker.loadProvider({ jobId: 'slow-1' }), { code: 'MODEL_WARMUP_TIMEOUT' });
+  assert.equal(stopped, 1);
+  assert.equal(worker.provider, null);
+});
+
 test('mensagem recebida por canal antigo não recebe ACK no canal substituto', () => {
   const worker = Object.create(TranscriptionWorker.prototype);
   let acknowledged = 0;

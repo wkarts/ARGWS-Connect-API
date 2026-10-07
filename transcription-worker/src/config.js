@@ -62,6 +62,7 @@ function loadConfig() {
     dictationAudioRetentionMs: integer('DICTATION_AUDIO_RETENTION_MINUTES', 5, 1, 60) * 60_000,
     heartbeatIntervalSeconds: integer('SPEECH_HEARTBEAT_INTERVAL_SECONDS', 5, 1, 60),
     inferenceStallSeconds: integer('SPEECH_INFERENCE_STALL_SECONDS', 300, 60, 7200),
+    modelWarmupTimeoutSeconds: integer('SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS', 300, 60, 1800),
     chunkSeconds: integer('SPEECH_CHUNK_SECONDS', 30, 5, 120),
     strideSeconds: integer('SPEECH_STRIDE_SECONDS', 5, 0, 15),
     vadThresholdDb: Number.parseFloat(process.env.SPEECH_VAD_THRESHOLD_DB || '-45'),
