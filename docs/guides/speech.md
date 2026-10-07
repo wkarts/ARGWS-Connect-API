@@ -6,24 +6,24 @@ O envio de nota de voz WhatsApp é um fluxo independente: `sendWhatsAppAudio` cl
 
 ## Habilitar
 
-Somente a stack principal `deploy/develop/` mantém `SPEECH_ENABLED=true` e o profile `transcription`. O profile inicia dois consumidores independentes: o worker de transcrição (`speech.transcription`) e o worker prioritário de ditado (`speech.dictation`). `TRANSCRIPTION_ENABLED` continua aceito como fallback legado nessa stack. `DICTATION_ENABLED=false` desativa apenas o ditado.
+Todas as stacks de aplicação incluem o profile `transcription` e um worker de transcrição (`speech.transcription`). Os `env.example` habilitam uma réplica, `SPEECH_GLOBAL_CONCURRENCY=1` e o painel de transcrição. Somente o `deploy/develop/` principal inclui também o worker de ditado (`speech.dictation`); nas demais stacks, `DICTATION_ENABLED=false` e o serviço de ditado não existe. `TRANSCRIPTION_ENABLED` continua como fallback legado para `SPEECH_ENABLED`.
 
-Todas as outras stacks, inclusive Fersoft develop e production, têm flags de voz desligadas no Compose e não incluem workers; adicionar o profile a um `.env` antigo não reativa o recurso. O Manager esconde transcrição, ditado e configurações de voz nesses deployments. Não copie o Compose principal de develop para uma VPS de produção.
+Na atualização de uma instalação, altere o `.env` já existente: inclua `transcription` em `COMPOSE_PROFILES`, defina `TRANSCRIPTION_ENABLED=true`, `SPEECH_ENABLED=true`, `MANAGER_FEATURE_TRANSCRIPTION=true`, `DICTATION_ENABLED=false` fora do develop principal, `SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e `TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. Alinhe a imagem da API e a imagem do worker à mesma release (`:latest` nas produções, `:develop` em develop/homologação, mesma SemVer no canonical). O `env.example` novo não substitui o `.env` instalado.
 
-Para interromper o consumo de RAM em uma VPS que já rodava os workers, atualize para o Compose desta release e execute `docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans` após o `pull`. Verifique com `docker compose ps -a` se não restaram containers antigos dos workers. No CloudPanel, use `-f docker-compose.yml`; se o painel não remove órfãos, pare e remova somente os containers antigos de transcrição e ditado da stack. Preserve os volumes de banco, filas e `./models`; não execute `down -v`.
+Execute `docker compose --env-file .env -f compose.yaml pull` e `docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans` no projeto correto. Verifique `docker compose ps -a`, `GET /v1/speech/health` e um job curto terminado. No CloudPanel use `-f docker-compose.yml`. O serviço antigo de ditado das stacks Fersoft pode ficar órfão; `--remove-orphans` o retira. Preserve os volumes de banco, filas, MinIO e `./models`; não execute `down -v`.
 
 Variáveis principais:
 
 | Variável | Padrão | Uso |
 | --- | --- | --- |
-| `SPEECH_ENABLED` | `false` | Habilita os endpoints e workers |
+| `SPEECH_ENABLED` | `true` nos `env.example` das stacks de aplicação | Habilita os endpoints e workers; o `.env` instalado prevalece |
 | `SPEECH_PROVIDER` | `local` | Provider local |
 | `SPEECH_MODEL` | `Xenova/whisper-small` | Modelo configurado |
 | `SPEECH_MODEL_PATH` | `/models/Xenova/whisper-small` | Caminho do modelo local verificado |
 | `SPEECH_MODELS_HOST_PATH` | `./models` | Diretório persistente do host compartilhado pela API e pelos workers |
 | `SPEECH_TRANSCRIPTION_QUEUE` | `speech.transcription` | Fila de transcrições longas |
 | `SPEECH_DICTATION_QUEUE` | `speech.dictation` | Fila prioritária de ditado |
-| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Réplica inicial de transcrição no develop principal; cada réplica mantém seu próprio modelo |
+| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma réplica por stack; cada réplica mantém seu próprio modelo |
 | `SPEECH_WORKER_CONCURRENCY` | `1` | Prefetch de um job por processo; valores maiores são rejeitados |
 | `SPEECH_GLOBAL_CONCURRENCY` | `1` | Total máximo de jobs admitidos entre transcrição e ditado no mesmo RabbitMQ e exchange; configure igualmente em todos os workers |
 | `SPEECH_SHUTDOWN_GRACE_SECONDS` | `90` | Prazo para concluir a entrega ativa antes de cancelar a inferência e devolver o job |
@@ -41,7 +41,7 @@ Variáveis principais:
 
 Os ditados são enviados inline pela fila prioritária e não criam objetos de áudio em MinIO. A fila descarta mensagens não atendidas após o prazo configurado; o watchdog marca os jobs expirados como falha. Uploads longos são armazenados em MinIO privado; o áudio de origem é removido após a retenção e o resultado do job permanece.
 
-Cada réplica mantém seu próprio modelo carregado e consome um job por vez. O padrão no develop é uma réplica de transcrição e uma de ditado; a reserva global no RabbitMQ admite apenas **um job de inferência** entre as duas, incluindo a preparação do áudio. O ditado tem fila própria, mas a reserva não garante preempção ou ordem estrita entre modos. Prefetch continua em um por processo: um job aguardando capacidade aparece como `processing`/`waiting_for_capacity` e recebe heartbeat. O áudio PCM fica temporariamente em `/tmp` e é lido por trechos; o limite de 4 GiB por worker continua e precisa de validação com o modelo real. Amplie a capacidade somente após medir o RSS dos modelos residentes, pico de inferência, FFmpeg e outros processos da VPS.
+Cada réplica mantém seu próprio modelo carregado e consome um job por vez. O padrão é uma réplica de transcrição por stack; no develop principal há também uma de ditado. A reserva global no mesmo RabbitMQ e exchange admite apenas **um job de inferência** entre os modos. Stacks com brokers independentes têm reservas independentes, portanto dois deploys na mesma VPS podem manter dois modelos residentes e processar simultaneamente. Prefetch continua em um por processo: um job aguardando capacidade aparece como `processing`/`waiting_for_capacity` e recebe heartbeat. O áudio PCM fica temporariamente em `/tmp`; o limite de 4 GiB por worker ainda precisa de validação sob carga. Amplie a capacidade somente após medir RSS, pico de inferência, FFmpeg e margem de RAM/CPU do host.
 
 O diagnóstico da API reutiliza a conexão RabbitMQ aberta. Um erro transitório no banco fecha o canal de resultados e devolve a mensagem ainda não confirmada para processamento após a reconexão. Em um retry atrasado, o job permanece com estágio `retrying` até a próxima tentativa; o watchdog respeita o atraso. Um heartbeat vencido passa a `awaiting_redelivery`, sem publicar uma segunda cópia: o RabbitMQ recupera a entrega original após a perda do canal. Se não houver retomada no período seguinte, o estado passa a `failed` com `WORKER_HEARTBEAT_EXPIRED`; o retry manual desse estado fica bloqueado porque a entrega original pode ainda existir. O limite `SPEECH_MAX_ATTEMPTS` cobre retries publicados pelo worker e entregas repetidas após falhas abruptas pelo cabeçalho `x-delivery-count`. `attempts` representa as tentativas publicadas; o contador de redelivery fica nos logs. Retry manual é aceito para outras falhas finais de transcrição cujo áudio ainda esteja disponível; ditado precisa ser gravado novamente.
 
@@ -51,7 +51,7 @@ Os sinais de cancelamento usam um canal independente daquele que processa áudio
 
 ## Baixar e manter o modelo
 
-Ao iniciar com voz habilitada na stack principal de develop, a API confere o volume e baixa automaticamente o modelo se ele ainda não estiver instalado. Com voz desabilitada, a API não inicia esse download. O pacote q8 do `Xenova/whisper-small` tem aproximadamente 250 MB; a API baixa uma revisão fixada da Hugging Face, verifica SHA-256 e grava os arquivos em `./models` por padrão. A tela **Gerenciador → Transcrição de áudio**, disponível somente no develop principal, mostra o progresso e permite iniciar ou repetir o download manualmente.
+Ao iniciar com transcrição habilitada em qualquer stack, a API confere o volume e baixa automaticamente o modelo se ele ainda não estiver instalado. Com voz desabilitada, a API não inicia esse download. O pacote q8 do `Xenova/whisper-small` tem aproximadamente 250 MB; a API baixa uma revisão fixada da Hugging Face, verifica SHA-256 e grava os arquivos em `./models` por padrão. A tela **Gerenciador → Transcrição de áudio** mostra o progresso e permite iniciar ou repetir o download manualmente.
 
 O mesmo diretório do host é montado como `/models` com leitura e escrita na API e somente leitura nos workers. Depois da primeira instalação, transcrição e ditado carregam o modelo desse volume; reiniciar ou atualizar os containers reutiliza os arquivos sem baixar os pesos novamente. Preserve `./models` entre implantações. Os pesos não fazem parte da imagem GHCR e não são armazenados em `/tmp`.
 
@@ -106,6 +106,6 @@ Os jobs têm `mode`, `sourceType`, estágio, percentual real, duração processa
 
 ## Limites atuais
 
-No develop principal, o Manager oferece transcrição manual de mensagens de áudio. O VAD reduz o trabalho ao selecionar trechos com atividade de voz, mas não bloqueia sozinho uma gravação: se nenhum trecho superar o limiar de energia, o worker envia o áudio decodificado inteiro ao Whisper, o que permite reconhecer fala capturada em volume baixo. O job só retorna `NO_SPEECH` depois que o modelo também não reconhece texto. No navegador, somente gravações sem dados capturados ou com zero bytes são interrompidas; áudios curtos com conteúdo seguem para processamento.
+Em todas as stacks habilitadas, o Manager oferece transcrição manual de mensagens de áudio. O VAD reduz o trabalho ao selecionar trechos com atividade de voz, mas não bloqueia sozinho uma gravação: se nenhum trecho superar o limiar de energia, o worker envia o áudio decodificado inteiro ao Whisper, o que permite reconhecer fala capturada em volume baixo. O job só retorna `NO_SPEECH` depois que o modelo também não reconhece texto. No navegador, somente gravações sem dados capturados ou com zero bytes são interrompidas; áudios curtos com conteúdo seguem para processamento.
 
 A transcrição automática de mensagens recebidas, controles de preferência por instância e publicação de `speech.transcription.completed` em Webhooks/flows ainda precisam de integração específica; os endpoints e os dados persistidos já podem ser usados como base para essa etapa.

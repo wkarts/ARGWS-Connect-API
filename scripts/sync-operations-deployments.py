@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_KEYS = {
-    'COMPOSE_PROFILES': 'operations',
+    'COMPOSE_PROFILES': 'operations,transcription',
     'OPERATIONS_ENABLED': 'true',
     'NATS_ENABLED': 'false',
     'KAFKA_ENABLED': 'false',
@@ -245,10 +245,8 @@ def generate(root):
             envs.append(directory + '/.env.example')
     for path in envs:
         template = env_text((root / path).read_text())
-        if path == 'deploy/develop/env.example':
-            template = set_env_value(template, 'COMPOSE_PROFILES', 'operations,transcription')
-            template = set_env_value(template, 'TRANSCRIPTION_ENABLED', 'true')
-            template = set_env_value(template, 'TRANSCRIPTION_PROVIDER', 'local')
+        template = set_env_value(template, 'TRANSCRIPTION_ENABLED', 'true')
+        template = set_env_value(template, 'TRANSCRIPTION_PROVIDER', 'local')
         visible = 'true' if path.startswith(('deploy/develop/', 'deploy/homologation/')) else 'false'
         settings = {
             'MANAGER_FEATURE_CONVERSATIONS': visible, 'MANAGER_FEATURE_MESSAGES': visible,

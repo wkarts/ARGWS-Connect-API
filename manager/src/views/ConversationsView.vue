@@ -263,7 +263,7 @@ onMounted(async () => {
           <form class="composer" @submit.prevent="send">
             <div class="composer-field">
               <input ref="draftTarget" v-model="draft" placeholder="Digite uma mensagem..." :disabled="sending" />
-              <DictationButton v-if="featureEnabled('transcription', false)" v-model="draft" :target="draftTarget" :instance-id="selectedInstance" />
+              <DictationButton v-if="featureEnabled('transcription', false) && featureEnabled('dictation', false)" v-model="draft" :target="draftTarget" :instance-id="selectedInstance" />
             </div>
             <button class="btn primary" :disabled="sending || !draft.trim()">
               {{ sending ? 'Enviando...' : 'Enviar' }}

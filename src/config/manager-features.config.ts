@@ -21,6 +21,7 @@ export const MANAGER_FEATURE_DEFAULTS = {
   settings: ['MANAGER_FEATURE_SETTINGS', true],
   storage: ['MANAGER_FEATURE_STORAGE', true],
   transcription: ['MANAGER_FEATURE_TRANSCRIPTION', false],
+  dictation: ['DICTATION_ENABLED', false],
 } as const;
 
 export function managerFeatures(env: Record<string, string | undefined> = process.env) {

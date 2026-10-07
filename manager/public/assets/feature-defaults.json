@@ -74,5 +74,9 @@
   "transcription": [
     "MANAGER_FEATURE_TRANSCRIPTION",
     false
+  ],
+  "dictation": [
+    "DICTATION_ENABLED",
+    false
   ]
 }
