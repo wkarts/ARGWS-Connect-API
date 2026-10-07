@@ -79,6 +79,7 @@ class TranscriptionWorker {
     this.createInferenceClient = dependencies.createInferenceClient || ((value) => new InferenceClient(value, {
       restartOnFailure: false,
     }));
+    this.probeFfmpeg = dependencies.probeFfmpeg || probeFfmpeg;
     this.verifyModel = dependencies.verifyModel || verifyModelDirectory;
     this.acquireSlot = dependencies.acquireSlot || acquire;
     this.downloadAudio = dependencies.downloadAudio || ((job) => job.inlineAudio
@@ -105,7 +106,7 @@ class TranscriptionWorker {
       return;
     }
     this.client = createClient(this.config.s3);
-    await probeFfmpeg();
+    await this.probeFfmpeg();
     while (!this.stopping) {
       await this.waitForPersistentModel();
       if (this.stopping) return;

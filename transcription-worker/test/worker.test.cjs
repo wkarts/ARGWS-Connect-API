@@ -31,6 +31,7 @@ test('worker ocioso atende a fila sem carregar a pipeline nativa', async () => {
     enabled: true, mode: 'transcription', local: { modelPath: '/models/model' },
     s3: { endpoint: 'localhost', port: 9000, accessKey: 'key', secretKey: 'secret' },
   }, {
+    probeFfmpeg: async () => { events.push('ffmpeg'); },
     verifyModel: async () => { events.push('verify'); },
     createInferenceClient: () => { events.push('load'); throw new Error('modelo não pode carregar ocioso'); },
   });
@@ -39,7 +40,7 @@ test('worker ocioso atende a fila sem carregar a pipeline nativa', async () => {
   worker.logMemory = () => {};
   try {
     await worker.start();
-    assert.deepEqual(events, ['verify', 'consumer']);
+    assert.deepEqual(events, ['ffmpeg', 'verify', 'consumer']);
     assert.equal(worker.provider, null);
   } finally {
     await worker.stop();
