@@ -18,3 +18,5 @@ jobs:
     steps:
       - name: Run canonical validation core from main
         uses: wkarts/ARGWS-Connect-API/.github/actions/ci-core@main
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096

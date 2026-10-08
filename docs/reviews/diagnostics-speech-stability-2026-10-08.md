@@ -100,6 +100,12 @@ O replay local distribuiu os 13.791 eventos em 138 segmentos de 100 registros, s
 
 As suítes reproduzíveis estão no workflow **Speech Integrity**, além das regressões nativas de diagnóstico já presentes. O ensaio de residência usa RabbitMQ real e motor instrumentado para verificar coordenação; os jobs nativos amd64/arm64 verificam o reconhecimento real separadamente. Os resultados de CI da revisão exata constam na Pull Request. Nenhum teste de bancada substitui a medição de recursos da VPS.
 
+O primeiro ensaio remoto identificou um detalhe adicional do protocolo AMQP: a resposta 405 já fecha o canal de tentativa. O cleanup tentava fechá-lo novamente e confundia a rejeição `Channel closed` com falha da conexão. O código reconhece agora o código numérico 405 antes desse cleanup e mantém o socket para o aviso de demanda. Erros diferentes continuam exigindo encerramento conservador. O teste com broker real permanece integral, acompanhado de regressões para 405 e para erros inesperados que apenas contêm `RESOURCE_LOCKED` no texto.
+
+Os builds completos da API em amd64/arm64 e o CI de qualidade também atingiram o heap padrão de aproximadamente 2 GiB no `tsup`. O orçamento de 4 GiB foi aplicado ao comando no estágio builder do Docker, ao step de build da validação de release e ao step que executa o core de validação no CI. Neste último, o teto alcança os processos Node desse step, incluindo lint/testes. A imagem final não recebe um novo `NODE_OPTIONS`; os limites dos serviços em produção permanecem os existentes. Nenhum workflow de publicação foi disparado manualmente por esta correção.
+
+O teste de outbox foi ajustado à precisão persistida do MySQL: `TIMESTAMP(0)` pode arredondar `availableAt` para o próximo segundo. A regressão aguarda apenas a elegibilidade lida do banco, limitada a um segundo, e executa uma única publicação. Exige confirmação, uma tentativa, ausência de erro, redelivery real e ausência de republicação após reiniciar o publicador. Não há retry de teste para ocultar erro, mudança de schema nem alteração do agendamento de produção.
+
 ## Atualização e aceite na instalação
 
 1. Registre os digests atuais. Mantenha o `.env`, os volumes e a topologia de serviços instalada. Esta alteração não adiciona migration ou variável obrigatória.

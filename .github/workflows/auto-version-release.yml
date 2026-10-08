@@ -54,6 +54,8 @@ jobs:
       - run: npm run lint:check
       - run: npm run db:generate
       - run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
       - name: Validate operations, groups, catalog and release preservation
         run: |
           npm run test:operations

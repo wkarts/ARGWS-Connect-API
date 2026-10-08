@@ -144,3 +144,50 @@ test('erro de fechamento sem close força stream e exige confirmação da perda 
   assert.equal(destroyed, 1);
   assert.equal(connection.listenerCount('close'), 0);
 });
+
+test('RESOURCE_LOCKED 405 com canal já fechado preserva socket e envia demanda antes de adquirir', async () => {
+  const connection = new EventEmitter();
+  let attempts = 0;
+  let disconnections = 0;
+  let hints = 0;
+  let closedChannelCloseCalls = 0;
+  connection.close = async () => { disconnections += 1; connection.emit('close'); };
+  connection.createChannel = async () => {
+    let closed = false;
+    const channel = new EventEmitter();
+    channel.assertQueue = async () => {
+      if (++attempts === 1) {
+        const error = Object.assign(new Error('Operation failed: QueueDeclare; 405 RESOURCE_LOCKED'), { code: 405 });
+        closed = true;
+        channel.emit('error', error);
+        channel.emit('close');
+        throw error;
+      }
+    };
+    channel.deleteQueue = async () => {};
+    channel.close = async () => {
+      if (closed) { closedChannelCloseCalls += 1; throw new Error('Channel closed'); }
+      closed = true; channel.emit('close');
+    };
+    return channel;
+  };
+  const lease = await acquire({ ...sharedConfig, admissionRetryMs: 5 }, () => false, () => {}, connection,
+    async () => { hints += 1; });
+  assert.equal(attempts, 2);
+  assert.equal(hints, 1);
+  assert.equal(closedChannelCloseCalls, 0);
+  assert.equal(disconnections, 0);
+  await lease.release();
+  assert.equal(disconnections, 0);
+  assert.equal(connection.listenerCount('close'), 0);
+});
+
+test('erro inesperado contendo RESOURCE_LOCKED no texto não é disfarçado de contenção 405', async () => {
+  const cause = Object.assign(new Error('Unexpected RESOURCE_LOCKED metadata'), { code: 403 });
+  const { connection } = sharedBroker({ declare: async () => { throw cause; } });
+  let hints = 0;
+  await assert.rejects(acquire(sharedConfig, () => false, () => {}, connection,
+    async () => { hints += 1; }), { code: 403 });
+  assert.equal(hints, 0);
+  assert.equal(connection.listenerCount('close'), 0);
+});

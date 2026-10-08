@@ -106,11 +106,16 @@ async function acquire(config, isCancelled, onLost = () => {}, connectionOrConne
             return releaseTask;
           } };
         } catch (error) {
+          // RabbitMQ closes the attempt channel when it replies 405. amqplib
+          // has already released that channel; calling close() again rejects
+          // with "Channel closed". Contention must keep the shared socket alive
+          // so the owner can receive the demand hint and hand the slot over.
+          if (error?.code === 405) continue;
           if (!connectionClosed) {
             try { await bounded(channel.close?.(), 'RESIDENCY_CHANNEL_CLOSE_TIMEOUT'); }
             catch { await closeAfterReleaseFailure(connection, () => connectionClosed); }
           }
-          if (error?.code !== 405 && !/RESOURCE_LOCKED/.test(String(error?.message))) throw error;
+          throw error;
         }
       }
       // Demand notifications are hints only. The exclusive queue remains the

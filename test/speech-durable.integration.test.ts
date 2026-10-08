@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { SpeechDurableService } from '@api/services/speech-durable.service';
 import { publishSpeechConfirmed, speechDeadLetterArguments, speechQueue, speechQueueArguments, speechRequestRoutingKey } from '@api/services/speech-policy';
@@ -99,11 +100,22 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
 
     await context.test('outbox sobrevive restart do publicador e confirmação só marca rota durável',async()=>{
       const job=await durable.createJob(jobData());
+      const queued=await database.speechOutbox.findUnique({where:{jobId_generation:{jobId:job.id,generation:1}}});
+      assert.equal(queued.status,'pending');
+      assert.equal(queued.attempts,0);
+      // MySQL TIMESTAMP(0) may round availableAt into the next second. Exercise
+      // one eligible dispatch, as the runtime's timer does, without retrying a
+      // failed publication or changing the deployed timestamp precision.
+      const availableInMs=new Date(queued.availableAt).getTime()-Date.now();
+      assert.ok(availableInMs<=1000,'A new outbox entry must become eligible within timestamp precision');
+      if(availableInMs>0) await delay(availableInMs);
       const runtime=new TranscriptionService(database);
       (runtime as any).channel=channel;
       await (runtime as any).dispatchOutbox();
       const persisted=await database.speechOutbox.findUnique({where:{jobId_generation:{jobId:job.id,generation:1}}});
       assert.equal(persisted.status,'published');
+      assert.equal(persisted.attempts,1);
+      assert.equal(persisted.lastError,null);
       const message=await channel.get(speechQueue('transcription'),{noAck:false});
       assert.ok(message);if(!message)return;
       const payload=JSON.parse(message.content.toString());assert.equal(payload.version,2);assert.equal(payload.jobId,job.id);assert.equal(payload.inlineAudio,undefined);
@@ -111,6 +123,10 @@ test('integração SQL real + RabbitMQ: atomicidade, fencing, publish/return e c
       const restarted=new TranscriptionService(database);(restarted as any).channel=channel;
       await (restarted as any).dispatchOutbox();
       const redelivery=await channel.get(speechQueue('transcription'),{noAck:false});assert.ok(redelivery);if(redelivery)channel.ack(redelivery);
+      assert.equal(redelivery.fields.redelivered,true);
+      assert.equal(JSON.parse(redelivery.content.toString()).jobId,job.id);
+      assert.equal((await database.speechOutbox.findUnique({where:{jobId_generation:{jobId:job.id,generation:1}}})).attempts,1);
+      assert.equal(await channel.get(speechQueue('transcription'),{noAck:false}),false);
     });
 
     await context.test('checkpoint SQL atravessa nova geração e resultado antigo não modifica texto',async()=>{
