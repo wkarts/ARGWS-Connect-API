@@ -161,6 +161,27 @@ A saturação retorna `429` com `Retry-After`; indisponibilidade retorna `503`, 
 
 O Manager mostra espera, preparação, carregamento, processamento por trechos, retomada e estado terminal. O polling desacelera quando não há mudança, quando a aba está oculta e conforme `Retry-After`. O ditado respeita o prazo informado pela API e permite nova gravação em falhas finais. Duração processada e heartbeat de supervisão são apresentados sem inventar avanço percentual.
 
+Em **Configurações → Voz**, a disponibilidade de cada modo considera as capacidades
+e os sinais de controle, além da prontidão do motor. **Disponível sob demanda**
+significa que o coordenador pode receber o áudio e carregar o modelo quando houver
+trabalho. Esse estado não afirma que o modelo está residente ou que uma transcrição
+já terminou. O botão **Atualizar estado** refaz a consulta; uma falha na consulta não
+mantém uma leitura anterior apresentada como atual.
+
+O estado agregado `warming` também pode representar um coordenador frio e ocioso.
+Quando as capacidades permitem admissão e não há trabalhos em processamento, o
+Manager explica o carregamento sob demanda, sem anunciar uma inicialização em
+andamento. Já `busy` indica trabalhos registrados como `processing`; a etapa,
+`engineProgressAt`, `controlHeartbeatAt`, `leaseExpiresAt` e `deadlineAt` permitem
+avaliar se uma execução está avançando. `createdAt` é a criação do registro e não
+muda a cada nova tentativa.
+
+O healthcheck Docker do worker acompanha seu coordenador e a conexão com a fila.
+Arquivos do modelo instalados, contêiner saudável e capacidade de admissão são
+verificações diferentes de uma inferência concluída. A validação funcional requer
+um áudio curto que alcance `completed`, com texto correto e consumo acompanhado;
+o ditado deve ser validado separadamente no campo de entrada que o utiliza.
+
 Os contratos e fluxos de envio/recebimento ZAPO, Baileys e Meta Compatible permanecem preservados. A conversão de PTT e o sistema geral de logs/eventos não foram alterados nesta correção. O reconhecimento continua separado do envio de notas de voz. Consulte [Mensagens e mídia](messages.md#áudio-comum-e-nota-de-voz).
 
 A fachada Graph mantém seu parser e payloads existentes. Quando chama o serviço de transcrição, recebe os limites de execução, cotas e fila com metadados; seus novos uploads usam o bucket privado, enquanto mídias de mensagens mantêm a origem; a reserva anterior ao recebimento do multipart aplica-se às rotas nativas de fala. Alterar o parser da fachada Graph ficou fora do escopo por orientação do responsável.
