@@ -64,6 +64,7 @@ lerna-debug.log*
 !/test/compose-env-only-deployments.test.py
 !/test/rabbitmq-startup-deployments.test.py
 !/test/connect-startup-diagnose.test.py
+!/test/event-manager-startup.test.cjs
 
 # Multi-device voice regression suites must travel with the dependency correction.
 !/test/zapo-voip-installer.test.cjs

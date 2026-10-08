@@ -2,6 +2,7 @@
 
 require('tsx/cjs');
 const assert = require('node:assert/strict');
+const streams = require('node:fs');
 const fs = require('node:fs/promises');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
@@ -70,6 +71,103 @@ test('pagination remains stable when new events arrive between pages, including 
   assert.deepEqual(last.events.map(e => e.id), ['event-00000']);
   assert.equal(last.nextCursor, null);
   assert.equal((await collect(store.exportRecords({ limit: 1, cursor: first.nextCursor }))).length, 8);
+});
+
+test('a recent page reads only necessary files even when segment creation order disagrees with event time', async t => {
+  const { store } = await setup(t);
+  for (const batch of [5, 1, 4, 0, 3, 2]) {
+    for (let index = batch * 200; index < (batch + 1) * 200; index++) {
+      store.append(event(index, { timestamp: new Date(NOW - (1200 - index) * 1000).toISOString() }));
+    }
+    await store.flush();
+  }
+  const original = streams.createReadStream;
+  let opened = 0;
+  t.mock.method(streams, 'createReadStream', (...args) => { opened++; return original(...args); });
+  const first = await store.query({ limit: 100 });
+  assert.deepEqual(first.events.map(record => record.id), Array.from({ length: 100 }, (_, i) => event(1199 - i).id));
+  assert.equal(opened, 1, 'a 100-record page must not rescan the five older files');
+  const next = await store.query({ limit: 100, cursor: first.nextCursor });
+  assert.deepEqual(next.events.map(record => record.id), Array.from({ length: 100 }, (_, i) => event(1099 - i).id));
+});
+
+test('page pruning preserves ties across files and filtered exports remain complete after restart', async t => {
+  const { dir, store } = await setup(t);
+  for (const batch of [[1, 6, 4], [2, 7, 3]]) {
+    for (const id of batch) store.append(event(id));
+    await store.flush();
+  }
+  store.append(event(9, { timestamp: new Date(NOW - 3600000).toISOString(), level: 'error' }));
+  await store.flush();
+  const restarted = new DiagnosticStore(dir, { clock: () => NOW });
+  const first = await restarted.query({ limit: 3 });
+  assert.deepEqual(first.events.map(record => record.id), [7, 6, 4].map(id => event(id).id));
+  const second = await restarted.query({ limit: 3, cursor: first.nextCursor });
+  assert.deepEqual(second.events.map(record => record.id), [3, 2, 1].map(id => event(id).id));
+  const old = await collect(restarted.exportRecords({ to: new Date(NOW - 1).toISOString(), level: 'error' }));
+  assert.deepEqual(old.map(record => record.id), [event(9).id]);
+  assert.equal((await collect(restarted.exportRecords())).length, 7);
+});
+
+test('canceling a stream stops buffered records, releases retained files and does not report disk corruption', async t => {
+  let clock = NOW;
+  const { dir, store } = await setup(t, () => clock);
+  await store.updateSettings({ retentionDays: 1 });
+  for (let i = 0; i < 200; i++) store.append(event(i));
+  await store.flush();
+  const controller = new AbortController();
+  const exported = store.exportRecords({}, controller.signal);
+  assert.equal((await exported.next()).done, false);
+  clock += 2 * 86400000;
+  assert.equal((await store.snapshot()).storedEvents, 200, 'the active stream pins its file during retention');
+  controller.abort();
+  await assert.rejects(exported.next(), { name: 'AbortError' });
+  const status = await store.snapshot();
+  assert.equal(status.storageError, false);
+  assert.equal(status.storedEvents, 0);
+  assert.equal((await fs.readdir(dir)).filter(name => name.endsWith('.jsonl')).length, 0);
+});
+
+test('an already canceled query performs no reads and leaves the store healthy', async t => {
+  const { store } = await setup(t);
+  store.append(event(1));
+  await store.flush();
+  const original = streams.createReadStream;
+  let opened = 0;
+  t.mock.method(streams, 'createReadStream', (...args) => { opened++; return original(...args); });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(store.query({}, controller.signal), { name: 'AbortError' });
+  assert.equal(opened, 0);
+  assert.equal((await store.snapshot()).storageError, false);
+});
+
+test('canceling a query waiting on a disk flush leaves the shared write running and preserves its records', { timeout: 3000 }, async t => {
+  const { store } = await setup(t);
+  await store.init();
+  const original = fs.writeFile;
+  let release;
+  let started;
+  const writing = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  t.mock.method(fs, 'writeFile', async (...args) => {
+    if (String(args[0]).endsWith('.jsonl.tmp')) { started(); await gate; }
+    return original(...args);
+  });
+  store.append(event(1));
+  const committed = store.flush();
+  await writing;
+  try {
+    const controller = new AbortController();
+    const query = store.query({}, controller.signal);
+    controller.abort();
+    await assert.rejects(query, { name: 'AbortError' });
+  } finally {
+    release();
+    await committed;
+  }
+  assert.deepEqual((await store.query()).events.map(record => record.id), [event(1).id]);
+  assert.equal((await store.snapshot()).storageError, false);
 });
 
 test('rejects malformed filters and forged cursors without touching arbitrary paths', async () => {

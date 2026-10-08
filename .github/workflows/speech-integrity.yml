@@ -63,6 +63,7 @@ jobs:
       - name: Test speech execution and durable service contracts
         run: |
           npm test --prefix transcription-worker
+          node --test test/event-manager-startup.test.cjs
           node --import tsx --test test/transcription-service.test.ts test/speech-model-download.test.ts test/speech-source-storage.test.ts
       - name: Validate ten deployment contracts and deployer
         run: |
@@ -73,6 +74,7 @@ jobs:
       - name: Validate Manager progress, deadlines and compilation
         run: |
           node --test manager/scripts/speech-status.test.mjs
+          npm run test:diagnostics --prefix manager
           npm run check:sfc --prefix manager
           npm run check:language --prefix manager
           npm run build --prefix manager
@@ -244,6 +246,14 @@ jobs:
           npm run db:generate
       - name: Exercise claims, fencing, outbox, redelivery and cancellation
         run: node --import tsx --test test/speech-durable.integration.test.ts
+      - name: Verify stable legacy speech connections and exclusive handoff
+        if: matrix.provider == 'postgresql'
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          test -n "${SPEECH_TEST_RABBITMQ_URI}"
+          npm ci --prefix transcription-worker --omit=dev --no-audit --no-fund
+          node --test transcription-worker/test/legacy-residency-integration.test.cjs
       - name: Reject anonymous reads and public buckets for new speech sources
         run: node --import tsx --test test/speech-storage.integration.test.ts
       - name: Preserve RabbitMQ startup, memory and persistence evidence

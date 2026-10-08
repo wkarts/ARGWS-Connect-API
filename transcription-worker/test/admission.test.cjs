@@ -37,3 +37,110 @@ test('transcrição e ditado compartilham uma vaga e a liberam no encerramento',
   await dictation.release();
   assert.equal(owners.size, 0);
 });
+
+function sharedBroker(overrides = {}) {
+  const connection = new EventEmitter();
+  const calls = { declared: 0, deleted: 0, closed: 0, disconnected: 0 };
+  const createChannel = () => Object.assign(new EventEmitter(), {
+    assertQueue: async () => { calls.declared += 1; await overrides.declare?.(); },
+    deleteQueue: async () => { calls.deleted += 1; await overrides.remove?.(connection); },
+    close: async () => { calls.closed += 1; },
+  });
+  connection.createChannel = async () => createChannel();
+  connection.close = async () => { calls.disconnected += 1; connection.emit('close'); };
+  return { connection, calls };
+}
+
+const sharedConfig = { rabbitmq: { uri: 'amqp://test', exchange: 'shared' }, globalConcurrency: 1 };
+
+test('handoffs repetidos no mesmo socket removem listeners e cada release confirma uma vez', async () => {
+  const { connection, calls } = sharedBroker();
+  for (let index = 0; index < 25; index += 1) {
+    const lease = await acquire(sharedConfig, () => false, () => {}, connection);
+    assert.equal(connection.listenerCount('error'), 1);
+    assert.equal(connection.listenerCount('close'), 1);
+    await Promise.all([lease.release(), lease.release()]);
+    assert.equal(connection.listenerCount('error'), 0);
+    assert.equal(connection.listenerCount('close'), 0);
+  }
+  assert.equal(calls.declared, 25); assert.equal(calls.deleted, 25); assert.equal(calls.closed, 25);
+  assert.equal(calls.disconnected, 0);
+});
+
+test('falha ao excluir residência força fechamento da conexão que ainda possui a fila', async () => {
+  const { connection, calls } = sharedBroker({ remove: async () => { throw new Error('delete failed'); } });
+  const lease = await acquire(sharedConfig, () => false, () => {}, connection);
+  await lease.release();
+  assert.equal(calls.deleted, 1);
+  assert.equal(calls.disconnected, 1);
+  assert.equal(connection.listenerCount('error'), 0);
+  assert.equal(connection.listenerCount('close'), 0);
+});
+
+test('close já observado durante exclusão é liberação confirmada sem esperar outro close', async () => {
+  const { connection } = sharedBroker({ remove: async (socket) => {
+    socket.emit('close');
+    throw new Error('connection already closed');
+  } });
+  connection.close = async () => { throw new Error('IllegalOperation: already closed'); };
+  const lease = await acquire(sharedConfig, () => false, () => {}, connection);
+  await lease.release();
+  assert.equal(connection.listenerCount('close'), 0);
+});
+
+test('cancelamento concorrente com concessão limpa fila e canal sem fechar socket saudável', async () => {
+  let granted = false;
+  let grantedChecks = 0;
+  const { connection, calls } = sharedBroker({ declare: async () => { granted = true; } });
+  await assert.rejects(acquire(sharedConfig, () => granted && ++grantedChecks > 1, () => {}, connection), { code: 'CANCELLED' });
+  assert.equal(calls.deleted, 1); assert.equal(calls.closed, 1); assert.equal(calls.disconnected, 0);
+  assert.equal(connection.listenerCount('error'), 0); assert.equal(connection.listenerCount('close'), 0);
+});
+
+test('cancelamento depois de concessão com delete falho fecha socket e não abandona uma trava', async () => {
+  let granted = false;
+  let grantedChecks = 0;
+  const { connection, calls } = sharedBroker({ declare: async () => { granted = true; },
+    remove: async () => { throw new Error('delete failed'); } });
+  await assert.rejects(acquire(sharedConfig, () => granted && ++grantedChecks > 1, () => {}, connection), { code: 'CANCELLED' });
+  assert.equal(calls.deleted, 1);
+  assert.equal(calls.disconnected, 1);
+  assert.equal(connection.listenerCount('close'), 0);
+});
+
+test('cancelamento interrompe abertura ou declaração AMQP sem resposta e elimina o resultado incerto', async () => {
+  for (const phase of ['open', 'declare']) {
+    let cancelled = false;
+    let started = false;
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const { connection, calls } = sharedBroker({ declare: async () => { started = true; await pending; } });
+    if (phase === 'open') connection.createChannel = async () => { started = true; await pending; return new EventEmitter(); };
+    const acquiring = acquire(sharedConfig, () => cancelled, () => {}, connection);
+    while (!started) await new Promise((resolve) => setImmediate(resolve));
+    cancelled = true;
+    await assert.rejects(acquiring, { code: 'CANCELLED' });
+    assert.equal(calls.disconnected, 1);
+    assert.equal(connection.listenerCount('error'), 0); assert.equal(connection.listenerCount('close'), 0);
+    finish();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+});
+
+test('declaração AMQP sem resposta expira e fecha conexão antes de admitir qualquer residência', { timeout: 10000 }, async () => {
+  const { connection, calls } = sharedBroker({ declare: async () => new Promise(() => {}) });
+  await assert.rejects(acquire(sharedConfig, () => false, () => {}, connection), { code: 'RESIDENCY_ACQUIRE_TIMEOUT' });
+  assert.equal(calls.disconnected, 1);
+  assert.equal(connection.listenerCount('error'), 0); assert.equal(connection.listenerCount('close'), 0);
+});
+
+test('erro de fechamento sem close força stream e exige confirmação da perda da conexão', async () => {
+  const { connection } = sharedBroker({ remove: async () => { throw new Error('delete failed'); } });
+  let destroyed = 0;
+  connection.close = async () => { throw new Error('close failed'); };
+  connection.connection = { stream: { destroy: () => { destroyed += 1; connection.emit('close'); } } };
+  const lease = await acquire(sharedConfig, () => false, () => {}, connection);
+  await lease.release();
+  assert.equal(destroyed, 1);
+  assert.equal(connection.listenerCount('close'), 0);
+});
