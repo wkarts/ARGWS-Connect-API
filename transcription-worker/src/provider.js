@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { verifyModelDirectory } = require('./model-checksum');
+const { decodeNormalizedWav, speechWindow, isDigitalSilence } = require('./audio-normalizer');
 
 const SAMPLE_RATE = 16000;
 let pipelinePromise = null;
@@ -352,7 +353,13 @@ function createProvider(config, dependencies = {}) {
     }
     return createPipeline(config);
   });
-  const decode = dependencies.decodeAudio || decodeAudio;
+  const decode = dependencies.decodeAudio || (async (filePath, options) => {
+    if (config.pcmFastPath) {
+      const pcm = await decodeNormalizedWav(filePath, options);
+      if (pcm) return pcm;
+    }
+    return decodeAudio(filePath, options);
+  });
   let identity;
   const identityForJob = async () => identity ||= dependencies.createPipeline
     ? { engine, effectiveModel: config.local?.model || null, modelRevision: null }
@@ -387,8 +394,9 @@ function createProvider(config, dependencies = {}) {
       const maximumDuration = input.maxDurationMs ? Math.min(configuredDuration, input.maxDurationMs / 1000) : configuredDuration;
       const maximumSamples = maximumDuration * SAMPLE_RATE;
       if (nextOffset > maximumSamples) throw withCode(new Error('O áudio excedeu a duração permitida.'), 'AUDIO_TOO_LONG');
-      const windowSamples = Math.min(Math.floor(Math.min(30, config.chunkSeconds || 30) * SAMPLE_RATE), maximumSamples - nextOffset);
-      const stride = Math.min(Math.floor((config.strideSeconds || 0) * SAMPLE_RATE), Math.max(0, windowSamples - 1));
+      const window = speechWindow(config, input.mode);
+      const windowSamples = Math.min(Math.floor(window.seconds * SAMPLE_RATE), maximumSamples - nextOffset);
+      const stride = Math.min(Math.floor(window.strideSeconds * SAMPLE_RATE), Math.floor(windowSamples / 2));
       const decoded = await decode(filePath, {
         isCancelled: input.isCancelled,
         onProgress: input.onProgress,
@@ -427,11 +435,12 @@ function createProvider(config, dependencies = {}) {
           : { start: 0, end: sampleCount };
         const samples = handle ? await readPcmChunk(handle, region.start, region.end)
           : decoded.samples.subarray(region.start, region.end);
-        const transcriber = await loadPipeline();
         const returnTimestamps = input.mode !== 'dictation';
         await input.onProgress?.({ stage: 'transcribing', processedDurationMs: checkpoint.durationMs || 0,
           processedChunks: nextChunkIndex });
-        const result = await transcriber(samples, {
+        // Skip exact digital silence only. Never discard quiet speech via an
+        // energy threshold, and never hallucinate words in an all-zero chunk.
+        const result = config.skipDigitalSilence && isDigitalSilence(samples) ? { text: '', chunks: [] } : await (await loadPipeline())(samples, {
           task: 'transcribe', return_timestamps: returnTimestamps,
           ...(languageCode(input.language) ? { language: languageCode(input.language) } : {}),
         });

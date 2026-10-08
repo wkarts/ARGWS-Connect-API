@@ -1,0 +1,17 @@
+{
+  "name": "connect-transcription-service",
+  "version": "1.1.15",
+  "private": true,
+  "description": "Optional native CPU-only speech service",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/service.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.5",
+    "minio": "^8.0.3"
+  }
+}
