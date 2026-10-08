@@ -10,6 +10,12 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { evaluateSarif, scanningAvailability, probeScanning } = require('../scripts/codeql-sarif-gate.cjs');
 
+const HTML_FIXTURES = [
+  ['<script>', '&lt;script&gt;'],
+  ['<SCRIPT>', '&lt;SCRIPT&gt;'],
+  ['<script data-example=fixture>', '&lt;script data-example=fixture&gt;'],
+];
+
 function fixture(score = '6.5', level = 'warning', extension = true) {
   const rule = { id: 'js/example', defaultConfiguration: { level }, properties: {} };
   if (score !== null) rule.properties = { tags: ['security'], 'security-severity': score };
@@ -17,7 +23,9 @@ function fixture(score = '6.5', level = 'warning', extension = true) {
   const result = {
     ruleId: rule.id,
     ...(extension ? { rule: { id: rule.id, index: 0, toolComponent: { index: 0 } } } : { ruleIndex: 0 }),
-    message: { text: 'Preserve all findings, including <script> and\n::error:: text.' },
+    message: {
+      text: `Preserve all findings, including ${HTML_FIXTURES.map(([raw]) => raw).join(' and ')} and\n::error:: text.`,
+    },
     locations: [
       { physicalLocation: { artifactLocation: { uri: 'test/codeql-sarif-gate.test.cjs' }, region: { startLine: 1 } } },
     ],
@@ -259,8 +267,10 @@ test('CLI emits complete recoverable SARIF, unchanged findings, hashes and escap
   assert.match(result.stdout, new RegExp(`CODEQL_SARIF_END ${hash}`));
   assert.match(result.stdout, /CODEQL_FINDING/);
   assert.match(result.summary, /securitySeverity/);
-  assert.match(result.summary, /&lt;script&gt;/);
-  assert.doesNotMatch(result.summary, /<script>/);
+  for (const [raw, escaped] of HTML_FIXTURES) {
+    assert.equal(result.summary.includes(escaped), true, `The exact escaped fixture must remain: ${escaped}`);
+    assert.equal(result.summary.includes(raw), false, `The raw fixture must not be rendered as HTML: ${raw}`);
+  }
   assert.match(result.stdout, /"checkout":"[a-f0-9]{40}"/);
   assert.match(result.stdout, /"eventSha":"event-sha-fixture"/);
   assert.match(result.stdout, /"headSha":"head-sha-fixture"/);
