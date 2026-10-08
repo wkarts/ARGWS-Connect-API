@@ -20,6 +20,7 @@ jobs:
       - run: npm run test:operations
       - run: npm test --prefix transcription-worker
       - run: node --test test/zapo-baileys-parity.test.cjs
+      - run: node --test test/zapo-group-persistence.test.cjs
       - run: node --test test/operations-resilience.test.cjs
       - run: npm --prefix manager install --ignore-scripts --no-audit --no-fund
       - run: npm --prefix manager run test
