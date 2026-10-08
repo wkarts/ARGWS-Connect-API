@@ -4,7 +4,14 @@ services:
     image: ${ARGWS_CONNECT_RABBITMQ_IMAGE:-ghcr.io/wkarts/argws-connect-rabbitmq:management}
     pull_policy: always
     restart: unless-stopped
+    cpus: "${RABBITMQ_CPUS:-2.00}"
+    mem_limit: ${RABBITMQ_MEMORY:-2g}
+    memswap_limit: ${RABBITMQ_MEMORY:-2g}
+    pids_limit: ${RABBITMQ_PIDS_LIMIT:-256}
     environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        ${RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS:-+S 2:2 +SDcpu 1 +SDio 1 +A 4 -rabbit vm_memory_high_watermark {absolute,${RABBITMQ_MEMORY_WATERMARK_BYTES:-1073741824}}}
+      RABBITMQ_CTL_ERL_ARGS: ${RABBITMQ_CTL_ERL_ARGS:-+S 1:1 +SDcpu 1 +SDio 1 +A 1}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-argws_connect}
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-argws_connect}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-CHANGE_ME_RABBITMQ_PASSWORD}
@@ -14,6 +21,12 @@ services:
       - "${RABBITMQ_BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_HOST_PORT:-5672}:5672"
       - "${RABBITMQ_BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
     networks: [connect-net]
+    healthcheck:
+      test: ["CMD", "timeout", "${RABBITMQ_HEALTHCHECK_CONNECT_TIMEOUT:-2}", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/5672"]
+      interval: ${RABBITMQ_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${RABBITMQ_HEALTHCHECK_TIMEOUT:-3s}
+      retries: ${RABBITMQ_HEALTHCHECK_RETRIES:-10}
+      start_period: ${RABBITMQ_HEALTHCHECK_START_PERIOD:-120s}
 
 volumes:
   rabbitmq_data:

@@ -19,6 +19,7 @@ jobs:
     env:
       ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       DATABASE_PROVIDER: postgresql
+      RABBITMQ_TEST_REQUIRE_COMPOSE: '1'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -66,6 +67,8 @@ jobs:
       - name: Validate ten deployment contracts and deployer
         run: |
           python3 test/compose-env-only-deployments.test.py
+          python3 test/rabbitmq-startup-deployments.test.py
+          python3 test/connect-startup-diagnose.test.py
           node --test tools/connect-deployer/test/index.test.cjs
       - name: Validate Manager progress, deadlines and compilation
         run: |
@@ -157,15 +160,6 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 -u root -proot_test_password"
           --health-interval 5s --health-timeout 5s --health-retries 30
-      rabbitmq:
-        image: rabbitmq:3.13-alpine
-        env:
-          RABBITMQ_DEFAULT_USER: speech
-          RABBITMQ_DEFAULT_PASS: speech_test_password
-        ports: ['5673:5672']
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       DATABASE_PROVIDER: ${{ matrix.provider }}
       DATABASE_CONNECTION_URI: ${{ matrix.database_url }}
@@ -203,6 +197,16 @@ jobs:
             --env MINIO_ROOT_USER=speech_test \
             --env MINIO_ROOT_PASSWORD=speech_test_password \
             "${storage_image}" server /data
+      - name: Validate RabbitMQ startup and persistent recreation from the deployment mirror
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp deploy/develop/env.example deploy/develop/.env
+          docker pull ghcr.io/${{ github.repository_owner }}/argws-connect-rabbitmq:management
+          export SPEECH_TEST_RABBITMQ_IMAGE
+          SPEECH_TEST_RABBITMQ_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/${{ github.repository_owner }}/argws-connect-rabbitmq:management)
+          node .github/scripts/test-rabbitmq-startup.cjs
       - name: Upgrade the fixed migration history without introducing schema drift
         shell: bash
         run: |
@@ -242,6 +246,19 @@ jobs:
         run: node --import tsx --test test/speech-durable.integration.test.ts
       - name: Reject anonymous reads and public buckets for new speech sources
         run: node --import tsx --test test/speech-storage.integration.test.ts
+      - name: Preserve RabbitMQ startup, memory and persistence evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rabbitmq-startup-${{ matrix.provider }}
+          path: |
+            ${{ runner.temp }}/speech-rabbit-ci-${{ matrix.provider }}-${{ github.run_id }}/report.json
+            ${{ runner.temp }}/speech-rabbit-ci-${{ matrix.provider }}-${{ github.run_id }}/rabbitmq.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Remove the disposable RabbitMQ test resources
+        if: always()
+        run: node .github/scripts/test-rabbitmq-startup.cjs --cleanup
       - name: Remove disposable storage
         if: always()
         run: docker rm --force speech-storage-test || true

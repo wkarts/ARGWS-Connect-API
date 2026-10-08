@@ -5,9 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
 const { TranscriptionWorker, normalizeJob, queueArguments } = require('../src/worker');
 const { loadConfig, validateConfig } = require('../src/config');
 const { FairScheduler } = require('../src/fair-scheduler');
+const { acquire } = require('../src/admission');
 
 const model = 'Xenova/whisper-small';
 const config = () => ({
@@ -189,6 +191,121 @@ test('TTL ocioso encerra o processo sem liberar coordenação do pool', async ()
     assert.ok(h.events.includes('stop-native')); assert.equal(h.worker.provider, null);
     assert.ok(h.worker.residentLease); assert.equal(h.events.includes('release-residency'), false);
   } finally { await h.close(); }
+});
+
+test('coordenador legado sem primeiro job cede a vaga para a modalidade oposta em até cinco segundos', { timeout: 15000 }, async () => {
+  const first = await harness({ config: { mode: 'transcription', modes: ['transcription'], admissionRetryMs: 5 } });
+  const second = await harness({ config: { mode: 'dictation', modes: ['dictation'], admissionRetryMs: 5,
+    local: { model: 'explicit-dictation-model', device: 'cpu', dtype: 'q8' } } });
+  const owners = new Map();
+  const trace = [];
+  let nextTag = 0;
+  const connect = (label) => async () => {
+    const connection = new EventEmitter();
+    let closed = false;
+    connection.close = async () => {
+      if (closed) return;
+      closed = true;
+      for (const [name, owner] of owners) if (owner === connection) owners.delete(name);
+      connection.emit('close');
+    };
+    connection.createChannel = connection.createConfirmChannel = async () => {
+      const channel = new EventEmitter();
+      channel.assertExchange = async () => {};
+      channel.assertQueue = async (name, options) => {
+        if (name && options?.exclusive) {
+          if (owners.has(name)) throw Object.assign(new Error('RESOURCE_LOCKED'), { code: 405 });
+          owners.set(name, connection); trace.push(label + ':acquire');
+        }
+        return { queue: name || label + '-control' };
+      };
+      channel.deleteQueue = async (name) => {
+        if (owners.get(name) === connection) { owners.delete(name); trace.push(label + ':release'); }
+      };
+      channel.bindQueue = channel.prefetch = async () => {};
+      channel.consume = async () => ({ consumerTag: 'consumer-' + ++nextTag });
+      channel.cancel = async () => { trace.push(label + ':cancel'); };
+      channel.close = async () => channel.emit('close');
+      return channel;
+    };
+    return connection;
+  };
+  let pending;
+  let timeout;
+  try {
+    for (const [label, item] of [['transcription', first], ['dictation', second]]) {
+      item.worker.connectBroker = connect(label);
+      item.worker.acquireSlot = acquire;
+      item.control.connect = async () => {};
+    }
+    await first.worker.connect();
+    assert.ok(first.worker.residentLease);
+    assert.equal(first.worker.provider, null);
+    pending = second.worker.connect();
+    await Promise.race([pending, new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error('A modalidade oposta permaneceu bloqueada sem trabalho ativo.')), 8000);
+    })]);
+    assert.ok(second.worker.residentLease);
+    assert.equal(second.worker.consumerTags.length, 1);
+    assert.equal(first.worker.residentLease, null);
+    assert.equal(first.providerCount(), 0); assert.equal(second.providerCount(), 0);
+    assert.equal(first.worker.config.mode, 'transcription'); assert.equal(second.worker.config.mode, 'dictation');
+    assert.equal(second.worker.config.local.model, 'explicit-dictation-model');
+    assert.ok(trace.indexOf('transcription:cancel') < trace.indexOf('transcription:release'));
+    assert.ok(trace.indexOf('transcription:release') < trace.indexOf('dictation:acquire'));
+  } finally {
+    clearTimeout(timeout);
+    await first.close(); await second.close();
+    await pending?.catch(() => {});
+  }
+  assert.equal(owners.size, 0);
+});
+
+test('entrega durante cancelamento do consumidor ocioso não inicia inferência nem recebe ACK ao ceder a vaga', async () => {
+  const h = await harness({ config: { mode: 'transcription', modes: ['transcription'], modelIdleTtlSeconds: 0.01 } });
+  try {
+    await h.worker.ensureResidency();
+    h.worker.consumerTags = ['legacy-consumer'];
+    h.worker.channel.cancel = async () => {
+      h.events.push('cancel-consumer');
+      const delivery = message('arrived-during-cancel');
+      h.worker.scheduler.add(normalizeJob(JSON.parse(delivery.content)), { message: delivery,
+        channel: h.worker.channel, queueMode: 'transcription' });
+      h.worker.pump();
+      await Promise.resolve();
+    };
+    h.worker.scheduleIdleUnload();
+    const deadline = Date.now() + 1000;
+    while (!h.events.includes('connection-close') && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.ok(h.events.includes('connection-close'));
+    assert.ok(h.events.indexOf('cancel-consumer') < h.events.indexOf('release-residency'));
+    assert.equal(h.providerCount(), 0); assert.equal(h.events.includes('claim'), false);
+    assert.equal(h.events.includes('ack'), false); assert.equal(h.events.includes('download'), false);
+    assert.equal(h.worker.residentLease, null);
+  } finally { await h.close(); }
+});
+
+test('encerramento concorrente com a devolução ociosa libera cada residência uma única vez', async () => {
+  const h = await harness({ config: { mode: 'transcription', modes: ['transcription'], modelIdleTtlSeconds: 0.01 } });
+  let finishRelease;
+  let releaseCalls = 0;
+  const released = new Promise((resolve) => { finishRelease = resolve; });
+  try {
+    await h.worker.ensureResidency();
+    h.worker.residentLease.release = async () => { releaseCalls += 1; await released; };
+    h.worker.scheduleIdleUnload();
+    const deadline = Date.now() + 1000;
+    while (!releaseCalls && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(releaseCalls, 1);
+    await h.worker.stop();
+    finishRelease();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(releaseCalls, 1);
+    assert.equal(h.worker.residentLease, null);
+    assert.equal(h.worker.stopping, true);
+  } finally { finishRelease(); await h.close(); }
 });
 
 test('fila v2 recusa legado sem inferir ou alterar estado sem token', async () => {
