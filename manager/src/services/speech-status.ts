@@ -1,5 +1,11 @@
 import type { SpeechHealth, TranscriptionJob } from '@/types/domain'
 
+type SpeechHealthSnapshot = SpeechHealth & {
+  connected?: boolean
+  dictationQueuedJobs?: number
+  dictationProcessingJobs?: number
+}
+
 export function speechStageLabel(stage?: string | null) {
   return ({
     queued: 'Aguardando a vez na fila',
@@ -21,15 +27,47 @@ export function speechStageLabel(stage?: string | null) {
   } as Record<string, string>)[String(stage || '')] || 'Aguardando atualização do motor'
 }
 
-export function speechPoolLabel(health: SpeechHealth | null) {
+export function speechWorkerLabel(health: SpeechHealthSnapshot | null, mode: 'transcription' | 'dictation') {
+  if (!health) return 'Consultando'
+  if (health.enabled === false || health.state === 'disabled' || (mode === 'dictation' && health.dictationEnabled === false)) return 'Desativado'
+  const download = health.modelDownload
+  if (download?.status === 'not_installed') return 'Modelo não instalado'
+  if (download?.status === 'downloading' || download?.status === 'verifying') return 'Preparando modelo'
+  if (download?.status === 'failed' && health.modelVerified !== true) return 'Modelo não verificado'
+  if (health.state === 'offline' || health.connected === false || health.processAlive === false || health.brokerConnected === false) return 'Sem conexão'
+  if (health.modelVerified === false) return 'Modelo não verificado'
+  if (health.state === 'degraded') return 'Indisponível'
+
+  const ready = mode === 'transcription' ? health.workerReady : health.dictationWorkerReady
+  const capability = health.capabilities?.[mode]
+  // Older responses can report readiness without capabilities. An explicit
+  // unavailable mode must never inherit the other mode's engine readiness.
+  if (capability !== true && !(capability === undefined && ready === true)) return 'Indisponível'
+  if (health.state === 'capacity_exhausted') return 'Capacidade esgotada'
+  if (health.acceptingJobs === false) return 'Indisponível'
+  const processing = mode === 'transcription' ? health.processingJobs : health.dictationProcessingJobs
+  const queued = mode === 'transcription' ? health.queuedJobs : health.dictationQueuedJobs
+  // SQL workload is not proof of current native inference or recognition.
+  if (Number(processing) > 0) return 'Trabalho em andamento'
+  if (Number(queued) > 0) return 'Aguardando processamento'
+  return ready === true ? 'Pronto' : 'Disponível sob demanda'
+}
+
+export function speechPoolLabel(health: SpeechHealthSnapshot | null) {
   if (!health) return 'Consultando disponibilidade do serviço de voz'
   const state = health.state || (health.enabled === false ? 'disabled' : health.workerReady ? 'ready' : 'offline')
+  const idleOnDemand = state === 'warming' && health.acceptingJobs === true &&
+    health.modelVerified === true && health.processAlive === true && health.brokerConnected === true &&
+    health.connected !== false &&
+    (health.capabilities?.transcription === true || (health.dictationEnabled !== false && health.capabilities?.dictation === true)) &&
+    ![health.queuedJobs, health.processingJobs, health.dictationQueuedJobs, health.dictationProcessingJobs].some((count) => Number(count) > 0)
+  if (idleOnDemand) return 'Serviço de voz disponível sob demanda. O modelo será carregado ao iniciar um trabalho.'
   return ({
     disabled: 'O serviço de voz está desativado nesta instalação.',
     offline: 'O serviço de voz está sem conexão. Aguarde o retorno do processamento.',
-    warming: 'O modelo está sendo carregado. A inicialização ainda não terminou.',
+    warming: 'Inicialização do serviço de voz pendente. Consulte o estado do modelo e dos workers.',
     ready: 'Serviço de voz disponível.',
-    busy: 'O motor está processando áudio. Os próximos pedidos aguardam na fila.',
+    busy: 'Há trabalhos marcados como em processamento. Consulte a etapa e o último avanço de cada áudio.',
     capacity_exhausted: 'A capacidade de voz está esgotada. Aguarde uma vaga antes de enviar outro áudio.',
     degraded: 'O serviço de voz está degradado. Consulte o estado do modelo e a última evolução dos trabalhos.',
   } as Record<string, string>)[state]
