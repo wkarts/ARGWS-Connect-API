@@ -81,3 +81,10 @@ lerna-debug.log*
 # Native technical diagnostics regression suites.
 !/test/diagnostic-*.test.cjs
 !/test/diagnostics-router.test.cjs
+
+# CI evidence and security gates are reviewed alongside their workflows.
+!/test/ci-evidence-contract.test.cjs
+!/test/codeql-sarif-gate.test.cjs
+!/test/speech-ci-evidence.test.cjs
+!/test/package-operations-deployments.test.py
+!/test/findhub-distribution-evidence.test.cjs

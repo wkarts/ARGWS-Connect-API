@@ -64,6 +64,7 @@ jobs:
         run: |
           npm test --prefix transcription-worker
           node --test test/event-manager-startup.test.cjs
+          node --test test/speech-ci-evidence.test.cjs
           node --import tsx --test test/transcription-service.test.ts test/speech-model-download.test.ts test/speech-source-storage.test.ts
       - name: Validate ten deployment contracts and deployer
         run: |
@@ -127,6 +128,7 @@ jobs:
       - uses: ./.github/actions/speech-native-smoke
         with:
           image: speech-native:${{ matrix.arch }}
+          upload_artifacts: ${{ github.event_name != 'pull_request' }}
 
   durable:
     name: Durable speech / ${{ matrix.provider }}
@@ -256,8 +258,14 @@ jobs:
           node --test transcription-worker/test/legacy-residency-integration.test.cjs
       - name: Reject anonymous reads and public buckets for new speech sources
         run: node --import tsx --test test/speech-storage.integration.test.ts
-      - name: Preserve RabbitMQ startup, memory and persistence evidence
+      - name: Record complete RabbitMQ evidence in the job log and summary
         if: always()
+        env:
+          SPEECH_EVIDENCE_UPLOAD_ARTIFACTS: ${{ github.event_name != 'pull_request' }}
+          SPEECH_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node .github/scripts/preserve-speech-evidence.cjs rabbitmq
+      - name: Preserve RabbitMQ startup, memory and persistence evidence
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: rabbitmq-startup-${{ matrix.provider }}
@@ -265,7 +273,7 @@ jobs:
             ${{ runner.temp }}/speech-rabbit-ci-${{ matrix.provider }}-${{ github.run_id }}/report.json
             ${{ runner.temp }}/speech-rabbit-ci-${{ matrix.provider }}-${{ github.run_id }}/rabbitmq.log
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
       - name: Remove the disposable RabbitMQ test resources
         if: always()
         run: node .github/scripts/test-rabbitmq-startup.cjs --cleanup

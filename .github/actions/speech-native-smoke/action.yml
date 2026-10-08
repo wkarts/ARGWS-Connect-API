@@ -4,9 +4,17 @@ inputs:
   image:
     description: Immutable published digest or local native test image
     required: true
+  upload_artifacts:
+    description: Require artifact retention; false is allowed only for pull requests with complete job evidence
+    default: 'true'
 runs:
   using: composite
   steps:
+    - name: Validate native evidence retention policy
+      shell: bash
+      env:
+        SPEECH_EVIDENCE_UPLOAD_ARTIFACTS: ${{ inputs.upload_artifacts }}
+      run: node .github/scripts/preserve-speech-evidence.cjs policy
     - name: Provision pinned smoke model outside the image
       shell: bash
       run: |
@@ -28,7 +36,19 @@ runs:
           -e SPEECH_INFERENCE_THREADS=1 -e SPEECH_SMOKE_EXPECT_CGROUP_BYTES=1342177280 \
           --entrypoint node "${SPEECH_SMOKE_IMAGE}" scripts/native-smoke.cjs \
           | tee "${RUNNER_TEMP}/speech-native-smoke-${RUNNER_ARCH}.json"
-    - name: Preserve native measurements
+    - name: Record complete native measurements in the job log and summary
+      shell: bash
+      env:
+        SPEECH_SMOKE_IMAGE: ${{ inputs.image }}
+        SPEECH_EVIDENCE_UPLOAD_ARTIFACTS: ${{ inputs.upload_artifacts }}
+        SPEECH_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -euo pipefail
+        export SPEECH_EVIDENCE_IMAGE_ID
+        SPEECH_EVIDENCE_IMAGE_ID=$(docker image inspect --format '{{.Id}}' "${SPEECH_SMOKE_IMAGE}")
+        node .github/scripts/preserve-speech-evidence.cjs native
+    - name: Preserve native measurements as a required publication artifact
+      if: inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: speech-native-smoke-${{ github.job }}-${{ runner.arch }}

@@ -106,6 +106,23 @@ Os builds completos da API em amd64/arm64 e o CI de qualidade também atingiram 
 
 O teste de outbox foi ajustado à precisão persistida do MySQL: `TIMESTAMP(0)` pode arredondar `availableAt` para o próximo segundo. A regressão aguarda apenas a elegibilidade lida do banco, limitada a um segundo, e executa uma única publicação. Exige confirmação, uma tentativa, ausência de erro, redelivery real e ausência de republicação após reiniciar o publicador. Não há retry de teste para ocultar erro, mudança de schema nem alteração do agendamento de produção.
 
+## Validação da PR e evidências de CI
+
+O ciclo seguinte de revisão identificou uma dependência operacional indevida: testes e builds concluíam, mas a PR falhava ao enviar artifacts para uma conta sem quota disponível. Os arquivos gerados nas execuções de PR não eram consumidos por outra etapa. A correção mantém geração, verificação e evidência obrigatórias, registrando resultados completos e identificadores no log do job e no seu resumo. O transporte dos binários continua obrigatório nos fluxos que publicam uma distribuição.
+
+| Fluxo | Evidência exigida antes da aprovação |
+| --- | --- |
+| Speech nativo e RabbitMQ | JSON completo validado, resultados e medições, SHA-256, revisão e execução. O reconhecimento real e as integrações SQL/RabbitMQ/S3 continuam executando. |
+| Operations | ZIP criado e lido novamente, integridade, inventário, tamanho e SHA-256, sem arquivos de runtime. |
+| Find Hub | Build e smokes Windows, distribuição finalizada, revisão/canal/identidade, bytes e checksums verificados sem reescrever os resultados. |
+| CodeQL | Análise real e validação automática do SARIF, com metadados das regras, todos os achados e arquivo completo recuperável do log. |
+
+O CodeQL mantém suas consultas e registra o escopo efetivamente informado no SARIF, inclusive quando a análise usa modo incremental. O gate reprova análise malsucedida, evidência ausente/inválida, metadados ambíguos, resultados `error` e segurança `high`/`critical` (pontuação a partir de 7). Não há exclusão por baseline, supressão de achados ou lista de exceções para obter aprovação. Alertas médios e baixos permanecem visíveis com suas pontuações. Consulte os detalhes em [autenticação e segurança](../operations/authentication-security.md).
+
+O envio ao serviço Code scanning é obrigatório quando ele está disponível. Somente uma resposta explícita de recurso desabilitado permite usar a validação local do SARIF; erros genéricos de permissão, rede ou servidor continuam reprovando o workflow. Isso não altera o plano da conta nem declara recuperada a quota de artifacts. Uma publicação que dependa de artifacts continua exigindo esse transporte e pode ser bloqueada pela quota até sua regularização.
+
+Os contratos entre esses workflows são verificados em `test/ci-evidence-contract.test.cjs`, incluindo os defaults obrigatórios de publicação e a execução dos testes antes do transporte das evidências. O estado das execuções do commit final deve ser consultado na PR; o histórico de uma revisão anterior não substitui essa validação.
+
 ## Atualização e aceite na instalação
 
 1. Registre os digests atuais. Mantenha o `.env`, os volumes e a topologia de serviços instalada. Esta alteração não adiciona migration ou variável obrigatória.

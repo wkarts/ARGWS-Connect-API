@@ -51,6 +51,38 @@ PostgreSQL e MySQL passam a usar o digest do espelho RabbitMQ da implantação;
 o ensaio verifica também o listener fechado com Erlang ainda vivo e a
 recuperação de mensagens quorum após recriação com a mesma identidade e volume.
 
+## Evidência de fala na CI
+
+O workflow `Speech Integrity` executa os mesmos testes reais em pull requests e
+nos demais eventos: reconhecimento nativo em amd64/arm64, bancos PostgreSQL e
+MySQL, broker RabbitMQ e armazenamento S3. O ensaio de residência entre os dois
+workers legados usa o broker real no job PostgreSQL; as respostas da API de
+controle e o motor desse ensaio são instrumentados. O reconhecimento de áudio
+real é comprovado separadamente pelo smoke nativo.
+
+Nas pull requests, os relatórios JSON completos do smoke nativo e do startup
+RabbitMQ ficam no log do job e em seu resumo (`GITHUB_STEP_SUMMARY`). Cada
+relatório registra SHA-256 dos bytes originais, tamanho, run/tentativa, commit
+do evento, commit efetivamente testado, head da PR e imagem. O relatório nativo
+registra também o ID imutável da imagem local. Consulte o resumo do run ou baixe
+os logs do job no GitHub Actions; a retenção segue a configuração do repositório.
+Esse caminho não usa a quota de armazenamento de artifacts da PR.
+
+O script `.github/scripts/preserve-speech-evidence.cjs` exige JSON válido e as
+medições necessárias, limita cada JSON a 128 KiB, o log auxiliar RabbitMQ a
+256 KiB e o resumo completo a 512 KiB. Ausência, formato inválido, falha de
+escrita ou limite excedido falham o check; o conteúdo não é truncado. O JSON de
+uma integração RabbitMQ falha e seu log auxiliar, quando produzido, também
+ficam acessíveis e mantêm o job reprovado. O log é a evidência primária; a
+publicação do resumo é uma apresentação adicional feita pelo GitHub.
+
+Fora de pull requests, o upload dos artifacts continua obrigatório. A action
+`speech-native-smoke` mantém `upload_artifacts: 'true'` como default e rejeita
+a desativação fora de `pull_request`. Os fluxos de publicação develop e release
+continuam exigindo o reconhecimento real e o relatório retido antes de
+publicar seus manifests. Uma quota de artifacts esgotada nesses fluxos continua
+sendo falha de publicação.
+
 ## Antes de atualizar o develop
 
 1. Registre a imagem/digest e o `.env` atual de API, Manager e worker. Guarde as credenciais fora de logs e da PR. Faça backup do banco e preserve RabbitMQ, objetos de áudio, diretório de modelos e sessões WhatsApp.

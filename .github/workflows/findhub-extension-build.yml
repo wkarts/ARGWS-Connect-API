@@ -9,6 +9,11 @@ on:
         required: false
         default: candidate
         type: string
+      upload_artifacts:
+        description: Transport verified outputs for downstream publication; PR validation uses log and summary evidence.
+        required: false
+        default: true
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -24,13 +29,20 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22.x
+      - name: Test distribution evidence validation
+        shell: pwsh
+        run: |
+          node --test test/findhub-distribution-evidence.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Distribution evidence tests failed' }
       - name: Validate source identity and deterministic extension payload
         shell: pwsh
         env:
           CHANNEL: ${{ inputs.channel }}
+          UPLOAD_ARTIFACTS: ${{ inputs.upload_artifacts }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:CHANNEL -notin @('candidate','develop','stable')) { throw 'Invalid channel' }
+          if ($env:UPLOAD_ARTIFACTS -ne 'true' -and $env:GITHUB_EVENT_NAME -ne 'pull_request') { throw 'Artifact upload is required outside pull requests' }
           $revision = (git rev-parse HEAD).Trim()
           node scripts/build-findhub-distribution.cjs --revision $revision --channel $env:CHANNEL
           if ($LASTEXITCODE -ne 0) { throw 'Distribution contract failed' }
@@ -104,7 +116,17 @@ jobs:
           $revision = (git rev-parse HEAD).Trim()
           node scripts/build-findhub-distribution.cjs --revision $revision --channel $env:CHANNEL --finalize
           if ($LASTEXITCODE -ne 0) { throw 'Release metadata failed' }
-      - uses: actions/upload-artifact@v4
+      - name: Verify final distribution and record integrity evidence
+        shell: pwsh
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          $revision = (git rev-parse HEAD).Trim()
+          node scripts/verify-findhub-distribution.cjs --revision $revision --channel $env:CHANNEL
+          if ($LASTEXITCODE -ne 0) { throw 'Distribution integrity verification failed' }
+      - name: Upload verified extension distribution
+        if: ${{ inputs.upload_artifacts }}
+        uses: actions/upload-artifact@v4
         with:
           name: findhub-extension-distribution
           path: |
