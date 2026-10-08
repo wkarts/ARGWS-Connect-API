@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -43,6 +44,15 @@ DEFAULT_ARGS = (
 )
 
 
+def compose_unsigned_integer(value):
+    """Compose versions emit byte limits as either JSON integers or decimal strings."""
+    if type(value) is int and value >= 0:
+        return value
+    if isinstance(value, str) and re.fullmatch(r'0|[1-9][0-9]*', value):
+        return int(value)
+    raise AssertionError(f'Expected an unsigned integer from Compose, got {value!r}')
+
+
 def manifests():
     for name in MANIFESTS:
         document = yaml.safe_load((ROOT / name).read_text(encoding='utf-8'))
@@ -71,6 +81,15 @@ def compose_command():
 
 
 class RabbitMQBootstrapDeploymentTests(unittest.TestCase):
+    def test_compose_integer_normalization_accepts_only_integer_representations(self):
+        for value in (0, '0', 2147483648, '2147483648', 3221225472, '3221225472'):
+            with self.subTest(value=value):
+                self.assertEqual(compose_unsigned_integer(value), int(value))
+        for value in (True, False, None, 2.0, -1, '-1', '+2', ' 2', '2 ', '2g', '2.0', '2e3', '', '02'):
+            with self.subTest(invalid=value):
+                with self.assertRaises(AssertionError):
+                    compose_unsigned_integer(value)
+
     def test_every_broker_has_one_light_bounded_amqp_probe(self):
         for name, _, _, broker in manifests():
             with self.subTest(manifest=name):
@@ -192,7 +211,10 @@ class RabbitMQComposeInterpolationTests(unittest.TestCase):
                 cwd=folder, env=environment, capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            return json.loads(result.stdout)['services'][rabbit_name]
+            rendered = json.loads(result.stdout)['services'][rabbit_name]
+            for field in ('mem_limit', 'memswap_limit', 'pids_limit'):
+                rendered[field] = compose_unsigned_integer(rendered[field])
+            return rendered
 
     def test_real_compose_renders_all_default_budgets_and_erlang_terms(self):
         for name, document, rabbit_name, broker in manifests():
