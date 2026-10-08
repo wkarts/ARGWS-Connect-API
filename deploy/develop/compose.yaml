@@ -337,6 +337,14 @@ services:
     pull_policy: always
     container_name: rabbitmq-argws-connect-develop
     restart: unless-stopped
+    cpus: "${RABBITMQ_CPUS:-2.00}"
+    mem_limit: ${RABBITMQ_MEMORY:-2g}
+    memswap_limit: ${RABBITMQ_MEMORY:-2g}
+    pids_limit: ${RABBITMQ_PIDS_LIMIT:-256}
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        ${RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS:-+S 2:2 +SDcpu 1 +SDio 1 +A 4 -rabbit vm_memory_high_watermark {absolute,${RABBITMQ_MEMORY_WATERMARK_BYTES:-1073741824}}}
+      RABBITMQ_CTL_ERL_ARGS: ${RABBITMQ_CTL_ERL_ARGS:-+S 1:1 +SDcpu 1 +SDio 1 +A 1}
     env_file: [.env]
     expose: ["5672", "15672", "15692"]
     volumes:
@@ -345,11 +353,11 @@ services:
       argws-connect-develop-net:
         aliases: [rabbitmq-argws-connect-develop]
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 15
-      start_period: 30s
+      test: ["CMD", "timeout", "${RABBITMQ_HEALTHCHECK_CONNECT_TIMEOUT:-2}", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/5672"]
+      interval: ${RABBITMQ_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${RABBITMQ_HEALTHCHECK_TIMEOUT:-3s}
+      retries: ${RABBITMQ_HEALTHCHECK_RETRIES:-10}
+      start_period: ${RABBITMQ_HEALTHCHECK_START_PERIOD:-120s}
     logging: *default-logging
 
   minio-argws-connect-develop:

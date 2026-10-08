@@ -110,6 +110,7 @@ class TranscriptionWorker {
     this.activeTask = null; this.activeContext = null; this.consumerTags = [];
     this.sourceCache = new Map(); this.sourceCacheBytes = 0;
     this.modelVerified = false; this.lastSuccessfulInferenceAt = null;
+    this.releasingResidency = false;
   }
 
   get modes() { return this.config.modes || (this.config.mode === 'pool' ? ['dictation', 'transcription'] : [this.config.mode || 'transcription']); }
@@ -219,31 +220,51 @@ class TranscriptionWorker {
 
   scheduleIdleUnload() {
     clearTimeout(this.idleTimer);
-    if (this.stopping || this.scheduler?.size || this.activeContext || !this.provider) return;
+    const legacyMode = this.config.mode !== 'pool';
+    if (this.stopping || this.scheduler?.size || this.activeContext || this.pumpTask ||
+      (!this.provider && !(legacyMode && this.residentLease))) return;
+    const configuredIdleMs = Math.max(0, this.config.modelIdleTtlSeconds ?? 300) * 1000;
+    // Old Compose files run one coordinator per mode. A coordinator that has
+    // never loaded a model must still yield so the other mode can consume.
+    const idleMs = !this.provider && legacyMode ? Math.min(5000, configuredIdleMs) : configuredIdleMs;
     this.idleTimer = setTimeout(() => {
-      if (this.activeContext || this.scheduler.size) return;
-      void this.unloadProvider().then(async () => {
+      if (this.stopping || this.activeContext || this.scheduler.size || this.pumpTask) return;
+      const connection = this.connection;
+      const lease = this.residentLease;
+      void (async () => {
         // Pool ownership belongs to the lightweight coordinator until reconnect.
         // Legacy single-mode replicas yield residency after idle to the other mode.
-        if (this.config.mode !== 'pool') {
+        if (legacyMode) {
+          // Deliveries already in flight remain unacknowledged until closing the
+          // connection requeues them. They cannot start while residency is freed.
+          this.releasingResidency = true;
           await this.pauseConsumers();
-          await this.residentLease?.release(); this.residentLease = null;
-          await this.onConnectionLost(this.connection);
+          if (this.stopping || this.connection !== connection || this.residentLease !== lease) return;
+        }
+        await this.unloadProvider();
+        if (legacyMode) {
+          if (this.stopping || this.connection !== connection || this.residentLease !== lease) return;
+          // stop() or a socket close can overlap this awaited broker operation.
+          // The native process is gone; detach ownership before releasing once.
+          this.residentLease = null;
+          await lease?.release();
+          await this.onConnectionLost(connection);
         }
         await this.reportHealth();
-      }).catch((error) => {
+      })().catch((error) => {
         this.fatalError = error; this.stopping = true;
         fs.rmSync(READY_FILE, { force: true });
         console.error('Processo nativo sem encerramento confirmado; residência retida:', error.code);
         void this.reportHealth().catch(() => {});
       });
-    }, Math.max(0, this.config.modelIdleTtlSeconds ?? 300) * 1000);
+    }, idleMs);
     this.idleTimer.unref?.();
   }
 
   async connect() {
     if (this.stopping) return;
     await this.lossBarrier;
+    this.releasingResidency = false;
     const connection = await this.connectBroker(this.config.rabbitmq.uri, { timeout: 5000, keepAlive: true });
     this.connection = connection;
     connection.on('error', (error) => console.error('RabbitMQ speech:', error.code || 'CONNECTION_ERROR'));
@@ -300,6 +321,7 @@ class TranscriptionWorker {
       this.consumerTags.push(consumer.consumerTag);
     }
     fs.writeFileSync(READY_FILE, JSON.stringify({ version: 2, mode: this.config.mode, coordinator: true }));
+    this.scheduleIdleUnload();
     await this.reportHealth();
     console.log(`Speech coordinator v2 ativo: ${this.modes.join(', ')}; engine=${this.config.engine || 'transformers'}.`);
   }
@@ -332,11 +354,12 @@ class TranscriptionWorker {
         this.scheduleReconnect();
       });
     }, 5000);
-    this.reconnectTimer.unref?.();
+    // The broker socket may be the last referenced handle. Keep this retry alive
+    // until stop() clears it; exiting with code 0 defeats restart:on-failure.
   }
 
   pump() {
-    if (this.pumpTask || this.stopping) return;
+    if (this.pumpTask || this.stopping || this.releasingResidency) return;
     this.pumpTask = (async () => {
       while (!this.stopping && this.scheduler.size) {
         const entry = this.scheduler.take();
@@ -416,7 +439,7 @@ class TranscriptionWorker {
     }
     if (!this.control?.channel && this.control instanceof SpeechControlClient) return;
     const engine = this.provider?.status || {};
-    const accepting = !this.stopping && Boolean(this.channel && this.residentLease && this.modelVerified);
+    const accepting = !this.stopping && !this.releasingResidency && Boolean(this.channel && this.residentLease && this.modelVerified);
     const health = {
       modes: this.modes, processAlive: !this.stopping, brokerConnected: Boolean(this.channel),
       modelVerified: this.modelVerified, engineReady: Boolean(this.provider?.ready), acceptingJobs: accepting,
@@ -607,8 +630,11 @@ class TranscriptionWorker {
   }
 
   async pauseConsumers() {
-    for (const tag of this.consumerTags || (this.consumerTag ? [this.consumerTag] : [])) await this.channel?.cancel(tag).catch(() => {});
+    const channel = this.channel;
+    const tags = this.consumerTags || (this.consumerTag ? [this.consumerTag] : []);
+    // Detach before awaiting: idle handoff and stop() may cancel concurrently.
     this.consumerTags = [];
+    for (const tag of tags) await channel?.cancel(tag).catch(() => {});
   }
 
   async stop() {

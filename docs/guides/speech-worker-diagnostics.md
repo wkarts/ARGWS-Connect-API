@@ -4,6 +4,41 @@ Este procedimento corresponde ao pool persistente com protocolo v2. A captura de
 
 A [matriz da correção](../reviews/speech-correction-2026-10-07.md) relaciona os achados do PDF ao código e às validações. O [guia de fala](speech.md) descreve contratos e configurações; [deploy/speech](../../deploy/speech/README.md) contém o perfil canário e o teto agregado do host.
 
+## Falha de inicialização e Compose anterior ao pool
+
+Quando API e workers ainda não iniciaram, confira primeiro suas dependências
+Compose. Os pacotes esperam `service_healthy` do RabbitMQ; um fragmento de boot
+sem erro fatal não comprova corrupção nem falta de memória. O
+[roteiro de recuperação](startup-recovery.md) coleta estado, consumo, revisão
+das imagens e a configuração efetiva com saída limitada. A contenção opcional
+alcança somente os workers de speech do projeto selecionado.
+
+O hotfix de 08/10/2026 corrige duas regressões comprovadas do coordenador:
+
+- A espera de reconexão mantém o processo vivo depois de `ECONNREFUSED` ou da
+  perda do último socket. Antes, o timer sem referência permitia saída com
+  código zero, que `restart: on-failure` não recuperava. SIGTERM cancela essa
+  espera e encerra normalmente.
+- Um worker legado de modalidade separada, ocioso e que ainda não carregou
+  modelo, inicia a cessão da residência após o menor valor entre o TTL
+  configurado e cinco segundos. Durante a cessão ele suspende o processamento,
+  cancela consumidores e devolve entregas em trânsito pelo fechamento da
+  conexão. A posse só é liberada depois do encerramento confirmado do motor.
+  A outra réplica ainda depende do backoff e da latência do broker para assumir.
+
+Essa compatibilidade preserva os modos e modelos configurados. Atualizar apenas
+a imagem não transforma um Compose com dois serviços no pool único, nem aplica
+seus novos limites de memória/swap/tmpfs. A instalação precisa alinhar as
+imagens e o manifesto do pool; não se desliga uma modalidade nem se troca seu
+modelo silenciosamente. A verificação SHA-256 continua no boot, mas o motor de
+inferência só é carregado quando há trabalho admitido.
+
+O [guia do RabbitMQ](rabbitmq-startup.md) descreve o probe AMQP, as quotas e a
+preservação da identidade/imagem antes de recriar um broker existente. Na CI,
+PostgreSQL e MySQL passam a usar o digest do espelho RabbitMQ da implantação;
+o ensaio verifica também o listener fechado com Erlang ainda vivo e a
+recuperação de mensagens quorum após recriação com a mesma identidade e volume.
+
 ## Antes de atualizar o develop
 
 1. Registre a imagem/digest e o `.env` atual de API, Manager e worker. Guarde as credenciais fora de logs e da PR. Faça backup do banco e preserve RabbitMQ, objetos de áudio, diretório de modelos e sessões WhatsApp.
