@@ -80,9 +80,9 @@ export class DiagnosticsService {
     }
   }
 
-  async status() {
+  async status(signal?: AbortSignal) {
     return {
-      ...(await this.store.snapshot()),
+      ...(await this.store.snapshot(signal)),
       schemaVersion: 1,
       service: 'ARGWS Connect API',
       version: this.version,
@@ -91,11 +91,11 @@ export class DiagnosticsService {
     };
   }
 
-  events(filter: DiagnosticFilter) {
-    return this.store.query(filter);
+  events(filter: DiagnosticFilter, signal?: AbortSignal) {
+    return this.store.query(filter, signal);
   }
-  exportRecords(filter: DiagnosticFilter) {
-    return this.store.exportRecords(filter);
+  exportRecords(filter: DiagnosticFilter, signal?: AbortSignal) {
+    return this.store.exportRecords(filter, signal);
   }
   async settings(input: { retentionDays?: number; maxDiskMB?: number }) {
     const settings = await this.store.updateSettings(input);

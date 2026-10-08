@@ -25,6 +25,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: node --test test/release-version.test.cjs test/release-web-security.test.cjs
+      - name: Verify PR evidence and mandatory publication contracts
+        run: node --test test/ci-evidence-contract.test.cjs
       - name: Suggest version for develop promotion
         if: >-
           github.event_name == 'pull_request' &&

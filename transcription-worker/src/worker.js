@@ -16,6 +16,8 @@ const REQUESTED = 'transcription.requested';
 const PROCESSING = 'transcription.processing';
 const COMPLETED = 'transcription.completed';
 const FAILED = 'transcription.failed';
+const RESIDENCY_REQUESTED = 'speech.residency.requested.v2';
+const RESIDENCY_HANDOFF_MS = 6000;
 const READY_FILE = '/tmp/transcription-worker.ready';
 const errorWith = (message, code, retryable = false) => Object.assign(new Error(message), { code, retryable });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -176,15 +178,109 @@ class TranscriptionWorker {
       rss, heapUsed, external, ...extra }));
   }
 
-  async ensureResidency() {
+  async ensureResidency(demand = false, interrupted = () => false) {
     clearTimeout(this.idleTimer);
+    await this.residencyReleaseTask;
     if (this.residentLease) return this.residentLease;
-    this.residentLease = await this.acquireSlot(this.config, () => this.stopping || !this.channel,
-      () => { void this.onConnectionLost(this.connection); }, this.connection || undefined);
-    return this.residentLease;
+    if (this.residencyAcquiring) return this.residencyAcquiring;
+    const connection = this.connection;
+    const channel = this.channel;
+    const cancelled = () => this.stopping || !channel || this.channel !== channel || this.connection !== connection || interrupted();
+    const acquiring = (async () => {
+      // Give the notified contender enough time for its bounded admission retry.
+      // No connection is restarted and no model is resident during this wait.
+      while (!cancelled() && Date.now() < (this.residencyCooldownUntil || 0)) {
+        await delay(Math.min(100, this.residencyCooldownUntil - Date.now()));
+      }
+      if (cancelled()) throw errorWith('Reserva de residência cancelada.', 'CANCELLED');
+      const lease = await this.acquireSlot(this.config, cancelled,
+        () => { void this.onConnectionLost(connection); }, connection || undefined,
+        demand ? () => this.requestResidency(connection) : undefined);
+      if (cancelled()) { await lease.release(); throw errorWith('Reserva de residência cancelada.', 'CANCELLED'); }
+      this.residentLease = lease;
+      return lease;
+    })();
+    this.residencyAcquiring = acquiring;
+    try { return await acquiring; }
+    finally { if (this.residencyAcquiring === acquiring) this.residencyAcquiring = null; }
+  }
+
+  async requestResidency(connection) {
+    const channel = this.controlChannel;
+    if (!channel || this.connection !== connection || this.stopping || this.residencyHintBackpressure?.channel === channel) return;
+    const body = Buffer.from(JSON.stringify({ version: 2, workerId: this.workerId,
+      poolId: this.config.poolId || this.config.rabbitmq.exchange, requestedAt: Date.now() }));
+    if (body.length > 2048) return;
+    // Hints use a regular channel: they never wait for a publisher confirm. One
+    // buffered hint is sufficient while broker backpressure prevents draining.
+    const accepted = channel.publish(this.config.rabbitmq.exchange, RESIDENCY_REQUESTED,
+      body, { persistent: false, contentType: 'application/json', expiration: '30000' });
+    if (!accepted) {
+      const clear = () => {
+        channel.removeListener('drain', clear); channel.removeListener('close', clear);
+        if (this.residencyHintBackpressure?.channel === channel) this.residencyHintBackpressure = null;
+      };
+      this.residencyHintBackpressure = { channel, clear };
+      channel.once('drain', clear); channel.once('close', clear);
+    }
+  }
+
+  handleResidencyRequest(message) {
+    if (message.content.length > 2048 || this.stopping || (!this.residentLease && !this.residencyReleaseTask)) return;
+    const request = JSON.parse(message.content.toString('utf8'));
+    if (request.version !== 2 || request.workerId === this.workerId ||
+      typeof request.workerId !== 'string' || !request.workerId.length || request.workerId.length > 128 ||
+      request.poolId !== (this.config.poolId || this.config.rabbitmq.exchange) ||
+      !Number.isFinite(request.requestedAt) || Math.abs(Date.now() - request.requestedAt) > 30000) return;
+    this.residencyRequestedAt = Date.now();
+    if (this.residencyReleaseTask) this.residencyHandoffPending = true;
+    // A running chunk finishes and persists through the normal fenced API
+    // control path. An idle model can yield immediately without a disconnect.
+    if (!this.activeTask && !this.activeContext && !this.pumpTask) {
+      void this.releaseResidency(true).catch((error) => this.failResidencyRelease(error));
+    }
+  }
+
+  failResidencyRelease(error) {
+    this.fatalError = error; this.stopping = true;
+    fs.rmSync(READY_FILE, { force: true });
+    console.error('Não foi possível confirmar a devolução da residência de voz:', error.code || 'RESIDENCY_RELEASE_FAILED');
+    void this.reportHealth().catch(() => {});
+  }
+
+  async releaseResidency(handoff = false) {
+    if (this.residencyReleaseTask) {
+      if (handoff) this.residencyHandoffPending = true;
+      return this.residencyReleaseTask;
+    }
+    const lease = this.residentLease;
+    const connection = this.connection;
+    if (!lease) return;
+    this.releasingResidency = true;
+    this.residencyHandoffPending = handoff;
+    const releasing = (async () => {
+      await this.unloadProvider();
+      if (this.residentLease !== lease || this.connection !== connection) return;
+      this.residentLease = null;
+      await lease.release();
+      if (this.residencyHandoffPending) this.residencyCooldownUntil = Date.now() + RESIDENCY_HANDOFF_MS;
+      this.residencyHandoffPending = false;
+      this.residencyRequestedAt = null;
+    })();
+    this.residencyReleaseTask = releasing;
+    try { await releasing; }
+    finally {
+      if (this.residencyReleaseTask === releasing) {
+        this.residencyReleaseTask = null;
+        this.releasingResidency = false;
+      }
+    }
+    await this.reportHealth().catch(() => {});
+    this.pump();
   }
 
   async loadProvider(job) {
+    await this.providerUnloadTask;
     if (this.stopping) throw errorWith('Worker em encerramento.', 'WORKER_STOPPING', true);
     clearTimeout(this.idleTimer);
     const provider = this.provider || this.createInferenceClient(this.config);
@@ -203,18 +299,23 @@ class TranscriptionWorker {
       if (['MODEL_MISSING', 'MODEL_CHECKSUM_MISMATCH', 'MODEL_FORMAT_MISMATCH', 'MODEL_MISMATCH'].includes(error.code)) {
         this.modelVerified = false; this.invalidManifestStamp = this.modelManifestStamp();
       }
-      await this.terminateProvider(provider);
+      try { await this.terminateProvider(provider); }
+      catch (fatal) { this.provider = provider; throw fatal; }
       throw error;
     } finally { clearTimeout(timer); }
   }
 
   async terminateProvider(provider) { await provider?.stop(); }
   async unloadProvider() {
+    if (this.providerUnloadTask) return this.providerUnloadTask;
     const provider = this.provider;
     this.provider = null;
     if (provider) {
-      try { await this.terminateProvider(provider); this.logMemory('model_unloaded'); }
+      const unloading = this.terminateProvider(provider);
+      this.providerUnloadTask = unloading;
+      try { await unloading; this.logMemory('model_unloaded'); }
       catch (error) { this.provider = provider; throw error; }
+      finally { if (this.providerUnloadTask === unloading) this.providerUnloadTask = null; }
     }
   }
 
@@ -224,39 +325,17 @@ class TranscriptionWorker {
     if (this.stopping || this.scheduler?.size || this.activeContext || this.pumpTask ||
       (!this.provider && !(legacyMode && this.residentLease))) return;
     const configuredIdleMs = Math.max(0, this.config.modelIdleTtlSeconds ?? 300) * 1000;
-    // Old Compose files run one coordinator per mode. A coordinator that has
-    // never loaded a model must still yield so the other mode can consume.
-    const idleMs = !this.provider && legacyMode ? Math.min(5000, configuredIdleMs) : configuredIdleMs;
+    // A legacy coordinator has no residence before real work. Terminal/stale
+    // deliveries that never load a model need no idle reservation afterwards.
+    const idleMs = !this.provider && legacyMode ? 0 : configuredIdleMs;
     this.idleTimer = setTimeout(() => {
       if (this.stopping || this.activeContext || this.scheduler.size || this.pumpTask) return;
-      const connection = this.connection;
-      const lease = this.residentLease;
       void (async () => {
         // Pool ownership belongs to the lightweight coordinator until reconnect.
-        // Legacy single-mode replicas yield residency after idle to the other mode.
-        if (legacyMode) {
-          // Deliveries already in flight remain unacknowledged until closing the
-          // connection requeues them. They cannot start while residency is freed.
-          this.releasingResidency = true;
-          await this.pauseConsumers();
-          if (this.stopping || this.connection !== connection || this.residentLease !== lease) return;
-        }
-        await this.unloadProvider();
-        if (legacyMode) {
-          if (this.stopping || this.connection !== connection || this.residentLease !== lease) return;
-          // stop() or a socket close can overlap this awaited broker operation.
-          // The native process is gone; detach ownership before releasing once.
-          this.residentLease = null;
-          await lease?.release();
-          await this.onConnectionLost(connection);
-        }
-        await this.reportHealth();
-      })().catch((error) => {
-        this.fatalError = error; this.stopping = true;
-        fs.rmSync(READY_FILE, { force: true });
-        console.error('Processo nativo sem encerramento confirmado; residência retida:', error.code);
-        void this.reportHealth().catch(() => {});
-      });
+        // Legacy workers return their slot while keeping consumers and health.
+        if (legacyMode) await this.releaseResidency();
+        else { await this.unloadProvider(); await this.reportHealth(); }
+      })().catch((error) => this.failResidencyRelease(error));
     }, idleMs);
     this.idleTimer.unref?.();
   }
@@ -265,6 +344,7 @@ class TranscriptionWorker {
     if (this.stopping) return;
     await this.lossBarrier;
     this.releasingResidency = false;
+    this.residencyRequestedAt = null;
     const connection = await this.connectBroker(this.config.rabbitmq.uri, { timeout: 5000, keepAlive: true });
     this.connection = connection;
     connection.on('error', (error) => console.error('RabbitMQ speech:', error.code || 'CONNECTION_ERROR'));
@@ -292,20 +372,21 @@ class TranscriptionWorker {
     }, 10000);
     this.healthTimer.unref?.();
     await this.reportHealth();
-    // Acquire before consuming so a standby replica cannot hide jobs behind its
-    // prefetch while a resident model elsewhere owns the only compute slot.
-    await this.ensureResidency();
-    if (this.stopping || this.connection !== connection) return;
     const controlChannel = await connection.createChannel();
     this.controlChannel = controlChannel;
     controlChannel.on('error', () => {});
     const broadcast = await controlChannel.assertQueue('', { exclusive: true, autoDelete: true, arguments: {
-      'x-max-length': 100, 'x-message-ttl': 60000,
+      'x-max-length': 100, 'x-max-length-bytes': 262144, 'x-message-ttl': 60000,
     } });
     for (const mode of this.modes) await controlChannel.bindQueue(broadcast.queue, this.config.rabbitmq.exchange, `speech.cancel.${mode}`);
+    await controlChannel.bindQueue(broadcast.queue, this.config.rabbitmq.exchange, RESIDENCY_REQUESTED);
     await controlChannel.prefetch(10);
     await controlChannel.consume(broadcast.queue, (message) => { if (message) this.handleControl(message, controlChannel); }, { noAck: false });
-    const prefetch = Math.max(1, Math.floor((this.config.poolPrefetch || 10) / this.modes.length));
+    // A pool replica stays passive until it owns compute. Legacy coordinators
+    // have disjoint queues: one delivery is the demand signal, never a backlog.
+    if (this.config.mode === 'pool') await this.ensureResidency();
+    if (this.stopping || this.connection !== connection) return;
+    const prefetch = this.config.mode !== 'pool' ? 1 : Math.max(1, Math.floor((this.config.poolPrefetch || 10) / this.modes.length));
     await channel.prefetch(prefetch);
     this.consumerTags = [];
     for (const mode of this.modes) {
@@ -328,12 +409,14 @@ class TranscriptionWorker {
 
   async onConnectionLost(connection) {
     if (!connection || this.connection !== connection) return;
+    this.residencyHintBackpressure?.clear();
     this.connection = null; this.channel = null; this.controlChannel = null;
     this.residentLease = null; this.consumerTags = [];
     fs.rmSync(READY_FILE, { force: true });
     clearInterval(this.healthTimer); clearTimeout(this.idleTimer);
     this.scheduler = new FairScheduler(this.config.dictationWeight || 3);
     this.activeContext?.abort.abort();
+    this.waitingContext?.abort.abort();
     // Disconnect must stop computation before a replacement lease can be used.
     this.lossBarrier = (async () => {
       await this.unloadProvider();
@@ -372,6 +455,9 @@ class TranscriptionWorker {
           await delay(Math.min(5000, Math.max(100, outcome.delayMs || 1000)));
         }
         if (this.activeTask === task) this.activeTask = null;
+        if (this.residentLease && this.residencyRequestedAt && Date.now() - this.residencyRequestedAt < 30000) {
+          await this.releaseResidency(true);
+        }
       }
     })().catch((error) => {
       console.error('Falha no coordenador de voz:', error.code || error.message);
@@ -398,13 +484,26 @@ class TranscriptionWorker {
   handleControl(message, channel = this.controlChannel) {
     if (channel !== this.controlChannel) return;
     try {
+      if (message.fields?.routingKey === RESIDENCY_REQUESTED) {
+        this.handleResidencyRequest(message);
+        this.acknowledge(channel, message);
+        return;
+      }
       const value = JSON.parse(message.content.toString('utf8'));
       const jobId = String(value.jobId || '').trim();
       if (jobId && jobId.length <= 128) {
         // Broadcast is only a latency hint. Revalidate its durable generation so
         // a delayed cancellation from an old attempt never cancels a manual retry.
-        const context = this.activeContext;
+        const context = this.activeContext || this.waitingContext;
         if (context?.job.jobId === jobId && (!value.generation || Number(value.generation) === context.job.generation)) {
+          if (context === this.waitingContext && !context.job.executionId) {
+            // A queued cancellation is only a hint. Stop waiting for compute,
+            // then let the API claim response confirm the durable terminal state.
+            context.residencyRecheck = true;
+            context.abort.abort();
+            this.acknowledge(channel, message);
+            return;
+          }
           void this.control.request('lease', context.job, { stage: context.stage }).then(async (reply) => {
             if (reply.cancelRequested || (!reply.granted && reply.terminal)) {
               context.cancelRequested = true;
@@ -439,11 +538,13 @@ class TranscriptionWorker {
     }
     if (!this.control?.channel && this.control instanceof SpeechControlClient) return;
     const engine = this.provider?.status || {};
-    const accepting = !this.stopping && !this.releasingResidency && Boolean(this.channel && this.residentLease && this.modelVerified);
+    const accepting = !this.stopping && Boolean(this.channel && this.modelVerified &&
+      (this.residentLease || this.consumerTags.length));
     const health = {
       modes: this.modes, processAlive: !this.stopping, brokerConnected: Boolean(this.channel),
       modelVerified: this.modelVerified, engineReady: Boolean(this.provider?.ready), acceptingJobs: accepting,
-      state: this.fatalError ? 'degraded' : this.stopping ? 'stopping' : !this.residentLease ? 'standby' : engine.state || 'idle',
+      state: this.fatalError ? 'degraded' : this.stopping ? 'stopping' : !this.residentLease
+        ? this.consumerTags.length ? this.activeTask ? 'waiting_capacity' : 'idle' : 'standby' : engine.state || 'idle',
       lastSuccessfulInferenceAt: this.provider?.lastSuccessfulInferenceAt || this.lastSuccessfulInferenceAt,
       engine: this.config.engine || 'transformers', effectiveModel: engine.effectiveModel || this.config.local?.model,
       modelRevision: engine.modelRevision || this.verifiedIdentity?.modelRevision || null,
@@ -493,6 +594,22 @@ class TranscriptionWorker {
       (cause) => cause ? reject(cause) : resolve()));
   }
 
+  async recheckWaitingJob(job) {
+    const claim = await this.control.request('claim', job);
+    if (claim.terminal || claim.cancelRequested) return { terminal: true };
+    if (!claim.granted) {
+      if (claim.ok === false) throw errorWith('A autoridade durável recusou o controle.', 'CONTROL_REJECTED', true);
+      return { defer: true, job, delayMs: claim.retryAfterMs || 1000 };
+    }
+    // A delayed hint or clock difference may race a valid generation. Return a
+    // newly granted execution through the durable outbox without an inference,
+    // failure status or retry-attempt increment. Only that confirmation permits ACK.
+    const claimed = { ...job, executionId: claim.executionId, generation: claim.generation };
+    const reply = await this.control.request('release', claimed, { reason: 'yield', delayMs: 0 });
+    if (!reply.applied && !reply.terminal) throw errorWith('Devolução durável não confirmada.', 'CONTROL_NOT_APPLIED', true);
+    return { terminal: true };
+  }
+
   async handle(message, channel = this.channel, queueMode) {
     if (!channel || channel !== this.channel) return;
     let job;
@@ -529,7 +646,15 @@ class TranscriptionWorker {
       leaseTimer.unref?.();
     };
     try {
-      await this.ensureResidency();
+      this.waitingContext = context;
+      const recheck = () => context.residencyRecheck || (job.deadlineAt && Date.parse(job.deadlineAt) <= Date.now());
+      try { await this.ensureResidency(true, recheck); }
+      catch (error) {
+        if (error.code !== 'CANCELLED' || !recheck() || this.stopping || channel !== this.channel) throw error;
+        const outcome = await this.recheckWaitingJob(job);
+        if (!outcome?.defer) this.acknowledge(channel, message);
+        return outcome?.defer ? outcome : undefined;
+      } finally { if (this.waitingContext === context) this.waitingContext = null; }
       const claim = await this.control.request('claim', job);
       if (!claim.granted) {
         if (claim.terminal || claim.cancelRequested) { this.acknowledge(channel, message); return; }
@@ -645,6 +770,8 @@ class TranscriptionWorker {
 
   async stopWorker() {
     this.stopping = true;
+    this.waitingContext?.abort.abort();
+    this.residencyHintBackpressure?.clear();
     clearTimeout(this.reconnectTimer); clearTimeout(this.idleTimer); clearInterval(this.healthTimer);
     fs.rmSync(READY_FILE, { force: true });
     await this.pauseConsumers();
@@ -657,6 +784,7 @@ class TranscriptionWorker {
       if (!settled) { this.activeContext?.abort.abort(); await this.unloadProvider(); }
     }
     await this.unloadProvider();
+    await this.residencyReleaseTask;
     // No native process remains when the exclusive residence slot is released.
     await this.residentLease?.release(); this.residentLease = null;
     for (const key of this.sourceCache?.keys() || []) await this.cacheDrop(key);

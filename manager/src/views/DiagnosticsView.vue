@@ -8,9 +8,9 @@ import { diagnostics, type DiagnosticCategory, type DiagnosticEvent, type Diagno
 const status = ref<DiagnosticStatus | null>(null)
 const events = ref<DiagnosticEvent[]>([])
 const cursor = ref<string | null>(null)
-const loading = ref(false), loadingMore = ref(false), downloading = ref(false), saving = ref(false)
-const error = ref(''), exportError = ref(''), settingsError = ref(''), settingsSuccess = ref('')
-const loadedAt = ref(''), live = ref(false), showSettings = ref(false), selected = ref<DiagnosticEvent | null>(null)
+const loading = ref(false), loadingStatus = ref(false), loadingMore = ref(false), downloading = ref(false), saving = ref(false)
+const error = ref(''), statusError = ref(''), exportError = ref(''), settingsError = ref(''), settingsSuccess = ref('')
+const loadedAt = ref(''), statusLoadedAt = ref(''), live = ref(false), showSettings = ref(false), selected = ref<DiagnosticEvent | null>(null)
 const drawer = ref<HTMLElement | null>(null), copied = ref(false)
 const draft = reactive({ period: '1h', level: '' as DiagnosticLevel | '', category: '' as DiagnosticCategory | '', traceId: '', callId: '', instanceId: '' })
 const applied = ref<DiagnosticFilters>({})
@@ -21,6 +21,8 @@ const periods: Record<string, number> = { '15m': 15 * 60000, '1h': 3600000, '24h
 const usage = computed(() => status.value?.maxDiskBytes ? Math.min(100, Math.round(status.value.diskBytes / status.value.maxDiskBytes * 100)) : 0)
 const captureOk = computed(() => Boolean(status.value?.ready && status.value.persistent && !status.value.storageError))
 const activeIds = computed(() => ['traceId', 'callId', 'instanceId'].filter(key => Boolean(applied.value[key as keyof DiagnosticFilters])).length)
+const canDownload = computed(() => Boolean(applied.value.from && applied.value.to))
+const refreshing = computed(() => loading.value || loadingStatus.value)
 let requestController: AbortController | null = null, exportController: AbortController | null = null, settingsController: AbortController | null = null
 let timer: ReturnType<typeof setInterval> | undefined
 let revision = 0, disposed = false
@@ -45,19 +47,31 @@ async function refresh(updateFilters = true) {
   requestController?.abort()
   requestController = new AbortController()
   const currentRevision = ++revision, signal = requestController.signal
+  const isCurrent = () => !disposed && currentRevision === revision && !signal.aborted
   if (updateFilters) applied.value = filters()
-  loading.value = true; loadingMore.value = false; error.value = ''
+  loading.value = true; loadingStatus.value = true; loadingMore.value = false; error.value = ''; statusError.value = ''
   // Old records must never appear as the result of a newly selected filter.
-  events.value = []; cursor.value = null
-  try {
-    const [snapshot, page] = await Promise.all([diagnostics.status(signal), diagnostics.events(applied.value, '', signal)])
-    if (disposed || currentRevision !== revision) return
-    status.value = snapshot; events.value = page.events; cursor.value = page.nextCursor
-    loadedAt.value = new Date().toISOString()
-    if (!showSettings.value) { retentionDays.value = snapshot.retentionDays; maxDiskMB.value = Math.round(snapshot.maxDiskBytes / 1048576) }
-  } catch (caught) {
-    if (!disposed && currentRevision === revision && !signal.aborted) error.value = message(caught)
-  } finally { if (!disposed && currentRevision === revision) loading.value = false }
+  events.value = []; cursor.value = null; loadedAt.value = ''
+  // Storage metadata and the history page remain usable independently.
+  const updateStatus = async () => {
+    try {
+      const snapshot = await diagnostics.status(signal)
+      if (!isCurrent()) return
+      status.value = snapshot; statusLoadedAt.value = new Date().toISOString()
+      if (!showSettings.value) { retentionDays.value = snapshot.retentionDays; maxDiskMB.value = Math.round(snapshot.maxDiskBytes / 1048576) }
+    } catch (caught) { if (isCurrent()) statusError.value = message(caught) }
+    finally { if (isCurrent()) loadingStatus.value = false }
+  }
+  const updateEvents = async () => {
+    try {
+      const page = await diagnostics.events(applied.value, '', signal)
+      if (!isCurrent()) return
+      events.value = page.events; cursor.value = page.nextCursor
+      loadedAt.value = new Date().toISOString()
+    } catch (caught) { if (isCurrent()) error.value = message(caught) }
+    finally { if (isCurrent()) loading.value = false }
+  }
+  await Promise.all([updateStatus(), updateEvents()])
 }
 async function more() {
   if (!cursor.value || loading.value || loadingMore.value) return
@@ -80,13 +94,15 @@ function filterId(key: 'traceId' | 'callId' | 'instanceId', value: string) {
   draft[key] = value; closeDetails(); void refresh()
 }
 async function download() {
-  if (downloading.value) return
+  if (downloading.value || !canDownload.value) return
   exportController?.abort(); exportController = new AbortController()
+  const signal = exportController.signal
   downloading.value = true; exportError.value = ''
-  try { await diagnostics.download({ ...applied.value }, format.value, exportController.signal) }
-  catch (caught) { if (!disposed && !exportController.signal.aborted) exportError.value = message(caught) }
+  try { await diagnostics.download({ ...applied.value }, format.value, signal) }
+  catch (caught) { if (!disposed && !signal.aborted) exportError.value = message(caught) }
   finally { if (!disposed) downloading.value = false }
 }
+function cancelDownload() { exportController?.abort() }
 async function saveSettings() {
   settingsError.value = ''; settingsSuccess.value = ''
   if (!Number.isInteger(retentionDays.value) || retentionDays.value < 1 || retentionDays.value > 30 || !Number.isInteger(maxDiskMB.value) || maxDiskMB.value < 32 || maxDiskMB.value > 512) {
@@ -96,7 +112,7 @@ async function saveSettings() {
   try {
     const snapshot = await diagnostics.settings(retentionDays.value, maxDiskMB.value, settingsController.signal)
     if (disposed) return
-    status.value = snapshot; settingsSuccess.value = 'Limites de armazenamento atualizados.'
+    status.value = snapshot; statusLoadedAt.value = new Date().toISOString(); statusError.value = ''; settingsSuccess.value = 'Limites de armazenamento atualizados.'
   } catch (caught) { if (!disposed && !settingsController.signal.aborted) settingsError.value = message(caught) }
   finally { if (!disposed) saving.value = false }
 }
@@ -122,7 +138,7 @@ async function copyEvent() {
 }
 watch(live, enabled => {
   if (timer) clearInterval(timer)
-  if (enabled) timer = setInterval(() => { if (!loading.value && !loadingMore.value && !document.hidden) void refresh() }, 5000)
+  if (enabled) timer = setInterval(() => { if (!refreshing.value && !loadingMore.value && !downloading.value && !document.hidden) void refresh() }, 5000)
 })
 onMounted(() => { void refresh() })
 onUnmounted(() => {
@@ -136,18 +152,19 @@ onUnmounted(() => {
   <AppShell>
     <div class="diagnostics">
       <PageHeader title="Centro de diagnóstico" description="Acompanhe erros e a sequência técnica das operações para investigar falhas.">
-        <button class="btn ghost" :disabled="loading" @click="refresh()"><AppIcon name="refresh" :size="16" />{{ loading ? 'Atualizando…' : 'Atualizar' }}</button>
+        <button class="btn ghost" :disabled="refreshing" @click="refresh()"><AppIcon name="refresh" :size="16" />{{ refreshing ? 'Atualizando…' : 'Atualizar' }}</button>
       </PageHeader>
 
       <section class="privacy-note"><AppIcon name="shield" :size="22" /><div><strong>Diagnóstico sem conteúdo de conversas</strong><p>Coleta automática de eventos técnicos. Não registra mensagens, áudio, mídias ou chaves. Os identificadores são pseudonimizados para acompanhar a mesma operação.</p></div></section>
 
-      <p v-if="status?.version" class="runtime-meta">API {{ status.version }}<template v-if="status.startedAt"> · Serviço iniciado em {{ date(status.startedAt) }}</template></p>
+      <p v-if="status" class="runtime-meta"><template v-if="status.version">API {{ status.version }}<template v-if="status.startedAt"> · Serviço iniciado em {{ date(status.startedAt) }}</template> · </template>Estado do armazenamento consultado em {{ date(statusLoadedAt) }}</p>
       <div v-if="status" class="metric-grid">
         <article class="diagnostic-metric"><span>Coleta e armazenamento</span><strong class="capture-state" :class="{ attention: !captureOk }"><i></i>{{ captureOk ? 'Em funcionamento' : 'Requer atenção' }}</strong><small>{{ status.storageError ? 'Falha de armazenamento detectada' : status.persistent ? 'Histórico disponível em disco' : 'Histórico não persistido em disco' }}</small></article>
         <article class="diagnostic-metric"><span>Eventos retidos</span><strong>{{ status.storedEvents.toLocaleString('pt-BR') }}</strong><small>Nos últimos {{ status.retentionDays }} dias, sujeito ao limite de espaço</small></article>
         <article class="diagnostic-metric"><span>Erros e avisos retidos</span><strong><span class="error-count">{{ status.counts.error }}</span><em>erros</em><span class="warn-count">{{ status.counts.warn }}</span><em>avisos</em></strong><small>Totais do histórico, antes dos filtros</small></article>
         <article class="diagnostic-metric"><span>Espaço utilizado</span><strong>{{ bytes(status.diskBytes) }}<em>/ {{ bytes(status.maxDiskBytes) }}</em></strong><div class="usage-track"><span :style="{ width: `${usage}%` }"></span></div><small>{{ status.dropped }} eventos descartados pela proteção de volume</small></article>
       </div>
+      <p v-if="statusError" class="notice warning" role="status">Não foi possível atualizar o estado do armazenamento. {{ statusError }}<template v-if="status"> Os indicadores mantêm a consulta anterior, no horário indicado acima.</template></p>
       <p v-if="status && (!captureOk || status.dropped > 0)" class="notice warning" role="status">{{ !captureOk ? 'O histórico pode estar incompleto. Verifique o estado do armazenamento antes de reproduzir a falha.' : 'A proteção de volume descartou eventos. Considere um intervalo menor ao reproduzir a falha; o histórico pode ter lacunas.' }}</p>
 
       <section class="diagnostic-panel">
@@ -162,11 +179,11 @@ onUnmounted(() => {
             <label>Rastreio<input v-model="draft.traceId" placeholder="Identificador do rastreio" maxlength="128" spellcheck="false" /></label>
             <label>Chamada<input v-model="draft.callId" placeholder="Identificador técnico da chamada" maxlength="128" spellcheck="false" /></label>
             <label>Instância<input v-model="draft.instanceId" placeholder="Identificador pseudonimizado" maxlength="128" spellcheck="false" /></label>
-            <div class="filter-actions"><button type="button" class="btn ghost" @click="reset">Limpar</button><button type="submit" class="btn primary" :disabled="loading">Aplicar filtros</button></div>
+            <div class="filter-actions"><button type="button" class="btn ghost" @click="reset">Limpar</button><button type="submit" class="btn primary">Aplicar filtros</button></div>
           </div>
         </form>
-        <div class="results-toolbar"><div><strong>{{ events.length }} eventos carregados</strong><span v-if="activeIds"> · {{ activeIds }} filtro(s) por identificador</span><small v-if="loadedAt">Atualizado em {{ date(loadedAt) }}{{ live ? ' · exibe a página mais recente' : '' }}</small><small v-if="applied.from && applied.to">Período aplicado: {{ date(applied.from) }} — {{ date(applied.to) }}</small></div><div class="download-controls"><label class="sr-only" for="diagnostic-format">Formato do download</label><select id="diagnostic-format" v-model="format"><option value="gzip">Compactado (.gz)</option><option value="jsonl">Texto (.jsonl)</option></select><button class="btn primary" :disabled="downloading || loading || !loadedAt || Boolean(error)" @click="download"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5" /></svg>{{ downloading ? 'Preparando…' : 'Baixar diagnóstico' }}</button></div></div>
-        <p class="download-hint">O download inclui todos os eventos do período e dos filtros aplicados, inclusive os que ainda não foram carregados na tela.</p>
+        <div class="results-toolbar"><div><strong>{{ events.length }} eventos carregados</strong><span v-if="activeIds"> · {{ activeIds }} filtro(s) por identificador</span><small v-if="loadedAt">Atualizado em {{ date(loadedAt) }}{{ live ? ' · exibe a página mais recente' : '' }}</small><small v-if="applied.from && applied.to">Período aplicado: {{ date(applied.from) }} — {{ date(applied.to) }}</small></div><div class="download-controls"><label class="sr-only" for="diagnostic-format">Formato do download</label><select id="diagnostic-format" v-model="format" :disabled="downloading"><option value="gzip">Compactado (.gz)</option><option value="jsonl">Texto (.jsonl)</option></select><button class="btn primary" :disabled="downloading || !canDownload" @click="download"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5" /></svg>{{ downloading ? 'Preparando…' : 'Baixar diagnóstico' }}</button><button v-if="downloading" class="btn ghost" @click="cancelDownload">Cancelar download</button></div></div>
+        <p class="download-hint">O download inclui todos os eventos do período e dos filtros aplicados, inclusive os que ainda não foram carregados na tela. Ele está disponível durante a consulta ou se o carregamento da tabela falhar.</p>
         <p v-if="error" class="notice error" role="alert">{{ error }}</p>
         <p v-if="exportError" class="notice error" role="alert">{{ exportError }}</p>
         <div v-if="loading" class="empty-state" role="status"><AppIcon name="refresh" :size="26" /><strong>Consultando o histórico…</strong></div>

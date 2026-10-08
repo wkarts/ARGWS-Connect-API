@@ -39,9 +39,10 @@ async function request<T>(path: string, options: {
   for (const [name, value] of Object.entries(options.params || {})) if (value) url.searchParams.set(name, value)
   const controller = new AbortController()
   const cancel = () => controller.abort()
+  let timedOut = false
   if (options.signal?.aborted) controller.abort()
   options.signal?.addEventListener('abort', cancel, { once: true })
-  const timer = setTimeout(cancel, options.blob ? 120000 : 20000)
+  const timer = setTimeout(() => { timedOut = true; controller.abort() }, options.blob ? 120000 : 20000)
   const ensureSession = () => {
     if (getCurrentAccessCode() !== key) throw new Error('O acesso mudou durante a consulta. Atualize o diagnóstico.')
   }
@@ -63,6 +64,13 @@ async function request<T>(path: string, options: {
     ensureSession()
     if (controller.signal.aborted) throw new DOMException('Consulta cancelada.', 'AbortError')
     return result as T
+  } catch (caught) {
+    if (timedOut && !options.signal?.aborted) throw new Error(options.blob
+      ? 'O download excedeu 2 minutos e foi cancelado. Tente novamente com um período menor.'
+      : path === 'events'
+        ? 'A consulta excedeu 20 segundos e foi cancelada. Reduza o período ou tente baixar o diagnóstico.'
+        : 'A solicitação excedeu 20 segundos e foi cancelada. Verifique a disponibilidade da API e tente novamente.')
+    throw caught
   } finally {
     clearTimeout(timer)
     options.signal?.removeEventListener('abort', cancel)

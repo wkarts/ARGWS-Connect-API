@@ -13,31 +13,75 @@ sem erro fatal não comprova corrupção nem falta de memória. O
 das imagens e a configuração efetiva com saída limitada. A contenção opcional
 alcança somente os workers de speech do projeto selecionado.
 
-O hotfix de 08/10/2026 corrige duas regressões comprovadas do coordenador:
+As correções de 08/10/2026 tratam a reconexão e a convivência dos serviços de voz já instalados:
 
 - A espera de reconexão mantém o processo vivo depois de `ECONNREFUSED` ou da
   perda do último socket. Antes, o timer sem referência permitia saída com
   código zero, que `restart: on-failure` não recuperava. SIGTERM cancela essa
   espera e encerra normalmente.
-- Um worker legado de modalidade separada, ocioso e que ainda não carregou
-  modelo, inicia a cessão da residência após o menor valor entre o TTL
-  configurado e cinco segundos. Durante a cessão ele suspende o processamento,
-  cancela consumidores e devolve entregas em trânsito pelo fechamento da
-  conexão. A posse só é liberada depois do encerramento confirmado do motor.
-  A outra réplica ainda depende do backoff e da latência do broker para assumir.
+- Workers de modalidades separadas mantêm AMQP, consumidores e heartbeat
+  ativos quando ociosos. A residência é adquirida somente quando há trabalho;
+  o modelo continua sendo carregado apenas depois da admissão autorizada.
+  O ciclo anterior de ceder a vaga após cinco segundos e fechar/reabrir a
+  conexão foi removido. Ele provocava disputa sem trabalho e alternância de
+  disponibilidade entre transcrição e ditado.
+- Sob demanda real da outra modalidade, o dono cede a residência após a janela
+  ativa e seu checkpoint, ou quando está ocioso. A posse é liberada depois do
+  encerramento confirmado do motor, com a conexão preservada. A espera de
+  cortesia e o backoff dão à outra modalidade a oportunidade de assumir.
 
 Essa compatibilidade preserva os modos e modelos configurados. Atualizar apenas
 a imagem não transforma um Compose com dois serviços no pool único, nem aplica
-seus novos limites de memória/swap/tmpfs. A instalação precisa alinhar as
-imagens e o manifesto do pool; não se desliga uma modalidade nem se troca seu
-modelo silenciosamente. A verificação SHA-256 continua no boot, mas o motor de
-inferência só é carregado quando há trabalho admitido.
+novos limites de memória/swap/tmpfs. Para esta correção, mantenha a topologia
+instalada e atualize API/Manager e todos os coordenadores de voz para a mesma
+revisão. Uma migração de topologia continua sendo uma decisão separada da
+instalação. A verificação SHA-256 continua no boot, mas o motor de inferência
+só é carregado quando há trabalho admitido.
+
+`RESOURCE_LOCKED` indica que outra conexão possui a fila exclusiva. Uma disputa
+durante trabalho pode ser esperada; repetir conexões, autenticações e o anúncio
+de coordenador a cada poucos segundos sem nenhum job exige investigação.
+Não apague a fila de residência para contornar esse erro. O
+[relatório da regressão](../reviews/diagnostics-speech-stability-2026-10-08.md)
+separa essa falha dos timeouts do histórico e das métricas da API.
 
 O [guia do RabbitMQ](rabbitmq-startup.md) descreve o probe AMQP, as quotas e a
 preservação da identidade/imagem antes de recriar um broker existente. Na CI,
 PostgreSQL e MySQL passam a usar o digest do espelho RabbitMQ da implantação;
 o ensaio verifica também o listener fechado com Erlang ainda vivo e a
 recuperação de mensagens quorum após recriação com a mesma identidade e volume.
+
+## Evidência de fala na CI
+
+O workflow `Speech Integrity` executa os mesmos testes reais em pull requests e
+nos demais eventos: reconhecimento nativo em amd64/arm64, bancos PostgreSQL e
+MySQL, broker RabbitMQ e armazenamento S3. O ensaio de residência entre os dois
+workers legados usa o broker real no job PostgreSQL; as respostas da API de
+controle e o motor desse ensaio são instrumentados. O reconhecimento de áudio
+real é comprovado separadamente pelo smoke nativo.
+
+Nas pull requests, os relatórios JSON completos do smoke nativo e do startup
+RabbitMQ ficam no log do job e em seu resumo (`GITHUB_STEP_SUMMARY`). Cada
+relatório registra SHA-256 dos bytes originais, tamanho, run/tentativa, commit
+do evento, commit efetivamente testado, head da PR e imagem. O relatório nativo
+registra também o ID imutável da imagem local. Consulte o resumo do run ou baixe
+os logs do job no GitHub Actions; a retenção segue a configuração do repositório.
+Esse caminho não usa a quota de armazenamento de artifacts da PR.
+
+O script `.github/scripts/preserve-speech-evidence.cjs` exige JSON válido e as
+medições necessárias, limita cada JSON a 128 KiB, o log auxiliar RabbitMQ a
+256 KiB e o resumo completo a 512 KiB. Ausência, formato inválido, falha de
+escrita ou limite excedido falham o check; o conteúdo não é truncado. O JSON de
+uma integração RabbitMQ falha e seu log auxiliar, quando produzido, também
+ficam acessíveis e mantêm o job reprovado. O log é a evidência primária; a
+publicação do resumo é uma apresentação adicional feita pelo GitHub.
+
+Fora de pull requests, o upload dos artifacts continua obrigatório. A action
+`speech-native-smoke` mantém `upload_artifacts: 'true'` como default e rejeita
+a desativação fora de `pull_request`. Os fluxos de publicação develop e release
+continuam exigindo o reconhecimento real e o relatório retido antes de
+publicar seus manifests. Uma quota de artifacts esgotada nesses fluxos continua
+sendo falha de publicação.
 
 ## Antes de atualizar o develop
 

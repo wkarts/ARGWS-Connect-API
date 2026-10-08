@@ -23,6 +23,7 @@ jobs:
         run: |
           python3 test/deploy-operations.test.py
           python3 test/compose-env-only-deployments.test.py
+          python3 test/package-operations-deployments.test.py
       - name: Validate all active layouts with operations enabled and disabled
         run: python3 test/operations-compose-contract.py
       - name: Test statistics calculations, privacy and archived runtime reads
@@ -33,20 +34,13 @@ jobs:
           ! find deploy -type f \( -name '*.py' -o -name '*.sh' -o -name '*.cjs' \) -print -quit | grep -q .
           ! find deploy -type d -name full-stack -print -quit | grep -q .
       - name: Package deployment templates without runtime secrets
-        run: |
-          python3 - <<'PY'
-          import zipfile
-          from pathlib import Path
-          with zipfile.ZipFile('Connect-API-Deployments-Operations.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
-              paths = [*Path('deploy').rglob('*'), Path('docs/operations/deploy-and-statistics.md')]
-              paths += [Path(name) for name in ['docker-compose.yaml', 'docker-compose.dev.yaml', 'env.example', '.env.example']]
-              for path in paths:
-                  if not path.is_file() or path.name == '.env' or path.name.endswith('.lock') or '__pycache__' in path.parts or 'volumes' in path.parts:
-                      continue
-                  archive.write(path, str(path))
-          PY
-      - uses: actions/upload-artifact@v4
+        run: python3 scripts/package-operations-deployments.py --revision "$(git rev-parse HEAD)"
+      - name: Upload verified deployment package
+        # PRs retain integrity evidence in logs and the step summary; publishing keeps transport required.
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@v4
         with:
           name: connect-deployments-operations
           path: Connect-API-Deployments-Operations.zip
+          if-no-files-found: error
           retention-days: 7

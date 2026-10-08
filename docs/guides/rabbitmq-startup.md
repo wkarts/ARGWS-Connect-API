@@ -164,3 +164,13 @@ com as quotas do manifesto, publicar mensagens duráveis, reiniciar/recriar
 com a mesma identidade e confirmar a recuperação. O smoke não substitui a
 medição sustentada da VPS nem comprova ausência de travamentos sob qualquer
 carga.
+
+No workflow `Speech Integrity`, o relatório JSON de startup/persistência é
+validado e registrado integralmente no log e no resumo de cada job SQL, junto
+ao SHA-256, run/tentativa, commits e digest do broker. Em pull requests essa é
+a evidência consultável, independente da quota de artifacts. Em push e execução
+manual, o artifact `rabbitmq-startup-<provider>` também é obrigatório. Ausência
+do relatório, JSON inválido ou tamanho acima do limite reprova o check; falhas
+da integração continuam reprovadas mesmo com o diagnóstico preservado. Os
+limites, acesso e política de publicação estão no
+[guia de diagnóstico dos workers](speech-worker-diagnostics.md#evidência-de-fala-na-ci).

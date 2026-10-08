@@ -7,6 +7,8 @@ on:
     paths:
       - 'browser-extensions/findhub-auth/**'
       - 'scripts/build-findhub-*.cjs'
+      - 'scripts/verify-findhub-distribution.cjs'
+      - 'test/findhub-distribution-evidence.test.cjs'
       - 'public/findhub-auth.zip'
       - '.github/workflows/findhub-extension-*.yml'
       - '.github/workflows/auto-version-release.yml'
@@ -26,6 +28,7 @@ jobs:
     with:
       source_ref: ${{ github.sha }}
       channel: ${{ github.ref == 'refs/heads/develop' && 'develop' || 'candidate' }}
+      upload_artifacts: ${{ github.event_name != 'pull_request' }}
   publish:
     needs: build
     if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'

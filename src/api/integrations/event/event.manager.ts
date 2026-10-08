@@ -8,6 +8,7 @@ import { WebhookController } from '@api/integrations/event/webhook/webhook.contr
 import { WebsocketController } from '@api/integrations/event/websocket/websocket.controller';
 import { PrismaRepository } from '@api/repository/repository.service';
 import { WAMonitoringService } from '@api/services/monitor.service';
+import { Logger } from '@config/logger.config';
 import { Server } from 'http';
 
 export class EventManager {
@@ -113,7 +114,11 @@ export class EventManager {
     this.websocket.init(httpServer);
     this.rabbitmq.init();
     this.nats.init();
-    this.sqs.init();
+    void this.sqs.init().catch((error) => {
+      const logger = new Logger('SqsController');
+      logger.error(error);
+      logger.system('SQS indisponível na inicialização. Verifique a configuração e a disponibilidade do serviço.');
+    });
     this.pusher.init();
     this.kafka.init();
   }

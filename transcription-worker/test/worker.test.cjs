@@ -70,6 +70,7 @@ async function harness(overrides = {}) {
     },
   });
   worker.channel = { ack: () => events.push('ack'), nack: () => events.push('nack'),
+    async cancel() { events.push('cancel-consumer'); },
     async close() { events.push('channel-close'); },
     sendToQueue(_queue, _body, _options, done) { events.push('dlq'); done(); },
   };
@@ -78,6 +79,21 @@ async function harness(overrides = {}) {
   worker.modelVerified = true;
   const close = async () => { await worker.stop(); await fs.promises.rm(root, { recursive: true, force: true }); };
   return { worker, control, events, close, providerCount: () => providerCount };
+}
+
+async function waitUntil(predicate, timeout = 1000) {
+  const deadline = Date.now() + timeout;
+  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(predicate(), 'condition was not reached');
+}
+
+function waitForCancellation(h) {
+  h.worker.acquireSlot = async (_config, cancelled) => {
+    h.events.push('waiting-residency');
+    while (!cancelled()) await new Promise((resolve) => setTimeout(resolve, 5));
+    throw Object.assign(new Error('cancelled'), { code: 'CANCELLED' });
+  };
+  h.worker.controlChannel = { ack: () => h.events.push('control-ack'), close: async () => {} };
 }
 
 test('voz desabilitada não abre armazenamento, consumidor ou modelo', async () => {
@@ -193,9 +209,9 @@ test('TTL ocioso encerra o processo sem liberar coordenação do pool', async ()
   } finally { await h.close(); }
 });
 
-test('coordenador legado sem primeiro job cede a vaga para a modalidade oposta em até cinco segundos', { timeout: 15000 }, async () => {
-  const first = await harness({ config: { mode: 'transcription', modes: ['transcription'], admissionRetryMs: 5 } });
-  const second = await harness({ config: { mode: 'dictation', modes: ['dictation'], admissionRetryMs: 5,
+test('dois coordenadores legados ociosos ficam disponíveis sem reservar modelo ou reiniciar conexão', async () => {
+  const first = await harness({ config: { mode: 'transcription', modes: ['transcription'], modelIdleTtlSeconds: 0.01 } });
+  const second = await harness({ config: { mode: 'dictation', modes: ['dictation'], modelIdleTtlSeconds: 0.01,
     local: { model: 'explicit-dictation-model', device: 'cpu', dtype: 'q8' } } });
   const owners = new Map();
   const trace = [];
@@ -223,6 +239,7 @@ test('coordenador legado sem primeiro job cede a vaga para a modalidade oposta e
         if (owners.get(name) === connection) { owners.delete(name); trace.push(label + ':release'); }
       };
       channel.bindQueue = channel.prefetch = async () => {};
+      channel.prefetch = async (count) => { trace.push(label + ':prefetch:' + count); };
       channel.consume = async () => ({ consumerTag: 'consumer-' + ++nextTag });
       channel.cancel = async () => { trace.push(label + ':cancel'); };
       channel.close = async () => channel.emit('close');
@@ -230,61 +247,71 @@ test('coordenador legado sem primeiro job cede a vaga para a modalidade oposta e
     };
     return connection;
   };
-  let pending;
-  let timeout;
   try {
     for (const [label, item] of [['transcription', first], ['dictation', second]]) {
       item.worker.connectBroker = connect(label);
       item.worker.acquireSlot = acquire;
       item.control.connect = async () => {};
     }
-    await first.worker.connect();
-    assert.ok(first.worker.residentLease);
-    assert.equal(first.worker.provider, null);
-    pending = second.worker.connect();
-    await Promise.race([pending, new Promise((_, reject) => {
-      timeout = setTimeout(() => reject(new Error('A modalidade oposta permaneceu bloqueada sem trabalho ativo.')), 8000);
-    })]);
-    assert.ok(second.worker.residentLease);
-    assert.equal(second.worker.consumerTags.length, 1);
+    await Promise.all([first.worker.connect(), second.worker.connect()]);
+    const firstConnection = first.worker.connection;
+    const secondConnection = second.worker.connection;
+    await new Promise((resolve) => setTimeout(resolve, 60));
     assert.equal(first.worker.residentLease, null);
+    assert.equal(second.worker.residentLease, null);
+    assert.equal(first.worker.connection, firstConnection);
+    assert.equal(second.worker.connection, secondConnection);
+    assert.equal(first.worker.consumerTags.length, 1);
+    assert.equal(second.worker.consumerTags.length, 1);
     assert.equal(first.providerCount(), 0); assert.equal(second.providerCount(), 0);
     assert.equal(first.worker.config.mode, 'transcription'); assert.equal(second.worker.config.mode, 'dictation');
     assert.equal(second.worker.config.local.model, 'explicit-dictation-model');
-    assert.ok(trace.indexOf('transcription:cancel') < trace.indexOf('transcription:release'));
-    assert.ok(trace.indexOf('transcription:release') < trace.indexOf('dictation:acquire'));
+    assert.equal(owners.size, 0);
+    assert.equal(trace.some((event) => /acquire|release|cancel/.test(event)), false);
+    for (const [label, item] of [['transcription', first], ['dictation', second]]) {
+      assert.ok(trace.includes(label + ':prefetch:1'));
+      const health = item.control.calls.filter((call) => call.action === 'health').at(-1).data.health;
+      assert.equal(health.acceptingJobs, true);
+      assert.equal(health.engineReady, false);
+      assert.equal(health.state, 'idle');
+    }
   } finally {
-    clearTimeout(timeout);
     await first.close(); await second.close();
-    await pending?.catch(() => {});
   }
   assert.equal(owners.size, 0);
 });
 
-test('entrega durante cancelamento do consumidor ocioso não inicia inferência nem recebe ACK ao ceder a vaga', async () => {
+test('entrega durante devolução ociosa aguarda stop nativo sem fechar conexão ou perder job', async () => {
   const h = await harness({ config: { mode: 'transcription', modes: ['transcription'], modelIdleTtlSeconds: 0.01 } });
+  let finishStop;
+  const stopped = new Promise((resolve) => { finishStop = resolve; });
   try {
-    await h.worker.ensureResidency();
+    await h.worker.handle(message('first'));
+    h.worker.provider.stop = async () => { h.events.push('stop-native-start'); await stopped; h.events.push('stop-native-done'); };
     h.worker.consumerTags = ['legacy-consumer'];
-    h.worker.channel.cancel = async () => {
-      h.events.push('cancel-consumer');
-      const delivery = message('arrived-during-cancel');
-      h.worker.scheduler.add(normalizeJob(JSON.parse(delivery.content)), { message: delivery,
-        channel: h.worker.channel, queueMode: 'transcription' });
-      h.worker.pump();
-      await Promise.resolve();
-    };
     h.worker.scheduleIdleUnload();
     const deadline = Date.now() + 1000;
-    while (!h.events.includes('connection-close') && Date.now() < deadline) {
+    while (!h.events.includes('stop-native-start') && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    assert.ok(h.events.includes('connection-close'));
-    assert.ok(h.events.indexOf('cancel-consumer') < h.events.indexOf('release-residency'));
-    assert.equal(h.providerCount(), 0); assert.equal(h.events.includes('claim'), false);
-    assert.equal(h.events.includes('ack'), false); assert.equal(h.events.includes('download'), false);
-    assert.equal(h.worker.residentLease, null);
-  } finally { await h.close(); }
+    assert.ok(h.events.includes('stop-native-start'));
+    const delivery = message('arrived-during-stop');
+    h.worker.scheduler.add(normalizeJob(JSON.parse(delivery.content)), { message: delivery,
+      channel: h.worker.channel, queueMode: 'transcription' });
+    h.worker.pump();
+    assert.equal(h.providerCount(), 1);
+    assert.equal(h.events.filter((event) => event === 'ack').length, 1);
+    assert.equal(h.events.includes('release-residency'), false);
+    finishStop();
+    await h.worker.residencyReleaseTask;
+    await new Promise((resolve) => setImmediate(resolve));
+    await h.worker.pumpTask;
+    assert.equal(h.events.filter((event) => event === 'ack').length, 2);
+    assert.equal(h.providerCount(), 2);
+    assert.ok(h.events.indexOf('stop-native-done') < h.events.indexOf('release-residency'));
+    assert.equal(h.events.includes('connection-close'), false);
+    assert.equal(h.worker.consumerTags.length, 1);
+  } finally { finishStop(); await h.close(); }
 });
 
 test('encerramento concorrente com a devolução ociosa libera cada residência uma única vez', async () => {
@@ -299,13 +326,205 @@ test('encerramento concorrente com a devolução ociosa libera cada residência 
     const deadline = Date.now() + 1000;
     while (!releaseCalls && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(releaseCalls, 1);
-    await h.worker.stop();
+    const stopping = h.worker.stop();
     finishRelease();
+    await stopping;
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(releaseCalls, 1);
     assert.equal(h.worker.residentLease, null);
     assert.equal(h.worker.stopping, true);
   } finally { finishRelease(); await h.close(); }
+});
+
+test('pedido de capacidade não libera residência quando a morte do engine não foi confirmada', async () => {
+  const h = await harness();
+  let provider;
+  try {
+    await h.worker.handle(message('before-handoff'));
+    provider = h.worker.provider;
+    const lease = h.worker.residentLease;
+    provider.stop = async () => { throw Object.assign(new Error('native still alive'), { code: 'PROCESS_TERMINATION_FAILED' }); };
+    h.worker.handleResidencyRequest({ content: Buffer.from(JSON.stringify({ version: 2, workerId: 'contender',
+      poolId: 'fixture', requestedAt: Date.now() })) });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(h.worker.stopping, true);
+    assert.equal(h.worker.fatalError.code, 'PROCESS_TERMINATION_FAILED');
+    assert.equal(h.worker.residentLease, lease);
+    assert.equal(h.worker.provider, provider);
+    assert.equal(h.events.includes('release-residency'), false);
+    assert.equal(h.events.includes('connection-close'), false);
+    await assert.rejects(h.worker.stop(), { code: 'PROCESS_TERMINATION_FAILED' });
+    assert.equal(h.events.includes('release-residency'), false);
+  } finally {
+    if (provider) provider.stop = async () => h.events.push('stop-native');
+    h.worker.stopPromise = null;
+    await h.close();
+  }
+});
+
+test('falha de warmup que não consegue matar o engine preserva referência e trava no shutdown', async () => {
+  const h = await harness();
+  let canStop = false;
+  try {
+    h.worker.createInferenceClient = () => ({
+      warmup: async () => { throw new Error('warmup failed'); },
+      stop: async () => { if (!canStop) throw Object.assign(new Error('still alive'), { code: 'PROCESS_TERMINATION_FAILED' }); },
+    });
+    await h.worker.handle(message('warmup-failure'));
+    assert.equal(h.worker.stopping, true);
+    assert.ok(h.worker.provider);
+    assert.ok(h.worker.residentLease);
+    assert.equal(h.events.includes('ack'), false);
+    await assert.rejects(h.worker.stop(), { code: 'PROCESS_TERMINATION_FAILED' });
+    assert.equal(h.events.includes('release-residency'), false);
+  } finally { canStop = true; h.worker.stopPromise = null; await h.close(); }
+});
+
+test('perda de conexão aguarda unload já iniciado antes de liberar os recursos AMQP', async () => {
+  const h = await harness();
+  let finishStop;
+  const stopped = new Promise((resolve) => { finishStop = resolve; });
+  try {
+    await h.worker.handle(message('before-loss'));
+    h.worker.provider.stop = async () => { h.events.push('stop-native-start'); await stopped; h.events.push('stop-native-done'); };
+    const unloading = h.worker.unloadProvider();
+    const losing = h.worker.onConnectionLost(h.worker.connection);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(h.events.includes('connection-close'), false);
+    finishStop();
+    await Promise.all([unloading, losing]);
+    assert.ok(h.events.indexOf('stop-native-done') < h.events.indexOf('connection-close'));
+  } finally { finishStop(); await h.close(); }
+});
+
+test('aviso antigo, de outro pool ou sem identidade não provoca devolução', async () => {
+  const h = await harness();
+  try {
+    await h.worker.handle(message('existing'));
+    for (const override of [{ poolId: 'other' }, { workerId: '' }, { requestedAt: Date.now() - 60000 }]) {
+      h.worker.handleResidencyRequest({ content: Buffer.from(JSON.stringify({ version: 2, workerId: 'contender',
+        poolId: 'fixture', requestedAt: Date.now(), ...override })) });
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(h.worker.provider); assert.ok(h.worker.residentLease);
+    assert.equal(h.events.includes('stop-native'), false);
+  } finally { await h.close(); }
+});
+
+test('aviso sob backpressure não espera confirmação nem acumula escritas ou listeners', async () => {
+  const h = await harness();
+  let writes = 0;
+  const channel = new EventEmitter();
+  channel.publish = (...args) => {
+    writes += 1;
+    assert.equal(args.length, 4, 'hint must not install a publisher-confirm callback');
+    assert.equal(args[1], 'speech.residency.requested.v2');
+    assert.ok(args[2].length <= 2048);
+    assert.equal(args[3].expiration, '30000');
+    return false;
+  };
+  channel.close = async () => channel.emit('close');
+  h.worker.controlChannel = channel;
+  try {
+    await Promise.all(Array.from({ length: 50 }, () => h.worker.requestResidency(h.worker.connection)));
+    assert.equal(writes, 1);
+    assert.equal(channel.listenerCount('drain'), 1); assert.equal(channel.listenerCount('close'), 1);
+    channel.emit('drain');
+    await h.worker.requestResidency(h.worker.connection);
+    assert.equal(writes, 2);
+    channel.emit('close');
+    assert.equal(h.worker.residencyHintBackpressure, null);
+    assert.equal(channel.listenerCount('drain'), 0); assert.equal(channel.listenerCount('close'), 0);
+    await h.worker.requestResidency(h.worker.connection);
+    await h.worker.stop();
+    assert.equal(channel.listenerCount('drain'), 0); assert.equal(channel.listenerCount('close'), 0);
+  } finally { await h.close(); }
+});
+
+test('demanda durante unload ou delete pendente promove a devolução ociosa para handoff', async () => {
+  for (const phase of ['native', 'delete']) {
+    const h = await harness();
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    try {
+      await h.worker.handle(message('first'));
+      if (phase === 'native') h.worker.provider.stop = async () => { await pending; };
+      else h.worker.residentLease.release = async () => { await pending; };
+      const releasing = h.worker.releaseResidency();
+      if (phase === 'delete') await waitUntil(() => h.worker.residentLease === null);
+      h.worker.handleResidencyRequest({ content: Buffer.from(JSON.stringify({ version: 2,
+        workerId: 'waiting-worker', poolId: 'fixture', requestedAt: Date.now() })) });
+      finish();
+      await releasing;
+      assert.ok(h.worker.residencyCooldownUntil - Date.now() >= 5800);
+      assert.equal(h.events.includes('connection-close'), false);
+    } finally { finish(); await h.close(); }
+  }
+});
+
+test('deadline enquanto aguarda capacidade consulta autoridade e não carrega modelo nem inventa falha', async () => {
+  const h = await harness({ control: async (action) => action === 'claim'
+    ? { ok: true, granted: false, terminal: true, reason: 'DEADLINE_EXCEEDED' } : undefined });
+  try {
+    waitForCancellation(h);
+    await h.worker.handle(message('expires-waiting', { deadlineAt: new Date(Date.now() + 30).toISOString() }));
+    assert.ok(h.events.includes('waiting-residency'));
+    assert.equal(h.control.calls.filter((call) => call.action === 'claim').length, 1);
+    assert.equal(h.events.filter((event) => event === 'ack').length, 1);
+    assert.equal(h.events.includes('download'), false); assert.equal(h.providerCount(), 0);
+    assert.equal(h.events.includes('finish'), false); assert.equal(h.events.includes('release'), false);
+  } finally { await h.close(); }
+});
+
+test('cancelamento aguardando capacidade só confirma job após terminal autoritativo', async () => {
+  const h = await harness({ control: async (action) => action === 'claim'
+    ? { ok: true, granted: false, terminal: true, cancelRequested: true } : undefined });
+  try {
+    waitForCancellation(h);
+    const processing = h.worker.handle(message('cancel-queued'));
+    await waitUntil(() => h.events.includes('waiting-residency'));
+    h.worker.handleControl({ content: Buffer.from(JSON.stringify({ jobId: 'cancel-queued', generation: 1 })) });
+    await processing;
+    assert.ok(h.events.indexOf('claim') < h.events.indexOf('ack'));
+    assert.equal(h.events.includes('download'), false); assert.equal(h.providerCount(), 0);
+    assert.equal(h.events.includes('finish'), false); assert.equal(h.events.includes('release'), false);
+    assert.equal(h.control.calls.find((call) => call.action === 'claim').job.generation, 1);
+  } finally { await h.close(); }
+});
+
+test('hint atrasado com claim válido devolve por yield confirmado sem inferência ou incremento de tentativa', async () => {
+  let finishRelease;
+  const released = new Promise((resolve) => { finishRelease = resolve; });
+  const h = await harness({ control: async (action) => {
+    if (action === 'release') { await released; return { ok: true, applied: true, generation: 2 }; }
+  } });
+  try {
+    waitForCancellation(h);
+    const processing = h.worker.handle(message('stale-hint'));
+    await waitUntil(() => h.events.includes('waiting-residency'));
+    h.worker.handleControl({ content: Buffer.from(JSON.stringify({ jobId: 'stale-hint', generation: 1 })) });
+    await waitUntil(() => h.events.includes('release'));
+    assert.equal(h.events.includes('ack'), false);
+    const release = h.control.calls.find((call) => call.action === 'release');
+    assert.equal(release.data.reason, 'yield'); assert.equal(release.job.attempts, 1);
+    assert.equal(release.job.generation, 1); assert.equal(release.job.executionId, 'exec-stale-hint');
+    finishRelease(); await processing;
+    assert.equal(h.events.includes('ack'), true);
+    assert.equal(h.events.includes('finish'), false); assert.equal(h.events.includes('download'), false);
+    assert.equal(h.providerCount(), 0);
+  } finally { finishRelease(); await h.close(); }
+});
+
+test('rechecagem sem capacidade devolve defer e mantém entrega sem ACK ou retry de execução', async () => {
+  const h = await harness({ control: async (action) => action === 'claim'
+    ? { ok: true, granted: false, terminal: false, reason: 'CAPACITY_EXHAUSTED', retryAfterMs: 1000 } : undefined });
+  try {
+    const outcome = await h.worker.handle(message('deadline-clock-race', { deadlineAt: new Date(Date.now() - 1000).toISOString() }));
+    assert.equal(outcome.defer, true); assert.equal(outcome.job.attempts, 1); assert.equal(outcome.job.generation, 1);
+    assert.equal(h.events.includes('ack'), false); assert.equal(h.events.includes('nack'), false);
+    assert.equal(h.events.includes('acquire'), false); assert.equal(h.events.includes('download'), false);
+    assert.equal(h.events.includes('release'), false); assert.equal(h.events.includes('finish'), false);
+  } finally { await h.close(); }
 });
 
 test('fila v2 recusa legado sem inferir ou alterar estado sem token', async () => {

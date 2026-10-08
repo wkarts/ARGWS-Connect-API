@@ -24,6 +24,7 @@ type Segment = {
   name: string;
   bytes: number;
   count: number;
+  oldest: number;
   newest: number;
   counts: Record<string, number>;
   categories: Record<string, number>;
@@ -121,6 +122,29 @@ function matches(event: DiagnosticEvent, filter: DiagnosticFilter): boolean {
   );
 }
 
+/** Stop waiting for shared maintenance without canceling its writer or losing a rejection. */
+function waitFor<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener('abort', abort);
+      reject(signal.reason);
+    };
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      },
+    );
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
 function replacementNames(header: unknown, current: string): string[] | undefined {
   const value = header as { diagnosticSegment?: number; replaces?: unknown };
   if (!value || value.diagnosticSegment !== 1 || !Array.isArray(value.replaces)) return undefined;
@@ -194,6 +218,7 @@ export class DiagnosticStore {
           name,
           bytes: stat.size,
           count: 0,
+          oldest: Infinity,
           newest: 0,
           counts: {},
           categories: {},
@@ -273,6 +298,7 @@ export class DiagnosticStore {
           name,
           bytes: Buffer.byteLength(content),
           count: 0,
+          oldest: Infinity,
           newest: 0,
           counts: {},
           categories: {},
@@ -293,7 +319,9 @@ export class DiagnosticStore {
 
   private count(segment: Segment, event: DiagnosticEvent): void {
     segment.count++;
-    segment.newest = Math.max(segment.newest, Date.parse(event.timestamp));
+    const timestamp = Date.parse(event.timestamp);
+    segment.oldest = Math.min(segment.oldest, timestamp);
+    segment.newest = Math.max(segment.newest, timestamp);
     segment.counts[event.level] = (segment.counts[event.level] || 0) + 1;
     segment.categories[event.category] = (segment.categories[event.category] || 0) + 1;
   }
@@ -328,7 +356,7 @@ export class DiagnosticStore {
     if (sources.length < 2) return false;
     const name = `events-${this.runtimeId}-${String(this.now()).padStart(13, '0')}-${String(this.sequence++).padStart(6, '0')}.jsonl`;
     let content = JSON.stringify({ diagnosticSegment: 1, replaces: sources.map((source) => source.name) }) + '\n';
-    const segment: Segment = { name, bytes: 0, count: 0, newest: 0, counts: {}, categories: {} };
+    const segment: Segment = { name, bytes: 0, count: 0, oldest: Infinity, newest: 0, counts: {}, categories: {} };
     for (const source of sources)
       for await (const event of this.readSegment(source.name)) {
         content += JSON.stringify(event) + '\n';
@@ -391,34 +419,43 @@ export class DiagnosticStore {
     this.fallback = this.fallback.filter((event) => Date.parse(event.timestamp) >= cutoff);
   }
 
-  private async *readSegment(name: string): AsyncGenerator<DiagnosticEvent> {
-    const stream = createReadStream(join(this.dir, name), { encoding: 'utf8', highWaterMark: MAX_RECORD_BYTES });
+  private async *readSegment(name: string, signal?: AbortSignal): AsyncGenerator<DiagnosticEvent> {
+    signal?.throwIfAborted();
+    const stream = createReadStream(join(this.dir, name), {
+      encoding: 'utf8',
+      highWaterMark: MAX_RECORD_BYTES,
+      signal,
+    });
     let pending = '';
     let skipping = false;
     try {
       for await (const chunk of stream) {
+        signal?.throwIfAborted();
         pending += chunk;
         let newline: number;
         while ((newline = pending.indexOf('\n')) !== -1) {
+          signal?.throwIfAborted();
           const line = pending.slice(0, newline);
           pending = pending.slice(newline + 1);
           if (!skipping) {
+            let event: DiagnosticEvent | undefined;
             try {
               if (!line || Buffer.byteLength(line) > MAX_RECORD_BYTES) throw new Error();
-              const event = JSON.parse(line) as DiagnosticEvent;
-              if (replacementNames(event, name)) continue;
+              const record = JSON.parse(line) as DiagnosticEvent;
+              if (replacementNames(record, name)) continue;
               if (
-                !event ||
-                typeof event.id !== 'string' ||
-                !Number.isFinite(Date.parse(event.timestamp)) ||
-                !DIAGNOSTIC_LEVELS.includes(event.level) ||
-                !DIAGNOSTIC_CATEGORIES.includes(event.category)
+                !record ||
+                typeof record.id !== 'string' ||
+                !Number.isFinite(Date.parse(record.timestamp)) ||
+                !DIAGNOSTIC_LEVELS.includes(record.level) ||
+                !DIAGNOSTIC_CATEGORIES.includes(record.category)
               )
                 throw new Error();
-              yield event;
+              event = record;
             } catch {
               this.storageError = true;
             }
+            if (event) yield event;
           }
           skipping = false;
         }
@@ -430,26 +467,59 @@ export class DiagnosticStore {
       }
       if (pending || skipping) this.storageError = true;
     } catch (error) {
+      signal?.throwIfAborted();
       if (error.code !== 'ENOENT') this.storageError = true;
     } finally {
       stream.destroy();
     }
   }
 
-  async *exportRecords(input: DiagnosticFilter = {}): AsyncGenerator<DiagnosticEvent> {
-    const filter = validateDiagnosticFilter(input);
-    await this.flush();
-    await this.pruning;
+  private async *readRecords(
+    filter: DiagnosticFilter,
+    signal?: AbortSignal,
+    newestFirst = false,
+    stopBefore?: (newest: number) => boolean,
+  ): AsyncGenerator<DiagnosticEvent> {
+    signal?.throwIfAborted();
+    await waitFor(this.flush(), signal);
+    signal?.throwIfAborted();
+    await waitFor(this.pruning, signal);
+    signal?.throwIfAborted();
+    const cutoff = new Date(this.now() - this.config.retentionDays * 86400000).toISOString();
+    const from = Date.parse(filter.from && filter.from > cutoff ? filter.from : cutoff);
+    const to = filter.to ? Date.parse(filter.to) : Infinity;
+    // Segment metadata is built from the records themselves, including after restart/compaction.
+    // It is only an exclusion index: correlation/code filters still inspect the original events.
+    const segments = [...this.segments.values()].filter(
+      (segment) =>
+        segment.newest >= from &&
+        segment.oldest <= to &&
+        (!filter.level || segment.counts[filter.level]) &&
+        (!filter.category || segment.categories[filter.category]),
+    );
+    segments.sort((a, b) => (newestFirst ? b.newest - a.newest : 0) || a.name.localeCompare(b.name));
     // Pin immutable names until download finishes: retention must not truncate an in-flight export.
-    const names = [...this.segments.keys()].sort();
+    const names = segments.map((segment) => segment.name);
     for (const name of names) this.readers.set(name, (this.readers.get(name) || 0) + 1);
     const fallback = this.fallback.slice();
-    const cutoff = new Date(this.now() - this.config.retentionDays * 86400000).toISOString();
     try {
-      for (const name of names)
-        for await (const event of this.readSegment(name))
+      // Consider in-memory records before using a page's lower timestamp bound to skip disk files.
+      if (newestFirst)
+        for (const event of fallback) {
+          signal?.throwIfAborted();
           if (event.timestamp >= cutoff && matches(event, filter)) yield event;
-      for (const event of fallback) if (event.timestamp >= cutoff && matches(event, filter)) yield event;
+        }
+      for (const segment of segments) {
+        signal?.throwIfAborted();
+        if (stopBefore?.(segment.newest)) break;
+        for await (const event of this.readSegment(segment.name, signal))
+          if (event.timestamp >= cutoff && matches(event, filter)) yield event;
+      }
+      if (!newestFirst)
+        for (const event of fallback) {
+          signal?.throwIfAborted();
+          if (event.timestamp >= cutoff && matches(event, filter)) yield event;
+        }
     } finally {
       for (const name of names) {
         const remaining = this.readers.get(name) - 1;
@@ -457,25 +527,36 @@ export class DiagnosticStore {
         else this.readers.delete(name);
       }
       try {
-        if (this.persistent) await this.prune();
+        // A canceled request must release its files without waiting for unrelated maintenance.
+        if (this.persistent && !signal?.aborted) await waitFor(this.prune(), signal);
       } catch {
+        signal?.throwIfAborted();
         this.storageError = true;
       }
     }
   }
 
-  async query(input: DiagnosticFilter = {}): Promise<{ events: DiagnosticEvent[]; nextCursor: string | null }> {
+  async *exportRecords(input: DiagnosticFilter = {}, signal?: AbortSignal): AsyncGenerator<DiagnosticEvent> {
+    yield* this.readRecords(validateDiagnosticFilter(input), signal);
+  }
+
+  async query(
+    input: DiagnosticFilter = {},
+    signal?: AbortSignal,
+  ): Promise<{ events: DiagnosticEvent[]; nextCursor: string | null }> {
     const filter = validateDiagnosticFilter(input);
     const cursor = filter.cursor ? decodeCursor(filter.cursor) : undefined;
     const limit = filter.limit || 100;
     const events: DiagnosticEvent[] = [];
-    for await (const event of this.exportRecords(filter)) {
+    const stopBefore = (newest: number) => events.length === limit + 1 && newest < Date.parse(events[limit].timestamp);
+    for await (const event of this.readRecords(filter, signal, true, stopBefore)) {
       if (cursor && compare(event, cursor) >= 0) continue;
       if (events.length === limit + 1 && compare(event, events[limit]) <= 0) continue;
       events.push(event);
       events.sort((a, b) => compare(b, a));
       if (events.length > limit + 1) events.pop();
     }
+    signal?.throwIfAborted();
     const more = events.length > limit;
     if (more) events.pop();
     const last = events[events.length - 1];
@@ -487,11 +568,14 @@ export class DiagnosticStore {
     };
   }
 
-  async snapshot() {
-    await this.flush();
+  async snapshot(signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    await waitFor(this.flush(), signal);
+    signal?.throwIfAborted();
     try {
-      if (this.persistent) await this.prune();
+      if (this.persistent) await waitFor(this.prune(), signal);
     } catch {
+      signal?.throwIfAborted();
       this.storageError = true;
     }
     const counts = { info: 0, warn: 0, error: 0 };
