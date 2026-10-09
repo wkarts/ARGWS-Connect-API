@@ -33,7 +33,7 @@
     "argws-connect-api",
     "argws-connect-manager",
     "argws-connect-docs",
-    "connect-transcription-service"
+    "argws-connect-transcription-worker"
   ],
   "protected_packages": [
     "argws-connect-node",
