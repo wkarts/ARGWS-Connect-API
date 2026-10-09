@@ -1,0 +1,85 @@
+name: RabbitMQ Healthcheck Integrity
+on:
+  pull_request:
+    branches: [main, develop]
+    paths: ['deploy/**', 'Docker/rabbitmq/**', 'docker-compose*.yaml', '*env.example', 'scripts/audit-rabbitmq-healthcheck.py', 'test/rabbitmq-healthcheck.test.py', '.github/scripts/test-rabbitmq-probe.cjs', '.github/workflows/rabbitmq-healthcheck.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RABBITMQ_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      RABBITMQ_VERIFY_SCOPE: ${{ (startsWith(github.head_ref, 'fix/rabbitmq-healthcheck-') || startsWith(github.ref_name, 'fix/rabbitmq-healthcheck-')) && '1' || '0' }}
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v5
+        with: {node-version: '22', cache: npm}
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-yaml ffmpeg
+      - name: Verify all variants and preserve runtime and feature contracts
+        run: |
+          python3 test/rabbitmq-healthcheck.test.py
+          python3 scripts/sync-fersoft-deployments.py --check
+          if [ -f test/rabbitmq-startup-deployments.test.py ]; then python3 test/rabbitmq-startup-deployments.test.py; fi
+          if [ -f test/speech-service-deployment.test.py ]; then python3 test/speech-service-deployment.test.py; fi
+      - name: Exercise existing events, audio, providers and executor contracts without changing them
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run test:operations
+          runtime=transcription-worker
+          if [ -d transcription-service ]; then runtime=transcription-service; fi
+          if [ -f "$runtime/package-lock.json" ]; then
+            npm ci --prefix "$runtime" --ignore-scripts --no-audit --no-fund
+          else
+            # The main-branch legacy contract suite resolves the existing root
+            # dependencies, exactly as operations-integrity already does.
+            node -e "for (const id of ['amqplib', 'minio']) require.resolve(id, {paths: [process.argv[1]]})" "$PWD/$runtime"
+          fi
+          npm test --prefix "$runtime"
+  broker:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: {node-version: '22', cache: npm}
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve actual image and render the production probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=ghcr.io/wkarts/argws-connect-rabbitmq:management
+          docker pull "$image"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+          echo "RABBITMQ_TEST_IMAGE=$digest" >> "$GITHUB_ENV"
+          cp deploy/production/env.example deploy/production/.env
+          docker compose -f deploy/production/compose.yaml config --format json > "$RUNNER_TEMP/rabbitmq-rendered.json"
+          echo "RABBITMQ_RENDERED_CONFIG=$RUNNER_TEMP/rabbitmq-rendered.json" >> "$GITHUB_ENV"
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify image capabilities, service_healthy, events, ACKs and probe overhead
+        run: node .github/scripts/test-rabbitmq-probe.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rabbitmq-healthcheck-${{ matrix.arch }}
+          path: ${{ runner.temp }}/rabbit-probe-ci-*/report.json
+          retention-days: 7
+          if-no-files-found: error
