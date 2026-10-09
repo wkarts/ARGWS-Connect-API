@@ -3,6 +3,14 @@ name: Release - Auto Version, Build and Publish
 on:
   push:
     branches: [main]
+  # Validate this exact release path before merge, without publication rights.
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/auto-version-release.yml
+      - .github/scripts/release-publication-policy.py
+      - .github/RELEASE_HOLD.md
+      - test/release-publication-policy.test.py
   workflow_dispatch:
     inputs:
       force_bump:
@@ -19,7 +27,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: argws-connect-release-main
+  group: ${{ github.event_name == 'pull_request' && format('release-validation-pr-{0}', github.event.pull_request.number) || 'argws-connect-release-main' }}
   cancel-in-progress: false
 
 env:
@@ -31,10 +39,15 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip release]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.release-policy.outputs.publish }}
     env:
       DATABASE_PROVIDER: postgresql
     steps:
       - name: Refuse publication outside main
+        if: ${{ github.event_name != 'pull_request' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -45,15 +58,15 @@ jobs:
           ref: ${{ github.sha }}
           submodules: recursive
           fetch-depth: 0
-      - name: Enforce release hold
-        shell: bash
+      - name: Evaluate release publication policy
+        id: release-policy
+        run: python3 .github/scripts/release-publication-policy.py
+      - name: Install validation dependencies
         run: |
-          set -euo pipefail
-          if [[ -f .github/RELEASE_HOLD.md ]]; then
-            cat .github/RELEASE_HOLD.md
-            echo 'Release suspended until worker validation is complete.' >&2
-            exit 1
-          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg python3-yaml
+      - name: Test release hold and publication boundaries
+        run: python3 test/release-publication-policy.test.py
       - name: Install Node
         uses: actions/setup-node@v5
         with:
@@ -83,6 +96,7 @@ jobs:
   plan-version:
     name: Plan semantic version
     needs: validate
+    if: ${{ needs.validate.result == 'success' && needs.validate.outputs.publish == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.plan.outputs.version }}
