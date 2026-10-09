@@ -1,0 +1,137 @@
+name: Prepare isolated RabbitMQ healthcheck
+on:
+  push:
+    branches: [work/rabbitmq-healthcheck-preflight-20261009]
+  workflow_dispatch:
+permissions:
+  contents: write
+  packages: read
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: main
+            sha: afceea41d34d156199f2a353a8da8de325a7c5bd
+          - branch: develop
+            sha: ca78e4783f7bd9eb6087812bb86b3a11269a7148
+    steps:
+      - uses: actions/checkout@v5
+        with: {persist-credentials: false}
+      - name: Preserve reviewed inputs outside the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rabbit-author"
+          cp .github/rabbitmq-authoring/migrate.py "$RUNNER_TEMP/rabbit-author/"
+          cp scripts/audit-rabbitmq-healthcheck.py test/rabbitmq-healthcheck.test.py .github/scripts/test-rabbitmq-probe.cjs .github/workflows/rabbitmq-healthcheck.yml docs/guides/rabbitmq-healthcheck.md "$RUNNER_TEMP/rabbit-author/"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with: {node-version: '22'}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Confirm actual image prerequisites before applying a source-only patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/wkarts/argws-connect-rabbitmq:management
+          image=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/wkarts/argws-connect-rabbitmq:management)
+          docker run --rm --network none --read-only --cap-drop ALL --entrypoint sh "$image" -ec 'command -v bash; command -v timeout; timeout 2 bash -ec "exit 0"'
+          python3 -c 'import yaml'
+      - name: Apply only the RabbitMQ healthcheck policy to this branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/rabbit-author/migrate.py"
+          cp "$RUNNER_TEMP/rabbit-author/audit-rabbitmq-healthcheck.py" scripts/
+          cp "$RUNNER_TEMP/rabbit-author/rabbitmq-healthcheck.test.py" test/
+          cp "$RUNNER_TEMP/rabbit-author/test-rabbitmq-probe.cjs" .github/scripts/
+          cp "$RUNNER_TEMP/rabbit-author/rabbitmq-healthcheck.yml" .github/workflows/
+          cp "$RUNNER_TEMP/rabbit-author/rabbitmq-healthcheck.md" docs/guides/
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.github/scripts/test-rabbitmq-probe.cjs');s=p.read_text()
+          assert s.count('[`id}-data`]')==1
+          p.write_text(s.replace('[`id}-data`]','[`${id}-data`]'))
+          p=Path('test/rabbitmq-healthcheck.test.py');s=p.read_text()
+          a='    def test_no_runtime_logic_or_non_health_compose_contract_changes(self):\n'
+          assert s.count(a)==1
+          p.write_text(s.replace(a,"    @unittest.skipUnless(os.environ.get('RABBITMQ_VERIFY_SCOPE') == '1', 'Scope review is explicit; unrelated future PRs may change runtime')\n"+a))
+          p=Path('scripts/audit-rabbitmq-healthcheck.py');s=p.read_text().replace('import json\n','import json\nimport re\n')
+          s=s.replace('def main():', '''def safe_healthcheck(value):
+              if not isinstance(value, dict):
+                  return None
+              result = {k:v for k,v in value.items() if k in ('Interval','Timeout','Retries','StartPeriod','StartInterval','interval','timeout','retries','start_period','start_interval')}
+              key = 'Test' if 'Test' in value else 'test'
+              command = value.get(key)
+              result[key] = command if command in (['CMD', *PROBE], ['CMD','rabbitmq-diagnostics','-q','ping']) else ['[nonstandard probe redacted]']
+              return result
+
+
+          def main():''')
+          s=s.replace("    runtime = checked('inspect', '--type', 'container', args.container)", "    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', args.container):\n        raise ValueError('Expected one explicit container name or ID.')\n    runtime = checked('inspect', '--type', 'container', args.container)")
+          s=s.replace("'effectiveHealthcheck': runtime['Config'].get('Healthcheck'),", "'effectiveHealthcheck': safe_healthcheck(runtime['Config'].get('Healthcheck')),")
+          s=s.replace("report['renderedHealthcheck'] = wanted.get('healthcheck')", "report['renderedHealthcheck'] = safe_healthcheck(wanted.get('healthcheck'))")
+          s=s.replace('except (RuntimeError, ValueError, KeyError, OSError, subprocess.TimeoutExpired)', 'except (RuntimeError, ValueError, KeyError, IndexError, TypeError, OSError, subprocess.TimeoutExpired)')
+          p.write_text(s)
+          PY
+      - name: Validate invariants and real Compose interpolation
+        env:
+          RABBITMQ_BASE_SHA: ${{ matrix.sha }}
+          RABBITMQ_VERIFY_SCOPE: '1'
+        run: |
+          python3 test/rabbitmq-healthcheck.test.py
+          python3 scripts/sync-fersoft-deployments.py --check
+          if [ -f test/rabbitmq-startup-deployments.test.py ]; then python3 test/rabbitmq-startup-deployments.test.py; fi
+          if [ -f test/speech-service-deployment.test.py ]; then python3 test/speech-service-deployment.test.py; fi
+          node --check .github/scripts/test-rabbitmq-probe.cjs
+          python3 -m py_compile scripts/audit-rabbitmq-healthcheck.py
+          git diff --check
+      - name: Store verified Git tree without changing any branch or opening a PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ matrix.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,urllib.request,zipfile
+          from pathlib import Path
+          def git(*args):return subprocess.check_output(['git',*args]).decode().strip()
+          additions=['scripts/audit-rabbitmq-healthcheck.py','test/rabbitmq-healthcheck.test.py','.github/scripts/test-rabbitmq-probe.cjs','.github/workflows/rabbitmq-healthcheck.yml','docs/guides/rabbitmq-healthcheck.md']
+          changed=git('diff','--name-only').splitlines()
+          paths=sorted(set(changed+additions))
+          subprocess.run(['git','add','--',*paths],check=True)
+          tree=git('write-tree');base_tree=git('rev-parse','HEAD^{tree}')
+          entries=[];checks=[]
+          for name in paths:
+              data=Path(name).read_bytes()
+              mode,sha,_=git('ls-files','-s','--',name).split(None,3)[:3]
+              expected=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              assert sha==expected
+              entries.append({'path':name,'mode':mode,'type':'blob','content':data.decode()})
+              checks.append({'path':name,'mode':mode,'sha':sha})
+          payload=json.dumps({'base_tree':base_tree,'tree':entries}).encode()
+          request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=payload,method='POST',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urllib.request.urlopen(request,timeout=60) as response:remote=json.load(response)
+          assert remote['sha']==tree,(remote['sha'],tree)
+          out=Path(os.environ['RUNNER_TEMP'])/'rabbitmq-candidate';out.mkdir()
+          (out/'tree.json').write_text(json.dumps({'baseSha':os.environ['BASE_SHA'],'treeSha':tree,'files':checks},indent=2))
+          (out/'changes.diff').write_text(git('diff','--cached','--'))
+          with zipfile.ZipFile(out/'changed-source.zip','w',zipfile.ZIP_DEFLATED) as archive:
+              for name in paths:archive.write(name,name)
+          print(json.dumps({'baseSha':os.environ['BASE_SHA'],'treeSha':tree,'files':len(paths)}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rabbitmq-candidate-${{ matrix.branch }}
+          path: ${{ runner.temp }}/rabbitmq-candidate
+          retention-days: 3
+          if-no-files-found: error
