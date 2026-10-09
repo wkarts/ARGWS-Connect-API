@@ -108,7 +108,7 @@ jobs:
           additions=['scripts/audit-rabbitmq-healthcheck.py','test/rabbitmq-healthcheck.test.py','.github/scripts/test-rabbitmq-probe.cjs','.github/workflows/rabbitmq-healthcheck.yml','docs/guides/rabbitmq-healthcheck.md']
           changed=git('diff','--name-only').splitlines()
           paths=sorted(set(changed+additions))
-          subprocess.run(['git','add','--',*paths],check=True)
+          subprocess.run(['git','add','-f','--',*paths],check=True)
           tree=git('write-tree');base_tree=git('rev-parse','HEAD^{tree}')
           entries=[];checks=[]
           for name in paths:
