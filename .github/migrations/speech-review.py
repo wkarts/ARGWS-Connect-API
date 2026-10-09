@@ -1,5 +1,5 @@
 """Final source review and Git blob preparation; ref writes use the connector."""
-import base64, concurrent.futures, hashlib, json, os, re, subprocess, time, urllib.error, urllib.request
+import base64, json, os, re, subprocess, time, urllib.error, urllib.request
 from pathlib import Path
 
 def git(*args):
@@ -41,21 +41,32 @@ changed = [n.decode() for n in git('diff', '--cached', '--name-only', '--no-rena
 new = {index[name][1] for name in changed if name in index} - existing
 token = os.environ['GITHUB_TOKEN']
 def prepare_blob(sha):
+    endpoint = f'https://api.github.com/repos/{repo}/git/blobs'
+    headers = {'Authorization': 'Bearer '+token, 'Accept':'application/vnd.github+json', 'Content-Type':'application/json', 'X-GitHub-Api-Version':'2022-11-28'}
+    try:
+        with urllib.request.urlopen(urllib.request.Request(endpoint+'/'+sha, headers=headers), timeout=60) as response:
+            assert json.load(response)['sha'] == sha
+            return sha
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404: raise
     raw = git('cat-file', 'blob', sha)
     payload = json.dumps({'encoding': 'base64', 'content': base64.b64encode(raw).decode()}).encode()
-    for attempt in range(4):
-        request = urllib.request.Request(f'https://api.github.com/repos/{repo}/git/blobs', payload, headers={'Authorization': 'Bearer '+token, 'Accept':'application/vnd.github+json', 'Content-Type':'application/json', 'X-GitHub-Api-Version':'2022-11-28'})
+    for attempt in range(5):
+        time.sleep(1.25)
+        request = urllib.request.Request(endpoint, payload, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=60) as response: result=json.load(response)
             assert result['sha'] == sha
             return sha
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode('utf-8', errors='replace')[:2000]
-            if exc.code not in [429, 500, 502, 503, 504] or attempt == 3:
+            limited = exc.code == 429 or (exc.code == 403 and 'rate limit' in detail.lower())
+            if not limited and exc.code not in [500,502,503,504]:
                 raise RuntimeError(f'Git blob rejected: HTTP {exc.code}: {detail}') from None
-            time.sleep(2**attempt)
-with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-    prepared = list(pool.map(prepare_blob, sorted(new)))
+            if attempt == 4: raise RuntimeError(f'Git blob upload deferred: HTTP {exc.code}: {detail}') from None
+            delay = max(60, int(exc.headers.get('Retry-After', '60'))) if limited else 2**attempt
+            print(f'GitHub retry after {delay} seconds (HTTP {exc.code}).', flush=True)
+            time.sleep(delay)
 entries=[]
 for name in changed:
     if name not in index:
@@ -64,7 +75,12 @@ for name in changed:
         mode, sha = index[name]
         assert mode in ['100644', '100755', '120000']
         entries.append({'path':name, 'mode':mode, 'type':'blob', 'sha':sha})
-report={'parent':head, 'base_tree_sha':git('rev-parse','HEAD^{tree}').decode().strip(), 'expected_tree_sha':git('write-tree').decode().strip(), 'tree_elements':entries, 'blobsPrepared':len(prepared), 'noRefUpdated':True, 'noDeployment':True}
+report={'parent':head, 'base_tree_sha':git('rev-parse','HEAD^{tree}').decode().strip(), 'expected_tree_sha':git('write-tree').decode().strip(), 'tree_elements':entries, 'blobsPrepared':0, 'noRefUpdated':True, 'noDeployment':True}
 Path(os.environ['RUNNER_TEMP']+'/speech-tree.json').write_text(json.dumps(report,indent=2))
+prepared=[]
+for sha in sorted(new):
+    prepared.append(prepare_blob(sha))
+    report['blobsPrepared']=len(prepared)
+    Path(os.environ['RUNNER_TEMP']+'/speech-tree.json').write_text(json.dumps(report,indent=2))
 print('Prepared blobs for connector commit:',len(prepared))
 print('EXPECTED_TREE_SHA='+report['expected_tree_sha'])
