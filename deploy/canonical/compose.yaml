@@ -256,11 +256,11 @@ services:
       argws-connect-canonical-net:
         aliases: [rabbitmq-argws-connect-canonical]
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 15
-      start_period: 30s
+      test: ["CMD", "timeout", "${RABBITMQ_HEALTHCHECK_CONNECT_TIMEOUT:-2}", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/5672"]
+      interval: ${RABBITMQ_HEALTHCHECK_INTERVAL:-60s}
+      timeout: ${RABBITMQ_HEALTHCHECK_TIMEOUT:-3s}
+      retries: ${RABBITMQ_HEALTHCHECK_RETRIES:-5}
+      start_period: ${RABBITMQ_HEALTHCHECK_START_PERIOD:-120s}
     logging: *default-logging
 
   minio-argws-connect-canonical:
