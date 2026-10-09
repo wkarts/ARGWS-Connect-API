@@ -33,7 +33,13 @@ jobs:
           npm run test:operations
           runtime=transcription-worker
           if [ -d transcription-service ]; then runtime=transcription-service; fi
-          npm ci --prefix "$runtime" --ignore-scripts --no-audit --no-fund
+          if [ -f "$runtime/package-lock.json" ]; then
+            npm ci --prefix "$runtime" --ignore-scripts --no-audit --no-fund
+          else
+            # The main-branch legacy contract suite resolves the existing root
+            # dependencies, exactly as operations-integrity already does.
+            node -e "for (const id of ['amqplib', 'minio']) require.resolve(id, {paths: [process.argv[1]]})" "$PWD/$runtime"
+          fi
           npm test --prefix "$runtime"
   broker:
     strategy:
