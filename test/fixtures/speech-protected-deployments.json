@@ -1,13 +1,13 @@
 {
-  "docker-compose.yaml": "3194386c719e628fbbe09cf6a0323c9dcb0163586da4784b8c2ff8dc28670dc5",
+  "docker-compose.yaml": "acff46ab6553a5ab2585f3adfee93644c5727b553a5f634861d65a7c45d43915",
   "docker-compose.dev.yaml": "ad7077831a87505b1589720d6ab56931497e095fa4eceb5636d67396496f4524",
   "deploy/develop/compose.yaml": "4defc83896f201c1ae0eebfb858d886b0579933c5f8c25dab4fde7f1723bef09",
   "deploy/speech/host-budget.compose.yaml": "d40321d6f574fa42ef2d6c250c5c63bb0040f9aa047758ca2a9131a44da15be4",
   "deploy/homologation/compose.yaml": "f216ad1ae5b45562988ef7f8061af8ccd1e9f40f163b1c10b835d96f780e2953",
-  "deploy/dockge/compose.yaml": "ee5c6a623c8de97ec8012402b766ecf166e2a6652c0e06fe775b5e3144450f39",
-  "deploy/cloudpanel/docker-compose.yml": "8c5235327078a0ec39566da9c201a1743ae9504ee822b31a9bc8e26f476d65d7",
-  "deploy/canonical/compose.yaml": "b9daed807ae8edcfbb68259f552600ee67458c6d60d7d424851ee2633b139b2e",
-  "deploy/production/compose.yaml": "865601d6c7717bf37b86121594871a73339ad7ed856c0bca6c688cf5bcf4f9db",
+  "deploy/dockge/compose.yaml": "a9db98eb5082eb1311ac3ac5ab244bbc9c0c689f380acf3f6e69e48f0ec54bd2",
+  "deploy/cloudpanel/docker-compose.yml": "d4a16aba52062140e80d08cc9d0e9074066baec3c83a9b55bbbae685e2e2669a",
+  "deploy/canonical/compose.yaml": "f44cf2fbd39e571ad8051813cd9e6046f24b0e8ec5284a40bc06483670413c8b",
+  "deploy/production/compose.yaml": "2cf469cac29b793c4a25d644c040bef9b7973b712bb5cce4fceff1838c71af10",
   "deploy/fersoft/develop/compose.yaml": "15ebb2cb21a6bee7ca19261e4ce780f42a51b0873b0353a7eb309eaf717d38de",
-  "deploy/fersoft/production/compose.yaml": "b3db0da2c1f4f1ff5bac15ae5adb688bac4a8835a32748fc9d763d1089483c7a"
+  "deploy/fersoft/production/compose.yaml": "979cd6ce988ae204099495ab024685e1da0419dd2d456d956c0c180796bf6ee6"
 }

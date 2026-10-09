@@ -98,9 +98,9 @@ class RabbitMQBootstrapDeploymentTests(unittest.TestCase):
                     'CMD', 'timeout', '${RABBITMQ_HEALTHCHECK_CONNECT_TIMEOUT:-2}',
                     'bash', '-ec', 'exec 3<>/dev/tcp/127.0.0.1/5672',
                 ])
-                self.assertEqual(health['interval'], '${RABBITMQ_HEALTHCHECK_INTERVAL:-30s}')
+                self.assertEqual(health['interval'], '${RABBITMQ_HEALTHCHECK_INTERVAL:-' + ('30s' if 'develop' in name or 'homologation' in name else '60s') + '}')
                 self.assertEqual(health['timeout'], '${RABBITMQ_HEALTHCHECK_TIMEOUT:-3s}')
-                self.assertEqual(health['retries'], '${RABBITMQ_HEALTHCHECK_RETRIES:-10}')
+                self.assertEqual(health['retries'], '${RABBITMQ_HEALTHCHECK_RETRIES:-' + ('10' if 'develop' in name or 'homologation' in name else '5') + '}')
                 self.assertEqual(health['start_period'], '${RABBITMQ_HEALTHCHECK_START_PERIOD:-120s}')
                 self.assertNotIn('rabbitmq-diagnostics', ' '.join(health['test']))
 
