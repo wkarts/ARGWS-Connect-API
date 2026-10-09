@@ -126,7 +126,7 @@ jobs:
               suffix = f'argws-connect-{stack}'
               core = {f'{r}-{suffix}' for r in core_resources}
               optional = {f'{r}-{suffix}' for r in optional_resources}
-              optional.add(f'transcription-worker-{suffix}')
+              optional.add(f'transcription-service-{suffix}')
               if stack in ('production', 'develop'):
                   optional.add(f'operations-{suffix}')
 
@@ -139,7 +139,7 @@ jobs:
               )
 
               for service_name, cfg in full['services'].items():
-                  if service_name == f'transcription-worker-{suffix}':
+                  if service_name == f'transcription-service-{suffix}':
                       assert not cfg.get('container_name'), f'{stack}: worker escalável não pode fixar container_name'
                       assert int(cfg.get('scale', 0)) >= 1, f'{stack}: escala de transcrição inválida'
                   else:
@@ -187,18 +187,18 @@ jobs:
               assert set(mysql_volume_init.get('cap_add', [])) == {'CHOWN', 'FOWNER', 'DAC_OVERRIDE'}, f'{stack}: mysql-volume-init recebeu capabilities indevidas'
               assert mysql.get('depends_on', {})[f'mysql-volume-init-{suffix}']['condition'] == 'service_healthy', f'{stack}: MySQL deve aguardar mysql-volume-init'
 
-              transcription_worker = full['services'][f'transcription-worker-{suffix}']
+              transcription_worker = full['services'][f'transcription-service-{suffix}']
               assert transcription_worker.get('profiles') == ['transcription'], f'{stack}: worker de transcricao deve ser opcional'
               assert int(transcription_worker.get('scale', 0)) == 1, f'{stack}: uma replica por stack inicialmente'
               assert transcription_worker.get('environment', {}).get('SPEECH_GLOBAL_CONCURRENCY') == '1', f'{stack}: admissao global conservadora'
               assert not any('transcription-models' in str(mount) or '/home/node/.cache/huggingface' in str(mount) for mount in transcription_worker.get('volumes', [])), f'{stack}: worker nao pode montar cache de modelo no host'
-              assert transcription_worker.get('environment', {}).get('TRANSCRIPTION_MODEL_STORAGE_PREFIX') == 'transcription-models', f'{stack}: prefixo de cache do modelo deve ficar no bucket'
-              speech_default = 'true' if stack == 'develop' else 'false'
+              assert 'TRANSCRIPTION_MODEL_STORAGE_PREFIX' not in transcription_worker.get('environment', {}), f'{stack}: cache legado de modelo nao deve ser configurado'
+              speech_default = 'false'
               assert all(env.get(flag) == speech_default for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION')), f'{stack}: fala deve seguir o opt-in do canal'
               assert env.get('DICTATION_ENABLED') == speech_default, f'{stack}: ditado configuravel em todos os canais'
               assert any(mount.get('target') == '/models' for mount in api_service.get('volumes', [])), f'{stack}: modelo deve estar montado na API'
-              assert ('transcription' in env.get('COMPOSE_PROFILES', '').split(',')) == (stack == 'develop'), f'{stack}: perfil de fala ausente'
-              assert transcription_worker.get('environment', {}).get('SPEECH_WORKER_MODE') == 'pool', f'{stack}: um pool para ambas modalidades'
+              assert ('transcription' in env.get('COMPOSE_PROFILES', '').split(',')) is False, f'{stack}: fala exige opt-in explicito'
+              assert 'SPEECH_WORKER_MODE' not in transcription_worker.get('environment', {}), f'{stack}: um pool para ambas modalidades'
               assert api_service['environment'].get('DICTATION_ENABLED') == speech_default, f'{stack}: flag ditado nao propagada'
               assert transcription_worker.get('memswap_limit') == transcription_worker.get('mem_limit'), f'{stack}: swap deve integrar o teto de memoria'
               assert not any(name.startswith('speech-dictation-worker-') for name in full['services']), f'{stack}: nao deve iniciar modelo duplicado para ditado'
@@ -384,8 +384,7 @@ jobs:
             for image in \
               "ghcr.io/wkarts/argws-connect-api:${canonical_tag}" \
               "ghcr.io/wkarts/argws-connect-docs:${canonical_tag}" \
-              "ghcr.io/wkarts/argws-connect-transcription-worker:${canonical_tag}" \
-              ghcr.io/wkarts/argws-connect-transcription-worker:latest; do
+              ghcr.io/wkarts/argws-connect-docs:latest; do
               echo "Checking published release image $image"
               docker manifest inspect "$image" >/dev/null
             done
@@ -396,7 +395,6 @@ jobs:
             ghcr.io/wkarts/argws-connect-api:latest \
             ghcr.io/wkarts/argws-connect-api:develop \
             ghcr.io/wkarts/argws-connect-docs:develop \
-            ghcr.io/wkarts/argws-connect-transcription-worker:develop \
             ghcr.io/wkarts/argws-connect-postgres:15 \
             ghcr.io/wkarts/argws-connect-redis:latest \
             ghcr.io/wkarts/argws-connect-rabbitmq:management \

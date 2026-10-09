@@ -40,8 +40,10 @@ async function nativeProcPid(pid) {
 
 async function main() {
   assert.ok(model && expectedHash && /^[a-f0-9]{64}$/.test(expectedHash), 'verified model path/hash are required');
-  // Resolve the native N-API binding on the runner's actual architecture.
-  require('onnxruntime-node');
+  // This smoke exercises whisper-server, not the optional Transformers/ONNX engine.
+  // The legacy image validates its N-API binding at build time; the native-only
+  // image intentionally contains no ONNX dependency. All recognition checks below
+  // still execute against the actual binary and checksum-verified model.
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(model)) hash.update(chunk);
   assert.equal(hash.digest('hex'), expectedHash, 'model checksum mismatch');

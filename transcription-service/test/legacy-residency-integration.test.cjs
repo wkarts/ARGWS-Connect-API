@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const amqp = require('amqplib');
-const { TranscriptionWorker } = require('../src/worker');
+const { SpeechCoordinator } = require('../src/coordinator');
 const { acquire } = require('../src/admission');
 
 const uri = process.env.SPEECH_TEST_RABBITMQ_URI;
@@ -49,7 +49,7 @@ test('RabbitMQ real: legados ociosos estáveis, demanda justa e apenas uma resid
     const models = { transcription: 'fixture-transcription-model', dictation: 'explicit-dictation-model' };
 
     const config = (mode) => ({
-      enabled: true, provider: 'local', engine: 'transformers', mode, modes: [mode], poolId: namespace,
+      enabled: true, provider: 'local', engine: 'whisper.cpp', mode, modes: [mode], poolId: namespace,
       local: { model: models[mode], device: 'cpu', dtype: 'q8' },
       s3: { bucket: 'fixture-audio' }, rabbitmq: { uri, exchange: namespace }, queues,
       globalConcurrency: 1, poolPrefetch: 10, modelIdleTtlSeconds: 300,
@@ -58,7 +58,7 @@ test('RabbitMQ real: legados ociosos estáveis, demanda justa e apenas uma resid
     });
 
     const makeWorker = (mode) => {
-      const worker = new TranscriptionWorker(config(mode), {
+      const worker = new SpeechCoordinator(config(mode), {
         connectBroker: async (...args) => {
           connections[mode] += 1;
           const connection = await amqp.connect(...args);
@@ -131,7 +131,7 @@ test('RabbitMQ real: legados ociosos estáveis, demanda justa e apenas uma resid
                 else await delay(75);
                 this.lastSuccessfulInferenceAt = new Date().toISOString();
                 return { done: true, result: { text: 'fixture', durationMs: 1000,
-                  effectiveModel: models[mode], engine: 'transformers', segments: [] } };
+                  effectiveModel: models[mode], engine: 'whisper.cpp', segments: [] } };
               } finally { activeInferences -= 1; inferRunning = false; }
             },
           };

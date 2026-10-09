@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeJob, REQUESTED, PROCESSING, COMPLETED, FAILED } = require('../src/worker');
+const { normalizeJob, REQUESTED, PROCESSING, COMPLETED, FAILED } = require('../src/coordinator');
 
 test('mantém as chaves do contrato de fila', () => {
   assert.equal(REQUESTED, 'transcription.requested');

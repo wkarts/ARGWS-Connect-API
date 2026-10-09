@@ -28,11 +28,11 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            transcription-worker/package-lock.json
+            transcription-service/package-lock.json
       - name: Install locked API and worker dependencies plus the Manager toolchain
         run: |
           npm ci
-          npm ci --prefix transcription-worker --omit=dev --no-audit --no-fund
+          npm ci --prefix transcription-service --omit=dev --no-audit --no-fund
           npm install --prefix manager --ignore-scripts --no-audit --no-fund
           npm run db:generate
       - name: Install bounded-audio and Compose test dependencies
@@ -62,7 +62,7 @@ jobs:
           python3 -c 'import yaml; assert yaml.safe_load("speech: true") == {"speech": True}; print("PyYAML ready")'
       - name: Test speech execution and durable service contracts
         run: |
-          npm test --prefix transcription-worker
+          npm test --prefix transcription-service
           node --test test/event-manager-startup.test.cjs
           node --test test/speech-ci-evidence.test.cjs
           node --import tsx --test test/transcription-service.test.ts test/speech-model-download.test.ts test/speech-source-storage.test.ts
@@ -117,8 +117,8 @@ jobs:
           echo "image=${runtime_base}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
-          context: ./transcription-worker
-          file: ./transcription-worker/Dockerfile
+          context: ./transcription-service
+          file: ./transcription-service/Dockerfile
           load: true
           tags: speech-native:${{ matrix.arch }}
           platforms: linux/${{ matrix.arch }}
@@ -254,8 +254,8 @@ jobs:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: |
           test -n "${SPEECH_TEST_RABBITMQ_URI}"
-          npm ci --prefix transcription-worker --omit=dev --no-audit --no-fund
-          node --test transcription-worker/test/legacy-residency-integration.test.cjs
+          npm ci --prefix transcription-service --omit=dev --no-audit --no-fund
+          node --test transcription-service/test/legacy-residency-integration.test.cjs
       - name: Reject anonymous reads and public buckets for new speech sources
         run: node --import tsx --test test/speech-storage.integration.test.ts
       - name: Record complete RabbitMQ evidence in the job log and summary

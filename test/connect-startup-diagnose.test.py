@@ -30,10 +30,10 @@ def success(output=''):
 
 
 def fixture(letter, service, project=PROJECT, running=True, image=None):
-    worker = 'worker' in service
+    worker = 'worker' in service or service.startswith('transcription-service')
     return {
         'Id': letter * 64, 'Image': 'sha256:' + ('f' if worker else 'e') * 64,
-        'ImageReference': image or ('ghcr.io/wkarts/argws-connect-transcription-worker:develop' if worker else 'rabbitmq:4.3.6-management'),
+        'ImageReference': image or ('ghcr.io/wkarts/connect-transcription-service:develop' if worker else 'rabbitmq:4.3.6-management'),
         'Hostname': '8116f0934608', 'RestartCount': 0,
         'State': {'Status': 'running' if running else 'created', 'Running': running, 'Restarting': False,
                   'OOMKilled': False, 'ExitCode': 0, 'StartedAt': '2026-10-08T04:20:00Z',
@@ -100,8 +100,8 @@ def host_stub(_runner, _vmstat=False):
 
 class StartupDiagnosisTests(unittest.TestCase):
     def test_default_is_read_only_and_verifies_project_after_listing(self):
-        own = fixture('a', 'transcription-worker')
-        foreign = fixture('b', 'transcription-worker', project='another-tenant')
+        own = fixture('a', 'transcription-service')
+        foreign = fixture('b', 'transcription-service', project='another-tenant')
         runner = DockerAdapter([own, foreign, fixture('c', 'rabbitmq')])
         report = diagnostic.diagnose(PROJECT, runner, sample_host=host_stub)
         self.assertEqual(report['mode'], 'read_only')
@@ -113,9 +113,9 @@ class StartupDiagnosisTests(unittest.TestCase):
         self.assertFalse(any(call[:2] == ['docker', 'logs'] and call[-1] == foreign['Id'] for call in runner.calls))
 
     def test_pause_stops_only_same_project_recognized_speech_and_measures_again(self):
-        records = [fixture('a', 'transcription-worker'), fixture('b', 'speech-dictation-worker-argws-connect-develop'),
+        records = [fixture('a', 'transcription-service'), fixture('b', 'speech-dictation-worker-argws-connect-develop'),
                    fixture('c', 'rabbitmq'), fixture('d', 'api'), fixture('e', 'kafka'), fixture('f', 'nats'),
-                   fixture('1', 'postgres'), fixture('2', 'transcription-worker', project='production')]
+                   fixture('1', 'postgres'), fixture('2', 'transcription-service', project='production')]
         runner = DockerAdapter(records)
         report = diagnostic.diagnose(PROJECT, runner, pause=True, sample_host=host_stub)
         stopped = [call for call in runner.calls if call[:2] == ['docker', 'stop']]
@@ -127,7 +127,7 @@ class StartupDiagnosisTests(unittest.TestCase):
         self.assertFalse(next(item for item in report['after']['containers'] if item['id'] == 'a' * 64)['state']['Running'])
 
     def test_changed_labels_unrecognized_image_and_oneoff_are_never_stopped(self):
-        records = [fixture('a', 'transcription-worker'), fixture('b', 'dictation-worker', image='postgres:15'),
+        records = [fixture('a', 'transcription-service'), fixture('b', 'dictation-worker', image='postgres:15'),
                    fixture('c', 'speech-worker')]
         records[2]['Labels']['com.docker.compose.oneoff'] = 'True'
         runner = DockerAdapter(records)
@@ -142,7 +142,7 @@ class StartupDiagnosisTests(unittest.TestCase):
         self.assertTrue(all(not action['stopped'] for action in report['actions']))
 
     def test_timeout_never_becomes_success_or_healthy(self):
-        runner = DockerAdapter([fixture('a', 'transcription-worker')])
+        runner = DockerAdapter([fixture('a', 'transcription-service')])
         runner.stop_timeout = True
         report = diagnostic.diagnose(PROJECT, runner, pause=True, sample_host=host_stub)
         self.assertFalse(report['actions'][0]['stopped'])
@@ -155,7 +155,7 @@ class StartupDiagnosisTests(unittest.TestCase):
         self.assertNotIn('private-password', json.dumps(report))
 
     def test_report_does_not_expose_environment_credentials_or_log_uris(self):
-        rabbit, worker = fixture('c', 'rabbitmq'), fixture('a', 'transcription-worker')
+        rabbit, worker = fixture('c', 'rabbitmq'), fixture('a', 'transcription-service')
         worker['Env'] += ['RABBITMQ_URI=amqp://user:never-env-password@mq/', 'DATABASE_URL=postgres://secret/db',
                           'API_KEY=never-api-key', 'SPEECH_CONFIG=' + json.dumps({
                               'enabled': True, 'model': 'whisper-base-q5_1', 'password': 'never-config-password',

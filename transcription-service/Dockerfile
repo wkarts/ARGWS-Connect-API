@@ -25,7 +25,11 @@ ARG WHISPER_CPP_COMMIT=4979e04f5dcaccb36057e059bbaed8a2f5288315
 
 ENV NODE_ENV=production \
     NODE_OPTIONS=--enable-source-maps \
-    ONNXRUNTIME_NODE_INSTALL_CUDA=skip \
+    SPEECH_ENGINE=whisper.cpp \
+    SPEECH_MODEL=whisper-base-q5_1 \
+    SPEECH_MODEL_PATH=/models/whisper.cpp/base-q5_1 \
+    SPEECH_CHUNK_SECONDS=15 \
+    SPEECH_STRIDE_SECONDS=1 \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
@@ -41,10 +45,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-# CPU-only installation avoids fetching the unrelated ONNX CUDA distribution.
-RUN npm ci --omit=dev --no-audit --no-fund \
+# Native-only dependency graph: no Transformers, ONNX Runtime or GPU distribution.
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && npm cache clean --force \
-  && node -e "require('onnxruntime-node'); require('amqplib'); require('minio')"
+  && node -e "require('amqplib'); require('minio'); for (const name of ['onnxruntime-node', '@huggingface/transformers']) { try { require.resolve(name); process.exit(1); } catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error; } }"
 COPY --from=native-builder /native/ ./native/
 COPY --from=native-builder /src/whisper.cpp/LICENSE /usr/share/doc/whisper.cpp/LICENSE
 COPY --from=native-builder /src/whisper.cpp/samples/jfk.wav ./native/jfk.wav
@@ -57,10 +61,10 @@ RUN ln -s /opt/connect-speech/native/whisper-server /usr/local/bin/whisper-serve
 USER node
 
 LABEL org.opencontainers.image.version="${APP_VERSION}" \
-      org.opencontainers.image.title="Connect|API Speech Pool" \
-      org.opencontainers.image.description="Private persistent speech pool with bounded native execution" \
+      org.opencontainers.image.title="Connect API Transcription Service" \
+      org.opencontainers.image.description="Optional native-only transcription with bounded normalization" \
       org.opencontainers.image.source="https://github.com/wkarts/ARGWS-Connect-API" \
       io.connect.speech.whisper-cpp-revision="${WHISPER_CPP_COMMIT}"
 
-ENTRYPOINT ["node", "src/index.js"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD test -f /tmp/transcription-worker.ready
+ENTRYPOINT ["node", "src/service.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD test -f /tmp/transcription-service.ready

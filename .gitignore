@@ -88,3 +88,9 @@ lerna-debug.log*
 !/test/speech-ci-evidence.test.cjs
 !/test/package-operations-deployments.test.py
 !/test/findhub-distribution-evidence.test.cjs
+
+# Single-service deployment regression and protected non-ASR baseline.
+!/test/speech-service-deployment.test.py
+!/test/fixtures/
+/test/fixtures/*
+!/test/fixtures/speech-protected-deployments.json

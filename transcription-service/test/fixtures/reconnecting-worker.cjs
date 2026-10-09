@@ -2,7 +2,7 @@
 
 const net = require('node:net');
 const { EventEmitter } = require('node:events');
-const { TranscriptionWorker } = require('../../src/worker');
+const { SpeechCoordinator } = require('../../src/coordinator');
 
 const emit = (value) => process.stdout.write(JSON.stringify(value) + '\n');
 let attempts = 0;
@@ -50,7 +50,7 @@ async function connectBroker() {
   return connection;
 }
 
-const worker = new TranscriptionWorker({
+const worker = new SpeechCoordinator({
   enabled: true, provider: 'local', mode: 'pool', modes: ['dictation', 'transcription'],
   local: { model: 'fixture-model' },
   rabbitmq: { uri: 'amqp://fixture', exchange: 'fixture' },

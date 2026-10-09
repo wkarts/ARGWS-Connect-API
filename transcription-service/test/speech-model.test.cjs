@@ -10,14 +10,17 @@ const { loadConfig } = require('../src/config');
 const { createProvider, detectSpeechRegions, chunkRegions, mergeOverlappingText } = require('../src/provider');
 const { verifyModelDirectory } = require('../src/model-checksum');
 
-test('ditado usa sua própria fila mesmo com uma fila antiga de transcrição configurada', () => {
+test('serviço único mantém filas separadas e ignora a antiga seleção de worker', () => {
   const names = ['SPEECH_WORKER_MODE', 'SPEECH_DICTATION_QUEUE', 'TRANSCRIPTION_QUEUE'];
   const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   try {
     process.env.SPEECH_WORKER_MODE = 'dictation';
     process.env.SPEECH_DICTATION_QUEUE = 'speech.dictation';
     process.env.TRANSCRIPTION_QUEUE = 'legacy.long-audio';
-    assert.equal(loadConfig().queue, 'speech.dictation.v2');
+    assert.equal(loadConfig().mode, 'pool');
+    assert.deepEqual(loadConfig().modes, ['dictation', 'transcription']);
+    assert.equal(loadConfig().queues.dictation, 'speech.dictation.v2');
+    assert.equal(loadConfig().queues.transcription, 'legacy.long-audio.v2');
   } finally {
     for (const name of names) {
       if (previous[name] === undefined) delete process.env[name];

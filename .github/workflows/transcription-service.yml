@@ -1,0 +1,106 @@
+name: Transcription Service
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'transcription-service/**'
+      - 'test/speech-service-deployment.test.py'
+      - 'deploy/**'
+      - 'docker-compose*'
+      - '.github/workflows/transcription-service.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'transcription-service/**'
+      - 'test/speech-service-deployment.test.py'
+      - '.github/workflows/transcription-service.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: transcription-service/package-lock.json
+      - run: npm ci --prefix transcription-service --ignore-scripts --no-audit --no-fund
+      - name: Install normalization and overlay test dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 update
+          sudo apt-get install -y --no-install-recommends ffmpeg python3-yaml
+      - name: Existing executor tests against the native-only dependency graph
+        run: |
+          export NODE_PATH="$GITHUB_WORKSPACE/transcription-service/node_modules"
+          node --test transcription-service/test/*.test.cjs
+          python3 test/speech-service-deployment.test.py
+          node transcription-service/scripts/benchmark-normalization.cjs
+
+  native:
+    name: Native-only service / ${{ matrix.arch }}
+    needs: contracts
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Authenticate GHCR
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve immutable runtime base
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/${{ github.repository_owner }}/argws-connect-node:22-bookworm-slim
+          runtime_base=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/${{ github.repository_owner }}/argws-connect-node:22-bookworm-slim)
+          echo "image=${runtime_base}" >> "$GITHUB_OUTPUT"
+          version=$(node -p "require('./package.json').version")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./transcription-service
+          file: ./transcription-service/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: connect-transcription-service:ci
+          build-args: |
+            NODE_IMAGE=${{ steps.base.outputs.image }}
+            APP_VERSION=${{ steps.base.outputs.version }}
+          cache-from: type=gha,scope=transcription-service-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=transcription-service-${{ matrix.arch }}
+      - name: Disabled service needs no ASR model, credentials or network
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --memory 128m --pids-limit 32 \
+            -e SPEECH_ENABLED=false connect-transcription-service:ci
+      - uses: ./.github/actions/speech-native-smoke
+        with:
+          image: connect-transcription-service:ci
+          upload_artifacts: ${{ github.event_name != 'pull_request' }}

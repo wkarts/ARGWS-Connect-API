@@ -5,18 +5,18 @@ FFmpeg e temporários ficam dentro do mesmo cgroup do container. O teto de
 memória e o teto combinado de memória e swap são iguais; o tmpfs já integra
 esse orçamento. A API e o serviço de WhatsApp permanecem em seus containers.
 
-## Configuração de canário
+## Configuração do serviço opcional
 
 `canary-whisper-cpp.env.example` contém apenas as variáveis que selecionam o
 adaptador whisper.cpp com modelo multilíngue base q5_1 verificado. Incorpore-as
 ao `.env` do develop principal depois de provisionar o modelo. Preserve os
 segredos, a seleção de perfis e os caminhos da instalação. O perfil de Compose
-`transcription` inicia esse mesmo pool; não crie um segundo worker para ditado.
+`transcription` inicia esse mesmo pool; não crie outro serviço para ditado.
 
 O teto inicial do canário é **1280 MiB e 1 CPU**, incluindo modelo e coordenador.
 O tmpfs de 128 MiB integra esse teto. O número é um limite de ensaio, não uma
-medição de capacidade. A configuração padrão do adaptador Transformers mantém
-4 GiB por pool e não deve receber o teto do canário sem medição.
+medição de capacidade. Não existe mais executor Transformers nas novas imagens. O reconhecimento
+utiliza o modelo nativo e sua qualidade PT-BR precisa de avaliação própria.
 
 O binário whisper.cpp é compilado a partir do commit
 `4979e04f5dcaccb36057e059bbaed8a2f5288315` (v1.8.2). Em amd64, a imagem inclui
@@ -29,7 +29,7 @@ HTTP do motor é limitado a duas threads; a inferência usa o limite explícito
 ## Fontes de áudio privadas
 
 Os uploads novos de transcrição e de ditado usam um bucket dedicado e privado.
-`SPEECH_S3_BUCKET_NAME` é repassado igualmente à API e ao worker. Quando vazio,
+`SPEECH_S3_BUCKET_NAME` é repassado igualmente à API e ao serviço. Quando vazio,
 o runtime deriva o nome do bucket de mídia configurado em `S3_BUCKET` e
 acrescenta `-speech`; por exemplo, `argws-connect-develop-speech`. Preserve um
 valor privado personalizado já instalado ao incorporar o exemplo de canário.
@@ -53,8 +53,7 @@ Em um host com **systemd, cgroup v2 e driver de cgroup systemd do Docker**,
 `connect-speech.slice.example` é um exemplo de limite comum para **dois pools
 do canário**: 2560 MiB de memória, sem swap adicional, 200% de CPU (até dois
 núcleos de CPU) e 256 tarefas. Ajuste esses valores ao orçamento disponível
-do host antes de habilitar os pools. Não aplique esse teto sem ajuste a dois
-workers Transformers de 4 GiB.
+do host antes de habilitar os pools. Não aplique o teto a modelos maiores sem medir a demanda total.
 
 Instalação da unidade, depois de revisar seu orçamento:
 
@@ -76,15 +75,15 @@ produção e Fersoft mesmo quando seus brokers são diferentes. Não é necessá
 alterar os limites individuais para aplicar o pai comum.
 
 `host-budget.compose.yaml` é uma alternativa de configuração explícita para os
-templates com serviço chamado `transcription-worker` (raiz, desenvolvimento
+templates com serviço chamado `transcription-service` (raiz, desenvolvimento
 Docker, CloudPanel, Dockge e homologação):
 
 ```bash
 docker compose --env-file .env -f compose.yaml -f deploy/speech/host-budget.compose.yaml config
 ```
 
-Nos templates com nomes como `transcription-worker-argws-connect-develop` ou
-`transcription-worker-fersoft-connect-production`, use diretamente a variável
+Nos templates com nomes como `transcription-service-argws-connect-develop` ou
+`transcription-service-fersoft-connect-production`, use diretamente a variável
 do `.env`. O manifest já a aplica ao serviço correto. Não acrescente o override
 genérico a esses templates: isso criaria um serviço com outro nome.
 
@@ -110,8 +109,8 @@ de ditado foi removido; `up -d --remove-orphans` remove serviços órfãos do pr
 selecionado, sem exigir remoção dos volumes. Confira o projeto antes de usá-lo.
 
 Para reverter um canário, interrompa novas admissões, encerre o pool com prazo
-de desligamento e restaure as variáveis do adaptador anterior com o modelo
-compatível. Preserve banco, fontes, volumes e filas. As instalações de produção
+de desligamento e restaure a revisão anterior no Git, sua imagem e o modelo
+compatível. O novo Compose não contém um executor alternativo. Preserve banco, fontes, volumes e filas. As instalações de produção
 e Fersoft mantêm a fala desligada por padrão enquanto a release está suspensa.
 
 O smoke nativo em CI usa o áudio público JFK do upstream, executa dois

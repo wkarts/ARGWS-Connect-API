@@ -26,7 +26,7 @@ export function getSpeechModelCatalog(): SpeechModelDefinition[] {
 }
 
 export function getConfiguredSpeechModel(): SpeechModelDefinition | null {
-  const engine = String(process.env.SPEECH_ENGINE || 'transformers')
+  const engine = String(process.env.SPEECH_ENGINE || 'whisper.cpp')
     .trim()
     .toLowerCase();
   const id = String(
@@ -164,7 +164,7 @@ export class SpeechModelDownloadService {
     const initial: SpeechModelDownloadStatus = {
       id: model?.id || String(process.env.SPEECH_MODEL || ''),
       revision: model?.revision || '',
-      engine: model?.engine || String(process.env.SPEECH_ENGINE || 'transformers'),
+      engine: model?.engine || String(process.env.SPEECH_ENGINE || 'whisper.cpp'),
       status: 'unavailable',
       available: !!model && this.configured(model),
       installed: false,

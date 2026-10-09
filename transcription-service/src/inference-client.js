@@ -66,7 +66,7 @@ class InferenceClient {
     // Network credentials stay in the coordinator. Engine provisioning is separate.
     const parentTimeoutMs = Math.min(10000, Math.max(2000, (this.config.executionLeaseSeconds || 30) * 1000 - 5000));
     child.send({ type: 'init', enginePath: this.workerPath, parentTimeoutMs,
-      config: { ...localConfig, syncModelCache: false } });
+      config: localConfig });
     this.parentHeartbeat = setInterval(() => {
       if (this.child === child && child.connected) child.send({ type: 'parent-heartbeat' }, (error) => {
         if (error) void this.reset(failure('Guardião de inferência indisponível.', 'INFERENCE_PROCESS_FAILED'));

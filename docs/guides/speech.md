@@ -1,3 +1,7 @@
+> Atualização: o único runtime suportado para novas implantações é o serviço nativo opcional.
+> Para ativação e migração, use [o guia atual](optional-transcription-service.md).
+> Instruções antigas de workers/Transformers abaixo são histórico de compatibilidade, não implantação atual.
+
 # Voz, ditado e transcrição
 
 O subsistema de fala usa um **pool local persistente**, compartilhado por ditado e transcrição. A API recebe e controla os trabalhos; um coordenador consome as filas; o reconhecimento roda em outro processo, que mantém o modelo entre trabalhos e pode ser encerrado integralmente em caso de falha. Novos uploads e ditados usam armazenamento privado; a fila transporta somente metadados. Mídias de mensagens mantêm seu bucket de origem.
@@ -57,9 +61,9 @@ SPEECH_WHISPER_MODEL_SHA256=422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9c
 SPEECH_GLOBAL_CONCURRENCY=1
 SPEECH_INFERENCE_THREADS=1
 SPEECH_INFERENCE_INTER_THREADS=1
-SPEECH_WORKER_MEMORY=1280m
-SPEECH_WORKER_CPUS=1.00
-TRANSCRIPTION_WORKER_TMPFS_SIZE=128m
+SPEECH_SERVICE_MEMORY=1280m
+SPEECH_SERVICE_CPUS=1.00
+SPEECH_SERVICE_TMPFS_SIZE=128m
 ```
 
 Inclua `transcription` em `COMPOSE_PROFILES` sem retirar os perfis das demais integrações. Há um único serviço de worker para os dois modos; os manifests fixam uma réplica para reconciliar instalações com o valor antigo `SPEECH_TRANSCRIPTION_REPLICAS=2`. O serviço separado de ditado não deve continuar ativo. API e worker precisam usar imagens da mesma revisão da correção.

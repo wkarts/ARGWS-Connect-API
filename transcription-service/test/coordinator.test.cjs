@@ -6,14 +6,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
-const { TranscriptionWorker, normalizeJob, queueArguments } = require('../src/worker');
+const { SpeechCoordinator, normalizeJob, queueArguments } = require('../src/coordinator');
 const { loadConfig, validateConfig } = require('../src/config');
 const { FairScheduler } = require('../src/fair-scheduler');
 const { acquire } = require('../src/admission');
 
 const model = 'Xenova/whisper-small';
 const config = () => ({
-  enabled: true, provider: 'local', engine: 'transformers', mode: 'pool',
+  enabled: true, provider: 'local', engine: 'whisper.cpp', mode: 'pool',
   modes: ['dictation', 'transcription'], poolId: 'fixture',
   local: { model, device: 'cpu', dtype: 'q8' },
   s3: { bucket: 'audio' }, rabbitmq: { uri: 'amqp://fixture', exchange: 'speech' },
@@ -43,7 +43,7 @@ async function harness(overrides = {}) {
       return { ok: true, applied: true, terminal: action === 'finish' };
     }, async close() {},
   };
-  const worker = new TranscriptionWorker({ ...config(), ...overrides.config }, {
+  const worker = new SpeechCoordinator({ ...config(), ...overrides.config }, {
     control,
     acquireSlot: async () => { events.push('acquire'); return { slot: 0, release: async () => events.push('release-residency') }; },
     downloadAudio: async (job) => {
@@ -56,14 +56,14 @@ async function harness(overrides = {}) {
     createInferenceClient: () => {
       providerCount += 1; events.push('load');
       const provider = {
-        ready: true, status: { engine: 'transformers', effectiveModel: model },
+        ready: true, status: { engine: 'whisper.cpp', effectiveModel: model },
         async warmup() { events.push('warmup'); },
         async stop() { events.push('stop-native'); },
         async cancel() { events.push('cancel-native'); },
         async transcribeChunk(filePath, input) {
           events.push('infer');
           if (overrides.infer) return overrides.infer(filePath, input, provider, events);
-          return { done: true, result: { text: 'olá', durationMs: 1000, effectiveModel: model, engine: 'transformers', segments: [] } };
+          return { done: true, result: { text: 'olá', durationMs: 1000, effectiveModel: model, engine: 'whisper.cpp', segments: [] } };
         },
       };
       return provider;
@@ -97,7 +97,7 @@ function waitForCancellation(h) {
 }
 
 test('voz desabilitada não abre armazenamento, consumidor ou modelo', async () => {
-  const worker = new TranscriptionWorker({ enabled: false, s3: {}, mode: 'transcription' });
+  const worker = new SpeechCoordinator({ enabled: false, s3: {}, mode: 'transcription' });
   await worker.start();
   assert.equal(worker.provider, null); assert.equal(worker.client, null);
 });
@@ -152,7 +152,7 @@ test('saturação de claims retém a entrega sem incrementar retry ou carregar m
 
 test('yield grava checkpoint antes do ACK e mantém modelo e fonte para o próximo chunk', async () => {
   const checkpoint = { nextChunkIndex: 1, nextOffsetSamples: 400000, text: 'primeira parte',
-    durationMs: 30000, engine: 'transformers', effectiveModel: model, modelRevision: 'rev1' };
+    durationMs: 30000, engine: 'whisper.cpp', effectiveModel: model, modelRevision: 'rev1' };
   let round = 0;
   const h = await harness({
     control: async (action, job) => action === 'claim' && job.generation === 2 ? {
@@ -163,7 +163,7 @@ test('yield grava checkpoint antes do ACK e mantém modelo e fonte para o próxi
       if (round++ === 0) return { done: false, checkpoint };
       assert.deepEqual(input.checkpoint, checkpoint);
       return { done: true, result: { text: 'primeira parte segunda parte', durationMs: 45000,
-        engine: 'transformers', effectiveModel: model, segments: [] } };
+        engine: 'whisper.cpp', effectiveModel: model, segments: [] } };
     },
   });
   try {
@@ -608,7 +608,7 @@ test('valores de filas fora do intervalo usam os mesmos limites da autoridade da
 });
 
 test('reconfiguração de engine/model/revisão recusa backlog incompatível antes da carga', async () => {
-  for (const extra of [{ engine: 'whisper.cpp' }, { model: 'different-model' }, { modelRevision: 'different-revision' }]) {
+  for (const extra of [{ engine: 'transformers' }, { model: 'different-model' }, { modelRevision: 'different-revision' }]) {
     const h = await harness();
     try {
       await h.worker.handle(message('incompatible', extra));

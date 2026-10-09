@@ -36,12 +36,11 @@ function normalizedProvider() {
 }
 
 function loadConfig() {
-  const modeValue = String(process.env.SPEECH_WORKER_MODE || 'transcription').trim().toLowerCase();
-  const mode = ['dictation', 'pool'].includes(modeValue) ? modeValue : 'transcription';
-  const engine = String(process.env.SPEECH_ENGINE || 'transformers').trim().toLowerCase();
+  const mode = 'pool';
+  const engine = String(process.env.SPEECH_ENGINE || 'whisper.cpp').trim().toLowerCase();
   const queueV2 = (value) => String(value).trim().replace(/(?:\.v2)?$/, '.v2');
-  const model = String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small').trim();
-  const modelPath = String(process.env.SPEECH_MODEL_PATH || (engine === 'whisper.cpp' ? '/models/whisper.cpp/base-q5_1' : '/models/' + model)).trim();
+  const model = String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'whisper-base-q5_1').trim();
+  const modelPath = String(process.env.SPEECH_MODEL_PATH || '/models/whisper.cpp/base-q5_1').trim();
   const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
   const transcriptionQueue = queueV2(process.env.SPEECH_TRANSCRIPTION_QUEUE || process.env.TRANSCRIPTION_QUEUE || 'speech.transcription');
   const dictationQueue = queueV2(process.env.SPEECH_DICTATION_QUEUE || 'speech.dictation');
@@ -74,7 +73,7 @@ function loadConfig() {
     deadLetterRetentionSeconds: integer('SPEECH_DEAD_LETTER_RETENTION_SECONDS', 86400, 60, 604800),
     sourceCacheMaxBytes: integer('SPEECH_SOURCE_CACHE_MAX_BYTES', 50 * 1024 * 1024, 1024 * 1024, 250 * 1024 * 1024),
     downloadTimeoutSeconds: integer('SPEECH_DOWNLOAD_TIMEOUT_SECONDS', 60, 5, 300),
-    concurrency: integer('SPEECH_WORKER_CONCURRENCY', integer('TRANSCRIPTION_WORKER_CONCURRENCY', 1, 1, 8), 1, 8),
+    concurrency: 1,
     globalConcurrency: integer('SPEECH_GLOBAL_CONCURRENCY', 1, 1, 8),
     shutdownGraceSeconds: integer('SPEECH_SHUTDOWN_GRACE_SECONDS', 90, 5, 300),
     maxDurationSeconds: integer('TRANSCRIPTION_MAX_DURATION_SECONDS', integer('SPEECH_MAX_DURATION_SECONDS', 3600, 1, 14400), 1, 14400),
@@ -89,8 +88,8 @@ function loadConfig() {
     heartbeatIntervalSeconds: integer('SPEECH_HEARTBEAT_INTERVAL_SECONDS', 5, 1, 60),
     inferenceStallSeconds: integer('SPEECH_INFERENCE_STALL_SECONDS', 300, 60, 7200),
     modelWarmupTimeoutSeconds: integer('SPEECH_MODEL_WARMUP_TIMEOUT_SECONDS', 300, 60, 1800),
-    chunkSeconds: integer('SPEECH_CHUNK_SECONDS', 30, 5, 30),
-    strideSeconds: integer('SPEECH_STRIDE_SECONDS', 5, 0, 15),
+    chunkSeconds: integer('SPEECH_CHUNK_SECONDS', 15, 5, 30),
+    strideSeconds: integer('SPEECH_STRIDE_SECONDS', 1, 0, 15),
     vadThresholdDb: Number.parseFloat(process.env.SPEECH_VAD_THRESHOLD_DB || '-45'),
     autoStop: boolean('DICTATION_AUTO_STOP', true),
     silenceTimeoutMs: integer('DICTATION_SILENCE_TIMEOUT_MS', 1500, 500, 10000),
@@ -99,8 +98,7 @@ function loadConfig() {
       modelPath,
       revision: String(process.env.SPEECH_MODEL_REVISION || '').trim(),
       device: String(process.env.SPEECH_DEVICE || process.env.TRANSCRIPTION_LOCAL_DEVICE || 'cpu').trim().toLowerCase(),
-      dtype: String(process.env.SPEECH_DTYPE || process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q8').trim().toLowerCase(),
-      cacheDir: String(process.env.SPEECH_MODEL_CACHE_DIR || process.env.TRANSCRIPTION_MODEL_CACHE_DIR || '/models').trim(),
+      dtype: String(process.env.SPEECH_DTYPE || process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q5_1').trim().toLowerCase(),
     },
     whisper: {
       binary: String(process.env.SPEECH_WHISPER_CPP_BINARY || '/usr/local/bin/whisper-server').trim(),
@@ -108,12 +106,8 @@ function loadConfig() {
       modelFile: String(process.env.SPEECH_WHISPER_MODEL_FILE || require('node:path').join(modelPath, model.includes('small') ? 'ggml-small-q5_1.bin' : 'ggml-base-q5_1.bin')).trim(),
       modelSha256: String(process.env.SPEECH_WHISPER_MODEL_SHA256 || '').trim().toLowerCase(),
     },
-    syncModelCache: boolean('SPEECH_SYNC_MODEL_CACHE', false),
     sourceRetentionSeconds: durationSeconds('TRANSCRIPTION_SOURCE_RETENTION_SECONDS', 0),
     sourceCleanupIntervalSeconds: durationSeconds('TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS', 900, 86_400),
-    modelStoragePrefix: String(process.env.TRANSCRIPTION_MODEL_STORAGE_PREFIX || 'transcription-models')
-      .trim()
-      .replace(/^\/+|\/+$/g, ''),
     rabbitmq: {
       uri: String(process.env.RABBITMQ_URI || '').trim(),
       exchange,
@@ -134,10 +128,10 @@ function loadConfig() {
 function validateConfig(config) {
   if (!config.enabled) return;
   if (config.concurrency > 1) {
-    throw new Error('Use SPEECH_TRANSCRIPTION_REPLICAS para paralelismo; SPEECH_WORKER_CONCURRENCY deve ser 1 por processo.');
+    throw new Error('O serviço único exige concorrência de inferência igual a 1.');
   }
   if (process.env.S3_BUCKET && process.env.S3_BUCKET_NAME && process.env.S3_BUCKET.trim() !== process.env.S3_BUCKET_NAME.trim()) {
-    throw new Error('S3_BUCKET e S3_BUCKET_NAME divergem; alinhe o bucket de mídia da API e do worker.');
+    throw new Error('S3_BUCKET e S3_BUCKET_NAME divergem; alinhe o bucket de mídia da API e do serviço.');
   }
   const missing = [];
   if (!config.rabbitmq.uri) missing.push('RABBITMQ_URI');
@@ -146,32 +140,29 @@ function validateConfig(config) {
   if (!config.s3.accessKey) missing.push('S3_ACCESS_KEY');
   if (!config.s3.secretKey) missing.push('S3_SECRET_KEY');
   if (!config.s3.bucket) missing.push('S3_BUCKET');
-  if (!config.modelStoragePrefix || config.modelStoragePrefix.includes('..')) {
-    missing.push('TRANSCRIPTION_MODEL_STORAGE_PREFIX');
-  }
   if (!config.local.model || config.local.model.length > 180 || /[\u0000\r\n]/.test(config.local.model)) {
     missing.push('SPEECH_MODEL');
   }
   if (config.mode === 'dictation' && config.queues && config.queue !== config.queues.dictation) {
-    throw new Error('SPEECH_WORKER_MODE=dictation precisa consumir SPEECH_DICTATION_QUEUE.');
+    throw new Error('Uma operação de ditado precisa consumir SPEECH_DICTATION_QUEUE.');
   }
-  if (config.engine && !['transformers', 'whisper.cpp'].includes(config.engine)) {
-    throw new Error('SPEECH_ENGINE deve ser transformers ou whisper.cpp; não existe fallback automático.');
+  if (config.engine && config.engine !== 'whisper.cpp') {
+    throw new Error('SPEECH_ENGINE deve ser whisper.cpp; o executor Transformers foi removido, sem fallback automático.');
   }
   if (config.poolId && !/^[A-Za-z0-9._-]{1,100}$/.test(config.poolId)) {
     throw new Error('SPEECH_POOL_ID inválido.');
   }
   if (!['local'].includes(config.provider)) {
-    throw new Error('SPEECH_PROVIDER=' + config.provider + ' não é compatível com o worker local. Configure local e SPEECH_ENGINE explicitamente após migrar o provider.');
+    throw new Error('SPEECH_PROVIDER=' + config.provider + ' não é compatível com o serviço local. Configure local e SPEECH_ENGINE explicitamente após migrar o provider.');
   }
   if (!['cpu'].includes(config.local.device)) {
     throw new Error('TRANSCRIPTION_LOCAL_DEVICE inválido: ' + config.local.device);
   }
-  if (!['q8', 'q4', 'fp32', 'fp16'].includes(config.local.dtype)) {
+  if (!['q5_1', 'q8', 'q4', 'fp32', 'fp16'].includes(config.local.dtype)) {
     throw new Error('TRANSCRIPTION_LOCAL_DTYPE inválido: ' + config.local.dtype);
   }
   if (missing.length) {
-    throw new Error('Configuração do worker incompleta: ' + missing.join(', '));
+    throw new Error('Configuração do serviço incompleta: ' + missing.join(', '));
   }
 }
 

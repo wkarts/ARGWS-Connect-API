@@ -135,7 +135,7 @@ class EnvironmentTests(unittest.TestCase):
                 continue
             with self.subTest(template=path):
                 env = prepare.values(content)
-                enabled = path.startswith('deploy/develop/')
+                enabled = False
                 profiles = env['COMPOSE_PROFILES'].split(',')
                 self.assertEqual('transcription' in profiles, enabled)
                 self.assertIn('operations', profiles)

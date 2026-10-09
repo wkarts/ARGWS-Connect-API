@@ -245,10 +245,9 @@ def generate(root):
             envs.append(directory + '/.env.example')
     for path in envs:
         template = env_text((root / path).read_text())
-        # Speech remains opt-in outside the principal develop validation stack.
-        speech_enabled = path.startswith('deploy/develop/')
-        if speech_enabled:
-            template = set_env_value(template, 'COMPOSE_PROFILES', ENV_KEYS['COMPOSE_PROFILES'] + ',transcription')
+        # Speech remains opt-in in every template, including principal develop.
+        # Do not let the operations generator implicitly start the optional ASR.
+        speech_enabled = False
         for flag in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
             template = set_env_value(template, flag, str(speech_enabled).lower())
         template = set_env_value(template, 'TRANSCRIPTION_PROVIDER', 'local')
