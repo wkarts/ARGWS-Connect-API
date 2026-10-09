@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/migrations/**'
       - '.github/workflows/speech-service-migration.yml'
+concurrency:
+  group: speech-source-authoring-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -14,7 +17,22 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+      actions: write
     steps:
+      - name: Stop superseded source-authoring attempt only
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+          url='https://api.github.com/repos/wkarts/ARGWS-Connect-API/actions/runs/37865642304'
+          headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],'Accept':'application/vnd.github+json'}
+          with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=30) as response: run=json.load(response)
+          assert run['name']=='Prepare speech service replacement'
+          assert run['head_sha']=='1d998706f5fbff17afed9d254e277ac22b640409'
+          if run['status']!='completed':
+              with urllib.request.urlopen(urllib.request.Request(url+'/cancel',data=b'',headers=headers,method='POST'),timeout=30) as response: print('Superseded authoring run cancelled:',response.status)
+          PY
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -48,7 +66,6 @@ jobs:
           source=p.read_text()
           assert source.count('repr(MODE)')==1
           p.write_text(source.replace('repr(MODE)', 'repr(MODEL)'))
-          # Authoring inputs must not be rewritten by the source migration.
           shutil.copyfile('.github/migrations/speech-finalize.py', target/'finalize.py')
           shutil.copyfile('.github/migrations/speech-review.py', target/'review.py')
           PY
@@ -63,6 +80,8 @@ jobs:
           cp "$RUNNER_TEMP/speech-authoring/guide.md" docs/guides/optional-transcription-service.md
           python3 "$RUNNER_TEMP/speech-authoring/finalize.py"
           python3 "$RUNNER_TEMP/speech-authoring/review.py"
+          printf 'node_modules/\nmodels/\n.cache/\n*.log\n' > transcription-service/.gitignore
+          printf 'node_modules\nmodels\n.cache\n*.log\n.git\n' > transcription-service/.dockerignore
           git diff --check
       - name: Install locked native and API test dependencies
         run: |
@@ -78,11 +97,20 @@ jobs:
           npm run test:operations
       - name: Validate native deployer
         run: cargo test --manifest-path tools/connect-deployer/native/Cargo.toml
-      - name: Prepare Git blobs for independent connector commit
+      - name: Prepare source-only Git blobs for independent connector commit
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREPARE_GIT_BLOBS: 'true'
-        run: python3 "$RUNNER_TEMP/speech-authoring/review.py"
+        run: |
+          rm -f tools/connect-deployer/native/Cargo.lock
+          git add -A
+          python3 - <<'PY'
+          import subprocess
+          names=subprocess.check_output(['git','diff','--cached','--name-only','--no-renames','-z']).decode().split('\0')
+          assert not any('/node_modules/' in p or '/target/' in p for p in names)
+          assert len(names)<300, 'Unexpected generated files in the reviewed source tree'
+          PY
+          python3 "$RUNNER_TEMP/speech-authoring/review.py"
       - name: Save candidate source and diff for independent inspection
         if: always()
         run: |
