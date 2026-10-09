@@ -6,7 +6,10 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { SpeechModelDownloadService } from '@api/services/speech-model-download.service';
 const { provisionModel } = require('../scripts/speech-model-provision.cjs');
-import { verifyModelDirectory } from '../transcription-worker/src/model-checksum';
+import { verifyModelDirectory } from '../transcription-service/src/model-checksum';
+
+// Historical ONNX manifest compatibility, not an installed inference engine.
+process.env.SPEECH_ENGINE = 'transformers';
 
 const MODEL_FILES = [
   'added_tokens.json', 'config.json', 'generation_config.json', 'merges.txt', 'normalizer.json',

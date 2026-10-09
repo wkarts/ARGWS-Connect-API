@@ -48,8 +48,8 @@ python3 scripts/connect-startup-diagnose.py \
 ```
 
 Essa opção é uma ação explícita. O programa reconhece serviços
-`transcription-worker`, `dictation-worker`, `speech-worker`,
-`speech-dictation-worker` e `speech-transcription-worker`, inclusive seus
+`transcription-service`, `dictation-worker`, `speech-worker`,
+`speech-dictation-worker` e `speech-transcription-service`, inclusive seus
 sufixos de implantação. O nome legado
 `speech-dictation-worker-argws-connect-develop` também é reconhecido.
 

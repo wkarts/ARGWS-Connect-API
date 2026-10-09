@@ -5,11 +5,9 @@ const fsp = require('node:fs').promises;
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { verifyModelDirectory } = require('./model-checksum');
 const { decodeNormalizedWav, speechWindow, isDigitalSilence } = require('./audio-normalizer');
 
 const SAMPLE_RATE = 16000;
-let pipelinePromise = null;
 
 function withCode(error, code) {
   if (!error.code) error.code = code;
@@ -147,79 +145,6 @@ async function readPcmChunk(handle, start, end) {
   return samples;
 }
 
-async function prepareModelCache(config) {
-  if (config.local.modelPath) {
-    const modelPath = path.resolve(config.local.modelPath);
-    try {
-      await fsp.access(modelPath);
-    } catch {
-      throw withCode(new Error('SPEECH_MODEL_PATH não existe: ' + modelPath), 'MODEL_MISSING');
-    }
-    await verifyModelDirectory(modelPath);
-    return modelPath;
-  }
-
-  const cacheDir = path.resolve(config.local.cacheDir);
-  await fsp.mkdir(cacheDir, { recursive: true });
-
-  const namespace = String(config.local.model || '').split('/').filter(Boolean)[0];
-  if (namespace) await fsp.mkdir(path.join(cacheDir, namespace), { recursive: true });
-  if (config.s3?.bucket && config.modelStoragePrefix) {
-    const { createClient, restoreModelCache } = require('./storage');
-    const client = createClient(config.s3);
-    await restoreModelCache(
-      client,
-      config.s3.bucket,
-      config.modelStoragePrefix,
-      config.local.model,
-      cacheDir,
-    );
-  }
-  return cacheDir;
-}
-
-async function createPipeline(config) {
-  if (!pipelinePromise) {
-    pipelinePromise = prepareModelCache(config)
-      .then((cacheDir) => import('@huggingface/transformers').then(({ env, pipeline }) => {
-        env.cacheDir = cacheDir;
-        env.allowRemoteModels = false;
-        env.allowLocalModels = true;
-        const modelRef = config.local.modelPath ? path.resolve(config.local.modelPath) : config.local.model;
-        return pipeline('automatic-speech-recognition', modelRef, {
-          device: config.local.device,
-          dtype: config.local.dtype,
-          revision: config.local.revision || undefined,
-          session_options: {
-            intraOpNumThreads: config.inferenceThreads || 1,
-            interOpNumThreads: config.inferenceInterThreads || 1,
-            executionMode: 'sequential',
-            extra: { session: { intra_op: { allow_spinning: '0' }, inter_op: { allow_spinning: '0' } } },
-          },
-        });
-      }))
-      .then(async (transcriber) => {
-        if (!config.local.modelPath && config.syncModelCache) {
-          const { createClient, persistModelCache } = require('./storage');
-          const client = createClient(config.s3);
-          await persistModelCache(
-            client,
-            config.s3.bucket,
-            config.modelStoragePrefix,
-            config.local.model,
-            path.resolve(config.local.cacheDir),
-          );
-        }
-        return transcriber;
-      })
-      .catch((error) => {
-        pipelinePromise = null;
-        throw withCode(error, 'MODEL_MISSING');
-      });
-  }
-  return pipelinePromise;
-}
-
 function languageCode(value) {
   const language = String(value || '').trim();
   if (!language) return undefined;
@@ -323,7 +248,7 @@ class SpeechCancelledError extends Error {
 }
 
 async function modelIdentity(config) {
-  const engine = config.engine || 'transformers';
+  const engine = config.engine || 'whisper.cpp';
   const model = config.local?.model || null;
   let manifest = {};
   let manifestBytes;
@@ -343,15 +268,12 @@ async function modelIdentity(config) {
 
 function createProvider(config, dependencies = {}) {
   if (config.provider !== 'local') throw new Error('SPEECH_PROVIDER não suportado: ' + config.provider);
-  const engine = config.engine || 'transformers';
-  if (!['transformers', 'whisper.cpp'].includes(engine)) throw withCode(new Error('Engine não suportado; não há fallback automático.'), 'ENGINE_UNSUPPORTED');
+  const engine = config.engine || 'whisper.cpp';
+  if (engine !== 'whisper.cpp') throw withCode(new Error('Engine não suportado; não há fallback automático.'), 'ENGINE_UNSUPPORTED');
   let enginePipeline;
   const loadPipeline = dependencies.createPipeline || (() => {
-    if (engine === 'whisper.cpp') {
-      enginePipeline ||= require('./whisper-cpp').createWhisperCpp(config);
-      return Promise.resolve(enginePipeline);
-    }
-    return createPipeline(config);
+    enginePipeline ||= require('./whisper-cpp').createWhisperCpp(config);
+    return Promise.resolve(enginePipeline);
   });
   const decode = dependencies.decodeAudio || (async (filePath, options) => {
     if (config.pcmFastPath) {
@@ -493,6 +415,6 @@ function createProvider(config, dependencies = {}) {
 }
 
 module.exports = {
-  createProvider, decodeAudio, prepareModelCache, detectSpeechRegions,
+  createProvider, decodeAudio, detectSpeechRegions,
   chunkRegions, mergeOverlappingText, SpeechCancelledError, modelIdentity,
 };

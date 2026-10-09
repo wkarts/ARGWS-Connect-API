@@ -48,9 +48,9 @@ jobs:
           prod_docs="$(grep '^ARGWS_CONNECT_DOCS_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
           develop_docs="$(grep '^ARGWS_CONNECT_DOCS_IMAGE=' deploy/develop/env.example | cut -d= -f2-)"
           canonical_docs="$(grep '^ARGWS_CONNECT_DOCS_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
-          prod_worker="$(grep '^ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
-          develop_worker="$(grep '^ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE=' deploy/develop/env.example | cut -d= -f2-)"
-          canonical_worker="$(grep '^ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
+          prod_worker="$(grep '^TRANSCRIPTION_SERVICE_IMAGE=' deploy/production/env.example | cut -d= -f2-)"
+          develop_worker="$(grep '^TRANSCRIPTION_SERVICE_IMAGE=' deploy/develop/env.example | cut -d= -f2-)"
+          canonical_worker="$(grep '^TRANSCRIPTION_SERVICE_IMAGE=' deploy/canonical/env.example | cut -d= -f2-)"
 
           [[ "$prod" == "ghcr.io/wkarts/argws-connect-api:latest" ]]
           [[ "$develop" == "ghcr.io/wkarts/argws-connect-api:develop" ]]
@@ -59,17 +59,18 @@ jobs:
           [[ "$develop_docs" == "ghcr.io/wkarts/argws-connect-docs:develop" ]]
           [[ "$canonical_docs" =~ ^ghcr\.io/wkarts/argws-connect-docs:[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "${canonical##*:}" == "${canonical_docs##*:}" ]]
-          [[ "$prod_worker" == "ghcr.io/wkarts/argws-connect-transcription-worker:latest" ]]
-          [[ "$develop_worker" == "ghcr.io/wkarts/argws-connect-transcription-worker:develop" ]]
-          [[ "$canonical_worker" =~ ^ghcr\.io/wkarts/argws-connect-transcription-worker:[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          [[ "${canonical##*:}" == "${canonical_worker##*:}" ]]
+          [[ "$prod_worker" == "ghcr.io/wkarts/connect-transcription-service:latest" ]]
+          [[ "$develop_worker" == "ghcr.io/wkarts/connect-transcription-service:develop" ]]
+          [[ "$canonical_worker" == "ghcr.io/wkarts/connect-transcription-service:latest" ]]
+          # The new optional ASR repository has no historical canonical tag.
+          # Core API/DOCs remain pinned; deployments may pin ASR via its image override.
 
-          # develop: API, Manager, DOCs e o worker são canais móveis independentes.
+          # develop: API, Manager, DOCs e o serviço de fala são canais móveis independentes.
           grep -q 'branches: \[develop\]' .github/workflows/ghcr-publish-application.yml
-          grep -q 'component: \[api, manager, transcription-worker\]' .github/workflows/ghcr-publish-application.yml
+          grep -q 'component: \[api, manager, transcription-service\]' .github/workflows/ghcr-publish-application.yml
           grep -q 'image: argws-connect-api' .github/workflows/ghcr-publish-application.yml
           grep -q 'image: argws-connect-manager' .github/workflows/ghcr-publish-application.yml
-          grep -q 'image: argws-connect-transcription-worker' .github/workflows/ghcr-publish-application.yml
+          grep -q 'image: connect-transcription-service' .github/workflows/ghcr-publish-application.yml
           grep -q 'docker buildx imagetools create -t "${repo}:develop"' .github/workflows/ghcr-publish-application.yml
           grep -q 'refs/heads/develop' .github/workflows/ghcr-publish-application.yml
 
@@ -83,7 +84,7 @@ jobs:
             exit 1
           fi
 
-          if grep -nE 'argws-connect-(api|manager|transcription-worker):(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' .github/workflows/ghcr-publish-application.yml; then
+          if grep -nE '(argws-connect-(api|manager)|connect-transcription-service):(latest|homolog|production|[0-9]+\.[0-9]+\.[0-9]+)' .github/workflows/ghcr-publish-application.yml; then
             echo "Develop application workflow may publish only :develop." >&2
             exit 1
           fi
@@ -93,24 +94,24 @@ jobs:
             exit 1
           fi
 
-          # main owns stable SemVer/latest for API, Manager, DOCs and transcription worker.
+          # main owns stable SemVer/latest for API, Manager, DOCs and the optional transcription service.
           grep -q 'branches: \[main\]' .github/workflows/auto-version-release.yml
-          grep -q 'component: \[api, manager, docs, transcription-worker\]' .github/workflows/auto-version-release.yml
+          grep -q 'component: \[api, manager, docs, transcription-service\]' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-api' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-manager' .github/workflows/auto-version-release.yml
           grep -q 'image: argws-connect-docs' .github/workflows/auto-version-release.yml
-          grep -q 'image: argws-connect-transcription-worker' .github/workflows/auto-version-release.yml
+          grep -q 'image: connect-transcription-service' .github/workflows/auto-version-release.yml
           grep -q '"${repo}:latest"' .github/workflows/auto-version-release.yml
           grep -q 'gh release create' .github/workflows/auto-version-release.yml
 
           # Runtime stack channels.
           grep -q 'argws-connect-api:latest' deploy/production/compose.yaml
           grep -q 'argws-connect-docs:latest' deploy/production/compose.yaml
-          grep -q 'argws-connect-transcription-worker:latest' deploy/production/compose.yaml
-          grep -q 'argws-connect-transcription-worker:1.3.0' deploy/canonical/compose.yaml
+          grep -q 'connect-transcription-service:latest' deploy/production/compose.yaml
+          grep -q 'connect-transcription-service:latest' deploy/canonical/compose.yaml
           grep -q 'argws-connect-api:develop' deploy/develop/compose.yaml
           grep -q 'argws-connect-docs:develop' deploy/develop/compose.yaml
-          grep -q 'argws-connect-transcription-worker:develop' deploy/develop/compose.yaml
+          grep -q 'connect-transcription-service:develop' deploy/develop/compose.yaml
           grep -Eq 'argws-connect-api:[0-9]+\.[0-9]+\.[0-9]+' deploy/canonical/compose.yaml
           grep -Eq 'argws-connect-docs:[0-9]+\.[0-9]+\.[0-9]+' deploy/canonical/compose.yaml
 

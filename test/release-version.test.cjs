@@ -81,8 +81,8 @@ test('release workflow retains main-only publication, four stable components and
   const source = fs.readFileSync(path.join(root, '.github/workflows/auto-version-release.yml'), 'utf8');
   assert.ok(source.includes('refs/heads/main'));
   assert.ok(source.includes("NODE_VERSION: '22.x'"));
-  assert.ok(source.includes('component: [api, manager, docs, transcription-worker]'));
-  assert.ok(source.includes('image: argws-connect-transcription-worker'));
+  assert.ok(source.includes('component: [api, manager, docs, transcription-service]'));
+  assert.ok(source.includes('image: connect-transcription-service'));
   assert.ok(source.includes('MANAGER_BUILD_MODE=production'));
   assert.ok(source.includes('packages: write'));
   assert.ok(source.includes('argws-connect-buildkit:buildx-stable-1'));

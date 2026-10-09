@@ -18,7 +18,7 @@ const COMPLETED = 'transcription.completed';
 const FAILED = 'transcription.failed';
 const RESIDENCY_REQUESTED = 'speech.residency.requested.v2';
 const RESIDENCY_HANDOFF_MS = 6000;
-const READY_FILE = '/tmp/transcription-worker.ready';
+const READY_FILE = '/tmp/transcription-service.ready';
 const errorWith = (message, code, retryable = false) => Object.assign(new Error(message), { code, retryable });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const PERMANENT_ERRORS = new Set([
@@ -89,7 +89,7 @@ function probeFfmpeg() {
   });
 }
 
-class TranscriptionWorker {
+class SpeechCoordinator {
   constructor(config, dependencies = {}) {
     this.config = config;
     this.createInferenceClient = dependencies.createInferenceClient || ((value) => new InferenceClient(value));
@@ -795,4 +795,4 @@ class TranscriptionWorker {
   }
 }
 
-module.exports = { TranscriptionWorker, normalizeJob, queueArguments, REQUESTED, PROCESSING, COMPLETED, FAILED };
+module.exports = { SpeechCoordinator, normalizeJob, queueArguments, REQUESTED, PROCESSING, COMPLETED, FAILED };

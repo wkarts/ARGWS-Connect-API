@@ -23,7 +23,7 @@ function serviceConfig(base = loadConfig(), env = process.env) {
 }
 
 /** One optional service, reusing the existing fenced jobs and isolated ASR. */
-function createServiceClass(Base = require('./worker').TranscriptionWorker) {
+function createServiceClass(Base = require('./coordinator').SpeechCoordinator) {
   return class TranscriptionService extends Base {
     async connect() {
       // Queue deliveries may arrive while warming. Keep them bounded by existing
@@ -65,7 +65,7 @@ async function main() {
     return;
   }
   if (config.engine !== 'whisper.cpp') {
-    throw new Error('A imagem nativa exige SPEECH_ENGINE=whisper.cpp. Use a imagem legada para transformers; não há fallback automático.');
+    throw new Error('A imagem nativa exige SPEECH_ENGINE=whisper.cpp. O executor anterior foi removido; migre o modelo explicitamente, sem fallback automático.');
   }
   const Service = createServiceClass();
   const service = new Service(config);

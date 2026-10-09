@@ -45,8 +45,8 @@ CONFIG_KEYS = {
 }
 CONTAINER_ID = re.compile(r'^[a-f0-9]{64}$')
 IMAGE_ID = re.compile(r'^sha256:[a-f0-9]{64}$')
-WORKER_SERVICE = re.compile(r'^(?:(?:transcription|dictation|speech)-worker|speech-(?:dictation|transcription)-worker)(?:-[a-z0-9_.-]+)?$')
-WORKER_IMAGE = re.compile(r'(?:^|/)(?:argws-connect-|connect-)?(?:(?:transcription|dictation|speech)-worker|speech-(?:dictation|transcription)-worker)(?::|@|$)')
+WORKER_SERVICE = re.compile(r'^(?:transcription-service|(?:transcription|dictation|speech)-worker|speech-(?:dictation|transcription)-worker)(?:-[a-z0-9_.-]+)?$')
+WORKER_IMAGE = re.compile(r'(?:^|/)(?:argws-connect-|connect-)?(?:transcription-service|(?:transcription|dictation|speech)-worker|speech-(?:dictation|transcription)-worker)(?::|@|$)')
 MAX_CONTAINERS = 64
 
 
@@ -460,8 +460,8 @@ def findings(report):
             if len(names) > 1:
                 result.append({'kind': 'fact', 'message': service + ': vistos ' + str(len(names)) + ' diretórios imediatos rabbit@* no mount observado. Isso não comprova perda de dados. O override preserva o nó atual e não seleciona/restaura outro diretório.'})
     workers = [record for record in records if record['role'] == 'speech']
-    if any(record['environment'].get('SPEECH_WORKER_MODE') != 'pool' for record in workers):
-        result.append({'kind': 'indication', 'message': 'Há worker sem SPEECH_WORKER_MODE=pool no ambiente observado. Pode haver Compose legado ou configuração diferente; conferir revisão/digest e arquivo efetivo.'})
+    if any('-worker' in record['service'] for record in workers):
+        result.append({'kind': 'indication', 'message': 'Há executor de fala legado no projeto. Drene os jobs e retire somente esses containers antes de ativar o serviço nativo; conferir revisão/digest e arquivo efetivo.'})
     if len(workers) > 1:
         result.append({'kind': 'fact', 'message': str(len(workers)) + ' containers de speech encontrados nesse projeto, incluindo parados. Verificar os estados para identificar execução simultânea.'})
     revisions = {kind: {record.get('image_metadata', {}).get('revision') for record in records if record['role'] == kind}

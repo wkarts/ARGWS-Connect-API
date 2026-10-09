@@ -177,7 +177,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [api, manager, docs, transcription-worker]
+        component: [api, manager, docs, transcription-service]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -198,10 +198,10 @@ jobs:
             context: .
             dockerfile: ./docs/Dockerfile
             image: argws-connect-docs
-          - component: transcription-worker
-            context: ./transcription-worker
-            dockerfile: ./transcription-worker/Dockerfile
-            image: argws-connect-transcription-worker
+          - component: transcription-service
+            context: ./transcription-service
+            dockerfile: ./transcription-service/Dockerfile
+            image: connect-transcription-service
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout validated source
@@ -244,7 +244,7 @@ jobs:
           cache-from: type=gha,scope=release-${{ matrix.component }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.component }}-${{ matrix.arch }}
       - name: Validate native speech before publishing a channel tag
-        if: matrix.component == 'transcription-worker'
+        if: matrix.component == 'transcription-service'
         uses: ./.github/actions/speech-native-smoke
         with:
           image: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
@@ -327,8 +327,8 @@ jobs:
             image: argws-connect-manager
           - component: docs
             image: argws-connect-docs
-          - component: transcription-worker
-            image: argws-connect-transcription-worker
+          - component: transcription-service
+            image: connect-transcription-service
     steps:
       - name: Download native digests
         uses: actions/download-artifact@v5
@@ -533,7 +533,7 @@ jobs:
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-api:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-manager:${version}"
             echo "ghcr.io/${{ github.repository_owner }}/argws-connect-docs:${version}"
-            echo "ghcr.io/${{ github.repository_owner }}/argws-connect-transcription-worker:${version}"
+            echo "ghcr.io/${{ github.repository_owner }}/connect-transcription-service:${version}"
             echo
             for f in release-digests/*.txt; do
               echo "===== $(basename "$f") ====="

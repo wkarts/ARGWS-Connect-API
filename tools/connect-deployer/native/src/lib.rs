@@ -410,8 +410,9 @@ fn build(options: &Options) -> Result<BuildResult, String> {
             else { "true".to_string() };
         values.set(key, enabled);
     }
-    values.set("SPEECH_WORKER_MODE", "pool");
-    values.set("SPEECH_TRANSCRIPTION_REPLICAS", "1");
+    // Only the optional native service is emitted; discard old executor tuning.
+    let obsolete = ["SPEECH_WORKER_MODE", "SPEECH_WORKER_CONCURRENCY", "TRANSCRIPTION_WORKER_CONCURRENCY", "SPEECH_TRANSCRIPTION_REPLICAS", "SPEECH_DICTATION_REPLICAS", "DICTATION_WORKER_CONCURRENCY", "ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE", "SPEECH_WORKER_MEMORY", "SPEECH_WORKER_CPUS", "TRANSCRIPTION_WORKER_MEMORY", "TRANSCRIPTION_WORKER_CPUS", "TRANSCRIPTION_WORKER_TMPFS_SIZE", "SPEECH_SYNC_MODEL_CACHE", "TRANSCRIPTION_MODEL_STORAGE_PREFIX", "TRANSCRIPTION_MODEL_CACHE_DIR"];
+    values.entries.retain(|(key, _)| !obsolete.contains(&key.as_str()));
     // Preserve a custom private bucket; empty delegates to the runtime default.
     let speech_bucket = values.get("SPEECH_S3_BUCKET_NAME");
     values.set("SPEECH_S3_BUCKET_NAME", speech_bucket);
@@ -511,7 +512,10 @@ fn build(options: &Options) -> Result<BuildResult, String> {
         return Err("TRACCAR_TOKEN nao pode reutilizar AUTHENTICATION_API_KEY; sao credenciais diferentes".to_string());
     }
 
-    let final_env = set_env(&env_text, &values);
+    values.entries.retain(|(key, _)| !obsolete.contains(&key.as_str()));
+    let mut clean_env = env_text.lines().filter(|line| !obsolete.contains(&line.trim().split('=').next().unwrap_or(""))).collect::<Vec<_>>().join("\n");
+    if env_text.ends_with('\n') { clean_env.push('\n'); }
+    let final_env = set_env(&clean_env, &values);
     validate(compose, &final_env, &modules, &flavor)?;
     Ok(BuildResult {
         flavor,
@@ -881,7 +885,7 @@ mod tests {
         assert_eq!(values.get("SPEECH_ENABLED"), "false");
         assert_eq!(values.get("TRANSCRIPTION_ENABLED"), "false");
         assert_eq!(values.get("DICTATION_ENABLED"), "false");
-        assert_eq!(values.get("SPEECH_WORKER_MODE"), "pool");
+        assert_eq!(values.get("SPEECH_WORKER_MODE"), "");
         assert!(values.entries.iter().any(|(key, value)| key == "SPEECH_S3_BUCKET_NAME" && value.is_empty()));
         let enabled = build(&Options { flavor: Some("production".to_string()), modules: Some("transcription".to_string()), ..Options::default() }).unwrap();
         let enabled_values = parse_env(&enabled.env);
