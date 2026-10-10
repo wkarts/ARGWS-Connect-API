@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-06T13:40:12.462Z",
+  "generatedAt": "2026-10-10T07:37:33.954Z",
   "version": "1.2.1",
-  "sourceDigest": "1e590c98da8d07a7a0376886670de65af833549b39ec53f062cf533bb6c4a25f",
+  "sourceDigest": "1670e2ad66eecf5871164763255419e0a60a7b6bf6fa6e5abbe3016cb3dfd916",
   "operations": [
     {
       "method": "GET",
@@ -1296,6 +1296,86 @@
     {
       "method": "GET",
       "path": "/v1/speech/health",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/dictation",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/dictation/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/dictation/{jobId}/cancel",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/health",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/live",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/models",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/models/{modelId}/activate",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/models/{modelId}/download",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/ready",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions/{jobId}",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions/{jobId}/cancel",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions/{jobId}/retry",
+      "source": "src/api/routes/speech.router.ts"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/speech/instances/{instanceName}/transcriptions/upload",
       "source": "src/api/routes/speech.router.ts"
     },
     {
