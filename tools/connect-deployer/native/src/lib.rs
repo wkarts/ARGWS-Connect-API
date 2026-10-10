@@ -403,12 +403,19 @@ fn build(options: &Options) -> Result<BuildResult, String> {
     values.set("TRACCAR_ENABLED", if modules.iter().any(|item| item == "traccar") { "true" } else { "false" });
     values.set("TRACCAR_MODE", if modules.iter().any(|item| item == "traccar") { "internal" } else { "disabled" });
     let transcription = modules.iter().any(|item| item == "transcription");
-    for key in ["TRANSCRIPTION_ENABLED", "SPEECH_ENABLED", "MANAGER_FEATURE_TRANSCRIPTION"] {
-        values.set(key, if transcription { "true" } else { "false" });
+    for key in ["TRANSCRIPTION_ENABLED", "SPEECH_ENABLED", "MANAGER_FEATURE_TRANSCRIPTION", "DICTATION_ENABLED"] {
+        let previous = values.get(key);
+        let enabled = if !transcription { "false".to_string() }
+            else if options.from_env.is_some() && !previous.is_empty() { previous }
+            else { "true".to_string() };
+        values.set(key, enabled);
     }
-    if !transcription {
-        values.set("DICTATION_ENABLED", "false");
-    }
+    // Only the optional native service is emitted; discard old executor tuning.
+    let obsolete = ["SPEECH_WORKER_MODE", "SPEECH_WORKER_CONCURRENCY", "TRANSCRIPTION_WORKER_CONCURRENCY", "SPEECH_TRANSCRIPTION_REPLICAS", "SPEECH_DICTATION_REPLICAS", "DICTATION_WORKER_CONCURRENCY", "ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE", "SPEECH_WORKER_MEMORY", "SPEECH_WORKER_CPUS", "TRANSCRIPTION_WORKER_MEMORY", "TRANSCRIPTION_WORKER_CPUS", "TRANSCRIPTION_WORKER_TMPFS_SIZE", "SPEECH_SYNC_MODEL_CACHE", "TRANSCRIPTION_MODEL_STORAGE_PREFIX", "TRANSCRIPTION_MODEL_CACHE_DIR"];
+    values.entries.retain(|(key, _)| !obsolete.contains(&key.as_str()));
+    // Preserve a custom private bucket; empty delegates to the runtime default.
+    let speech_bucket = values.get("SPEECH_S3_BUCKET_NAME");
+    values.set("SPEECH_S3_BUCKET_NAME", speech_bucket);
     if let Some(value) = &options.server_url {
         values.set("SERVER_URL", value.clone());
     }
@@ -505,7 +512,10 @@ fn build(options: &Options) -> Result<BuildResult, String> {
         return Err("TRACCAR_TOKEN nao pode reutilizar AUTHENTICATION_API_KEY; sao credenciais diferentes".to_string());
     }
 
-    let final_env = set_env(&env_text, &values);
+    values.entries.retain(|(key, _)| !obsolete.contains(&key.as_str()));
+    let mut clean_env = env_text.lines().filter(|line| !obsolete.contains(&line.trim().split('=').next().unwrap_or(""))).collect::<Vec<_>>().join("\n");
+    if env_text.ends_with('\n') { clean_env.push('\n'); }
+    let final_env = set_env(&clean_env, &values);
     validate(compose, &final_env, &modules, &flavor)?;
     Ok(BuildResult {
         flavor,
@@ -868,11 +878,18 @@ mod tests {
     }
 
     #[test]
-    fn production_template_keeps_transcription_by_default() {
+    fn production_speech_is_opt_in() {
         let result = build(&Options { flavor: Some("production".to_string()), ..Options::default() }).unwrap();
         let values = parse_env(&result.env);
-        assert_eq!(values.get("COMPOSE_PROFILES"), "operations,transcription");
-        assert_eq!(values.get("SPEECH_ENABLED"), "true");
-        assert_eq!(values.get("TRANSCRIPTION_ENABLED"), "true");
+        assert_eq!(values.get("COMPOSE_PROFILES"), "operations");
+        assert_eq!(values.get("SPEECH_ENABLED"), "false");
+        assert_eq!(values.get("TRANSCRIPTION_ENABLED"), "false");
+        assert_eq!(values.get("DICTATION_ENABLED"), "false");
+        assert_eq!(values.get("SPEECH_WORKER_MODE"), "");
+        assert!(values.entries.iter().any(|(key, value)| key == "SPEECH_S3_BUCKET_NAME" && value.is_empty()));
+        let enabled = build(&Options { flavor: Some("production".to_string()), modules: Some("transcription".to_string()), ..Options::default() }).unwrap();
+        let enabled_values = parse_env(&enabled.env);
+        assert_eq!(enabled_values.get("SPEECH_ENABLED"), "true");
+        assert_eq!(enabled_values.get("DICTATION_ENABLED"), "true");
     }
 }

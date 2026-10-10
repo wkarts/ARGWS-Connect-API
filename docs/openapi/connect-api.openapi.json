@@ -18332,9 +18332,28 @@
         "tags": [
           "Speech"
         ],
-        "summary": "Enfileirar ditado do microfone",
+        "summary": "Criar ditado",
         "operationId": "post_v1_speech_dictation",
-        "description": "Recebe um áudio curto em multipart/form-data e o envia inline para a fila prioritária speech.dictation. O áudio não é copiado para MinIO; o job e o resultado ficam persistidos.",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
         "security": [
           {
             "apiKey": []
@@ -18342,28 +18361,27 @@
         ],
         "responses": {
           "202": {
-            "description": "Ditado aceito.",
+            "description": "Ditado aceito; consultar o ID até estado terminal.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
+                  "required": [
+                    "id",
+                    "status",
+                    "mode"
+                  ],
                   "properties": {
                     "id": {
                       "type": "string"
                     },
+                    "status": {
+                      "type": "string"
+                    },
                     "mode": {
                       "const": "dictation"
-                    },
-                    "status": {
-                      "type": "string",
-                      "const": "queued"
                     }
-                  },
-                  "required": [
-                    "id",
-                    "mode",
-                    "status"
-                  ]
+                  }
                 }
               }
             }
@@ -18374,14 +18392,47 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
           "413": {
-            "description": "Limite de tamanho ou duração excedido."
+            "description": "Áudio ou corpo de metadados excede o limite."
           },
           "415": {
-            "description": "Formato de áudio não suportado."
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           },
           "503": {
-            "description": "Fila ou worker de ditado indisponível."
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -18403,16 +18454,23 @@
                     "type": "string",
                     "example": "pt-BR"
                   },
-                  "durationMs": {
-                    "type": "integer",
-                    "minimum": 0
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
                   },
                   "instanceId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
                   },
                   "idempotencyKey": {
                     "type": "string",
                     "maxLength": 128
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Duração declarada; o processamento aplica o limite real."
                   }
                 }
               }
@@ -18428,7 +18486,7 @@
         ],
         "summary": "Consultar ditado",
         "operationId": "get_v1_speech_dictation_jobid",
-        "description": "Retorna estado, progresso e texto do job de ditado.",
+        "description": "Estado, duração processada e texto persistidos. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -18448,7 +18506,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Estado atual do ditado.",
+            "description": "Job de ditado.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18457,11 +18515,44 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts"
@@ -18474,7 +18565,7 @@
         ],
         "summary": "Cancelar ditado",
         "operationId": "post_v1_speech_dictation_jobid_cancel",
-        "description": "Marca o job como cancelado e sinaliza o worker para parar entre trechos.",
+        "description": "Registra cancelamento no banco. O worker encerra o grupo do motor; a capacidade e a exclusão da fonte aguardam confirmação ou expiração segura da lease. Resultados de execuções antigas são rejeitados. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -18494,16 +18585,53 @@
         ],
         "responses": {
           "200": {
-            "description": "Job cancelado."
+            "description": "Estado persistido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -18525,9 +18653,9 @@
         "tags": [
           "Speech"
         ],
-        "summary": "Consultar saúde do subsistema de voz",
+        "summary": "Consultar saúde do pool de fala",
         "operationId": "get_v1_speech_health",
-        "description": "Retorna configuração local, estado das filas, disponibilidade dos dois workers e contagens de jobs; não altera jobs.",
+        "description": "Distingue supervisor, broker, arquivos verificados, prontidão do motor, capacidade e última inferência real. Pool frio pode aceitar trabalho para carregar o modelo. Exige chave administrativa global.",
         "security": [
           {
             "apiKey": []
@@ -18535,116 +18663,393 @@
         ],
         "responses": {
           "200": {
-            "description": "Diagnóstico do subsistema."
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "x-source-file": "src/api/routes/speech.router.ts"
-      }
-    },
-    "/v1/speech/live": {
-      "get": {
-        "tags": [
-          "Speech"
-        ],
-        "summary": "Verificar liveness do serviço de voz",
-        "operationId": "get_v1_speech_live",
-        "description": "Confirma que o processo da API está vivo. Não verifica filas nem modelo.",
-        "security": [
-          {
-            "apiKey": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "API de voz ativa.",
+            "description": "Diagnóstico do pool; contagens respeitam o escopo.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "type": "string",
-                      "const": "alive"
-                    }
-                  },
-                  "required": [
-                    "status"
-                  ]
+                  "$ref": "#/components/schemas/SpeechHealth"
                 }
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "x-source-file": "src/api/routes/speech.router.ts"
-      }
-    },
-    "/v1/speech/models": {
-      "get": {
-        "tags": [
-          "Speech"
-        ],
-        "summary": "Listar modelo configurado",
-        "operationId": "get_v1_speech_models",
-        "description": "Lista o modelo configurado e informa se os arquivos estão instalados, disponíveis para download, em transferência ou prontos para uso.",
-        "security": [
-          {
-            "apiKey": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Modelo configurado e estado dos workers."
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "x-source-file": "src/api/routes/speech.router.ts"
-      }
-    },
-    "/v1/speech/models/{modelId}/activate": {
-      "post": {
-        "tags": [
-          "Speech"
-        ],
-        "summary": "Confirmar ativação do modelo local",
-        "operationId": "post_v1_speech_models_modelid_activate",
-        "description": "Aceita somente o modelo já configurado em SPEECH_MODEL; a ativação efetiva requer provisionar o modelo e reiniciar os workers.",
-        "parameters": [
-          {
-            "name": "modelId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Parâmetro de rota modelId."
-          }
-        ],
-        "security": [
-          {
-            "apiKey": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Modelo configurado."
           },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/instances/{instanceName}/dictation": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Criar ditado",
+        "operationId": "post_v1_speech_instances_instancename_dictation",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Ditado aceito; consultar o ID até estado terminal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "status",
+                    "mode"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "mode": {
+                      "const": "dictation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "413": {
+            "description": "Áudio ou corpo de metadados excede o limite."
+          },
+          "415": {
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "audio"
+                ],
+                "properties": {
+                  "audio": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "instanceId": {
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "durationMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Duração declarada; o processamento aplica o limite real."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/instances/{instanceName}/dictation/{jobId}": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar ditado",
+        "operationId": "get_v1_speech_instances_instancename_dictation_jobid",
+        "description": "Estado, duração processada e texto persistidos. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job de ditado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/instances/{instanceName}/dictation/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Cancelar ditado",
+        "operationId": "post_v1_speech_instances_instancename_dictation_jobid_cancel",
+        "description": "Registra cancelamento no banco. O worker encerra o grupo do motor; a capacidade e a exclusão da fonte aguardam confirmação ou expiração segura da lease. Resultados de execuções antigas são rejeitados. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado persistido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -18661,15 +19066,212 @@
         }
       }
     },
-    "/v1/speech/models/{modelId}/download": {
+    "/v1/speech/instances/{instanceName}/health": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar saúde do pool de fala",
+        "operationId": "get_v1_speech_instances_instancename_health",
+        "description": "Distingue supervisor, broker, arquivos verificados, prontidão do motor, capacidade e última inferência real. Pool frio pode aceitar trabalho para carregar o modelo. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Diagnóstico do pool; contagens respeitam o escopo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeechHealth"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/instances/{instanceName}/live": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Verificar liveness de voz",
+        "operationId": "get_v1_speech_instances_instancename_live",
+        "description": "Confirma o processo HTTP; não comprova o motor. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API viva."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/instances/{instanceName}/models": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar modelo configurado",
+        "operationId": "get_v1_speech_instances_instancename_models",
+        "description": "Informa revisão, instalação, verificação e progresso. Estados: unavailable, not_installed, verifying, downloading, ready, failed. Catálogo permitido em scripts/speech-models.json. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo configurado e estado de provisionamento."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/instances/{instanceName}/models/{modelId}/activate": {
       "post": {
         "tags": [
           "Speech"
         ],
-        "summary": "Baixar modelo de voz para armazenamento persistente",
-        "operationId": "post_v1_speech_models_modelid_download",
-        "description": "Inicia em segundo plano o download da revisão fixada de Xenova/whisper-small para o volume SPEECH_MODELS_HOST_PATH. A API também inicia esse provisionamento ao subir se o modelo estiver ausente. O download é validado por SHA-256 e reutilizado pelos workers após reinícios e atualizações; somente esse modelo predefinido pode ser baixado pelo endpoint.",
+        "summary": "Confirmar modelo configurado",
+        "operationId": "post_v1_speech_instances_instancename_models_modelid_activate",
+        "description": "Administrativo. Não troca o motor em execução. Para mudar, drene jobs, provisione, alinhe SPEECH_ENGINE/SPEECH_MODEL/SPEECH_MODEL_PATH e reinicie o pool. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
         "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
           {
             "name": "modelId",
             "in": "path",
@@ -18688,16 +19290,46 @@
         ],
         "responses": {
           "200": {
-            "description": "O modelo já está instalado."
+            "description": "Modelo configurado confirmado; readiness informa se está operacional."
           },
-          "202": {
-            "description": "Download iniciado ou em andamento."
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -18714,14 +19346,36 @@
         }
       }
     },
-    "/v1/speech/ready": {
-      "get": {
+    "/v1/speech/instances/{instanceName}/models/{modelId}/download": {
+      "post": {
         "tags": [
           "Speech"
         ],
-        "summary": "Verificar readiness de voz",
-        "operationId": "get_v1_speech_ready",
-        "description": "Retorna 200 quando pelo menos um worker de voz está consumindo a fila correspondente; caso contrário retorna 503.",
+        "summary": "Provisionar ou reparar modelo local",
+        "operationId": "post_v1_speech_instances_instancename_models_modelid_download",
+        "description": "Administrativo. Baixa somente o modelo configurado, em revisão fixada. SHA-256 e transferência rodam em processo supervisionado. force=true refaz os arquivos. Download no startup só com SPEECH_MODEL_AUTO_PROVISION=true. Identificador com barra deve ser codificado no segmento da URL. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "modelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota modelId."
+          }
+        ],
         "security": [
           {
             "apiKey": []
@@ -18729,34 +19383,188 @@
         ],
         "responses": {
           "200": {
-            "description": "Ao menos um worker está pronto."
+            "description": "Modelo instalado e verificado."
+          },
+          "202": {
+            "description": "Download ou verificação em andamento."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
           "503": {
-            "description": "API, fila ou workers de voz indisponíveis."
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "force": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/instances/{instanceName}/ready": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Verificar prontidão real de fala",
+        "operationId": "get_v1_speech_instances_instancename_ready",
+        "description": "Exige modelo/revisão compatíveis, heartbeat recente e reconhecimento inicial concluído. Consumidor registrado não basta. all exige todos os modos habilitados; um pool frio retorna 503 até atender o primeiro trabalho. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "transcription",
+                "dictation"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Motor pronto no modo solicitado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeechHealth"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts"
       }
     },
-    "/v1/speech/transcriptions": {
+    "/v1/speech/instances/{instanceName}/transcriptions": {
       "get": {
         "tags": [
           "Speech"
         ],
         "summary": "Listar transcrições",
-        "operationId": "get_v1_speech_transcriptions",
-        "description": "Lista jobs recentes de transcrição; use limit para ajustar a quantidade.",
+        "operationId": "get_v1_speech_instances_instancename_transcriptions",
+        "description": "Lista recente limitada ao escopo autenticado. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
         "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
           {
             "name": "limit",
             "in": "query",
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 200,
+              "maximum": 100,
               "default": 30
             }
           }
@@ -18780,8 +19588,44 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts"
@@ -18790,9 +19634,38 @@
         "tags": [
           "Speech"
         ],
-        "summary": "Criar transcrição",
-        "operationId": "post_v1_speech_transcriptions",
-        "description": "Cria um job para mídia já persistida de uma mensagem (JSON) ou recebe um arquivo para transcrição (multipart/form-data). Uploads diretos são armazenados em MinIO privado.",
+        "summary": "Criar transcrição de mensagem ou upload",
+        "operationId": "post_v1_speech_instances_instancename_transcriptions",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. JSON com messageId reutiliza a mídia da mensagem autenticada. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
         "security": [
           {
             "apiKey": []
@@ -18800,7 +19673,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Job aceito.",
+            "description": "Job e outbox persistidos. O processamento pode aguardar na fila.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18815,47 +19688,53 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
           "413": {
-            "description": "O áudio excede o limite configurado."
+            "description": "Áudio ou corpo de metadados excede o limite."
           },
           "415": {
-            "description": "Formato de áudio não suportado."
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           },
           "503": {
-            "description": "MinIO, fila ou worker indisponível."
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "messageId"
-                ],
-                "properties": {
-                  "messageId": {
-                    "type": "string"
-                  },
-                  "instanceId": {
-                    "type": "string"
-                  },
-                  "language": {
-                    "type": "string",
-                    "example": "pt-BR"
-                  },
-                  "idempotencyKey": {
-                    "type": "string",
-                    "maxLength": 128
-                  }
-                }
-              }
-            },
             "multipart/form-data": {
               "schema": {
                 "type": "object",
@@ -18871,8 +19750,1149 @@
                     "type": "string",
                     "example": "pt-BR"
                   },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "instanceId": {
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "messageId"
+                ],
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
                   "instanceId": {
                     "type": "string"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/instances/{instanceName}/transcriptions/{jobId}": {
+      "delete": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Excluir transcrição",
+        "operationId": "delete_v1_speech_instances_instancename_transcriptions_jobid",
+        "description": "Cancela trabalho ativo e aguarda encerramento da lease antes de excluir. Remove fonte de upload própria; preserva mídia original de mensagem. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job removido; resposta informa sourceRemoved e sourceRetained."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar transcrição",
+        "operationId": "get_v1_speech_instances_instancename_transcriptions_jobid",
+        "description": "Duração, heartbeat de controle, progresso do motor, geração, prazo e resultado persistidos. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job de transcrição.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/instances/{instanceName}/transcriptions/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Cancelar transcrição",
+        "operationId": "post_v1_speech_instances_instancename_transcriptions_jobid_cancel",
+        "description": "Registra cancelamento no banco. O worker encerra o grupo do motor; a capacidade e a exclusão da fonte aguardam confirmação ou expiração segura da lease. Resultados de execuções antigas são rejeitados. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado persistido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/instances/{instanceName}/transcriptions/{jobId}/retry": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Repetir transcrição elegível",
+        "operationId": "post_v1_speech_instances_instancename_transcriptions_jobid_retry",
+        "description": "Repete uma transcrição elegível com fonte ainda disponível, nova geração e prazo. Job ativo ou lease ainda vigente retorna 409. Fonte expirada retorna 410. Para protocolo legado, verifica fonte e ausência de consumidores antigos antes da promoção controlada para v2. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota jobId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Nova execução aceita.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "410": {
+            "description": "Fonte expirou; envie outro áudio."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/instances/{instanceName}/transcriptions/upload": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Enviar áudio para transcrição",
+        "operationId": "post_v1_speech_instances_instancename_transcriptions_upload",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. A chave deve autorizar a instância da rota; operações de modelo exigem chave administrativa.",
+        "parameters": [
+          {
+            "name": "instanceName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Nome exato da instância Connect|API. Preenchimento obrigatório antes de executar a requisição."
+          },
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job e outbox persistidos. O processamento pode aguardar na fila.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "413": {
+            "description": "Áudio ou corpo de metadados excede o limite."
+          },
+          "415": {
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "audio"
+                ],
+                "properties": {
+                  "audio": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "instanceId": {
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/live": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Verificar liveness de voz",
+        "operationId": "get_v1_speech_live",
+        "description": "Confirma o processo HTTP; não comprova o motor. Exige chave administrativa global.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API viva."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/models": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Consultar modelo configurado",
+        "operationId": "get_v1_speech_models",
+        "description": "Informa revisão, instalação, verificação e progresso. Estados: unavailable, not_installed, verifying, downloading, ready, failed. Catálogo permitido em scripts/speech-models.json. Exige chave administrativa global.",
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo configurado e estado de provisionamento."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/models/{modelId}/activate": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Confirmar modelo configurado",
+        "operationId": "post_v1_speech_models_modelid_activate",
+        "description": "Administrativo. Não troca o motor em execução. Para mudar, drene jobs, provisione, alinhe SPEECH_ENGINE/SPEECH_MODEL/SPEECH_MODEL_PATH e reinicie o pool. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "modelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota modelId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo configurado confirmado; readiness informa se está operacional."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/models/{modelId}/download": {
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Provisionar ou reparar modelo local",
+        "operationId": "post_v1_speech_models_modelid_download",
+        "description": "Administrativo. Baixa somente o modelo configurado, em revisão fixada. SHA-256 e transferência rodam em processo supervisionado. force=true refaz os arquivos. Download no startup só com SPEECH_MODEL_AUTO_PROVISION=true. Identificador com barra deve ser codificado no segmento da URL. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "modelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Parâmetro de rota modelId."
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modelo instalado e verificado."
+          },
+          "202": {
+            "description": "Download ou verificação em andamento."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "force": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speech/ready": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Verificar prontidão real de fala",
+        "operationId": "get_v1_speech_ready",
+        "description": "Exige modelo/revisão compatíveis, heartbeat recente e reconhecimento inicial concluído. Consumidor registrado não basta. all exige todos os modos habilitados; um pool frio retorna 503 até atender o primeiro trabalho. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "transcription",
+                "dictation"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Motor pronto no modo solicitado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeechHealth"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      }
+    },
+    "/v1/speech/transcriptions": {
+      "get": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Listar transcrições",
+        "operationId": "get_v1_speech_transcriptions",
+        "description": "Lista recente limitada ao escopo autenticado. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs recentes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TranscriptionJob"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts"
+      },
+      "post": {
+        "tags": [
+          "Speech"
+        ],
+        "summary": "Criar transcrição de mensagem ou upload",
+        "operationId": "post_v1_speech_transcriptions",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. JSON com messageId reutiliza a mídia da mensagem autenticada. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "security": [
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Job e outbox persistidos. O processamento pode aguardar na fila.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "413": {
+            "description": "Áudio ou corpo de metadados excede o limite."
+          },
+          "415": {
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "x-source-file": "src/api/routes/speech.router.ts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "audio"
+                ],
+                "properties": {
+                  "audio": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "instanceId": {
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "messageId"
+                ],
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "instanceId": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "language": {
+                    "type": "string",
+                    "example": "pt-BR"
                   },
                   "idempotencyKey": {
                     "type": "string",
@@ -18890,9 +20910,9 @@
         "tags": [
           "Speech"
         ],
-        "summary": "Remover resultado de transcrição",
+        "summary": "Excluir transcrição",
         "operationId": "delete_v1_speech_transcriptions_jobid",
-        "description": "Remove o registro do job; mídia associada à mensagem permanece intacta.",
+        "description": "Cancela trabalho ativo e aguarda encerramento da lease antes de excluir. Remove fonte de upload própria; preserva mídia original de mensagem. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -18912,13 +20932,46 @@
         ],
         "responses": {
           "200": {
-            "description": "Job removido."
+            "description": "Job removido; resposta informa sourceRemoved e sourceRetained."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -18940,7 +20993,7 @@
         ],
         "summary": "Consultar transcrição",
         "operationId": "get_v1_speech_transcriptions_jobid",
-        "description": "Retorna estágio, progresso, heartbeat e resultado persistido.",
+        "description": "Duração, heartbeat de controle, progresso do motor, geração, prazo e resultado persistidos. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -18960,7 +21013,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Estado atual do job.",
+            "description": "Job de transcrição.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18969,11 +21022,44 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts"
@@ -18986,7 +21072,7 @@
         ],
         "summary": "Cancelar transcrição",
         "operationId": "post_v1_speech_transcriptions_jobid_cancel",
-        "description": "Marca o job como cancelado e sinaliza o worker para interromper o processamento entre trechos.",
+        "description": "Registra cancelamento no banco. O worker encerra o grupo do motor; a capacidade e a exclusão da fonte aguardam confirmação ou expiração segura da lease. Resultados de execuções antigas são rejeitados. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -19006,16 +21092,53 @@
         ],
         "responses": {
           "200": {
-            "description": "Job cancelado."
+            "description": "Estado persistido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -19037,9 +21160,9 @@
         "tags": [
           "Speech"
         ],
-        "summary": "Reenfileirar transcrição",
+        "summary": "Repetir transcrição elegível",
         "operationId": "post_v1_speech_transcriptions_jobid_retry",
-        "description": "Reenfileira somente uma transcrição em falha final com áudio ainda disponível.",
+        "description": "Repete uma transcrição elegível com fonte ainda disponível, nova geração e prazo. Job ativo ou lease ainda vigente retorna 409. Fonte expirada retorna 410. Para protocolo legado, verifica fonte e ausência de consumidores antigos antes da promoção controlada para v2. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -19059,19 +21182,56 @@
         ],
         "responses": {
           "202": {
-            "description": "Job reenfileirado."
+            "description": "Nova execução aceita.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
           },
           "410": {
-            "description": "Áudio original indisponível."
+            "description": "Fonte expirou; envie outro áudio."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -19095,7 +21255,26 @@
         ],
         "summary": "Enviar áudio para transcrição",
         "operationId": "post_v1_speech_transcriptions_upload",
-        "description": "Alias multipart/form-data de POST /v1/speech/transcriptions.",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
         "security": [
           {
             "apiKey": []
@@ -19103,7 +21282,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Job aceito.",
+            "description": "Job e outbox persistidos. O processamento pode aguardar na fila.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19112,17 +21291,53 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
           "413": {
-            "description": "O áudio excede o limite configurado."
+            "description": "Áudio ou corpo de metadados excede o limite."
           },
           "415": {
-            "description": "Formato de áudio não suportado."
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           },
           "503": {
-            "description": "MinIO, fila ou worker indisponível."
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/speech.router.ts",
@@ -19141,10 +21356,17 @@
                     "format": "binary"
                   },
                   "language": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "pt-BR"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
                   },
                   "instanceId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
                   },
                   "idempotencyKey": {
                     "type": "string",
@@ -19376,11 +21598,11 @@
     "/v1/transcriptions/{jobId}/cancel": {
       "post": {
         "tags": [
-          "Core"
+          "Speech"
         ],
-        "summary": "Cancel",
+        "summary": "Cancelar transcrição",
         "operationId": "post_v1_transcriptions_jobid_cancel",
-        "description": "Endpoint descoberto do código em `src/api/routes/transcription.router.ts`.",
+        "description": "Registra cancelamento no banco. O worker encerra o grupo do motor; a capacidade e a exclusão da fonte aguardam confirmação ou expiração segura da lease. Resultados de execuções antigas são rejeitados. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -19400,21 +21622,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Operação aceita/criada com sucesso.",
+            "description": "Estado persistido.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Operação aceita/criada com sucesso.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericResponse"
+                  "$ref": "#/components/schemas/TranscriptionJob"
                 }
               }
             }
@@ -19425,8 +21637,38 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/transcription.router.ts",
@@ -19446,11 +21688,11 @@
     "/v1/transcriptions/{jobId}/retry": {
       "post": {
         "tags": [
-          "Core"
+          "Speech"
         ],
-        "summary": "Reenfileirar transcrição",
+        "summary": "Repetir transcrição elegível",
         "operationId": "post_v1_transcriptions_jobid_retry",
-        "description": "Reenfileira somente jobs de transcrição em falha final cujo áudio ainda esteja disponível. Um job ativo mantém sua entrega original no RabbitMQ.",
+        "description": "Repete uma transcrição elegível com fonte ainda disponível, nova geração e prazo. Job ativo ou lease ainda vigente retorna 409. Fonte expirada retorna 410. Para protocolo legado, verifica fonte e ausência de consumidores antigos antes da promoção controlada para v2. Exige chave administrativa global.",
         "parameters": [
           {
             "name": "jobId",
@@ -19470,16 +21712,56 @@
         ],
         "responses": {
           "202": {
-            "description": "Job reenfileirado."
+            "description": "Nova execução aceita.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
           },
           "410": {
-            "description": "Áudio original indisponível; ditado requer nova gravação."
+            "description": "Fonte expirou; envie outro áudio."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/transcription.router.ts",
@@ -19503,7 +21785,7 @@
         ],
         "summary": "Limpar áudios temporários expirados",
         "operationId": "post_v1_transcriptions_cleanup",
-        "description": "Remove somente objetos de áudio e registros/resultado de jobs enviados diretamente para a API que já passaram da retenção. Mídias e jobs de mensagens existentes não são removidos. Exige confirm=true no corpo para evitar exclusão acidental.",
+        "description": "Remove fontes próprias expiradas em lotes limitados, preservando resultados e mídias de mensagens. Considera lease e execução antes de apagar o objeto. Exige confirm=true no corpo.",
         "security": [
           {
             "apiKey": []
@@ -19511,7 +21793,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Resumo da limpeza executada."
+            "description": "Resumo da limpeza executada; resultados preservados, hasMore e nextCursor indicam continuação."
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -19551,6 +21833,11 @@
                     "minimum": 1,
                     "maximum": 1000,
                     "example": 250
+                  },
+                  "cursor": {
+                    "type": "string",
+                    "maxLength": 191,
+                    "description": "nextCursor retornado no lote anterior."
                   }
                 }
               }
@@ -19562,11 +21849,11 @@
     "/v1/transcriptions/health": {
       "get": {
         "tags": [
-          "Core"
+          "Speech"
         ],
-        "summary": "Verificar worker de transcrição",
+        "summary": "Consultar saúde do pool de fala",
         "operationId": "get_v1_transcriptions_health",
-        "description": "Consulta somente o estado da fila RabbitMQ e do consumidor local. Não publica, repete nem remove jobs.",
+        "description": "Distingue supervisor, broker, arquivos verificados, prontidão do motor, capacidade e última inferência real. Pool frio pode aceitar trabalho para carregar o modelo. Exige chave administrativa global.",
         "security": [
           {
             "apiKey": []
@@ -19574,75 +21861,53 @@
         ],
         "responses": {
           "200": {
-            "description": "Diagnóstico da fila, do worker local e do limite de upload ativo.",
+            "description": "Diagnóstico do pool; contagens respeitam o escopo.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "enabled": {
-                      "type": "boolean"
-                    },
-                    "queue": {
-                      "type": "string"
-                    },
-                    "connected": {
-                      "type": "boolean"
-                    },
-                    "consumerCount": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "workerReady": {
-                      "type": "boolean"
-                    },
-                    "messageCount": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "staleJobSeconds": {
-                      "type": "integer",
-                      "minimum": 60
-                    },
-                    "globalConcurrency": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 8
-                    },
-                    "maxUploadBytes": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 262144000
-                    },
-                    "queuedJobs": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "processingJobs": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "oldestQueuedSeconds": {
-                      "type": "integer",
-                      "nullable": true,
-                      "minimum": 0
-                    }
-                  },
-                  "required": [
-                    "enabled",
-                    "queue",
-                    "connected",
-                    "consumerCount",
-                    "workerReady",
-                    "staleJobSeconds",
-                    "maxUploadBytes"
-                  ]
+                  "$ref": "#/components/schemas/SpeechHealth"
                 }
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/transcription.router.ts"
@@ -19651,11 +21916,30 @@
     "/v1/transcriptions/upload": {
       "post": {
         "tags": [
-          "Core"
+          "Speech"
         ],
         "summary": "Enviar áudio para transcrição",
         "operationId": "post_v1_transcriptions_upload",
-        "description": "Recebe um arquivo de áudio em multipart/form-data, armazena-o no MinIO privado e cria um job para o worker local. Nenhum provedor externo é chamado.",
+        "description": "Recebe áudio em arquivo temporário com prazo e reserva durável antes do corpo; grava a fonte em armazenamento privado e publica somente metadados pelo protocolo v2. JSON de metadados é limitado a 64 KiB. Não há áudio base64 na fila. Exige chave administrativa global.",
+        "parameters": [
+          {
+            "name": "X-Speech-Instance-Id",
+            "in": "header",
+            "description": "No caminho administrativo, reserva a cota da instância antes do corpo. A rota escopada já determina a instância.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave da mesma operação lógica, isolada por escopo e modo.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
         "security": [
           {
             "apiKey": []
@@ -19663,7 +21947,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Áudio aceito e job criado.",
+            "description": "Job e outbox persistidos. O processamento pode aguardar na fila.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19678,14 +21962,47 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "description": "A credencial não autoriza este escopo ou operação administrativa."
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "description": "Upload ou reserva de recepção expirou."
+          },
+          "409": {
+            "description": "Recurso desabilitado, modelo incompatível ou execução em conflito."
+          },
           "413": {
-            "description": "O áudio excede o limite configurado."
+            "description": "Áudio ou corpo de metadados excede o limite."
           },
           "415": {
-            "description": "Formato de áudio não suportado."
+            "description": "Formato não suportado; arquivos usam multipart/form-data."
+          },
+          "429": {
+            "description": "Limite de trabalhos, bytes, duração ou uploads atingido.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           },
           "503": {
-            "description": "MinIO, fila ou worker indisponível."
+            "description": "Controle, banco, armazenamento ou pool de fala indisponível.",
+            "headers": {
+              "Retry-After": {
+                "description": "Espera sugerida, em segundos.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
           }
         },
         "x-source-file": "src/api/routes/transcription.router.ts",
@@ -19705,11 +22022,20 @@
                   },
                   "language": {
                     "type": "string",
-                    "example": "pt"
+                    "example": "pt-BR"
                   },
                   "model": {
                     "type": "string",
-                    "example": "Xenova/whisper-small"
+                    "description": "Deve corresponder ao modelo configurado; não seleciona fallback.",
+                    "example": "whisper-base-q5_1"
+                  },
+                  "instanceId": {
+                    "type": "string",
+                    "description": "Campo administrativo legado. Uma instância determinada pela rota/header não pode ser substituída."
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128
                   }
                 }
               }
@@ -23553,16 +25879,15 @@
             "type": [
               "string",
               "null"
-            ],
-            "description": "Último worker que enviou atualização para o job."
+            ]
           },
-          "instanceId": {
+          "messageId": {
             "type": [
               "string",
               "null"
             ]
           },
-          "messageId": {
+          "instanceId": {
             "type": [
               "string",
               "null"
@@ -23575,13 +25900,63 @@
               "dictation"
             ]
           },
+          "sourceType": {
+            "type": "string"
+          },
+          "originalFilename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "audioHash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "provider": {
             "type": "string",
             "example": "local"
           },
           "model": {
-            "type": "string",
-            "example": "Xenova/whisper-small"
+            "type": "string"
+          },
+          "requestedModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectiveModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "engine": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "transformers",
+              "whisper.cpp",
+              null
+            ]
+          },
+          "modelRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "language": {
             "type": [
@@ -23601,16 +25976,20 @@
           },
           "stage": {
             "type": "string",
-            "description": "Inclui waiting_for_capacity, retrying e awaiting_redelivery durante recuperação."
+            "description": "Etapa real, como queued, loading_model, transcribing, yielded, retrying ou estado terminal."
           },
           "progressPercent": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 100
+            "maximum": 100,
+            "description": "Somente interpretar como percentual quando durationKnown=true; 100 na conclusão."
           },
           "processedDurationMs": {
             "type": "integer",
             "minimum": 0
+          },
+          "durationKnown": {
+            "type": "boolean"
           },
           "heartbeatAt": {
             "type": [
@@ -23618,6 +25997,49 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "controlHeartbeatAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "engineProgressAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "leaseExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deadlineAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "cancelRequestedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "queueWaitMs": {
+            "type": "integer",
+            "minimum": 0
           },
           "text": {
             "type": [
@@ -23662,7 +26084,7 @@
           },
           "attempts": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 0
           },
           "createdAt": {
             "type": "string",
@@ -23685,6 +26107,123 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "SpeechHealth": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "poolId": {
+            "type": "string"
+          },
+          "protocolVersion": {
+            "const": 2
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "processAlive": {
+            "type": "boolean"
+          },
+          "brokerConnected": {
+            "type": "boolean"
+          },
+          "modelVerified": {
+            "type": "boolean"
+          },
+          "engineReady": {
+            "type": "boolean"
+          },
+          "acceptingJobs": {
+            "type": "boolean"
+          },
+          "workerReady": {
+            "type": "boolean"
+          },
+          "dictationWorkerReady": {
+            "type": "boolean"
+          },
+          "lastSuccessfulInferenceAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string",
+            "description": "disabled, offline, warming, ready, busy, capacity_exhausted ou degraded."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "engine": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "queue": {
+            "type": "string"
+          },
+          "dictationQueue": {
+            "type": "string"
+          },
+          "consumerCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dictationConsumerCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queuedJobs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "processingJobs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dictationQueuedJobs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dictationProcessingJobs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "oldestQueuedSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "dictation": {
+                "type": "boolean"
+              },
+              "transcription": {
+                "type": "boolean"
+              }
+            }
+          },
+          "modelDownload": {
+            "type": "object",
+            "additionalProperties": true
           }
         }
       },

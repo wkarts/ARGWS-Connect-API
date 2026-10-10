@@ -42,49 +42,36 @@ TRACCAR_ENABLED=true
 TRACCAR_MODE=internal
 ```
 
-Todos os Compose de aplicação incluem um worker de transcrição no profile
-`transcription`, inclusive Fersoft develop e production. O worker de ditado
-continua somente no develop principal. A release estável publica a imagem do
-worker junto com a API e o Manager; use o mesmo canal de imagem na stack.
+Todos os dez Compose de aplicação incluem somente o serviço opcional
+`transcription-service` (com sufixo de instalação onde aplicável), inclusive
+Fersoft develop e production. Não há worker separado de transcrição ou ditado.
+Não é necessário aplicar um overlay: o serviço já está nos arquivos-base.
+O perfil `transcription` fica fora de `COMPOSE_PROFILES` por padrão em todos os exemplos.
+A API, áudio, vídeo, chamadas, Zapo, Baileys e Meta-compatible não dependem do ASR.
 
-Ao atualizar uma VPS, preserve o `.env`, segredos, volumes, filas e `./models`.
-Altere o `.env` efetivo: adicione `transcription` em `COMPOSE_PROFILES`, defina
-`SPEECH_ENABLED=true`, `TRANSCRIPTION_ENABLED=true`,
-`MANAGER_FEATURE_TRANSCRIPTION=true`, `DICTATION_ENABLED=false` fora do develop
-principal, `SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e
-`TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. Atualize o Compose e execute os comandos
-acima; `env.example` não modifica um `.env` instalado. Confira os containers
-e o resultado de um job curto. `--remove-orphans` retira o ditado legado nas
-stacks Fersoft sem excluir volumes.
+As variáveis novas são `TRANSCRIPTION_SERVICE_IMAGE`, `SPEECH_SERVICE_MEMORY`,
+`SPEECH_SERVICE_CPUS` e `SPEECH_SERVICE_TMPFS_SIZE`. Seletores, concorrência e
+réplicas dos executores antigos não integram mais os exemplos. A imagem nativa
+é `ghcr.io/wkarts/connect-transcription-service`; release/develop a publicam
+no mesmo fluxo dos demais componentes. A PR nunca publica imagens.
+O core canonical conserva suas imagens fixadas; para seu novo ASR, fixe
+explicitamente uma versão publicada usando `TRANSCRIPTION_SERVICE_IMAGE`.
 
-No `deploy/develop/` principal, o profile `transcription` inicia dois
-consumidores independentes; nos demais deploys inicia somente transcrição.
-A API baixa a revisão fixada do
-`Xenova/whisper-small` para `./models` quando o recurso está habilitado. São
-cerca de 250 MB no disco; preserve o diretório entre atualizações.
+Antes de atualizar uma instalação antiga, drene/cancele os jobs de fala e
+pare/remova somente os antigos containers de transcrição/ditado do projeto.
+Renomear no YAML não remove um container em execução. Preserve `.env`, segredos,
+volumes, banco, filas e modelos. Não use `down -v` nem prune global.
+Os comandos gerais de atualização acima não substituem essa drenagem prévia.
 
-```dotenv
-SPEECH_ENABLED=true
-SPEECH_PROVIDER=local
-SPEECH_MODEL=Xenova/whisper-small
-SPEECH_MODELS_HOST_PATH=./models
-SPEECH_MODEL_PATH=/models/Xenova/whisper-small
-TRANSCRIPTION_WORKER_TMPFS_SIZE=1g
-SPEECH_WORKER_MEMORY=4g
-SPEECH_WORKER_CPUS=2.00
-```
+Para habilitar, acrescente `transcription` aos perfis existentes, ative somente
+as flags de fala desejadas e provisione o modelo nativo verificado. Não copie
+`env.example` sobre um ambiente instalado e não reutilize um seletor Transformers
+como se fosse um modelo GGML. O reconhecimento é local, CPU-only, mas utiliza
+um modelo ASR e recursos reais de CPU/RAM. Não há promessa de latência zero.
 
-Os logs após a correção de inicialização mediram cerca de 2,5 GiB de RSS por
-worker com o modelo carregado, antes de inferências. Os limites de 4 GiB por
-container não controlam a soma entre stacks. Em especial, Fersoft develop e
-production na mesma VPS carregam dois modelos independentes; confira a margem
-do host antes de ativar o perfil em ambas e acompanhe RSS, OOM e reinícios.
-
-Para uma instalação sem acesso à Internet, copie os pesos compatíveis para o
-volume e gere o manifesto SHA-256 com
-`node transcription-worker/scripts/create-model-manifest.cjs <diretório-do-modelo>`.
-Consulte [o guia de voz](../docs/guides/speech.md) para os endpoints, limites e
-passos de provisionamento.
+Consulte [o guia de migração e ativação](../docs/guides/optional-transcription-service.md)
+para a lista de parâmetros, formatos, limites, provisão offline e retirada segura.
+Os jobs, eventos, rotas e contratos existentes continuam os mesmos.
 
 Kafka e ZooKeeper dependem do service interno `volume-init`. Ele fica saudável
 em execução depois de preparar apenas diretórios vazios, por isso não deixa a

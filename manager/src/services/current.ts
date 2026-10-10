@@ -1,4 +1,5 @@
 import { featureEnabled, runtime } from '@/config/runtime'
+import { parseRetryAfterSeconds } from './retry-after'
 import { whatsappDestination } from './whatsapp-destination'
 import * as normalize from './normalizers'
 import { integrationDefinitions } from './integration-definitions'
@@ -41,11 +42,13 @@ const INSTANCE_CACHE_TTL_MS = 5_000
 class CurrentApiError extends Error {
   status: number
   data: unknown
-  constructor(message: string, status = 0, data: unknown = null) {
+  retryAfterSeconds: number
+  constructor(message: string, status = 0, data: unknown = null, retryAfterSeconds = 0) {
     super(message)
     this.name = 'CurrentApiError'
     this.status = status
     this.data = data
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -107,7 +110,8 @@ async function api<T>(path: string, options: {
     const text = await response.text()
     let payload: any = null
     try { payload = text ? JSON.parse(text) : null } catch { payload = text }
-    if (!response.ok) throw new CurrentApiError(messageFrom(payload, response.statusText), response.status, payload)
+    if (!response.ok) throw new CurrentApiError(messageFrom(payload, response.statusText), response.status, payload,
+      parseRetryAfterSeconds(response.headers.get('Retry-After')))
     return payload as T
   } finally {
     clearTimeout(timer)
@@ -886,8 +890,8 @@ export const current = {
   async transcriptionHealth(): Promise<any> {
     return api<any>('/v1/transcriptions/health')
   },
-  async downloadSpeechModel(modelId: string): Promise<any> {
-    return api<any>(`/v1/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', timeout: 60000 })
+  async downloadSpeechModel(modelId: string, force = false): Promise<any> {
+    return api<any>(`/v1/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', data: { force }, timeout: 60000 })
   },
   async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
     const data = new FormData()
@@ -911,13 +915,16 @@ export const current = {
     data.append('durationMs', String(input.durationMs))
     data.append('idempotencyKey', input.idempotencyKey)
     if (input.instanceId) data.append('instanceId', input.instanceId)
-    return api<DictationAccepted>('/v1/speech/dictation', { method: 'POST', data, timeout: 60000 })
+    return api<DictationAccepted>('/v1/speech/dictation', {
+      method: 'POST', data, timeout: 60000,
+      headers: input.instanceId ? { 'X-Speech-Instance-Id': input.instanceId } : undefined,
+    })
   },
-  async dictationJob(jobId: string): Promise<TranscriptionJob> {
-    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}`)
+  async dictationJob(jobId: string, timeout?: number): Promise<TranscriptionJob> {
+    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}`, { timeout })
   },
   async cancelDictation(jobId: string): Promise<TranscriptionJob> {
-    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
+    return api<TranscriptionJob>(`/v1/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', timeout: 10000 })
   },
   async speechHealth(): Promise<any> { return api<any>('/v1/speech/health') },
   async transcribeMessage(messageId: string, instanceId: string, language = 'pt-BR', idempotencyKey = crypto.randomUUID()): Promise<TranscriptionJob> {

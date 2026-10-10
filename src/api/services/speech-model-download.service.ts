@@ -1,35 +1,47 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { access, lstat, mkdir, open, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { lstat, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 
-const MODEL_ID = 'Xenova/whisper-small';
-const MODEL_REVISION = '2d67713f236afa48a18992566e7647f6ca848e13';
-const MODEL_REPOSITORY = `https://huggingface.co/${MODEL_ID}`;
-const MODEL_FILES = [
-  'added_tokens.json',
-  'config.json',
-  'generation_config.json',
-  'merges.txt',
-  'normalizer.json',
-  'preprocessor_config.json',
-  'quant_config.json',
-  'quantize_config.json',
-  'special_tokens_map.json',
-  'tokenizer.json',
-  'tokenizer_config.json',
-  'vocab.json',
-  'onnx/decoder_model_merged_quantized.onnx',
-  'onnx/encoder_model_quantized.onnx',
-] as const;
-const LOCK_STALE_AFTER_MS = 2 * 60 * 1000;
+export type SpeechModelDefinition = {
+  id: string;
+  engine: 'transformers' | 'whisper.cpp';
+  format: 'onnx' | 'ggml';
+  revision: string;
+  repository: string;
+  quantization: string;
+  relativeDirectory: string;
+  modelFile?: string;
+  files: string[];
+  approximateSizeBytes: number;
+  recommendedBudgetMiB: number;
+};
+
+// scripts/ is copied to the final API image; no model bytes are read here.
+const models: SpeechModelDefinition[] = JSON.parse(readFileSync(path.resolve('scripts/speech-models.json'), 'utf8'));
+
+export function getSpeechModelCatalog(): SpeechModelDefinition[] {
+  return models.map((model) => ({ ...model, files: [...model.files] }));
+}
+
+export function getConfiguredSpeechModel(): SpeechModelDefinition | null {
+  const engine = String(process.env.SPEECH_ENGINE || 'whisper.cpp')
+    .trim()
+    .toLowerCase();
+  const id = String(
+    process.env.SPEECH_MODEL ||
+      process.env.TRANSCRIPTION_LOCAL_MODEL ||
+      (engine === 'whisper.cpp' ? 'whisper-base-q5_1' : 'Xenova/whisper-small'),
+  ).trim();
+  return models.find((model) => model.id === id && model.engine === engine) || null;
+}
 
 export type SpeechModelDownloadStatus = {
   id: string;
   revision: string;
-  status: 'unavailable' | 'not_installed' | 'downloading' | 'ready' | 'failed';
+  engine?: string;
+  status: 'unavailable' | 'not_installed' | 'verifying' | 'downloading' | 'ready' | 'failed';
   available: boolean;
   installed: boolean;
   progressPercent: number;
@@ -37,397 +49,215 @@ export type SpeechModelDownloadStatus = {
   totalBytes: number;
   errorMessage: string | null;
   updatedAt: string | null;
+  verifiedAt?: string | null;
 };
 
-type RemoteFile = { path: string; size: number; lfs?: { oid?: string } };
-type StoredStatus = Omit<SpeechModelDownloadStatus, 'available' | 'installed'> & {
-  startedAt?: string | null;
-};
+type ProvisionOptions = { modelId: string; root: string; operation: 'download' | 'verify'; force?: boolean };
+type ProvisionRunner = (options: ProvisionOptions) => Promise<unknown>;
 
-function safeTarget(root: string, relativePath: string): string {
-  const target = path.resolve(root, relativePath);
-  if (target !== root && !target.startsWith(root + path.sep)) {
-    throw new Error('Caminho de arquivo do modelo fora do diretório permitido.');
-  }
-  return target;
-}
-
-/**
- * Downloads the pinned multilingual q8 model into the shared persistent model
- * volume. The workers mount the same directory read-only and verify this
- * manifest before loading the model.
- */
+/** HTTP supervisor reads small fingerprints/status only; hashing/downloads run in a child. */
 export class SpeechModelDownloadService {
-  private running: Promise<void> | null = null;
-  private progressWrites: Promise<void> = Promise.resolve();
-  private state: StoredStatus | null = null;
+  private running: Promise<unknown> | null = null;
+  private operation: 'download' | 'verify' | null = null;
+  private lastError: string | null = null;
+  private readonly run: ProvisionRunner;
+
+  constructor(options: { run?: ProvisionRunner } = {}) {
+    this.run = options.run || ((input) => this.runProcess(input));
+  }
 
   private modelRoot(): string {
     return path.resolve(String(process.env.SPEECH_MODELS_PATH || '/models').trim() || '/models');
   }
 
-  private configuredModel(): string {
-    return String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || MODEL_ID).trim();
+  private targetPath(model: SpeechModelDefinition): string {
+    return path.resolve(String(process.env.SPEECH_MODEL_PATH || path.join(this.modelRoot(), model.relativeDirectory)));
   }
 
-  private targetPath(): string {
-    const defaultPath = path.join(this.modelRoot(), 'Xenova', 'whisper-small');
-    return path.resolve(String(process.env.SPEECH_MODEL_PATH || defaultPath).trim() || defaultPath);
-  }
-
-  private get isDownloadAvailable(): boolean {
+  private configured(model: SpeechModelDefinition): boolean {
     return (
-      this.configuredModel() === MODEL_ID &&
-      this.targetPath() === path.join(this.modelRoot(), 'Xenova', 'whisper-small')
+      this.targetPath(model) === path.join(this.modelRoot(), model.relativeDirectory) &&
+      (model.engine !== 'transformers' ||
+        String(process.env.SPEECH_DTYPE || process.env.TRANSCRIPTION_LOCAL_DTYPE || 'q8') === 'q8')
     );
   }
 
-  private statusPath(): string {
-    return path.join(this.modelRoot(), '.speech-model-download.json');
-  }
-
-  private lockPath(): string {
-    return path.join(this.modelRoot(), '.speech-model-download.lock');
-  }
-
-  private async isInstalled(): Promise<boolean> {
-    if (!this.isDownloadAvailable) {
-      try {
-        await access(this.targetPath());
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
+  private async fingerprint(model: SpeechModelDefinition): Promise<string | null> {
     try {
-      const manifestPath = path.join(this.targetPath(), '.speech-model-checksums.json');
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-      if (manifest?.model !== MODEL_ID || manifest?.revision !== MODEL_REVISION) return false;
-      for (const filename of MODEL_FILES) {
-        const entry = await lstat(safeTarget(this.targetPath(), filename));
-        if (!entry.isFile() || entry.isSymbolicLink() || entry.size <= 0) return false;
+      const directory = await lstat(this.targetPath(model));
+      if (!directory.isDirectory() || directory.isSymbolicLink()) return null;
+      const parts = [];
+      for (const filename of ['.speech-model-checksums.json', ...model.files]) {
+        const item = await lstat(path.join(this.targetPath(model), filename));
+        if (!item.isFile() || item.isSymbolicLink() || !item.size) return null;
+        parts.push([filename, item.size, item.mtimeMs, item.ctimeMs, item.ino]);
       }
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async readStoredStatus(): Promise<StoredStatus | null> {
-    try {
-      const value = JSON.parse(await readFile(this.statusPath(), 'utf8'));
-      return value?.id === MODEL_ID && value?.revision === MODEL_REVISION ? value : null;
+      return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
     } catch {
       return null;
     }
   }
 
-  private async saveStatus(value: StoredStatus): Promise<void> {
-    this.state = { ...value, updatedAt: new Date().toISOString() };
-    await mkdir(this.modelRoot(), { recursive: true });
-    const tempPath = `${this.statusPath()}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, JSON.stringify(this.state), { mode: 0o644 });
-    await rename(tempPath, this.statusPath());
-    await utimes(this.lockPath(), new Date(), new Date()).catch(() => {});
+  private async stored(): Promise<any> {
+    try {
+      return JSON.parse(await readFile(path.join(this.modelRoot(), '.speech-model-download.json'), 'utf8'));
+    } catch {
+      return null;
+    }
   }
 
-  private publicStatus(value: StoredStatus, installed: boolean): SpeechModelDownloadStatus {
-    return {
-      id: value.id,
-      revision: value.revision,
-      status: installed ? 'ready' : value.status,
-      available: this.isDownloadAvailable,
-      installed,
-      progressPercent: installed ? 100 : Math.max(0, Math.min(99, Number(value.progressPercent) || 0)),
-      downloadedBytes: Math.max(0, Number(value.downloadedBytes) || 0),
-      totalBytes: Math.max(0, Number(value.totalBytes) || 0),
-      errorMessage: installed ? null : value.errorMessage || null,
-      updatedAt: value.updatedAt || null,
-    };
+  private runProcess(input: ProvisionOptions): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          '--max-old-space-size=96',
+          path.resolve('scripts/speech-model-provision.cjs'),
+          input.modelId,
+          input.root,
+          ...(input.operation === 'verify' ? ['--verify'] : []),
+          ...(input.force ? ['--force'] : []),
+        ],
+        { stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32' },
+      );
+      let errorText = '';
+      child.stderr.on('data', (bytes: Buffer) => {
+        errorText = (errorText + bytes.toString()).slice(-500);
+      });
+      const timer = setTimeout(() => {
+        try {
+          if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+          else child.kill('SIGKILL');
+        } catch {
+          /* Process already exited. */
+        }
+      }, 1_830_000);
+      timer.unref?.();
+      child.once('error', (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve();
+        else reject(new Error(errorText || 'O provisionamento do modelo foi interrompido.'));
+      });
+    });
+  }
+
+  private launch(model: SpeechModelDefinition, operation: 'download' | 'verify', force = false): void {
+    if (this.running) return;
+    this.operation = operation;
+    this.lastError = null;
+    this.running = this.run({ modelId: model.id, root: this.modelRoot(), operation, force })
+      .catch((error: any) => {
+        this.lastError = String(error?.message || error).slice(0, 500);
+      })
+      .finally(() => {
+        this.running = null;
+        this.operation = null;
+      });
   }
 
   public async status(): Promise<SpeechModelDownloadStatus> {
-    const installed = await this.isInstalled();
-    let stored = this.state || (await this.readStoredStatus());
-    if (this.configuredModel() !== MODEL_ID) {
-      return {
-        id: this.configuredModel(),
-        revision: '',
-        status: installed ? 'ready' : 'unavailable',
-        available: false,
-        installed,
-        progressPercent: installed ? 100 : 0,
-        downloadedBytes: 0,
-        totalBytes: 0,
-        errorMessage: null,
-        updatedAt: null,
-      };
-    }
-    if (installed) {
-      const completed = stored || {
-        id: MODEL_ID,
-        revision: MODEL_REVISION,
-        status: 'ready' as const,
-        progressPercent: 100,
-        downloadedBytes: 0,
-        totalBytes: 0,
-        errorMessage: null,
-        updatedAt: null,
-      };
-      return this.publicStatus(completed, true);
-    }
-
-    const lock = await stat(this.lockPath()).catch(() => null);
-    if (lock && !this.running) {
-      if (Date.now() - lock.mtimeMs > LOCK_STALE_AFTER_MS) {
-        await rm(this.lockPath(), { force: true });
-        if (stored?.status === 'downloading') {
-          stored = {
-            ...stored,
-            status: 'failed',
-            progressPercent: 0,
-            downloadedBytes: 0,
-            totalBytes: 0,
-            errorMessage: 'O download foi interrompido. Tente novamente.',
-          };
-          await this.saveStatus(stored).catch(() => {});
-        }
-      } else {
-        const lockedStatus = stored || {
-          id: MODEL_ID,
-          revision: MODEL_REVISION,
-          status: 'downloading' as const,
-          progressPercent: 0,
-          downloadedBytes: 0,
-          totalBytes: 0,
-          errorMessage: null,
-          updatedAt: lock.mtime.toISOString(),
-        };
-        if (lockedStatus.status !== 'failed') lockedStatus.status = 'downloading';
-        return this.publicStatus(lockedStatus, false);
-      }
-    }
-
-    const value = stored || {
-      id: MODEL_ID,
-      revision: MODEL_REVISION,
-      status: this.isDownloadAvailable ? ('not_installed' as const) : ('unavailable' as const),
+    const model = getConfiguredSpeechModel();
+    const initial: SpeechModelDownloadStatus = {
+      id: model?.id || String(process.env.SPEECH_MODEL || ''),
+      revision: model?.revision || '',
+      engine: model?.engine || String(process.env.SPEECH_ENGINE || 'whisper.cpp'),
+      status: 'unavailable',
+      available: !!model && this.configured(model),
+      installed: false,
       progressPercent: 0,
       downloadedBytes: 0,
-      totalBytes: 0,
+      totalBytes: model?.approximateSizeBytes || 0,
       errorMessage: null,
       updatedAt: null,
+      verifiedAt: null,
     };
-    if (value.status === 'downloading' && !lock) {
-      value.status = 'failed';
-      value.errorMessage = 'O download foi interrompido. Tente novamente.';
+    if (!model || !initial.available) {
+      initial.errorMessage = 'Engine, modelo, formato ou caminho fora do catálogo configurado.';
+      return initial;
     }
-    return this.publicStatus(value, false);
+    const stored = await this.stored();
+    const validStored = stored?.id === model.id && stored?.revision === model.revision ? stored : null;
+    const signature = await this.fingerprint(model);
+    const lock = await stat(path.join(this.modelRoot(), '.speech-model-download.lock')).catch(() => null);
+    const busy = !!this.running || (!!lock && Date.now() - lock.mtimeMs < 120_000);
+    const verified = !!signature && validStored?.status === 'ready' && validStored.checkedFingerprint === signature;
+    if (verified && !busy)
+      return {
+        ...initial,
+        ...this.publicStored(validStored),
+        status: 'ready',
+        installed: true,
+        progressPercent: 100,
+        errorMessage: null,
+      };
+    if (busy)
+      return {
+        ...initial,
+        ...this.publicStored(validStored),
+        status: this.operation === 'verify' || validStored?.status === 'verifying' ? 'verifying' : 'downloading',
+        installed: false,
+        progressPercent: Math.min(99, validStored?.progressPercent || 0),
+      };
+    if (signature && validStored?.checkedFingerprint !== signature) {
+      this.launch(model, 'verify');
+      return { ...initial, status: 'verifying' };
+    }
+    if (
+      validStored?.status === 'failed' ||
+      this.lastError ||
+      ['downloading', 'verifying'].includes(validStored?.status)
+    ) {
+      return {
+        ...initial,
+        ...this.publicStored(validStored),
+        status: 'failed',
+        installed: false,
+        errorMessage:
+          this.lastError || validStored?.errorMessage || 'Provisionamento interrompido. Use baixar/reparar.',
+      };
+    }
+    return { ...initial, status: 'not_installed' };
   }
 
-  public async start(modelId: string): Promise<SpeechModelDownloadStatus> {
-    if (modelId !== MODEL_ID || !this.isDownloadAvailable) {
-      throw new Error('O download gerenciado está disponível somente para o modelo configurado Xenova/whisper-small.');
+  private publicStored(stored: any): Partial<SpeechModelDownloadStatus> {
+    if (!stored) return {};
+    return {
+      downloadedBytes: Number(stored.downloadedBytes) || 0,
+      totalBytes: Number(stored.totalBytes) || 0,
+      errorMessage: stored.errorMessage || null,
+      updatedAt: stored.updatedAt || null,
+      verifiedAt: stored.verifiedAt || null,
+    };
+  }
+
+  public async start(modelId: string, options: { force?: boolean } = {}): Promise<SpeechModelDownloadStatus> {
+    const model = getConfiguredSpeechModel();
+    if (!model || model.id !== modelId || !this.configured(model)) {
+      throw new Error(
+        'O download gerenciado está disponível somente para o modelo configurado no catálogo da instalação.',
+      );
     }
     const current = await this.status();
-    if (current.installed || current.status === 'downloading') return current;
-    if (this.running) return this.status();
-
-    await mkdir(this.modelRoot(), { recursive: true });
-    let lock;
-    try {
-      lock = await open(this.lockPath(), 'wx', 0o644);
-      await lock.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
-    } catch (error: any) {
-      if (error?.code !== 'EEXIST') throw error;
-      const existingLock = await stat(this.lockPath()).catch(() => null);
-      if (existingLock && Date.now() - existingLock.mtimeMs > LOCK_STALE_AFTER_MS) {
-        await rm(this.lockPath(), { force: true });
-        return this.start(modelId);
-      }
-      return this.status();
-    } finally {
-      await lock?.close().catch(() => {});
+    if (
+      this.running ||
+      current.status === 'downloading' ||
+      current.status === 'verifying' ||
+      (current.installed && !options.force)
+    ) {
+      return current;
     }
-
-    const initial: StoredStatus = {
-      id: MODEL_ID,
-      revision: MODEL_REVISION,
-      status: 'downloading',
-      progressPercent: 0,
-      downloadedBytes: 0,
-      totalBytes: 0,
-      errorMessage: null,
-      updatedAt: new Date().toISOString(),
-      startedAt: new Date().toISOString(),
-    };
-    await this.saveStatus(initial);
-    this.running = this.download().finally(async () => {
-      this.running = null;
-      await rm(this.lockPath(), { force: true }).catch(() => {});
-    });
-    return this.status();
-  }
-
-  private async fetchRemoteFiles(): Promise<RemoteFile[]> {
-    const response = await fetch(
-      `https://huggingface.co/api/models/${MODEL_ID}/tree/${MODEL_REVISION}?recursive=true&expand=true`,
-    );
-    if (!response.ok) throw new Error(`Não foi possível consultar os arquivos do modelo (HTTP ${response.status}).`);
-    const entries = await response.json();
-    if (!Array.isArray(entries)) throw new Error('A Hugging Face retornou uma lista de arquivos inválida.');
-    const selected = MODEL_FILES.map((filename) => {
-      const entry = entries.find((item: any) => item?.path === filename && item?.type === 'file');
-      const size = Number(entry?.size);
-      if (!entry || !Number.isSafeInteger(size) || size <= 0) {
-        throw new Error(`O arquivo ${filename} não está disponível na revisão fixada do modelo.`);
-      }
-      return { path: filename, size, lfs: entry.lfs } as RemoteFile;
-    });
-    return selected;
-  }
-
-  private async downloadFile(
-    file: RemoteFile,
-    stagingPath: string,
-    completedBytes: number,
-    totalBytes: number,
-  ): Promise<string> {
-    const encodedPath = file.path.split('/').map(encodeURIComponent).join('/');
-    const response = await fetch(`${MODEL_REPOSITORY}/resolve/${MODEL_REVISION}/${encodedPath}?download=true`);
-    if (!response.ok || !response.body) {
-      throw new Error(`Não foi possível baixar ${file.path} (HTTP ${response.status}).`);
-    }
-
-    const destination = safeTarget(stagingPath, file.path);
-    await mkdir(path.dirname(destination), { recursive: true });
-    const tempPath = `${destination}.part`;
-    const hash = createHash('sha256');
-    let currentFileBytes = 0;
-    let lastSavedBytes = 0;
-    let lastSaveAt = Date.now();
-    const progress = new Transform({
-      transform: (chunk: Buffer, _encoding, callback) => {
-        currentFileBytes += chunk.length;
-        hash.update(chunk);
-        const now = Date.now();
-        if (currentFileBytes - lastSavedBytes >= 2 * 1024 * 1024 || now - lastSaveAt >= 1000) {
-          lastSavedBytes = currentFileBytes;
-          lastSaveAt = now;
-          const downloadedBytes = completedBytes + currentFileBytes;
-          this.progressWrites = this.progressWrites
-            .then(() =>
-              this.saveStatus({
-                id: MODEL_ID,
-                revision: MODEL_REVISION,
-                status: 'downloading',
-                progressPercent: totalBytes ? Math.floor((downloadedBytes / totalBytes) * 100) : 0,
-                downloadedBytes,
-                totalBytes,
-                errorMessage: null,
-                updatedAt: new Date().toISOString(),
-              }),
-            )
-            .catch(() => undefined);
-        }
-        callback(null, chunk);
-      },
-    });
-    await pipeline(Readable.fromWeb(response.body as any), progress, createWriteStream(tempPath, { flags: 'wx' }));
-    await this.progressWrites;
-
-    if (currentFileBytes !== file.size) {
-      throw new Error(`O tamanho recebido para ${file.path} não corresponde ao arquivo publicado.`);
-    }
-    const downloadedHash = hash.digest('hex');
-    const remoteHash = String(file.lfs?.oid || '')
-      .replace(/^sha256:/i, '')
-      .toLowerCase();
-    if (remoteHash && /^[a-f0-9]{64}$/.test(remoteHash) && downloadedHash !== remoteHash) {
-      throw new Error(`A verificação SHA-256 falhou para ${file.path}.`);
-    }
-    await rename(tempPath, destination);
-    return downloadedHash;
-  }
-
-  private async download(): Promise<void> {
-    const root = this.modelRoot();
-    const stagingPath = path.join(root, `.speech-model-download-${randomUUID()}`);
-    try {
-      const files = await this.fetchRemoteFiles();
-      const totalBytes = files.reduce((total, file) => total + file.size, 0);
-      let completedBytes = 0;
-      const hashes: Record<string, string> = {};
-      await mkdir(stagingPath, { recursive: true });
-      for (const file of files) {
-        hashes[file.path] = await this.downloadFile(file, stagingPath, completedBytes, totalBytes);
-        completedBytes += file.size;
-        await this.saveStatus({
-          id: MODEL_ID,
-          revision: MODEL_REVISION,
-          status: 'downloading',
-          progressPercent: Math.min(99, Math.floor((completedBytes / totalBytes) * 100)),
-          downloadedBytes: completedBytes,
-          totalBytes,
-          errorMessage: null,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-
-      await writeFile(
-        path.join(stagingPath, '.speech-model-checksums.json'),
-        JSON.stringify({
-          algorithm: 'sha256',
-          model: MODEL_ID,
-          revision: MODEL_REVISION,
-          downloadedAt: new Date().toISOString(),
-          files: hashes,
-        }),
-        { mode: 0o644 },
-      );
-
-      const targetPath = this.targetPath();
-      await mkdir(path.dirname(targetPath), { recursive: true });
-      const backupPath = `${targetPath}.previous-${randomUUID()}`;
-      const previous = await stat(targetPath).catch(() => null);
-      if (previous) await rename(targetPath, backupPath);
-      try {
-        await rename(stagingPath, targetPath);
-      } catch (error) {
-        if (previous) await rename(backupPath, targetPath).catch(() => {});
-        throw error;
-      }
-      if (previous) await rm(backupPath, { recursive: true, force: true });
-
-      await this.saveStatus({
-        id: MODEL_ID,
-        revision: MODEL_REVISION,
-        status: 'ready',
-        progressPercent: 100,
-        downloadedBytes: totalBytes,
-        totalBytes,
-        errorMessage: null,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch (error: any) {
-      await rm(stagingPath, { recursive: true, force: true }).catch(() => {});
-      await this.saveStatus({
-        id: MODEL_ID,
-        revision: MODEL_REVISION,
-        status: 'failed',
-        progressPercent: 0,
-        downloadedBytes: 0,
-        totalBytes: 0,
-        errorMessage: String(error?.message || error).slice(0, 500),
-        updatedAt: new Date().toISOString(),
-      }).catch(() => {});
-    }
+    this.launch(model, 'download', options.force === true);
+    return { ...current, status: 'downloading', installed: false, progressPercent: 0, errorMessage: null };
   }
 }
 
+// Existing imports remain valid; new callers use the complete catalogue.
 export const speechModelDownloadDetails = {
-  modelId: MODEL_ID,
-  revision: MODEL_REVISION,
-  approximateSizeBytes: 253_500_000,
+  modelId: models[0].id,
+  revision: models[0].revision,
+  approximateSizeBytes: models[0].approximateSizeBytes,
 };

@@ -62,6 +62,9 @@ lerna-debug.log*
 !/test/local-templates.test.ts
 !/test/local-template.database.test.ts
 !/test/compose-env-only-deployments.test.py
+!/test/rabbitmq-startup-deployments.test.py
+!/test/connect-startup-diagnose.test.py
+!/test/event-manager-startup.test.cjs
 
 # Multi-device voice regression suites must travel with the dependency correction.
 !/test/zapo-voip-installer.test.cjs
@@ -78,3 +81,16 @@ lerna-debug.log*
 # Native technical diagnostics regression suites.
 !/test/diagnostic-*.test.cjs
 !/test/diagnostics-router.test.cjs
+
+# CI evidence and security gates are reviewed alongside their workflows.
+!/test/ci-evidence-contract.test.cjs
+!/test/codeql-sarif-gate.test.cjs
+!/test/speech-ci-evidence.test.cjs
+!/test/package-operations-deployments.test.py
+!/test/findhub-distribution-evidence.test.cjs
+
+# Single-service deployment regression and protected non-ASR baseline.
+!/test/speech-service-deployment.test.py
+!/test/fixtures/
+/test/fixtures/*
+!/test/fixtures/speech-protected-deployments.json

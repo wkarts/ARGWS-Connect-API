@@ -1,112 +1,193 @@
-# Diagnóstico e operação dos workers de áudio
+# Diagnóstico e operação dos workers de fala
 
-## Release suspensa após novas amostras do develop (07/10/2026)
+Este procedimento corresponde ao pool persistente com protocolo v2. A captura de 07/10/2026 analisada na auditoria mostrava workers de transcrição e ditado residentes e timeouts de heartbeat, mas não comprovava OOM nem um job concluído. Ela motivou o bloqueio de release. Não use aquela captura como medição do código atual nem atribua falhas criptográficas do WhatsApp ao reconhecimento sem evidência própria.
 
-A coleta das 04:58:52 às 05:58:52 UTC registrou 41 amostras ociosas de
-transcrição entre 2,620 e 2,633 GiB de RSS e 44 amostras ociosas de ditado
-entre 2,426 e 2,437 GiB. Os dois workers registraram `Heartbeat timeout` na
-conexão RabbitMQ e voltaram a anunciar o consumidor. O export de diagnóstico
-da API registrou seis requisições acima de 30 segundos, incluindo duas de
-mensagem acima de seis minutos. A API tinha 199–271 MiB de RSS nas amostras,
-o que não mede memória total da stack. A captura termina com os dois workers
-saindo com código 0; não comprova morte por OOM ou vazamento de memória.
+A [matriz da correção](../reviews/speech-correction-2026-10-07.md) relaciona os achados do PDF ao código e às validações. O [guia de fala](speech.md) descreve contratos e configurações; [deploy/speech](../../deploy/speech/README.md) contém o perfil canário e o teto agregado do host.
 
-Sem eventos Docker, contador de reinícios, `memory.events` do cgroup e
-métricas do host, ainda não é possível atribuir os timeouts à inferência, ao
-broker ou à pressão geral da VPS. Tampouco há job de transcrição concluído
-nessa captura: `activeJobs` ficou em zero nas amostras ociosas. A publicação
-de uma nova versão está suspensa pelo marcador `.github/RELEASE_HOLD.md` até
-que o ensaio sustentado e os casos reais ali descritos sejam verificados.
-O novo workflow interrompe também disparos manuais antes dos builds. A execução
-de release que já estava em andamento foi bloqueada antes da etapa de
-publicação pela mudança de `main` entre validação e persistência da versão.
+## Falha de inicialização e Compose anterior ao pool
 
-Para investigar no host, colete `docker inspect` (ID, `RestartCount`,
-`State.ExitCode`, `State.OOMKilled`, horários), `docker events`, RSS e CPU de
-todos os containers, `memory.events` e mensagens do kernel no intervalo.
-Compare os horários dos heartbeats com os jobs e com o orçamento total de
-memória. Não some `speech_memory.rss` com `speech_inference_memory.rss`: as
-duas amostras incluem o mesmo processo e sua thread. Uma parada graciosa de
-Compose pode explicar o código 0, mas o comando que a provocou não está no
-export.
+Quando API e workers ainda não iniciaram, confira primeiro suas dependências
+Compose. Os pacotes esperam `service_healthy` do RabbitMQ; um fragmento de boot
+sem erro fatal não comprova corrupção nem falta de memória. O
+[roteiro de recuperação](startup-recovery.md) coleta estado, consumo, revisão
+das imagens e a configuração efetiva com saída limitada. A contenção opcional
+alcança somente os workers de speech do projeto selecionado.
 
-## Loop de reinício na inicialização do develop (07/10/2026)
+As correções de 08/10/2026 tratam a reconexão e a convivência dos serviços de voz já instalados:
 
-Os logs do develop mostram tanto as réplicas de transcrição quanto o ditado saindo com código 1 após `TypeError: Cannot read properties of null (reading 'jobId')` em `InferenceClient.onMessage`. A thread publica `speech_inference_memory` na fase `before_model`, sem identificador de job; o consumidor comparava `this.active?.id` (indefinido quando não há job) com `message.id` (também indefinido) e, por isso, tentava acessar `this.active.jobId` quando `this.active` era `null`. A correção só associa a amostra a um job quando existe uma execução ativa e o identificador da mensagem corresponde a ela. Amostras de inicialização e ociosidade continuam disponíveis sem `jobId`.
+- A espera de reconexão mantém o processo vivo depois de `ECONNREFUSED` ou da
+  perda do último socket. Antes, o timer sem referência permitia saída com
+  código zero, que `restart: on-failure` não recuperava. SIGTERM cancela essa
+  espera e encerra normalmente.
+- Workers de modalidades separadas mantêm AMQP, consumidores e heartbeat
+  ativos quando ociosos. A residência é adquirida somente quando há trabalho;
+  o modelo continua sendo carregado apenas depois da admissão autorizada.
+  O ciclo anterior de ceder a vaga após cinco segundos e fechar/reabrir a
+  conexão foi removido. Ele provocava disputa sem trabalho e alternância de
+  disponibilidade entre transcrição e ditado.
+- Sob demanda real da outra modalidade, o dono cede a residência após a janela
+  ativa e seu checkpoint, ou quando está ocioso. A posse é liberada depois do
+  encerramento confirmado do motor, com a conexão preservada. A espera de
+  cortesia e o backoff dão à outra modalidade a oportunidade de assumir.
 
-Esse encerramento acontece antes do warm-up do modelo; os logs apresentados registram cerca de 75 MiB de RSS nessa fase e não atribuem esse loop a OOM. Isso não esclarece os OOMs históricos da VPS Fersoft, que continuam exigindo correlação própria. A captura do Dockge também mostra duas réplicas de transcrição, enquanto o Compose atual usa `SPEECH_TRANSCRIPTION_REPLICAS=1` por padrão: confira o valor efetivo no `.env`, overrides e escala do painel para manter a capacidade conservadora.
+Essa compatibilidade preserva os modos e modelos configurados. Atualizar apenas
+a imagem não transforma um Compose com dois serviços no pool único, nem aplica
+novos limites de memória/swap/tmpfs. Para esta correção, mantenha a topologia
+instalada e atualize API/Manager e todos os coordenadores de voz para a mesma
+revisão. Uma migração de topologia continua sendo uma decisão separada da
+instalação. A verificação SHA-256 continua no boot, mas o motor de inferência
+só é carregado quando há trabalho admitido.
 
-Após a imagem corrigida estar disponível no develop principal, recrie somente os serviços `transcription-worker-argws-connect-develop` e `speech-dictation-worker-argws-connect-develop`. Verifique nos logs `before_model`, `after_model`, ausência do `TypeError`, prontidão do modelo e contagem de reinícios estável; então processe um job curto de cada modo e confirme resultado e métricas vinculadas ao `jobId`. Preserve RabbitMQ, banco, MinIO e modelos; não execute `down -v`. A nova release também publica o worker estável para transcrição nos demais deploys; ditado continua limitado ao develop principal.
+`RESOURCE_LOCKED` indica que outra conexão possui a fila exclusiva. Uma disputa
+durante trabalho pode ser esperada; repetir conexões, autenticações e o anúncio
+de coordenador a cada poucos segundos sem nenhum job exige investigação.
+Não apague a fila de residência para contornar esse erro. O
+[relatório da regressão](../reviews/diagnostics-speech-stability-2026-10-08.md)
+separa essa falha dos timeouts do histórico e das métricas da API.
 
-## Amostras após correção do warm-up (07/10/2026)
+O [guia do RabbitMQ](rabbitmq-startup.md) descreve o probe AMQP, as quotas e a
+preservação da identidade/imagem antes de recriar um broker existente. Na CI,
+PostgreSQL e MySQL passam a usar o digest do espelho RabbitMQ da implantação;
+o ensaio verifica também o listener fechado com Erlang ainda vivo e a
+recuperação de mensagens quorum após recriação com a mesma identidade e volume.
 
-Os logs posteriores à PR #216 registram `before_model` perto de 75 MiB, `after_model` com RSS de 2.731.515.904 bytes no worker de transcrição e 2.669.789.184 bytes no de ditado, seguidos de prontidão de ambos. O `TypeError` de inicialização não reapareceu nessas amostras. São medições de partida, sem prova de inferência concluída, pico sob carga ou estabilidade prolongada. A troca de motor ou de modelo exigirá medição comparável e teste de precisão em áudio real em português.
+## Evidência de fala na CI
 
-### Opção de motor mais leve
+O workflow `Speech Integrity` executa os mesmos testes reais em pull requests e
+nos demais eventos: reconhecimento nativo em amd64/arm64, bancos PostgreSQL e
+MySQL, broker RabbitMQ e armazenamento S3. O ensaio de residência entre os dois
+workers legados usa o broker real no job PostgreSQL; as respostas da API de
+controle e o motor desse ensaio são instrumentados. O reconhecimento de áudio
+real é comprovado separadamente pelo smoke nativo.
 
-O worker atual mantém uma única pipeline Transformers.js com `Xenova/whisper-small` q8 por processo; reduzir as réplicas evita modelos duplicados dentro da mesma stack. `whisper.cpp` oferece modelos multilíngues `tiny`, `base` e `small` e quantização, com estimativas publicadas de memória para o motor que não incluem o nosso Node, FFmpeg, buffers, tmpfs e filas. `faster-whisper` int8 também tem medições publicadas menores que a execução fp32 em CPU em um benchmark específico. Consulte [whisper.cpp](https://github.com/ggml-org/whisper.cpp#memory-usage) e [faster-whisper](https://github.com/SYSTRAN/faster-whisper#benchmark).
+Nas pull requests, os relatórios JSON completos do smoke nativo e do startup
+RabbitMQ ficam no log do job e em seu resumo (`GITHUB_STEP_SUMMARY`). Cada
+relatório registra SHA-256 dos bytes originais, tamanho, run/tentativa, commit
+do evento, commit efetivamente testado, head da PR e imagem. O relatório nativo
+registra também o ID imutável da imagem local. Consulte o resumo do run ou baixe
+os logs do job no GitHub Actions; a retenção segue a configuração do repositório.
+Esse caminho não usa a quota de armazenamento de artifacts da PR.
 
-Esta release mantém o motor atual para preservar contratos e permitir o retorno da transcrição sem introduzir outro pipeline não ensaiado. Para trocar, primeiro compare o mesmo conjunto de áudios em português (curtos, longos, ruído e sem fala) em execução isolada: RSS antes/depois, pico, duração, precisão, cancelamento e recuperação do job. A API atualmente baixa uma revisão fixada somente de `Xenova/whisper-small`; configurar apenas `SPEECH_MODEL` para outro modelo não provisiona seus pesos nem garante que o worker fique pronto. Uma migração de motor exigirá provisionamento verificado, integração e testes de regressão.
+O script `.github/scripts/preserve-speech-evidence.cjs` exige JSON válido e as
+medições necessárias, limita cada JSON a 128 KiB, o log auxiliar RabbitMQ a
+256 KiB e o resumo completo a 512 KiB. Ausência, formato inválido, falha de
+escrita ou limite excedido falham o check; o conteúdo não é truncado. O JSON de
+uma integração RabbitMQ falha e seu log auxiliar, quando produzido, também
+ficam acessíveis e mantêm o job reprovado. O log é a evidência primária; a
+publicação do resumo é uma apresentação adicional feita pelo GitHub.
 
-## Evidências disponíveis em 06/10/2026
+Fora de pull requests, o upload dos artifacts continua obrigatório. A action
+`speech-native-smoke` mantém `upload_artifacts: 'true'` como default e rejeita
+a desativação fora de `pull_request`. Os fluxos de publicação develop e release
+continuam exigindo o reconhecimento real e o relatório retido antes de
+publicar seus manifests. Uma quota de artifacts esgotada nesses fluxos continua
+sendo falha de publicação.
 
-O laudo da VPS Fersoft traz duas amostras às 09:26:51 e 09:27:56 (UTC−3), com 65 segundos de intervalo. O host tinha 6 vCPU e 15,61 GiB de RAM. As duas coletas registraram, respectivamente, 2,329/2,328 GiB no ditado, 2,298/2,297 GiB na primeira réplica de transcrição e 1,607/0,990 GiB na segunda. O conjunto passou de 6,234 para 5,615 GiB. A segunda réplica teve dois reinícios (62 → 64) e mudou de PID; o contador de mortes por OOM no host passou de 260 para 262. As amostras **não** demonstram vazamento nem provam que as vítimas contemporâneas do OOM foram os workers. Não foram fornecidos logs de saída, eventos do cgroup ou IDs das vítimas contemporâneas.
+## Antes de atualizar o develop
 
-Os ZIPs de stacks anteriores às PRs #213/#214 contêm Compose e `.env`, não logs. Na Fersoft antiga havia serviços de ditado e duas réplicas de transcrição com limite individual de 4 GiB, mesmo com `SPEECH_ENABLED=false` no `.env` e sem o profile `transcription` na lista usual. O `.env` antigo tinha `DICTATION_ENABLED=flase` e `MANAGER_FEATURE_TRANSCRIPTION=true`. Containers já criados, um deploy anterior com profile explícito ou órfãos poderiam permanecer vivos; a causa exata da permanência deles exige `docker inspect`/histórico do deploy. A produção padrão antiga tinha flags de voz habilitadas, profile e duas réplicas. A release 1.2.1 retirou os serviços e forçou as flags para `false`; a nova release introduz apenas uma réplica de transcrição em cada stack.
+1. Registre a imagem/digest e o `.env` atual de API, Manager e worker. Guarde as credenciais fora de logs e da PR. Faça backup do banco e preserve RabbitMQ, objetos de áudio, diretório de modelos e sessões WhatsApp.
+2. Confira o projeto Compose e os containers efetivos. O pool novo usa uma réplica; pare os workers antigos de transcrição/ditado antes de iniciar o novo protocolo. Não misture APIs/controladores de versões diferentes apontando para o mesmo banco e exchange durante a transição.
+3. Interrompa novas admissões na aplicação ou conclua a janela de manutenção. Liste os jobs ativos e registre seus IDs, modos, fontes e estados. Não purgue filas para esconder pendências.
+4. Aplique a migration aditiva `20261007193000_speech_durable_pool` no provider correto, com a API antiga parada. Ela acrescenta controle de execução, outbox, reservas e saúde de workers. Em tabelas grandes, estime a duração dos índices na cópia de homologação antes da janela.
+5. Provisione o modelo escolhido e valide a revisão/hash. O download no início é opt-in. API e worker devem compartilhar os mesmos parâmetros de motor/modelo e o volume correto.
+6. Suba a API nova e o único pool usando as imagens da mesma revisão. A limpeza de serviços órfãos deve alcançar somente o projeto selecionado. Não use `down -v`.
+7. Confira `/v1/speech/health`, envie um áudio curto e acompanhe até conclusão. Um pool frio pode aceitar o trabalho com `modelVerified=true`, embora `/ready` ainda seja `503`. Após a inferência inicial, verifique readiness de cada modo habilitado.
 
-## Mecanismos confirmados no código
+Comandos de banco, dentro do ambiente que contém a configuração real:
 
-| Mecanismo anterior | Efeito demonstrável | Mudança |
+```bash
+DATABASE_PROVIDER=postgresql npm run db:generate
+DATABASE_PROVIDER=postgresql npm run db:deploy
+```
+
+Para MySQL, selecione `DATABASE_PROVIDER=mysql`. O processo normal da imagem pode executar a migration no startup; confirme o mecanismo usado pela instalação para não executar dois processos concorrentes. Os testes de CI exercitam os dois providers em bancos descartáveis.
+
+## Recuperação dos trabalhos anteriores
+
+O protocolo usa novas filas `.v2`. Não renomeie nem altere argumentos de uma fila existente: filas quorum têm contratos próprios. Mantenha as filas antigas preservadas até decidir o destino dos trabalhos pendentes.
+
+O reconciliador marca jobs ativos do protocolo anterior como `failed` com `LEGACY_PROTOCOL_REQUIRES_RETRY`. A recuperação de uma transcrição persistida é explícita pelo endpoint de retry. Ele verifica que não há consumidores antigos, lê a fonte com prazo/limite, verifica integridade e prepara os metadados para a nova geração. Se o áudio expirou ou não existe, retorna `410`. Ditados antigos cujo áudio só existia inline precisam ser gravados novamente.
+
+O retry não converte silenciosamente modelo ou idioma. Para recuperar um backlog que pede o modelo antigo, mantenha esse modelo durante a recuperação ou trate os trabalhos como novas solicitações depois de registrar a decisão. Uma geração antiga nunca deve substituir o resultado de uma nova execução.
+
+Para jobs v2, o reconciliador usa leases e prazo absoluto. Queda do broker/controlador encerra a inferência; uma execução expirada pode gerar tentativa limitada com seu checkpoint. A outbox cobre queda entre gravação no banco e publicação. Mensagem repetida não é prova de nova tentativa: `generation` também muda ao ceder a vez entre janelas.
+
+## Sinais de saúde e seu significado
+
+| Sinal | O que comprova | O que conferir se falhar |
 | --- | --- | --- |
-| Uma pipeline Whisper q8 por processo, mantida em singleton na thread | Três processos podem manter três modelos residentes mesmo ociosos; 4 GiB por container não limita o conjunto | Develop inicia uma réplica de transcrição e uma de ditado; uma reserva RabbitMQ limita a uma inferência global inicialmente |
-| FFmpeg acumulava stdout em `Buffer[]`, concatenava em novo `Buffer` e copiava para `Float32Array` | Pelo menos três representações do PCM inteiro coexistiam no pico; 1 hora mono 16 kHz f32 representa ~219,7 MiB por cópia | FFmpeg grava PCM em arquivo temporário com backpressure; VAD lê quadros e Whisper recebe trechos limitados; limite de duração é verificado durante a decodificação |
-| Watchdog da API republicava jobs `processing` quando o heartbeat envelhecia | A entrega original ainda poderia estar não confirmada; o ditado republicado perderia o payload inline | Estado `awaiting_redelivery`, sem republicação; a entrega original volta pelo broker quando o canal se fecha, ou termina em falha identificável após novo prazo |
-| Retry do worker serializava o job normalizado sem o objeto `source` | A próxima entrega falhava na validação e não podia voltar ao processamento; no ditado, duração de retenção também não era preservada | Retry monta novamente o contrato da fila, preserva `source`, áudio inline e data de entrada; teste normaliza a mensagem da segunda tentativa |
-| Encerramento fechava a thread e os canais imediatamente | Entregas em andamento precisavam da recuperação abrupta do broker; limpeza e confirmação não eram aguardadas | Cancelamento do consumidor, espera limitada pelo job ativo e `nack` para devolver entrega interrompida; timeout Compose de 105 s |
-| Inicialização com manifesto presente e modelo inválido | Falha de warm-up reiniciava o container por `on-failure`, repetindo o carregamento | O worker permanece sem prontidão e espera mudança do manifesto antes de tentar novamente; uma falha inicial de conexão RabbitMQ usa reconexão |
+| `processAlive` | Heartbeat recente do coordenador | Processo, reinícios, conexão e relógio do host |
+| `brokerConnected` | Coordenador conectado ao broker | Vhost, exchange, credenciais e rede |
+| `modelVerified` | Arquivos locais passaram na verificação | Manifesto, hash, revisão, permissão e volume |
+| `engineReady` | Carga e uma inferência inicial concluídas | Falha nativa, prazo de carga, instruções de CPU e memória |
+| `acceptingJobs` | Coordenador aceita trabalho | Cotas SQL, modo e estado de conexão |
+| `lastSuccessfulInferenceAt` | Última inferência real bem-sucedida, incluindo smoke inicial | Distinguir atividade antiga de reconhecimento atual |
+| `controlHeartbeatAt` | Supervisão da execução atual | Perda de lease e reconciliação |
+| `engineProgressAt` / `processedDurationMs` | Evolução real de reconhecimento/checkpoint | Operação nativa bloqueada ou lenta |
+| `deadlineAt` | Prazo final do job | Não estender por polling ou heartbeat |
 
-Não há prova de qual mecanismo causou os dois reinícios da réplica 2. Também não há medição pós-correção com modelo real. O limite de 4 GiB permanece até medir o pico: `--max-old-space-size` não cobriria memória nativa do modelo ou do FFmpeg.
+`/ready?mode=dictation` não deve ficar saudável apenas porque existe consumidor de transcrição. O modo `all` exige os modos habilitados. O health considera identidade do motor/modelo/revisão. O Manager desacelera consultas sem mudança; um heartbeat sozinho não avança a barra.
 
-## Configuração efetiva no develop principal
+O shutdown deixa de receber trabalho, tenta concluir a operação dentro da janela e encerra o grupo do motor quando precisa interromper. A confirmação de morte inclui processos descendentes; a vaga não é liberada apenas porque `kill` foi chamado. Falha em confirmar o encerramento impede que o coordenador carregue outro modelo. Um guardião IPC separado continua responsivo quando o processo de inferência bloqueia e encerra seu grupo se o coordenador desaparecer. O takeover AMQP após queda abrupta não tem handshake físico com o guardião antigo; o orçamento agregado do cgroup continua necessário, inclusive para processos presos no kernel.
 
-| Configuração | Padrão | Efeito |
-| --- | --- | --- |
-| `SPEECH_TRANSCRIPTION_REPLICAS` | `1` | Uma pipeline de transcrição residente; ditado mantém outra |
-| `SPEECH_WORKER_CONCURRENCY` | `1` | Prefetch por processo; valores maiores falham na validação |
-| `SPEECH_GLOBAL_CONCURRENCY` | `1` | Vagas exclusivas compartilhadas pelo mesmo exchange RabbitMQ para os dois modos; todas as réplicas devem usar o mesmo valor |
-| `SPEECH_MAX_DURATION_SECONDS` | `3600` | PCM de transcrição acima do limite falha com `AUDIO_TOO_LONG` |
-| `DICTATION_MAX_DURATION_SECONDS` | `300` | O worker valida o áudio decodificado, independentemente da duração informada pelo cliente |
-| `SPEECH_SHUTDOWN_GRACE_SECONDS` | `90` | Conclusão voluntária antes de interromper e devolver a entrega |
-| `SPEECH_MAX_ATTEMPTS` | `3` | Limita retries e redeliveries por falhas de processo observadas em quorum queues |
-| `SPEECH_JOB_STALE_AFTER` | `120` | Prazo após o último heartbeat para começar a aguardar redelivery; o estágio `retrying` respeita antes seu atraso |
+## Coleta sem payloads nem segredos
 
-A vaga é representada por uma fila exclusiva e efêmera cujo nome deriva do exchange e do índice. Uma conexão RabbitMQ a mantém durante o job; a perda da conexão interrompe a inferência e fecha o canal do job. A conexão fecha para liberar a vaga. Essa solução usa o broker existente; requer que os workers compartilhem broker, vhost, exchange e valor de concorrência. Uma vaga controla inferência, mas não elimina o segundo modelo residente. A fila de ditado continua separada, sem prioridade estrita na disputa pela vaga.
+Selecione os containers de API, pool, broker, banco e armazenamento. Use formatos restritos de `docker inspect`; um dump completo pode revelar o `.env`.
 
-O Compose monta `/tmp` como tmpfs de 1 GiB: o PCM gravado ali continua consumindo memória contabilizada pelo cgroup, embora deixe de ocupar várias cópias no heap e nos buffers do Node. Uma hora decodificada ocupa aproximadamente 219,7 MiB desse tmpfs. Compare `memory.current`/`docker stats` e RSS para verificar a economia real; ampliar o limite de duração exige rever tamanho do tmpfs e orçamento do host.
+```bash
+docker compose ps -a
+docker stats --no-stream
+docker inspect --format '{{.Name}} restart={{.RestartCount}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' NOME_DO_CONTAINER
+docker inspect --format '{{.Name}} parent={{.HostConfig.CgroupParent}} memory={{.HostConfig.Memory}} swap={{.HostConfig.MemorySwap}} cpus={{.HostConfig.NanoCpus}}' NOME_DO_CONTAINER
+```
 
-## Métricas e validação
+No host, capture no mesmo intervalo: `docker events`, mensagens do kernel, RAM/swap disponível, CPU, IO e métricas cgroup `memory.current`, `memory.peak`, `memory.events`, `cpu.stat` e `pids.current`. Registre o pai comum quando várias stacks compartilham a VPS.
 
-O log estruturado `speech_memory` registra `workerId`, `jobId`, tentativa, jobs ativos, RSS, `heapUsed`, `heapTotal`, `external`, `arrayBuffers`, tempo do job e pico observado em: antes/depois do modelo, recebimento, admissão, a cada 5 segundos durante trabalho, conclusão e ociosidade a cada 60 segundos. `speech_inference_memory` traz as medidas da thread e RSS do FFmpeg em `/proc/<pid>/status` durante a decodificação. RSS do processo inclui a thread; RSS do FFmpeg é separado. A amostragem não captura necessariamente o pico instantâneo entre intervalos. Nenhum log registra texto transcrito, áudio ou credenciais.
+Amostras do coordenador Node, processo de inferência e servidor whisper.cpp agora podem representar **processos diferentes**. Identifique PID, PPID, grupo e namespace antes de somar RSS; o cgroup é a referência do total. Threads do mesmo processo compartilham RSS, e page cache/tmpfs não aparecem integralmente numa soma ingênua de RSS. Não apresente o pico de memória do executor/runner inteiro como consumo do pool.
 
-| Medida | Antes, VPS Fersoft | Depois, teste local | Depois, VPS com modelo real |
-| --- | --- | --- | --- |
-| Três workers, soma RSS | 6,234 → 5,615 GiB nas duas amostras | Não executados com modelo | Pendente |
-| Reinícios da réplica 2 em 65 s | 2; OOM host +2, vítima não identificada | Sem Docker/VPS para correlação | Pendente |
-| PCM mono 16 kHz f32 de 65 s | Antes exigia três cópias completas, ~11,9 MiB juntas | Teste verificou arquivo de 4.160.000 bytes, leitura em trechos de até 480.000 amostras e limpeza | Pendente |
-| RSS do processo em decodificação sintética de 65 s | Não medido isoladamente antes | 37,74 MiB antes; 42,49 MiB maior amostra durante; 42,74 MiB após (processo sem modelo, GC explícito, amostra a cada 5 ms) | Pendente |
-| Inferências simultâneas | Até 3 pelo Compose antigo | Reserva global testada com dois clientes simulados: máximo 1 | Pendente em broker real |
+Compare as métricas com latência HTTP, atraso do event loop da API, tamanho/idade da fila e etapas dos jobs. O reconhecimento em outro processo evita trabalho de modelo dentro do event loop HTTP, mas o consumo de CPU/memória ainda compete no host e requer teto agregado.
 
-O FFmpeg dessa amostra curta encerrou antes da primeira coleta de RSS do subprocesso, portanto o pico do subprocesso é desconhecido. O RSS após a operação excedeu a maior amostra durante por causa do intervalo de amostragem; esses valores não demonstram um patamar estável nem o consumo de Whisper.
+## Falhas e ações concretas
 
-Para validar no develop com dados seguros, faça uma janela de pelo menos 60 minutos e anote quantidade/duração de jobs curtos, longos, inválidos, sem fala, ditado e cancelamentos. Compare `docker stats`, `docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.RestartCount}}' <container>` e `docker logs --since 1h <container>` com os registros `speech_memory`, `speech_inference_memory`, estado de `/v1/speech/health` e jobs no Manager. Verifique RSS na partida, durante lotes, após término, após ociosidade, FFmpeg, soma de todos os containers, memória livre do host e `memory.events` do cgroup. Registre volume, duração, p95/pico e número de reinícios antes de ampliar capacidade. Teste SIGTERM em trabalho ativo, `docker kill --signal=KILL` num ambiente isolado, indisponibilidade do motor, redelivery, TTL do ditado e ausência de publicação duplicada. Um teste de unidade com pipeline simulada não substitui esse ensaio.
+| Sintoma | Ação |
+| --- | --- |
+| `429` com `Retry-After` | Esperar o intervalo; verificar cotas e trabalhos pendentes antes de aumentar limites |
+| `503` e `modelVerified=false` | Conferir volume, catálogo e progresso do provisionamento; reparar com `force=true` se o hash falhou |
+| Modelo pedido difere do efetivo | Alinhar API/worker/revisão e drenar o backlog do modelo anterior; não aceitar fallback |
+| Heartbeat sem avanço de motor | Observar `engineProgressAt`, deadline e eventos do processo; não reiniciar todo o host por suposição |
+| `JOB_DEADLINE_EXCEEDED` | Inspecionar espera em fila e custo frio; ajustar o perfil só após medir latência/qualidade |
+| Lease perdida ou worker morto | Verificar reconciliação de geração e ausência de inferência sobreposta |
+| Mensagem sem rota/outbox pendente | Conferir exchange, bindings `.v2`, argumentos iguais e capacidade do broker |
+| Exclusão retorna `409` após cancelar | Esperar a confirmação de término/lease e repetir; a fonte não deve desaparecer durante o uso |
+| Bucket privado indisponível | Conferir configuração e permissões; não publicar áudio em bucket público como contingência |
+| Erros de sessão WhatsApp | Investigar provider/sessão separadamente; preservar credenciais e volumes |
 
-Para esclarecer os reinícios antigos, obtenha logs com timestamps imediatamente anteriores a cada encerramento, `docker inspect` com `State.ExitCode`, `State.Error`, `State.OOMKilled`, `RestartCount` e container ID da época, `docker events`, `journalctl -k` do intervalo e `memory.events` do cgroup correspondente. Correlacione jobId, `x-delivery-count` e tentativas. Não atribua IDs históricos de OOM a containers atuais.
+## Critérios de homologação
 
-## Atualização sem perder dados
+O smoke local com JFK verifica o caminho nativo e a residência entre trabalhos. Ele não mede qualidade pt-BR, rede/MinIO, disputa de fila nem capacidade da VPS. Antes de promover o canário:
 
-1. Preserve os volumes de banco, RabbitMQ, MinIO e `./models`. Verifique o orçamento por **host**: cada stack carrega o próprio modelo; uma vaga global em brokers separados não coordena as stacks.
-2. Atualize o Compose da stack, a imagem da API e a imagem estável do worker. No `.env` efetivo inclua `transcription` em `COMPOSE_PROFILES`, habilite `SPEECH_ENABLED`, `TRANSCRIPTION_ENABLED`, `MANAGER_FEATURE_TRANSCRIPTION`, mantenha `DICTATION_ENABLED=false` nas produções, fixe uma réplica, concorrência global um e tmpfs de 1 GiB. Execute `docker compose --env-file .env -f compose.yaml pull` e `docker compose --env-file .env -f compose.yaml up -d --pull never --remove-orphans` no projeto correto. Confira `docker compose ps -a`; não execute `down -v`.
-3. No develop principal, mantenha o worker de ditado e sua flag apenas se houver margem de RAM. Aplique as migrations de `TranscriptionJob.workerId`, atualize API e workers juntos. Confira que o modelo foi instalado e que os containers não estão reiniciando antes de ampliar carga.
-4. Monitore jobs `queued`, `waiting_for_capacity`, `retrying`, `awaiting_redelivery`, `completed`, `cancelled` e `failed`. Para um job de transcrição terminal com áudio persistente, o retry manual é possível; no ditado, solicite nova gravação. Não delete volumes nem republique mensagens brutas para resolver filas antigas.
+- Usar um corpus de pelo menos 50 áudios pt-BR, incluindo sotaques, pausas, nomes próprios, baixa amplitude, silêncio e ruído. Comparar texto e taxa de erro com o perfil de referência e avaliação humana.
+- Executar pelo menos 24 horas e 100 jobs na VPS de homologação. Medir p50/p95 de espera, carga fria, ditado e transcrição; RSS/cgroup, CPU, IO, event loop e latência de mensagens WhatsApp.
+- Misturar áudio longo e ditados de várias instâncias, respeitando cotas. Verificar oportunidade de ditado entre janelas e ausência de starvation na carga real.
+- Interromper API, broker e worker em janelas de falha distintas; validar outbox, redelivery, checkpoint, limite de tentativas e rejeição de resultado antigo.
+- Cancelar durante carga, download e inferência. Confirmar morte do grupo antes de liberar capacidade e preservar privacidade/retenção da fonte.
+- Executar uploads lentos, concorrentes, acima do limite e com desconexão. Verificar liberação de reservas, arquivos temporários e objetos órfãos.
+- Conferir o orçamento agregado com todas as stacks habilitadas, incluindo brokers independentes. O teto por container sozinho não cobre a VPS.
 
-Permanecem pendentes o ensaio sustentado com Whisper real, uma medição de RSS antes/depois no mesmo hardware, a confirmação das vítimas do OOM e os testes de recuperação e prioridade em broker real. A habilitação da transcrição em produção requer observar a soma de memória de todas as stacks do host e o resultado efetivo dos jobs.
+Registre critérios numéricos de latência e qualidade antes de aprovar o perfil. O teto de 1280 MiB/1 CPU é a configuração inicial do ensaio. O smoke Docker em CI testa o binário sob esse teto; o ensaio operacional precisa cobrir API, coordenador, fila, fonte e motor juntos.
+
+## Verificação de upgrade de banco na CI
+
+O job **Durable speech** recria a base fixada em `SPEECH_MIGRATION_BASE_SHA` com as migrations originais, aplica somente `20261007193000_speech_durable_pool` e executa os testes reais de SQL, RabbitMQ e armazenamento. Esse caminho reproduz o upgrade de uma instalação existente. A criação de banco vazio com todas as migrations continua coberta pelo workflow **Database Integrity**.
+
+O gate registra o SQL de diferença entre o banco da base e seu schema Prisma antes do upgrade. Depois da migration de fala, exige que a diferença para o schema atual seja exatamente a mesma. Uma base sem divergências precisa continuar sem divergências; qualquer alteração nova de coluna, índice, default ou tabela reprova o job. Não há filtro que descarte diferenças novas da fala ou de outros módulos.
+
+A comparação antes/depois é necessária porque o schema MySQL herdado contém campos `@default(now()) @db.Timestamp`, enquanto suas migrations usam `CURRENT_TIMESTAMP` sem precisão fracionária. Recriar essa base com `prisma db push` falha em `createdAt` antes da migration de fala. A CI usa o histórico real e preserva essa diferença preexistente, sem modificar os modelos de outros contratos. Os testes de rollback provocam uma violação real do índice único da outbox dentro da transação e verificam que nem o job nem a outbox ficaram gravados.
+
+## Rollback
+
+Interrompa novas admissões e pare o pool do canário com shutdown supervisionado. Registre jobs/gerações em andamento e preserve banco, filas, fontes e modelos. Restaure os parâmetros do adaptador Transformers e sua imagem compatível se for reverter somente o motor; trabalhos que pedem whisper.cpp não devem ser atendidos como outro modelo.
+
+Para voltar ao código anterior ao protocolo v2, mantenha fala desativada, restaure em conjunto as imagens anteriores da API/Manager/worker e preserve as tabelas e colunas aditivas. Não deixe consumidores antigos lerem as filas v2 nem reintroduza múltiplos workers inadvertidamente. Jobs v2 não têm downgrade automático para a fila antiga; seu histórico deve ser reconciliado antes de reativar o fluxo anterior. Esse rollback de protocolo não é uma reversão automática de todos os trabalhos.
+
+Não remova a migration com `DROP` nem restaure indiscriminadamente um backup sobre dados novos. O rollback de configuração/código e a recuperação de dados são decisões distintas. Verifique saúde da API e envio/recebimento de mensagens antes de reabrir o tráfego. O bloqueio de release permanece até as evidências de homologação estarem aprovadas.

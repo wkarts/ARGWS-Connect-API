@@ -26,14 +26,52 @@ test('seleciona modulos sem ativar extended acidentalmente', () => {
   assert.notEqual(env.get('AUTHENTICATION_API_KEY'), '');
 });
 
-test('preserva perfil de transcricao no template e ao selecionar explicitamente', () => {
+test('speech is opt-in in production and enabled when explicitly selected', () => {
   const standard = parseEnv(build({ flavor: 'production', sets: [] }).env);
-  assert.equal(standard.get('COMPOSE_PROFILES'), 'operations,transcription');
-  assert.equal(standard.get('SPEECH_ENABLED'), 'true');
-  assert.equal(standard.get('TRANSCRIPTION_ENABLED'), 'true');
+  assert.equal(standard.get('COMPOSE_PROFILES'), 'operations');
+  assert.equal(standard.get('SPEECH_ENABLED'), 'false');
+  assert.equal(standard.get('TRANSCRIPTION_ENABLED'), 'false');
+  assert.equal(standard.get('DICTATION_ENABLED'), 'false');
+  assert.equal(standard.has('SPEECH_WORKER_MODE'), false);
+  assert.equal(standard.has('SPEECH_TRANSCRIPTION_REPLICAS'), false);
   const selected = parseEnv(build({ flavor: 'canonical', modules: 'transcription', sets: [] }).env);
   assert.equal(selected.get('COMPOSE_PROFILES'), 'transcription');
-  assert.equal(selected.get('ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE'), 'ghcr.io/wkarts/argws-connect-transcription-worker:1.3.0');
+  assert.equal(selected.get('SPEECH_ENABLED'), 'true');
+  assert.equal(selected.get('TRANSCRIPTION_ENABLED'), 'true');
+  assert.equal(selected.get('DICTATION_ENABLED'), 'true');
+  assert.equal(selected.get('TRANSCRIPTION_SERVICE_IMAGE'), 'ghcr.io/wkarts/connect-transcription-service:latest');
+});
+
+test('all flavors share one pool and respect an explicit dictation preference', () => {
+  for (const flavor of ['develop', 'homologation', 'production', 'canonical', 'dockge', 'cloudpanel']) {
+    const result = build({ flavor, modules: 'transcription', sets: ['DICTATION_ENABLED=false'] });
+    const env = parseEnv(result.env);
+    assert.equal(env.get('DICTATION_ENABLED'), 'false');
+    assert.equal(env.has('SPEECH_WORKER_MODE'), false);
+    assert.equal(env.has('SPEECH_TRANSCRIPTION_REPLICAS'), false);
+    assert.equal(env.get('SPEECH_S3_BUCKET_NAME'), '');
+    assert.doesNotMatch(result.compose, /^  speech-dictation-worker/m);
+    assert.match(result.compose, /^    scale: 1$/m);
+  }
+});
+
+test('imported speech flags remain unchanged while old replica counts are reconciled', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'speech-deployer-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const initial = build({ flavor: 'develop', modules: 'transcription', sets: [
+    'SPEECH_ENABLED=false', 'DICTATION_ENABLED=false', 'SPEECH_TRANSCRIPTION_REPLICAS=3',
+    'SPEECH_S3_BUCKET_NAME=installed-private-speech',
+  ] });
+  const file = path.join(directory, 'installed.env');
+  fs.writeFileSync(file, initial.env);
+  const imported = parseEnv(build({ flavor: 'develop', fromEnv: file, sets: [] }).env);
+  assert.equal(imported.get('SPEECH_ENABLED'), 'false');
+  assert.equal(imported.get('DICTATION_ENABLED'), 'false');
+  assert.equal(imported.has('SPEECH_TRANSCRIPTION_REPLICAS'), false);
+  assert.equal(imported.get('SPEECH_S3_BUCKET_NAME'), 'installed-private-speech');
+  fs.writeFileSync(file, initial.env.replace(/^SPEECH_S3_BUCKET_NAME=.*\n/m, ''));
+  const withoutBucket = parseEnv(build({ flavor: 'develop', fromEnv: file, sets: [] }).env);
+  assert.equal(withoutBucket.get('SPEECH_S3_BUCKET_NAME'), '', 'old installs derive the private bucket at runtime');
 });
 
 test('extended seleciona NATS e Kafka', () => {

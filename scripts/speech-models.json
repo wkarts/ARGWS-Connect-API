@@ -1,0 +1,71 @@
+[
+  {
+    "id": "Xenova/whisper-small",
+    "engine": "transformers",
+    "format": "onnx",
+    "revision": "2d67713f236afa48a18992566e7647f6ca848e13",
+    "repository": "Xenova/whisper-small",
+    "quantization": "q8",
+    "relativeDirectory": "Xenova/whisper-small",
+    "files": [
+      "added_tokens.json",
+      "config.json",
+      "generation_config.json",
+      "merges.txt",
+      "normalizer.json",
+      "preprocessor_config.json",
+      "quant_config.json",
+      "quantize_config.json",
+      "special_tokens_map.json",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "vocab.json",
+      "onnx/decoder_model_merged_quantized.onnx",
+      "onnx/encoder_model_quantized.onnx"
+    ],
+    "approximateSizeBytes": 253500000,
+    "recommendedBudgetMiB": 4096
+  },
+  {
+    "id": "whisper-base-q5_1",
+    "engine": "whisper.cpp",
+    "format": "ggml",
+    "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+    "repository": "ggerganov/whisper.cpp",
+    "quantization": "q5_1",
+    "relativeDirectory": "whisper.cpp/base-q5_1",
+    "modelFile": "ggml-base-q5_1.bin",
+    "files": [
+      "ggml-base-q5_1.bin"
+    ],
+    "hashes": {
+      "ggml-base-q5_1.bin": "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
+    },
+    "sizes": {
+      "ggml-base-q5_1.bin": 59707625
+    },
+    "approximateSizeBytes": 59707625,
+    "recommendedBudgetMiB": 1280
+  },
+  {
+    "id": "whisper-small-q5_1",
+    "engine": "whisper.cpp",
+    "format": "ggml",
+    "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+    "repository": "ggerganov/whisper.cpp",
+    "quantization": "q5_1",
+    "relativeDirectory": "whisper.cpp/small-q5_1",
+    "modelFile": "ggml-small-q5_1.bin",
+    "files": [
+      "ggml-small-q5_1.bin"
+    ],
+    "hashes": {
+      "ggml-small-q5_1.bin": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"
+    },
+    "sizes": {
+      "ggml-small-q5_1.bin": 190085487
+    },
+    "approximateSizeBytes": 190085487,
+    "recommendedBudgetMiB": 2048
+  }
+]

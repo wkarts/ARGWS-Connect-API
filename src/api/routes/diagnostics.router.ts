@@ -9,9 +9,9 @@ import { diagnostics } from '../../diagnostics/diagnostics.service';
 
 type Filter = Record<string, string | number>;
 interface DiagnosticsApiService {
-  status(): unknown | Promise<unknown>;
-  events(filter: Filter): unknown | Promise<unknown>;
-  exportRecords(filter: Filter): AsyncIterable<unknown>;
+  status(signal?: AbortSignal): unknown | Promise<unknown>;
+  events(filter: Filter, signal?: AbortSignal): unknown | Promise<unknown>;
+  exportRecords(filter: Filter, signal?: AbortSignal): AsyncIterable<unknown>;
   settings(input: { retentionDays: number; maxDiskMB: number }): unknown | Promise<unknown>;
   record(input: Record<string, unknown>): unknown;
 }
@@ -43,8 +43,10 @@ export class DiagnosticsRouter {
         return res.status(403).json({ error: 'Acesso administrativo necessário.' });
       next();
     });
-    this.router.get('/status', (req, res) => this.read(req, res, () => this.service.status(), []));
-    this.router.get('/events', (req, res) => this.read(req, res, () => this.service.events(this.filter(req, true))));
+    this.router.get('/status', (req, res) => this.read(req, res, (signal) => this.service.status(signal), []));
+    this.router.get('/events', (req, res) =>
+      this.read(req, res, (signal) => this.service.events(this.filter(req, true), signal)),
+    );
     this.router.get('/export', (req, res) => this.export(req, res));
     this.router.put('/settings', (req, res) => this.settings(req, res));
     this.router.post('/client-events', (req, res) => this.clientEvent(req, res));
@@ -93,8 +95,7 @@ export class DiagnosticsRouter {
       this.reading--;
       if (exporting) this.exporting--;
     };
-    res.once('close', release);
-    res.once('finish', release);
+    // Transport closure requests cancellation; the slot belongs to the operation until its cleanup finishes.
     return release;
   }
 
@@ -107,16 +108,20 @@ export class DiagnosticsRouter {
     });
   }
 
-  private async read(req: Request, res: Response, operation: () => unknown, allowed?: string[]) {
+  private async read(req: Request, res: Response, operation: (signal: AbortSignal) => unknown, allowed?: string[]) {
     const release = this.reserve(res);
     if (!release) return;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.once('close', abort);
     try {
       if (allowed) this.queryKeys(req, allowed);
-      const result = await operation();
+      const result = await operation(controller.signal);
       if (!res.destroyed) res.json(result);
     } catch (error) {
       this.fail(error, res);
     } finally {
+      res.off('close', abort);
       release();
     }
   }
@@ -168,6 +173,9 @@ export class DiagnosticsRouter {
   private async export(req: Request, res: Response) {
     const release = this.reserve(res, true);
     if (!release) return;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.once('close', abort);
     let iterator: AsyncIterator<unknown> | undefined;
     let stream: Readable | undefined;
     const started = Date.now();
@@ -177,14 +185,14 @@ export class DiagnosticsRouter {
       const format = req.query.format || 'gzip';
       if (format !== 'jsonl' && format !== 'gzip') this.invalid();
       // Advance before emitting HTTP headers: store validation errors remain clean 400 responses.
-      iterator = this.service.exportRecords(filter)[Symbol.asyncIterator]();
+      iterator = this.service.exportRecords(filter, controller.signal)[Symbol.asyncIterator]();
       const first = await iterator.next();
       const manifest = {
         type: 'manifest',
         schemaVersion: 1,
         exportedAt: new Date().toISOString(),
         filters: filter,
-        diagnostics: await this.service.status(),
+        diagnostics: await this.service.status(controller.signal),
       };
       if (res.destroyed) return;
       const records = iterator;
@@ -211,6 +219,7 @@ export class DiagnosticsRouter {
     } catch (error) {
       this.fail(error, res);
     } finally {
+      res.off('close', abort);
       stream?.destroy();
       // Close the store reader on completion, transport errors and client aborts.
       try {

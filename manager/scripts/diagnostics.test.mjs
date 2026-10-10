@@ -5,11 +5,13 @@ import path from 'node:path'
 import vm from 'node:vm'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import * as Vue from 'vue'
+import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 
 const require = createRequire(import.meta.url)
 const ts = require('typescript')
 const manager = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const compiled = Object.fromEntries(['current', 'diagnostics'].map(name => [name, ts.transpileModule(
+const compiled = Object.fromEntries(['current', 'diagnostics', 'retry-after'].map(name => [name, ts.transpileModule(
   fs.readFileSync(path.join(manager, `src/services/${name}.ts`), 'utf8'),
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
 ).outputText]))
@@ -54,6 +56,7 @@ function browser(respond) {
     vm.runInNewContext(compiled[name], { ...context, module, exports: module.exports }, { filename: `${name}.js` })
     return module.exports
   }
+  dependencies['./retry-after'] = load('retry-after')
   const current = load('current')
   dependencies['./current'] = current
   return { current, ...load('diagnostics'), requests, links, blobs, removed, revoked, errors, timers, listeners }
@@ -194,4 +197,220 @@ test('unknown and concrete paths never become frontend event data', () => {
   assert.equal(session.diagnosticScreen('/diagnostico'), 'diagnostics')
   assert.equal(session.diagnosticScreen('/instancias/:id/integracoes/:key'), 'instances')
   for (const value of ['/instancias/customer-phone', '/chamadas?token=secret', 'https://private.example', '/private/name']) assert.equal(session.diagnosticScreen(value), 'unknown')
+})
+
+for (const [operation, deadline, expected] of [
+  ['events', 20000, /consulta.*20 segundos/i],
+  ['download', 120000, /download.*2 minutos/i],
+]) test(`${operation} reports its deadline clearly and does not save a timed-out response`, async () => {
+  const session = browser(req => new Promise((resolve, reject) => {
+    req.init.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')), { once: true })
+  }))
+  await login(session)
+  const pending = operation === 'events' ? session.diagnostics.events(filters) : session.diagnostics.download(filters)
+  const assertion = assert.rejects(pending, error => expected.test(error.message) && error.name !== 'AbortError')
+  const timer = [...session.timers.values()].find(value => value.delay === deadline)
+  assert.ok(timer)
+  timer.fn()
+  await assertion
+  assert.equal(session.requests.at(-1).init.signal.aborted, true)
+  assert.equal(session.timers.size, 0)
+  assert.equal(session.links.length, 0)
+})
+
+test('an export body finishing after cancellation or its deadline never becomes a downloadable file', async () => {
+  for (const reason of ['cancel', 'deadline']) {
+    let finishBody
+    const session = browser(async () => ({ ok: true, status: 200, blob: () => new Promise(resolve => { finishBody = resolve }) }))
+    await login(session)
+    const controller = new AbortController()
+    const pending = session.diagnostics.download(filters, 'gzip', controller.signal)
+    const assertion = assert.rejects(pending, error => reason === 'cancel' ? error.name === 'AbortError' : /download.*2 minutos/i.test(error.message))
+    await drain()
+    if (reason === 'cancel') controller.abort()
+    else [...session.timers.values()].find(timer => timer.delay === 120000).fn()
+    finishBody(new Blob(['unfinished-file']))
+    await assertion
+    assert.equal(session.requests.at(-1).init.signal.aborted, true)
+    assert.equal(session.links.length, 0)
+    assert.equal(session.blobs.length, 0)
+    assert.equal(session.timers.size, 0)
+  }
+})
+
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
+const snapshot = {
+  ready: true, persistent: true, storageError: false, diskBytes: 1024, maxDiskBytes: 134217728,
+  retentionDays: 7, storedEvents: 1, dropped: 0, counts: { info: 1, warn: 0, error: 0 }, categories: {},
+  version: 'test',
+}
+const record = { id: 'visible-event', timestamp: '2026-10-08T14:36:00.000Z', level: 'info', category: 'runtime', code: 'runtime.sample', summary: 'Evento técnico' }
+const descriptor = parse(fs.readFileSync(path.join(manager, 'src/views/DiagnosticsView.vue'), 'utf8'), { filename: 'DiagnosticsView.vue' }).descriptor
+const viewScript = compileScript(descriptor, { id: 'diagnostics-test' })
+const viewTemplate = compileTemplate({ id: 'diagnostics-test', filename: 'DiagnosticsView.vue', source: descriptor.template.content, compilerOptions: { bindingMetadata: viewScript.bindings } })
+assert.deepEqual(viewTemplate.errors, [])
+
+function view({ status = async () => snapshot, events = async () => ({ events: [record], nextCursor: null }), download = async () => {} } = {}) {
+  const requests = [], hooks = {}, intervals = new Map()
+  let intervalId = 0
+  const dependencies = {
+    vue: { ...Vue, onMounted: fn => { hooks.mount = fn }, onUnmounted: fn => { hooks.unmount = fn }, withCtx: fn => fn, withDirectives: node => node },
+    '@/layouts/AppShell.vue': { default: {} }, '@/components/PageHeader.vue': { default: {} }, '@/components/AppIcon.vue': { default: {} },
+    '@/services/diagnostics': { diagnostics: {
+      status(signal) { requests.push({ kind: 'status', signal }); return status(signal) },
+      events(applied, cursor, signal) { requests.push({ kind: 'events', filters: { ...applied }, cursor, signal }); return events(applied, cursor, signal) },
+      download(applied, format, signal) { requests.push({ kind: 'download', filters: { ...applied }, format, signal }); return download(applied, format, signal) },
+      settings: async () => snapshot,
+    } },
+  }
+  function evaluate(source) {
+    const module = { exports: {} }
+    const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText
+    vm.runInNewContext(code, {
+      module, exports: module.exports, Error, Date, Intl, AbortController, console,
+      setInterval(fn, delay) { const id = ++intervalId; intervals.set(id, { fn, delay }); return id },
+      clearInterval: id => intervals.delete(id), document: { hidden: false },
+      require(name) { assert.ok(Object.hasOwn(dependencies, name), name); return dependencies[name] },
+    })
+    return module.exports
+  }
+  const scope = Vue.effectScope()
+  const state = scope.run(() => evaluate(viewScript.content).default.setup({}, { expose() {} }))
+  const render = evaluate(viewTemplate.code).render
+  function nodes(node) {
+    if (!node || typeof node !== 'object') return []
+    const children = Array.isArray(node.children) ? node.children : typeof node.children?.default === 'function' ? node.children.default() : []
+    return [node, ...children.flatMap(nodes)]
+  }
+  function text(node) { return typeof node.children === 'string' ? node.children : nodes(node).filter(child => typeof child.children === 'string').map(child => child.children).join(' ') }
+  return {
+    state, requests, intervals,
+    button(label) { return nodes(render({}, [], {}, Vue.proxyRefs(state), {}, {})).find(node => node.type === 'button' && text(node).includes(label)) },
+    text() { return text(render({}, [], {}, Vue.proxyRefs(state), {}, {})) },
+    cleanup() { hooks.unmount(); scope.stop() },
+  }
+}
+
+test('the seven-day export is available while history is pending and keeps the applied range', async () => {
+  const page = deferred(), file = deferred()
+  const h = view({ events: () => page.promise, download: () => file.promise })
+  h.state.draft.period = '7d'
+  const pending = h.state.refresh()
+  await drain()
+  const applied = { ...h.state.applied.value }
+  assert.equal(h.state.loading.value, true)
+  assert.equal(h.button('Baixar diagnóstico').props.disabled, false)
+  assert.notEqual(h.button('Aplicar filtros').props.disabled, true)
+  const downloading = h.state.download()
+  const exported = h.requests.find(req => req.kind === 'download')
+  assert.deepEqual(exported.filters, applied)
+  assert.equal(exported.format, 'gzip')
+  assert.equal(new Date(exported.filters.to) - new Date(exported.filters.from), 7 * 86400000)
+  h.state.draft.period = '1h'
+  assert.deepEqual(exported.filters, applied)
+  assert.equal(h.button('Preparando…').props.disabled, true)
+  file.resolve()
+  page.resolve({ events: [], nextCursor: null })
+  await Promise.all([pending, downloading])
+  h.cleanup()
+})
+
+test('history remains usable when storage status fails and export does not depend on that status', async () => {
+  const h = view({ status: async () => { throw new Error('Estado indisponível.') } })
+  await h.state.refresh()
+  assert.equal(h.state.events.value[0]?.id, record.id)
+  assert.equal(h.state.error.value, '')
+  assert.match(h.state.statusError.value, /Estado indisponível/)
+  assert.equal(h.button('Baixar diagnóstico').props.disabled, false)
+  h.cleanup()
+})
+
+test('storage status is retained independently when history fails and export is still usable', async () => {
+  const h = view({ events: async () => { throw new Error('Histórico indisponível.') } })
+  await h.state.refresh()
+  assert.equal(h.state.status.value?.persistent, true)
+  assert.ok(h.state.statusLoadedAt.value)
+  assert.match(h.state.error.value, /Histórico indisponível/)
+  assert.equal(h.button('Baixar diagnóstico').props.disabled, false)
+  h.cleanup()
+})
+
+test('a slow storage snapshot does not delay history rendering or starve its deadline through auto-refresh', async () => {
+  const metadata = deferred()
+  const h = view({ status: () => metadata.promise })
+  const pending = h.state.refresh()
+  await drain()
+  assert.equal(h.state.loading.value, false)
+  assert.equal(h.state.loadingStatus.value, true)
+  assert.equal(h.state.events.value[0].id, record.id)
+  assert.match(h.text(), /Evento técnico/)
+  h.state.live.value = true
+  await Vue.nextTick()
+  const before = h.requests.length
+  for (const timer of h.intervals.values()) timer.fn()
+  assert.equal(h.requests.length, before)
+  metadata.resolve(snapshot)
+  await pending
+  assert.equal(h.state.loadingStatus.value, false)
+  h.cleanup()
+})
+
+test('a failed storage refresh keeps and labels the last successful snapshot without resetting its timestamp', async () => {
+  let calls = 0
+  const h = view({ status: async () => {
+    if (++calls === 1) return snapshot
+    throw new Error('Estado indisponível.')
+  } })
+  await h.state.refresh()
+  const checkedAt = h.state.statusLoadedAt.value
+  await h.state.refresh()
+  assert.equal(h.state.status.value?.persistent, true)
+  assert.equal(h.state.statusLoadedAt.value, checkedAt)
+  assert.equal(h.state.events.value[0].id, record.id)
+  assert.match(h.text(), /indicadores mantêm a consulta anterior/i)
+  assert.match(h.text(), /armazenamento consultado em/i)
+  h.cleanup()
+})
+
+test('a new period aborts the old scan and cannot be replaced by its late response', async () => {
+  const old = deferred()
+  let count = 0
+  const h = view({ events: () => ++count === 1 ? old.promise : Promise.resolve({ events: [record], nextCursor: null }) })
+  h.state.draft.period = '7d'
+  const pending = h.state.refresh()
+  const oldRequest = h.requests.find(req => req.kind === 'events')
+  h.state.draft.period = '1h'
+  await h.state.refresh()
+  assert.equal(oldRequest.signal.aborted, true)
+  old.resolve({ events: [{ ...record, id: 'obsolete-event' }], nextCursor: 'obsolete-cursor' })
+  await pending
+  assert.deepEqual(h.state.events.value.map(event => event.id), [record.id])
+  assert.equal(h.state.cursor.value, null)
+  assert.equal(new Date(h.state.applied.value.to) - new Date(h.state.applied.value.from), 3600000)
+  h.cleanup()
+})
+
+test('the page offers cancellation for an export and does not auto-refresh during it', async () => {
+  const file = deferred()
+  const h = view({ download: () => file.promise })
+  await h.state.refresh()
+  h.state.live.value = true
+  await Vue.nextTick()
+  const downloading = h.state.download()
+  const exported = h.requests.find(req => req.kind === 'download')
+  const before = h.requests.length
+  for (const timer of h.intervals.values()) timer.fn()
+  assert.equal(h.requests.length, before)
+  h.button('Cancelar download').props.onClick()
+  assert.equal(exported.signal.aborted, true)
+  file.reject(new DOMException('Consulta cancelada.', 'AbortError'))
+  await downloading
+  assert.equal(h.state.downloading.value, false)
+  assert.equal(h.state.exportError.value, '')
+  h.cleanup()
 })

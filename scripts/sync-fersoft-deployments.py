@@ -14,7 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 CHANNELS = ('develop', 'production')
 FULL_STACK_DEFAULTS = {
-    'COMPOSE_PROFILES': 'operations,nats,kafka,mysql,traccar,transcription',
+    'COMPOSE_PROFILES': 'operations,nats,kafka,mysql,traccar',
     'OPERATIONS_ENABLED': 'true',
     'NATS_ENABLED': 'true',
     'KAFKA_ENABLED': 'true',
@@ -27,11 +27,10 @@ FULL_STACK_DEFAULTS = {
     'FINDHUB_STORE_POSITION_HISTORY': 'true',
     'SERVER_DISABLE_DOCS': 'false',
     'SERVER_DISABLE_MANAGER': 'false',
-    'TRANSCRIPTION_ENABLED': 'true',
-    'SPEECH_ENABLED': 'true',
+    'TRANSCRIPTION_ENABLED': 'false',
+    'SPEECH_ENABLED': 'false',
     'DICTATION_ENABLED': 'false',
-    'MANAGER_FEATURE_TRANSCRIPTION': 'true',
-    'SPEECH_TRANSCRIPTION_REPLICAS': '1',
+    'MANAGER_FEATURE_TRANSCRIPTION': 'false',
     'SPEECH_GLOBAL_CONCURRENCY': '1',
     'TRANSCRIPTION_PROVIDER': 'local',
 }
@@ -94,11 +93,6 @@ def compose_for(channel):
     )
     services = compose['services']
     services[f'docs-{suffix(channel)}'].pop('ports', None)
-    for name in list(services):
-        if name.startswith('speech-dictation-worker-'):
-            services.pop(name)
-    api = services[f'api-{suffix(channel)}']
-    api['environment']['DICTATION_ENABLED'] = 'false'
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=120)
 
 
@@ -110,6 +104,7 @@ def environment_for(channel):
     header = (
         '# FERSOFT FULL STACK: um compose, um .env e os volumes existentes.\n'
         '# Todos os services opcionais sao selecionados aqui; nao use arquivos auxiliares.\n'
+        '# Transcricao e ditado sao opt-in no servico nativo unico; nenhum provider depende deles.\n'
     )
     text = text.replace(
         '# Duas portas locais publicadas: API e Connect|API DOCs. Manager permanece em /manager.',
@@ -117,64 +112,49 @@ def environment_for(channel):
     )
     text = text.replace(
         '# Para habilitar o worker local, acrescente `transcription` sem remover os perfis existentes.',
-        '# Transcricao usa uma replica; o ditado permanece desativado neste canal.',
+        '# Um servico nativo opcional atende ditado e transcricao com limites de recursos.',
     )
     text = text.replace(
         '# O perfil transcription acompanha o develop quando a transcrição local está ligada.',
-        '# Transcricao usa uma replica; o ditado permanece desativado neste canal.',
+        '# Um servico nativo opcional atende ditado e transcricao com limites de recursos.',
     )
     return header + text
 
 
 def readme():
-    return '''# Deployments Fersoft
+    return """# Deployments Fersoft
 
-Cada diretório (`develop/` e `production/`) contém somente `compose.yaml` e
-`env.example`. Em uma instalação existente, mantenha o `.env` atual e os
-diretórios `./volumes/*`; não copie nem execute auxiliares externos.
+Cada canal contém apenas `compose.yaml` e `env.example`. Preserve o `.env`
+instalado, os segredos, os identificadores e todos os volumes.
 
-A full stack é selecionada pelo próprio `.env`:
+A transcrição e o ditado agora usam somente `transcription-service-fersoft-connect-<canal>`.
+Os workers anteriores não integram mais os manifests, imagens ou dependências novas.
+O perfil `transcription` é opcional e não é incluído por padrão.
+Nenhum envio/recebimento, áudio, vídeo, PTT, chamada ou provider depende do ASR.
 
-```dotenv
-COMPOSE_PROFILES=operations,nats,kafka,mysql,traccar,transcription
-OPERATIONS_ENABLED=true
-NATS_ENABLED=true
-KAFKA_ENABLED=true
-MYSQL_SERVICE_ENABLED=true
-TRACCAR_ENABLED=true
-TRANSCRIPTION_ENABLED=true
-SPEECH_ENABLED=true
-DICTATION_ENABLED=false
-MANAGER_FEATURE_TRANSCRIPTION=true
-SPEECH_TRANSCRIPTION_REPLICAS=1
-SPEECH_GLOBAL_CONCURRENCY=1
-```
+A full stack mantém os perfis `operations,nats,kafka,mysql,traccar` e seus serviços.
+Para habilitar fala, acrescente `transcription` sem remover outros perfis, configure
+`SPEECH_ENABLED`, `TRANSCRIPTION_ENABLED`, `DICTATION_ENABLED` e
+`MANAGER_FEATURE_TRANSCRIPTION` explicitamente, e provisione o modelo nativo com checksum.
+Não copie o exemplo sobre um `.env` instalado. Migre o seletor de motor/modelo antes
+ de habilitar. O antigo modelo Transformers não é reinterpretado como GGML.
 
-Transcrição usa um worker por stack, com perfil `transcription`. O modelo é
-armazenado em `./models`, carregado uma vez por processo e ocupa cerca de 2,5 GiB
-de RSS após iniciar nas amostras do develop. O ditado permanece desativado nos
-dois canais Fersoft e seu serviço não é incluído no Compose.
+O runtime padrão é whisper.cpp/base-q5_1, CPU-only. `SPEECH_SERVICE_MEMORY=1280m`,
+`SPEECH_SERVICE_CPUS=1.00` e `SPEECH_SERVICE_TMPFS_SIZE=128m` são limites, não benchmarks.
+O modelo pode descarregar quando ocioso; `SPEECH_MODEL_KEEP_WARM` e `SPEECH_PREWARM`
+são opt-in. Uma inferência por vez atende as duas modalidades e todas as instâncias.
+O bucket de fala permanece privado e separado do bucket público de mídia.
 
-Em instalações existentes, preserve os segredos, banco, filas, `./models` e
-volumes. Atualize o Compose e as imagens da API e do worker no mesmo canal.
-Edite o `.env` existente para incluir `transcription` em `COMPOSE_PROFILES`,
-ajustar `TRANSCRIPTION_ENABLED=true`, `SPEECH_ENABLED=true`,
-`MANAGER_FEATURE_TRANSCRIPTION=true`, `DICTATION_ENABLED=false`,
-`SPEECH_TRANSCRIPTION_REPLICAS=1`, `SPEECH_GLOBAL_CONCURRENCY=1` e
-`TRANSCRIPTION_WORKER_TMPFS_SIZE=1g`. O `env.example` não altera o `.env`
-instalado. Faça `pull` e `up -d --remove-orphans` no projeto Compose correto;
-isso remove apenas o serviço antigo de ditado, sem apagar volumes.
-Em VPS que hospeda develop e production, reserve memória para dois modelos
-residentes além da API e dos demais serviços antes de ligar os dois perfis.
+Antes da atualização: interrompa novas admissões de fala, drene/cancele os jobs em
+andamento pelos contratos existentes e pare/remova apenas os containers antigos de
+transcrição/ditado do projeto correto. Não apague volumes, banco, filas nem modelos.
+Não use `down -v`. Substitua o Compose, migre somente as variáveis documentadas e
+suba o novo serviço quando o modelo e a imagem correspondente estiverem disponíveis.
+A PR não publica imagens nem altera VPS automaticamente.
 
-Suba ou atualize diretamente pelo Dockge/Compose usando esses dois arquivos.
-O bootstrap do Traccar é incorporado no `compose.yaml`; os demais comportamentos
-de runtime já pertencem às imagens dos services.
-
-O Manager mostra o painel de frota usando somente a API interna do Traccar; não
-cria hostname, porta, service ou arquivo de runtime adicional. A senha e a
-sessão administrativa do Traccar permanecem no servidor.
-'''
+Consulte `docs/guides/optional-transcription-service.md` para a matriz completa,
+ativação offline, limites, retirada seletiva dos containers antigos e rollback Git.
+"""
 
 
 def generate():

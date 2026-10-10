@@ -214,7 +214,10 @@ test('settings validate fixed safe limits and return the refreshed status', asyn
 
 test('at most four reads run concurrently and aborting a client releases its reservation', async t => {
   const waiting = [];
-  const { begin, request } = await server(t, service({ status: () => new Promise(resolve => waiting.push(resolve)) }));
+  const { begin, request } = await server(t, service({ status: signal => new Promise((resolve, reject) => {
+    waiting.push(resolve);
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  }) }));
   const pending = Array.from({ length: 4 }, () => begin('/status'));
   await until(() => waiting.length === 4);
   assert.equal((await request('/status')).status, 429);
@@ -228,13 +231,56 @@ test('at most four reads run concurrently and aborting a client releases its res
   for (const entry of pending.slice(1)) assert.equal((await entry.result).status, 200);
 });
 
+test('disconnecting a history request cancels the backend operation instead of only releasing its slot', async t => {
+  let active = 0;
+  const signals = [];
+  const { begin, request } = await server(t, service({ events(filter, signal) {
+    signals.push(signal);
+    active++;
+    return new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => { active--; reject(signal.reason); }, { once: true });
+    });
+  } }));
+  const reads = Array.from({ length: 4 }, () => begin('/events'));
+  await until(() => signals.length === 4);
+  assert.ok(signals.every(signal => signal instanceof AbortSignal));
+  assert.equal(active, 4);
+  assert.equal((await request('/status')).status, 429);
+  for (const read of reads) read.req.destroy();
+  await Promise.all(reads.map(read => assert.rejects(read.result)));
+  await until(() => active === 0);
+  assert.ok(signals.every(signal => signal.aborted));
+  assert.equal((await request('/status')).status, 200);
+});
+
+test('a disconnected transport keeps its reservation until uninterruptible backend cleanup finishes', async t => {
+  const waiting = [];
+  const { begin, request } = await server(t, service({ status() {
+    if (waiting.length >= 4) return { enabled: true };
+    return new Promise(resolve => waiting.push(resolve));
+  } }));
+  const reads = Array.from({ length: 4 }, () => begin('/status'));
+  await until(() => waiting.length === 4);
+  reads[0].req.destroy();
+  await assert.rejects(reads[0].result);
+  assert.equal((await request('/status')).status, 429, 'closing a socket alone must not admit overlapping backend work');
+  waiting[0]({ enabled: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await request('/status')).status, 200);
+  waiting.slice(1).forEach(resolve => resolve({ enabled: true }));
+  for (const read of reads.slice(1)) assert.equal((await read.result).status, 200);
+});
+
 test('at most two exports run concurrently and abort closes the store iterator', async t => {
   const waiting = [];
   let returned = 0;
-  const fake = service({ exportRecords() {
+  const fake = service({ exportRecords(filter, signal) {
     return {
       [Symbol.asyncIterator]() { return this; },
-      next() { return new Promise(resolve => waiting.push(resolve)); },
+      next() { return new Promise((resolve, reject) => {
+        waiting.push(resolve);
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }); },
       async return() { returned++; return { done: true }; },
     };
   } });
@@ -252,6 +298,34 @@ test('at most two exports run concurrently and abort closes the store iterator',
   assert.equal((await second.result).status, 200);
   assert.equal((await replacement.result).status, 200);
   await until(() => returned === 3);
+});
+
+test('canceling an export before its first matching record closes pending work before any HTTP headers', async t => {
+  let entered = false;
+  let returned = false;
+  let signal;
+  const fake = service({ async *exportRecords(filter, currentSignal) {
+    entered = true;
+    signal = currentSignal;
+    try {
+      await new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+      yield event;
+    } finally {
+      returned = true;
+    }
+  } });
+  const { begin, request } = await server(t, fake);
+  const pending = begin('/export');
+  await until(() => entered);
+  assert.ok(signal instanceof AbortSignal);
+  pending.req.destroy();
+  await assert.rejects(pending.result);
+  await until(() => returned);
+  assert.equal(signal.aborted, true);
+  assert.equal(fake.captured.length, 0, 'a canceled export is not recorded as a successful download');
+  assert.equal((await request('/status')).status, 200);
 });
 
 test('real sanitizer, persistent store and HTTP download preserve correlation without collecting conversations', async t => {

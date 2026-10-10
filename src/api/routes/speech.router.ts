@@ -1,33 +1,25 @@
 import { TranscriptionService, TranscriptionServiceError } from '@api/services/transcription.service';
 import { RequestHandler, Response, Router } from 'express';
-import multer from 'multer';
 
-function uploadLimit(): number {
-  const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
-  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
-}
-
-function dictationLimit(): number {
-  const value = Number.parseInt(process.env.DICTATION_MAX_AUDIO_BYTES || '', 10);
-  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 25 * 1024 * 1024) : 5 * 1024 * 1024;
-}
+import { receiveSpeechUpload, speechUploadFailure } from './speech-upload.middleware';
 
 export class SpeechRouter {
-  public readonly router = Router();
-  private readonly uploadAudio = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: uploadLimit(), files: 1 },
-  });
-  private readonly uploadDictation = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: dictationLimit(), files: 1 },
-  });
+  public readonly router = Router({ mergeParams: true });
 
   constructor(
     private readonly service: TranscriptionService,
     guard: RequestHandler,
   ) {
     this.router.use(guard);
+    this.router.use(async (req: any, res, next) => {
+      try {
+        if (req.params.instanceName)
+          req.speechInstanceId = await this.service.resolveInstanceName(req.params.instanceName);
+        next();
+      } catch (error) {
+        this.fail(error, res);
+      }
+    });
     this.router.get('/live', (_req, res) => res.set('Cache-Control', 'no-store').json({ status: 'alive' }));
     this.router.get('/ready', (req, res) => void this.ready(req, res));
     this.router.get('/health', (req, res) => void this.health(req, res));
@@ -35,8 +27,10 @@ export class SpeechRouter {
     this.router.post('/models/:modelId/activate', (req, res) => void this.activateModel(req, res));
     this.router.post('/models/:modelId/download', (req, res) => void this.downloadModel(req, res));
 
-    this.router.post('/dictation', (req, res) =>
-      this.parseUpload(this.uploadDictation, req, res, () => void this.dictate(req, res)),
+    this.router.post(
+      '/dictation',
+      (req, res) =>
+        void receiveSpeechUpload(this.service, 'dictation', req, res, (filePath) => this.dictate(req, res, filePath)),
     );
     this.router.get('/dictation/:jobId', (req, res) => void this.readDictation(req, res));
     this.router.post('/dictation/:jobId/cancel', (req, res) => void this.cancel(req, res, 'dictation'));
@@ -45,13 +39,19 @@ export class SpeechRouter {
     this.router.post('/transcriptions', (req, res) => {
       const contentType = String(req.headers['content-type'] || '').toLowerCase();
       if (contentType.startsWith('multipart/form-data')) {
-        this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res));
+        void receiveSpeechUpload(this.service, 'transcription', req, res, (filePath) =>
+          this.upload(req, res, filePath),
+        );
       } else {
         void this.createFromMessage(req, res);
       }
     });
-    this.router.post('/transcriptions/upload', (req, res) =>
-      this.parseUpload(this.uploadAudio, req, res, () => void this.upload(req, res)),
+    this.router.post(
+      '/transcriptions/upload',
+      (req, res) =>
+        void receiveSpeechUpload(this.service, 'transcription', req, res, (filePath) =>
+          this.upload(req, res, filePath),
+        ),
     );
     this.router.get('/transcriptions/:jobId', (req, res) => void this.read(req, res));
     this.router.post('/transcriptions/:jobId/cancel', (req, res) => void this.cancel(req, res, 'transcription'));
@@ -59,30 +59,17 @@ export class SpeechRouter {
     this.router.delete('/transcriptions/:jobId', (req, res) => void this.remove(req, res, 'transcription'));
   }
 
-  private parseUpload(middleware: ReturnType<typeof multer>, req: any, res: Response, done: () => void) {
-    middleware.single('audio')(req, res, (error: any) => {
-      if (error) {
-        const status = error?.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
-        res.status(status).json({
-          status,
-          error: status === 413 ? 'O áudio excede o limite configurado.' : 'Upload de áudio inválido.',
-        });
-        return;
-      }
-      done();
-    });
-  }
-
-  private async dictate(req: any, res: Response) {
+  private async dictate(req: any, res: Response, filePath: string) {
     try {
       if (!req.file) throw new TranscriptionServiceError('Grave uma fala antes de iniciar o ditado.', 400);
       const job = await this.service.enqueueDictation({
-        buffer: req.file.buffer,
+        filePath,
+        reservationId: req.speechReservationId,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         language: req.body?.language,
         model: req.body?.model,
-        instanceId: req.body?.instanceId,
+        instanceId: this.uploadInstanceId(req),
         durationMs: req.body?.durationMs,
         idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey,
       });
@@ -92,16 +79,17 @@ export class SpeechRouter {
     }
   }
 
-  private async upload(req: any, res: Response) {
+  private async upload(req: any, res: Response, filePath: string) {
     try {
       if (!req.file) throw new TranscriptionServiceError('Selecione um arquivo de áudio.', 400);
       const job = await this.service.enqueueUpload({
-        buffer: req.file.buffer,
+        filePath,
+        reservationId: req.speechReservationId,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         language: req.body?.language,
         model: req.body?.model,
-        instanceId: req.body?.instanceId,
+        instanceId: this.uploadInstanceId(req),
         idempotencyKey: req.get('Idempotency-Key') || req.body?.idempotencyKey,
       });
       res.status(202).set('Cache-Control', 'no-store').json(job);
@@ -115,7 +103,7 @@ export class SpeechRouter {
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
       const job = await this.service.enqueue({
         messageId: body.messageId,
-        instanceId: body.instanceId,
+        instanceId: this.instanceId(req, body.instanceId),
         language: body.language,
         model: body.model,
         idempotencyKey: req.get('Idempotency-Key') || body.idempotencyKey,
@@ -129,7 +117,7 @@ export class SpeechRouter {
   private async list(req: any, res: Response) {
     try {
       res.set('Cache-Control', 'no-store');
-      res.json(await this.service.list(req.query?.limit, 'transcription'));
+      res.json(await this.service.list(req.query?.limit, 'transcription', req.speechInstanceId));
     } catch (error) {
       this.fail(error, res);
     }
@@ -138,7 +126,7 @@ export class SpeechRouter {
   private async read(req: any, res: Response) {
     try {
       res.set('Cache-Control', 'no-store');
-      const job = await this.service.get(req.params.jobId);
+      const job = await this.service.get(req.params.jobId, req.speechInstanceId);
       if (job.mode !== 'transcription') throw new TranscriptionServiceError('Transcrição não encontrada.', 404);
       res.json(job);
     } catch (error) {
@@ -149,7 +137,7 @@ export class SpeechRouter {
   private async readDictation(req: any, res: Response) {
     try {
       res.set('Cache-Control', 'no-store');
-      const job = await this.service.get(req.params.jobId);
+      const job = await this.service.get(req.params.jobId, req.speechInstanceId);
       if (job.mode !== 'dictation') throw new TranscriptionServiceError('Ditado não encontrado.', 404);
       res.json(job);
     } catch (error) {
@@ -160,10 +148,10 @@ export class SpeechRouter {
   private async cancel(req: any, res: Response, mode?: 'dictation' | 'transcription') {
     try {
       res.set('Cache-Control', 'no-store');
-      if (mode && (await this.service.get(req.params.jobId)).mode !== mode) {
+      if (mode && (await this.service.get(req.params.jobId, req.speechInstanceId)).mode !== mode) {
         throw new TranscriptionServiceError('Job de voz não encontrado.', 404);
       }
-      res.json(await this.service.cancel(req.params.jobId));
+      res.json(await this.service.cancel(req.params.jobId, req.speechInstanceId));
     } catch (error) {
       this.fail(error, res);
     }
@@ -171,10 +159,10 @@ export class SpeechRouter {
 
   private async retry(req: any, res: Response, mode: 'transcription' = 'transcription') {
     try {
-      if ((await this.service.get(req.params.jobId)).mode !== mode) {
+      if ((await this.service.get(req.params.jobId, req.speechInstanceId)).mode !== mode) {
         throw new TranscriptionServiceError('Transcrição não encontrada.', 404);
       }
-      res.status(202).json(await this.service.retry(req.params.jobId));
+      res.status(202).json(await this.service.retry(req.params.jobId, req.speechInstanceId));
     } catch (error) {
       this.fail(error, res);
     }
@@ -183,19 +171,28 @@ export class SpeechRouter {
   private async remove(req: any, res: Response, mode: 'transcription' = 'transcription') {
     try {
       res.set('Cache-Control', 'no-store');
-      if ((await this.service.get(req.params.jobId)).mode !== mode) {
+      if ((await this.service.get(req.params.jobId, req.speechInstanceId)).mode !== mode) {
         throw new TranscriptionServiceError('Transcrição não encontrada.', 404);
       }
-      res.json(await this.service.delete(req.params.jobId));
+      res.json(await this.service.delete(req.params.jobId, req.speechInstanceId));
     } catch (error) {
       this.fail(error, res);
     }
   }
 
-  private async ready(_req: any, res: Response) {
+  private async ready(req: any, res: Response) {
     try {
-      const health = await this.service.health();
-      const ready = health.enabled && (health.workerReady || health.dictationWorkerReady);
+      const health = await this.service.health(req.speechInstanceId);
+      const requestedMode = String(req.query?.mode || 'all');
+      if (!['all', 'dictation', 'transcription'].includes(requestedMode))
+        throw new TranscriptionServiceError('mode inválido.', 400);
+      const ready =
+        health.enabled &&
+        (requestedMode === 'dictation'
+          ? health.dictationWorkerReady
+          : requestedMode === 'transcription'
+            ? health.workerReady
+            : health.workerReady && (!this.service.isDictationEnabled() || health.dictationWorkerReady));
       res
         .set('Cache-Control', 'no-store')
         .status(ready ? 200 : 503)
@@ -205,17 +202,20 @@ export class SpeechRouter {
     }
   }
 
-  private async health(_req: any, res: Response) {
+  private async health(req: any, res: Response) {
     try {
-      res.set('Cache-Control', 'no-store').json(await this.service.health());
+      res.set('Cache-Control', 'no-store').json(await this.service.health(req.speechInstanceId));
     } catch (error) {
       this.fail(error, res);
     }
   }
 
-  private async models(_req: any, res: Response) {
+  private async models(req: any, res: Response) {
     try {
-      const [health, modelDownload] = await Promise.all([this.service.health(), this.service.modelDownloadStatus()]);
+      const [health, modelDownload] = await Promise.all([
+        this.service.health(req.speechInstanceId),
+        this.service.modelDownloadStatus(),
+      ]);
       const id = String(health.model || 'Xenova/whisper-small');
       res.set('Cache-Control', 'no-store').json({
         provider: health.provider,
@@ -244,7 +244,8 @@ export class SpeechRouter {
 
   private async activateModel(req: any, res: Response) {
     try {
-      const health = await this.service.health();
+      this.requireAdministration(req);
+      const health = await this.service.health(req.speechInstanceId);
       if (String(req.params.modelId) !== String(health.model)) {
         throw new TranscriptionServiceError(
           'Somente o modelo já configurado e provisionado pode ser ativado. Altere SPEECH_MODEL e reinicie os workers.',
@@ -261,7 +262,8 @@ export class SpeechRouter {
 
   private async downloadModel(req: any, res: Response) {
     try {
-      const status = await this.service.downloadModel(String(req.params.modelId || ''));
+      this.requireAdministration(req);
+      const status = await this.service.downloadModel(String(req.params.modelId || ''), req.body?.force === true);
       res
         .set('Cache-Control', 'no-store')
         .status(status.installed ? 200 : 202)
@@ -271,12 +273,32 @@ export class SpeechRouter {
     }
   }
 
+  private uploadInstanceId(req: any): string | undefined {
+    const admitted = req.speechUploadInstanceId;
+    if (req.body?.instanceId && String(req.body.instanceId) !== String(admitted || '')) {
+      throw new TranscriptionServiceError(
+        'Para associar o upload a uma instância, use a rota /instances/:instanceName ou X-Speech-Instance-Id antes do corpo.',
+        400,
+      );
+    }
+    return admitted;
+  }
+
+  private instanceId(req: any, supplied?: unknown): string | undefined {
+    if (req.speechInstanceId) {
+      if (supplied && String(supplied) !== req.speechInstanceId)
+        throw new TranscriptionServiceError('O escopo informado diverge da instância autenticada.', 403);
+      return req.speechInstanceId;
+    }
+    return supplied ? String(supplied) : undefined;
+  }
+
+  private requireAdministration(req: any) {
+    if (req.speechInstanceId)
+      throw new TranscriptionServiceError('A administração de modelos exige a credencial global.', 403);
+  }
+
   private fail(error: unknown, res: Response) {
-    const known = error instanceof TranscriptionServiceError;
-    const status = known ? error.status : 503;
-    res.status(status).json({
-      status,
-      error: known ? error.message : 'Serviço de voz temporariamente indisponível.',
-    });
+    speechUploadFailure(error, res);
   }
 }

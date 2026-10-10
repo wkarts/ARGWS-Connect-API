@@ -12,6 +12,10 @@ O Manager oferece **Sistema → Diagnóstico** (`/diagnostico`). A coleta começ
 
 O download começa com um manifesto (versão da API, instante da exportação, filtros, estado do armazenamento e contadores) e continua com um evento JSON por linha. IDs e horários permitem correlacionar os eventos entre duas instalações. Relógios dos servidores devem estar sincronizados para comparar tempos; o `callId` também permite cruzar as duas pontas sem depender da ordem dos relógios.
 
+**Baixar diagnóstico** permanece disponível enquanto a tabela carrega ou depois de uma falha na consulta. Ele usa o período e os filtros aplicados, sem depender dos eventos já exibidos. A tabela e os indicadores de armazenamento são atualizados separadamente; cada um informa seu próprio horário. Quando uma atualização do armazenamento falha, o último indicador válido fica identificado como consulta anterior.
+
+O Manager limita cada consulta a 20 segundos e cada download a dois minutos. **Aplicar filtros** pode substituir uma consulta pendente, e **Cancelar download** interrompe a exportação atual. A atualização automática pausa durante o download e enquanto uma consulta anterior está pendente. Em um servidor lento, reduza o período ou baixe o diagnóstico diretamente; uma consulta que excede o prazo não exige recarregar a página inteira.
+
 ## Diagnosticar atendimento API → API
 
 Reproduza uma única chamada e baixe o mesmo intervalo nas duas instalações. Use a categoria **Chamadas** e o mesmo `callId`, ou exporte todas as categorias para incluir HTTP, webhooks e erros associados.
@@ -60,6 +64,12 @@ Erros do frontend têm limite local de 6/minuto e limite adicional no servidor. 
 Na indisponibilidade do disco, o armazenamento mantém uma reserva limitada em memória, exportável enquanto o processo estiver ativo, e sinaliza degradação. Essa reserva não é durável. A criação/reinicialização do container preserva o histórico somente se o volume existente estiver montado. Um encerramento abrupto pode perder eventos ainda na fila; os segmentos já publicados são recuperados na inicialização. Corrupção é sinalizada e linhas válidas continuam legíveis.
 
 Consultas e downloads são limitados a quatro leitores simultâneos, com no máximo duas exportações; o cancelamento do download libera o leitor. O servidor transmite o arquivo em fluxo, sem juntar todo o histórico em memória. O navegador prepara um Blob para o download, limitado pelo volume de retenção configurado.
+
+A consulta paginada usa os horários, níveis e categorias de cada segmento para descartar arquivos incompatíveis com o filtro. Ela começa pelos segmentos mais recentes e encerra a leitura quando os registros da página e a existência da próxima página estão determinados. Horários iguais e eventos gravados fora de ordem continuam comparados pelo cursor existente. A exportação percorre todo o intervalo filtrado, preservando o formato e os registros, inclusive aqueles que a tabela ainda não carregou.
+
+O cancelamento HTTP é propagado até a leitura dos segmentos. Desconectar o navegador não deixa uma varredura antiga percorrendo o histórico; abortar uma consulta também não é registrado como corrupção de disco. A manutenção compartilhada do armazenamento permanece responsável pela gravação e retenção.
+
+`runtime.sample` descreve somente o processo da API. `cpuUserMicros` e `cpuSystemMicros` são acumulados; compare suas diferenças com a diferença de `uptimeSeconds` para estimar a CPU média entre amostras. `eventLoopDelayMs` é o maior atraso observado desde a amostra anterior, normalmente um minuto, e não a latência de todas as requisições. Esses valores não medem a memória ou CPU total dos workers, do RabbitMQ ou da VPS.
 
 ## API administrativa
 

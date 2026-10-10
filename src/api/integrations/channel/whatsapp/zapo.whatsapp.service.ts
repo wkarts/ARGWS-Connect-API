@@ -874,7 +874,7 @@ export class ZapoStartupService extends ChannelStartupService {
     });
 
     this.client.on('message', (event: any) => {
-      void this.handleIncomingMessage(event);
+      void this.handleIncomingMessage(event).catch((error: Error) => this.logger.error(error));
     });
 
     this.client.on('history_sync_chunk', (event: any) => {
@@ -1344,11 +1344,19 @@ export class ZapoStartupService extends ChannelStartupService {
     if (known) this.groupIdentities.invalidate(jid);
     const info = known || await this.groupIdentities.resolve(jid);
     if (info && this.persistedGroups.get(jid) === info) return;
-    await this.prismaRepository.chat.upsert({
+    const chatUpsert = {
       where: { instanceId_remoteJid: { instanceId: this.instanceId, remoteJid: jid } },
       update: info?.subject ? { name: info.subject } : {},
       create: { instanceId: this.instanceId, remoteJid: jid, name: info?.subject || 'Grupo WhatsApp' },
-    });
+    };
+    try {
+      await this.prismaRepository.chat.upsert(chatUpsert);
+    } catch (error) {
+      // An empty update can make Prisma read before creating the chat. Retry only
+      // this row write after a concurrent create; never replay the incoming message.
+      if (error?.code !== 'P2002') throw error;
+      await this.prismaRepository.chat.upsert(chatUpsert);
+    }
     if (info && db.SAVE_DATA.CONTACTS) {
       // Existing group avatar cache, never a participant's pushName.
       await this.prismaRepository.contact.upsert({

@@ -75,3 +75,17 @@ sincroniza somente templates versionados. CI usa `--check`, sem modificar
 instalações. Ele não é entregue nem necessário no host de deployment.
 
 Validação: preparação nova e atualização idempotente, preservação de credenciais/perfis/volumes, rejeição de configuração inconsistente, Compose com perfil ativado/desativado, autorização de estatísticas, agregação ponderada, privacidade, fuso, arquivos compactados e estados sem dados.
+
+A CI gera `Connect-API-Deployments-Operations.zip` com
+`scripts/package-operations-deployments.py`, tanto em PRs quanto em pushes. O
+empacotador exclui `.env`, arquivos `.lock`, caches Python e volumes; recusa links
+simbólicos; verifica o CRC do ZIP e compara cada entrada com os arquivos de
+origem. O log e o resumo da execução registram o commit, SHA-256 do ZIP e um
+inventário dos arquivos com tamanho e SHA-256. Falhas de integridade interrompem
+o job.
+
+Em PRs, os arquivos são gerados e verificados no runner e a evidência fica no log
+e no resumo, sem upload para o armazenamento de artefatos. Em pushes para
+`develop`/`main`, o upload do pacote continua obrigatório, com retenção de sete
+dias. Assim, a validação da PR não depende da quota de armazenamento; falta de
+quota em um fluxo que distribui arquivos continua sendo uma falha de entrega.

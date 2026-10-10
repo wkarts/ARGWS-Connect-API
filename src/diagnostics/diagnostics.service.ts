@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 import { diagnosticContext } from './diagnostic-context';
 import { sanitizeDiagnostic } from './diagnostic-sanitizer';
@@ -10,6 +11,7 @@ export class DiagnosticsService {
   private readonly startedAt = new Date().toISOString();
   private started?: Promise<void>;
   private sampleTimer?: ReturnType<typeof setInterval>;
+  private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
   private version = 'unknown';
 
   constructor(private readonly store: DiagnosticStore) {}
@@ -22,6 +24,7 @@ export class DiagnosticsService {
 
   private async initialize(): Promise<void> {
     await this.store.init();
+    this.eventLoopDelay.enable();
     this.record({
       code: 'runtime.started',
       version: this.version,
@@ -45,7 +48,9 @@ export class DiagnosticsService {
       externalBytes: memory.external,
       cpuUserMicros: cpu.user,
       cpuSystemMicros: cpu.system,
+      eventLoopDelayMs: Math.round((this.eventLoopDelay.max / 1e6) * 100) / 100,
     });
+    this.eventLoopDelay.reset();
   }
 
   record(input: any): void {
@@ -75,9 +80,9 @@ export class DiagnosticsService {
     }
   }
 
-  async status() {
+  async status(signal?: AbortSignal) {
     return {
-      ...(await this.store.snapshot()),
+      ...(await this.store.snapshot(signal)),
       schemaVersion: 1,
       service: 'ARGWS Connect API',
       version: this.version,
@@ -86,11 +91,11 @@ export class DiagnosticsService {
     };
   }
 
-  events(filter: DiagnosticFilter) {
-    return this.store.query(filter);
+  events(filter: DiagnosticFilter, signal?: AbortSignal) {
+    return this.store.query(filter, signal);
   }
-  exportRecords(filter: DiagnosticFilter) {
-    return this.store.exportRecords(filter);
+  exportRecords(filter: DiagnosticFilter, signal?: AbortSignal) {
+    return this.store.exportRecords(filter, signal);
   }
   async settings(input: { retentionDays?: number; maxDiskMB?: number }) {
     const settings = await this.store.updateSettings(input);
@@ -106,6 +111,7 @@ export class DiagnosticsService {
   }
   async stop() {
     clearInterval(this.sampleTimer);
+    this.eventLoopDelay.disable();
     await this.flush();
   }
 }

@@ -448,11 +448,37 @@ model Media {
 }
 model TranscriptionJob {
   id                String    @id @default(cuid())
+  protocolVersion   Int       @default(2) @db.Int
+  poolId            String    @default("argws_connect") @db.VarChar(100)
+  scopeKey          String    @default("admin:global") @db.VarChar(160)
+  dedupKey          String    @unique @db.VarChar(64)
+  idempotencyHash   String?   @unique @db.VarChar(64)
+  generation        Int       @default(1) @db.Int
+  executionId       String?   @db.VarChar(64)
+  leaseExpiresAt    DateTime? @db.Timestamp(0)
+  deadlineAt        DateTime? @db.Timestamp(0)
+  controlHeartbeatAt DateTime? @db.Timestamp(0)
+  engineProgressAt  DateTime? @db.Timestamp(0)
+  cancelRequestedAt DateTime? @db.Timestamp(0)
+  sourceDeletionToken String? @db.VarChar(64)
+  sourceDeletionStartedAt DateTime? @db.Timestamp(3)
+  sourceDeletedAt   DateTime? @db.Timestamp(0)
+  sourceExpiresAt   DateTime? @db.Timestamp(0)
+  checkpoint        Json?     @db.Json
+  requestedEngine   String?   @db.VarChar(32)
+  requestedRevision String?   @db.VarChar(128)
+  requestedModel    String?   @db.VarChar(100)
+  effectiveModel    String?   @db.VarChar(100)
+  engine            String?   @db.VarChar(32)
+  modelRevision     String?   @db.VarChar(128)
+  reservedBytes     Int       @default(0) @db.Int
+  reservedDurationMs Int      @default(0) @db.Int
   workerId          String?   @db.VarChar(128)
   instanceId        String?
   messageId         String?
   mode              String    @default("transcription") @db.VarChar(20)
   sourceType        String    @default("upload") @db.VarChar(24)
+  sourceBucket      String?   @db.VarChar(63)
   sourceKey         String    @db.VarChar(500)
   sourceMimeType    String    @db.VarChar(100)
   originalFilename  String?   @db.VarChar(255)
@@ -485,9 +511,68 @@ model TranscriptionJob {
   @@index([instanceId, createdAt])
   @@index([messageId])
   @@index([mode, status, createdAt])
-  @@unique([instanceId, mode, audioHash, model, language])
-  @@unique([instanceId, mode, idempotencyKey])
+  @@index([poolId, status, leaseExpiresAt])
+  @@index([poolId, scopeKey, status])
+  @@index([sourceExpiresAt, sourceDeletedAt])
+  @@index([sourceKey])
+  @@index([poolId, sourceDeletedAt, completedAt])
 }
+
+// One locked row serializes quota admission and claims across API replicas.
+model SpeechPool {
+  id        String   @id @db.VarChar(100)
+  revision  Int      @default(0) @db.Int
+  createdAt DateTime @default(now()) @db.Timestamp(0)
+  updatedAt DateTime @updatedAt @db.Timestamp(0)
+}
+
+model SpeechUploadReservation {
+  id            String   @id @db.VarChar(64)
+  poolId        String   @db.VarChar(100)
+  scopeKey      String   @db.VarChar(160)
+  reservedBytes Int      @db.Int
+  sourceBucket  String?  @db.VarChar(63)
+  sourceKey     String?  @db.VarChar(500)
+  expiresAt     DateTime @db.Timestamp(0)
+  createdAt     DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([poolId, expiresAt])
+  @@index([poolId, scopeKey, expiresAt])
+}
+
+model SpeechOutbox {
+  id            String    @id @db.VarChar(64)
+  jobId         String    @db.VarChar(191)
+  poolId        String    @db.VarChar(100)
+  mode          String    @db.VarChar(20)
+  generation    Int       @db.Int
+  payload       Json      @db.Json
+  status        String    @default("pending") @db.VarChar(20)
+  availableAt   DateTime  @db.Timestamp(0)
+  dispatchToken String?   @db.VarChar(64)
+  lockedUntil   DateTime? @db.Timestamp(0)
+  attempts      Int       @default(0) @db.Int
+  lastError     String?   @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @db.Timestamp(0)
+  publishedAt   DateTime? @db.Timestamp(0)
+
+  @@unique([jobId, generation])
+  @@index([poolId, status, availableAt])
+  @@index([status, publishedAt])
+}
+
+model SpeechWorker {
+  id          String   @id @db.VarChar(128)
+  poolId      String   @db.VarChar(100)
+  modes       Json     @db.Json
+  health      Json     @db.Json
+  heartbeatAt DateTime @db.Timestamp(0)
+  createdAt   DateTime @default(now()) @db.Timestamp(0)
+  updatedAt   DateTime @updatedAt @db.Timestamp(0)
+
+  @@index([poolId, heartbeatAt])
+}
+
 
 
 model OpenaiCreds {

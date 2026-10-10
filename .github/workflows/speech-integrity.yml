@@ -1,0 +1,282 @@
+name: Speech Integrity
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  contracts:
+    name: Speech contracts, worker and Manager
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      DATABASE_PROVIDER: postgresql
+      RABBITMQ_TEST_REQUIRE_COMPOSE: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            transcription-service/package-lock.json
+      - name: Install locked API and worker dependencies plus the Manager toolchain
+        run: |
+          npm ci
+          npm ci --prefix transcription-service --omit=dev --no-audit --no-fund
+          npm install --prefix manager --ignore-scripts --no-audit --no-fund
+          npm run db:generate
+      - name: Install bounded-audio and Compose test dependencies
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          speech_test_packages=()
+          if ! ffmpeg -version >/dev/null 2>&1 || ! ffprobe -version >/dev/null 2>&1; then
+            speech_test_packages+=(ffmpeg)
+          fi
+          if ! python3 -c 'import yaml; assert yaml.safe_load("speech: true") == {"speech": True}' >/dev/null 2>&1; then
+            speech_test_packages+=(python3-yaml)
+          fi
+          if (( ${#speech_test_packages[@]} > 0 )); then
+            speech_apt_options=(
+              -o Acquire::Retries=1
+              -o Acquire::http::Timeout=20
+              -o Acquire::https::Timeout=20
+              -o DPkg::Lock::Timeout=30
+            )
+            sudo apt-get "${speech_apt_options[@]}" -o APT::Update::Error-Mode=any update
+            sudo apt-get "${speech_apt_options[@]}" install -y --no-install-recommends "${speech_test_packages[@]}"
+          fi
+          ffmpeg -version >/dev/null
+          ffprobe -version >/dev/null
+          python3 -c 'import yaml; assert yaml.safe_load("speech: true") == {"speech": True}; print("PyYAML ready")'
+      - name: Test speech execution and durable service contracts
+        run: |
+          npm test --prefix transcription-service
+          node --test test/event-manager-startup.test.cjs
+          node --test test/speech-ci-evidence.test.cjs
+          node --import tsx --test test/transcription-service.test.ts test/speech-model-download.test.ts test/speech-source-storage.test.ts
+      - name: Validate ten deployment contracts and deployer
+        run: |
+          python3 test/compose-env-only-deployments.test.py
+          python3 test/rabbitmq-startup-deployments.test.py
+          python3 test/connect-startup-diagnose.test.py
+          node --test tools/connect-deployer/test/index.test.cjs
+      - name: Validate Manager progress, deadlines and compilation
+        run: |
+          node --test manager/scripts/speech-status.test.mjs
+          npm run test:diagnostics --prefix manager
+          npm run check:sfc --prefix manager
+          npm run check:language --prefix manager
+          npm run build --prefix manager
+      - name: Verify generated public contracts
+        run: npm run docs:check
+
+  native:
+    name: Real native recognition / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Authenticate the read-only runtime base pull
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve immutable CPU runtime base
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/${{ github.repository_owner }}/argws-connect-node:22-bookworm-slim
+          runtime_base=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/${{ github.repository_owner }}/argws-connect-node:22-bookworm-slim)
+          echo "image=${runtime_base}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./transcription-service
+          file: ./transcription-service/Dockerfile
+          load: true
+          tags: speech-native:${{ matrix.arch }}
+          platforms: linux/${{ matrix.arch }}
+          build-args: NODE_IMAGE=${{ steps.base.outputs.image }}
+          cache-from: type=gha,scope=speech-native-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=speech-native-${{ matrix.arch }}
+      - uses: ./.github/actions/speech-native-smoke
+        with:
+          image: speech-native:${{ matrix.arch }}
+          upload_artifacts: ${{ github.event_name != 'pull_request' }}
+
+  durable:
+    name: Durable speech / ${{ matrix.provider }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: postgresql
+            database_url: postgresql://speech:speech_test_password@127.0.0.1:55432/speech_test?schema=public
+          - provider: mysql
+            database_url: mysql://speech:speech_test_password@127.0.0.1:53306/speech_test
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: speech
+          POSTGRES_PASSWORD: speech_test_password
+          POSTGRES_DB: speech_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd "pg_isready -U speech -d speech_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_test_password
+          MYSQL_USER: speech
+          MYSQL_PASSWORD: speech_test_password
+          MYSQL_DATABASE: speech_test
+        ports: ['53306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u root -proot_test_password"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      DATABASE_PROVIDER: ${{ matrix.provider }}
+      DATABASE_CONNECTION_URI: ${{ matrix.database_url }}
+      SPEECH_TEST_DATABASE_URL: ${{ matrix.database_url }}
+      SPEECH_TEST_RABBITMQ_URI: amqp://speech:speech_test_password@127.0.0.1:5673/
+      SPEECH_TEST_S3_ENDPOINT: 127.0.0.1
+      SPEECH_TEST_S3_PORT: '19000'
+      SPEECH_TEST_S3_ACCESS_KEY: speech_test
+      SPEECH_TEST_S3_SECRET_KEY: speech_test_password
+      SPEECH_MIGRATION_BASE_SHA: c6fdfe387df01c548db9052eee87cf49d353e6c3
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Authenticate the read-only storage test image pull
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Start disposable storage from the deployment mirror by digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/${{ github.repository_owner }}/argws-connect-minio:latest
+          storage_image=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/${{ github.repository_owner }}/argws-connect-minio:latest)
+          docker run --detach --name speech-storage-test \
+            --publish 127.0.0.1:19000:9000 \
+            --env MINIO_ROOT_USER=speech_test \
+            --env MINIO_ROOT_PASSWORD=speech_test_password \
+            "${storage_image}" server /data
+      - name: Validate RabbitMQ startup and persistent recreation from the deployment mirror
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp deploy/develop/env.example deploy/develop/.env
+          docker pull ghcr.io/${{ github.repository_owner }}/argws-connect-rabbitmq:management
+          export SPEECH_TEST_RABBITMQ_IMAGE
+          SPEECH_TEST_RABBITMQ_IMAGE=$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/${{ github.repository_owner }}/argws-connect-rabbitmq:management)
+          node .github/scripts/test-rabbitmq-startup.cjs
+      - name: Upgrade the fixed migration history without introducing schema drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          speech_baseline_root="${RUNNER_TEMP}/speech-${DATABASE_PROVIDER}-baseline"
+          speech_current_schema="prisma/${DATABASE_PROVIDER}-schema.prisma"
+          speech_upgrade_sql="prisma/${DATABASE_PROVIDER}-migrations/20261007193000_speech_durable_pool/migration.sql"
+          mkdir -p "${speech_baseline_root}"
+          git archive "${SPEECH_MIGRATION_BASE_SHA}" \
+            "${speech_current_schema}" "prisma/${DATABASE_PROVIDER}-migrations" \
+            | tar -x -C "${speech_baseline_root}"
+          speech_baseline_schema="${speech_baseline_root}/${speech_current_schema}"
+          mv "${speech_baseline_root}/prisma/${DATABASE_PROVIDER}-migrations" \
+            "${speech_baseline_root}/prisma/migrations"
+          test -s "${speech_baseline_schema}"
+          test -s "${speech_upgrade_sql}"
+          # Reproduce a deployed base through its immutable migration history.
+          # db push cannot recreate the inherited MySQL @default(now()) @db.Timestamp
+          # fields: Prisma renders a fractional CURRENT_TIMESTAMP against TIMESTAMP(0).
+          # Record inherited drift, then require exactly the same SQL after this upgrade.
+          # A drift-free base must remain drift-free; no speech or unrelated drift is ignored.
+          npx --no-install prisma migrate deploy --schema "${speech_baseline_schema}"
+          npx --no-install prisma migrate diff \
+            --from-schema-datasource "${speech_baseline_schema}" \
+            --to-schema-datamodel "${speech_baseline_schema}" \
+            --script --output "${speech_baseline_root}/drift-before.sql"
+          npx --no-install prisma db execute --schema "${speech_baseline_schema}" --file "${speech_upgrade_sql}"
+          npx --no-install prisma migrate diff \
+            --from-schema-datasource "${speech_baseline_schema}" \
+            --to-schema-datamodel "${speech_current_schema}" \
+            --script --output "${speech_baseline_root}/drift-after.sql"
+          diff --unified "${speech_baseline_root}/drift-before.sql" "${speech_baseline_root}/drift-after.sql"
+      - name: Generate the current provider client after the upgrade gate
+        run: |
+          npm run db:generate
+      - name: Exercise claims, fencing, outbox, redelivery and cancellation
+        run: node --import tsx --test test/speech-durable.integration.test.ts
+      - name: Verify stable legacy speech connections and exclusive handoff
+        if: matrix.provider == 'postgresql'
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          test -n "${SPEECH_TEST_RABBITMQ_URI}"
+          npm ci --prefix transcription-service --omit=dev --no-audit --no-fund
+          node --test transcription-service/test/legacy-residency-integration.test.cjs
+      - name: Reject anonymous reads and public buckets for new speech sources
+        run: node --import tsx --test test/speech-storage.integration.test.ts
+      - name: Record complete RabbitMQ evidence in the job log and summary
+        if: always()
+        env:
+          SPEECH_EVIDENCE_UPLOAD_ARTIFACTS: ${{ github.event_name != 'pull_request' }}
+          SPEECH_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node .github/scripts/preserve-speech-evidence.cjs rabbitmq
+      - name: Preserve RabbitMQ startup, memory and persistence evidence
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rabbitmq-startup-${{ matrix.provider }}
+          path: |
+            ${{ runner.temp }}/speech-rabbit-ci-${{ matrix.provider }}-${{ github.run_id }}/report.json
+            ${{ runner.temp }}/speech-rabbit-ci-${{ matrix.provider }}-${{ github.run_id }}/rabbitmq.log
+          retention-days: 7
+          if-no-files-found: error
+      - name: Remove the disposable RabbitMQ test resources
+        if: always()
+        run: node .github/scripts/test-rabbitmq-startup.cjs --cleanup
+      - name: Remove disposable storage
+        if: always()
+        run: docker rm --force speech-storage-test || true

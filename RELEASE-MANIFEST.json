@@ -12,7 +12,7 @@
     "application_images": [
       "ghcr.io/wkarts/argws-connect-api",
       "ghcr.io/wkarts/argws-connect-manager",
-      "ghcr.io/wkarts/argws-connect-transcription-worker"
+      "ghcr.io/wkarts/connect-transcription-service"
     ],
     "infrastructure_images": [
       "ghcr.io/wkarts/argws-connect-node:24-alpine",

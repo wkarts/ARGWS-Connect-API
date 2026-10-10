@@ -1,0 +1,8 @@
+# Optional override for templates whose service is named transcription-service
+# (root, Docker development, CloudPanel, Dockge and homologation).
+# Named channel/Fersoft templates already read the same SPEECH_CGROUP_PARENT
+# directly; set it in each installation .env instead of adding a new service.
+# Requires a cgroup parent created on the host; this file does not create one.
+services:
+  transcription-service:
+    cgroup_parent: ${SPEECH_CGROUP_PARENT:?Set the common speech cgroup parent on this host}
