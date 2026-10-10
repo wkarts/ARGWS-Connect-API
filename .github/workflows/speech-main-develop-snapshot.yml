@@ -1,43 +1,78 @@
-name: Check develop to main merge conflicts
+name: Reconcile main release policy into develop
 on:
   push:
     branches: [work/speech-promotion-review-20261010]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  conflicts:
+  resolve:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5
+          ref: fix/sync-main-to-develop-for-release-20261010
           fetch-depth: 0
-          persist-credentials: false
-      - name: Inventory differences without changing develop/main
+      - name: Reconcile main into develop with explicit conflict policy
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin cc9ffbd2663d2f23ec21e4d853b2788fa703b249
-          git config user.name 'CI conflict review'
-          git config user.email 'ci-review@example.invalid'
+          test "$(git rev-parse HEAD)" = d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = cc9ffbd2663d2f23ec21e4d853b2788fa703b249
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           set +e
-          git merge --no-commit --no-ff --no-edit cc9ffbd2663d2f23ec21e4d853b2788fa703b249 > /tmp/merge-output.txt 2>&1
-          code=$?
+          git merge --no-commit --no-ff origin/main
+          status=$?
           set -e
-          mkdir -p /tmp/merge-report
-          cat /tmp/merge-output.txt
-          git diff --name-only --diff-filter=U | tee /tmp/merge-report/conflicts.txt
-          git ls-files -u | awk '{print $4}' | sort -u > /tmp/merge-report/unmerged-files.txt
-          git status --short > /tmp/merge-report/status.txt
-          echo "git-merge-exit=$code" >> /tmp/merge-report/result.txt
-          echo "unmerged-count=$(wc -l < /tmp/merge-report/unmerged-files.txt)" >> /tmp/merge-report/result.txt
-          echo "base-develop=d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5" >> /tmp/merge-report/result.txt
-          echo "base-main=cc9ffbd2663d2f23ec21e4d853b2788fa703b249" >> /tmp/merge-report/result.txt
-          git merge --abort || true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: develop-main-merge-conflicts
-          path: /tmp/merge-report/
-          retention-days: 2
-          if-no-files-found: error
+          echo "Merge state=$status"
+          mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+          printf 'Conflicts: %s\n' "${conflicts[*]}"
+          if [ "${#conflicts[@]}" -gt 0 ]; then
+            for file in "${conflicts[@]}"; do
+              case "$file" in
+                env.example|.env.example|deploy/*/env.example|deploy/*/.env.example|deploy/fersoft/*/env.example|docs/guides/speech-worker-diagnostics.md)
+                  # The develop examples disable speech by default and already include the RabbitMQ healthcheck parameters.
+                  git checkout --ours -- "$file"
+                  git add -- "$file"
+                  ;;
+                *)
+                  echo "Unexpected conflict, refusing speculative resolution: $file" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+          fi
+          test -z "$(git ls-files -u)"
+          test -f .github/RELEASE_HOLD.md
+          test -f .github/scripts/release-publication-policy.py
+          test -f test/release-publication-policy.test.py
+          test -f transcription-service/Dockerfile
+          test ! -d transcription-worker
+          grep -Fq 'needs.validate.outputs.publish' .github/workflows/auto-version-release.yml
+          grep -Fq 'release-publication-policy.py' .github/workflows/auto-version-release.yml
+          grep -Fq 'component: [api, manager, docs, transcription-service]' .github/workflows/auto-version-release.yml
+          ! grep -Fq 'transcription-worker' .github/workflows/auto-version-release.yml
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          names=['.env.example','env.example','deploy/production/env.example',
+            'deploy/develop/env.example','deploy/fersoft/production/env.example','deploy/fersoft/develop/env.example']
+          for p in names:
+              s=Path(p).read_text()
+              vals=dict(re.findall(r'^([A-Z_]+)=(.*)$',s,re.M))
+              for k in ('SPEECH_ENABLED','TRANSCRIPTION_ENABLED','DICTATION_ENABLED','MANAGER_FEATURE_TRANSCRIPTION'):
+                  assert vals.get(k)=='false',(p,k,vals.get(k))
+              assert 'transcription' not in vals.get('COMPOSE_PROFILES','').split(','),p
+              assert vals.get('RABBITMQ_HEALTHCHECK_CONNECT_TIMEOUT')=='2',p
+          PY
+          python3 test/rabbitmq-healthcheck.test.py
+          python3 test/speech-service-deployment.test.py
+          python3 test/release-publication-policy.test.py
+          python3 scripts/sync-fersoft-deployments.py --check
+          git diff --cached --check
+          git status --short
+          git commit -m "chore(release): reconcile main guards with native speech develop"
+          test "$(git show -s --format=%P HEAD | wc -w)" = 2
+          git push origin HEAD:fix/sync-main-to-develop-for-release-20261010
