@@ -74,7 +74,7 @@ jobs:
           git add -u
           python3 - <<'PY'
           import subprocess
-          candidates=subprocess.check_output(['git','ls-files','--others','--exclude-standard','-z']).decode().split('\\0')
+          candidates=subprocess.check_output(['git','ls-files','--others','--exclude-standard','-z']).decode().split('\0')
           prefixes=('transcription-service/','deploy/speech/','test/helpers/','test/fixtures/speech-protected-deployments.json',
             'prisma/mysql-migrations/20261007193000_speech_durable_pool/','prisma/postgresql-migrations/20261007193000_speech_durable_pool/',
             'src/api/routes/speech-upload.middleware.ts','src/api/services/speech-','docs/guides/optional-transcription-service.md',
