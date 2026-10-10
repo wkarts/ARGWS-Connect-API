@@ -113,7 +113,7 @@ jobs:
           assert base=='cc9ffbd2663d2f23ec21e4d853b2788fa703b249'
           local_tree=git('write-tree')
           base_tree=git('rev-parse','HEAD^{tree}')
-          changes=[x for x in subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\\0') if x]
+          changes=[x for x in subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0') if x]
           entries=[]
           for p in changes:
               line=git('ls-files','-s','--',p)
@@ -121,7 +121,7 @@ jobs:
                   entries.append({'path':p,'mode':'100644','type':'blob','sha':None})
                   continue
               mode,sha,stage_path=line.split(None,2)
-              assert stage_path.startswith('0\\t'),(p,stage_path)
+              assert stage_path.startswith('0\t'),(p,stage_path)
               dev=subprocess.run(['git','-C','../develop','rev-parse','HEAD:'+p],capture_output=True,text=True)
               if dev.returncode==0 and dev.stdout.strip()==sha:
                   entries.append({'path':p,'mode':mode,'type':'blob','sha':sha})
