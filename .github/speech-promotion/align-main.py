@@ -191,4 +191,17 @@ for name in envs:
     assert 'transcription' not in v.get('COMPOSE_PROFILES','').split(',')
 assert (ROOT/'.github/RELEASE_HOLD.md').is_file()
 assert 'release-publication-policy.py' in (ROOT/'.github/workflows/auto-version-release.yml').read_text()
+# Existing Manager isolation tests need to resolve the new shared Retry-After helper.
+# Do not replace the diagnostics suite: retain its established privacy assertions.
+for name in ('manager/scripts/operations-auth.test.mjs','manager/scripts/privacy-test-message.test.mjs'):
+    copy(name)
+diagnostics=ROOT/'manager/scripts/diagnostics.test.mjs'
+t=diagnostics.read_text()
+old="['current', 'diagnostics'].map"
+assert t.count(old)==1
+t=t.replace(old,"['current', 'diagnostics', 'retry-after'].map")
+old="  const current = load('current')"
+assert t.count(old)==1
+t=t.replace(old,"  dependencies['./retry-after'] = load('retry-after')\n"+old)
+diagnostics.write_text(t)
 print('Speech promotion prepared; all 10 Compose and environment contracts retain opt-in.')
