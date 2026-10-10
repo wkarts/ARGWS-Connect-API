@@ -1,36 +1,93 @@
-name: Prepare read-only speech promotion review
+name: Prepare reviewed native speech promotion
 on:
   push:
     branches: [work/speech-promotion-review-20261010]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  snapshot:
+  candidate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 30
+    env:
+      DATABASE_PROVIDER: postgresql
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: cc9ffbd2663d2f23ec21e4d853b2788fa703b249
-          path: main-source
+          ref: work/speech-promotion-review-20261010
+          path: author
           persist-credentials: false
       - uses: actions/checkout@v5
         with:
+          ref: fix/native-transcription-main-20261010
+          path: candidate
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/checkout@v5
+        with:
           ref: d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5
-          path: develop-source
+          path: develop
           persist-credentials: false
-      - name: Package exact reviewed snapshots, excluding Git metadata
+      - name: Verify source commits and parser preconditions
+        run: |
+          test "$(git -C candidate rev-parse HEAD)" = cc9ffbd2663d2f23ec21e4d853b2788fa703b249
+          test "$(git -C develop rev-parse HEAD)" = d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5
+          python3 -c 'import yaml'
+      - name: Apply reviewed speech-only promotion, retain main release hold and RabbitMQ
+        run: python3 author/.github/speech-promotion/align-main.py candidate develop
+      - name: Validate deployment contracts before building
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          python3 test/speech-service-deployment.test.py
+          python3 test/compose-env-only-deployments.test.py
+          python3 test/deploy-operations.test.py
+          python3 scripts/sync-fersoft-deployments.py --check
+          python3 scripts/sync-operations-deployments.py --check
+          python3 test/rabbitmq-healthcheck.test.py
+          node --test test/release-version.test.cjs
+          python3 test/release-publication-policy.test.py
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install and validate API, docs, native speech and Manager
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          npm ci --no-audit --no-fund
+          npm run lint:check
+          npm run db:generate
+          npm run build
+          npm run docs:generate
+          npm run docs:check
+          npm ci --prefix transcription-service --ignore-scripts --no-audit --no-fund
+          npm test --prefix transcription-service
+          npm --prefix manager install --ignore-scripts --no-audit --no-fund
+          MANAGER_BUILD_MODE=production npm --prefix manager run test
+      - name: Stage reviewed candidate and protect current main
+        working-directory: candidate
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p output
-          tar --exclude='./.git' -czf output/main-source.tar.gz -C main-source .
-          tar --exclude='./.git' -czf output/develop-source.tar.gz -C develop-source .
-          printf 'main=%s\ndevelop=%s\n' 'cc9ffbd2663d2f23ec21e4d853b2788fa703b249' 'd3c1ab00e5316976a34636f0dd1b6d0828b6d1b5' > output/refs.txt
-          sha256sum output/*.tar.gz > output/SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: speech-main-develop-reviewed-sources
-          path: output/
-          retention-days: 1
-          if-no-files-found: error
+          git add -A
+          git add -f test/speech-service-deployment.test.py test/speech-ci-evidence.test.cjs test/speech-durable.integration.test.ts test/speech-source-storage.test.ts test/speech-storage.integration.test.ts test/helpers/speech-fixture.ts test/fixtures/speech-protected-deployments.json
+          git diff --cached --check
+          git diff --quiet -- .github/RELEASE_HOLD.md
+          git diff --quiet -- .github/scripts/release-publication-policy.py
+          test -f .github/RELEASE_HOLD.md
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('.github/workflows/auto-version-release.yml').read_text()
+          assert 'release-publication-policy.py' in text and 'needs.validate.outputs.publish' in text
+          assert 'component: [api, manager, docs, transcription-service]' in text
+          assert 'argws-connect-transcription-worker' not in text
+          PY
+          git status --short
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(speech): align main with optional native transcription service'
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = cc9ffbd2663d2f23ec21e4d853b2788fa703b249
+          git push origin HEAD:fix/native-transcription-main-20261010
