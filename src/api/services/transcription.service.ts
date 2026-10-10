@@ -1,95 +1,40 @@
-import {
-  deleteStoredFile,
-  listBucketObjects,
-  minioEnabled,
-  storedFileExists,
-  uploadFile,
-} from '@api/integrations/storage/s3/libs/minio.server';
 import { PrismaRepository } from '@api/repository/repository.service';
-import { SpeechModelDownloadService, SpeechModelDownloadStatus } from '@api/services/speech-model-download.service';
+import {
+  getConfiguredSpeechModel,
+  SpeechModelDownloadService,
+  SpeechModelDownloadStatus,
+} from '@api/services/speech-model-download.service';
 import { Logger } from '@config/logger.config';
 import * as amqp from 'amqplib';
 import { createHash, randomUUID } from 'crypto';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
 import path from 'path';
+import { Readable } from 'stream';
 
-const REQUESTED = 'transcription.requested';
-const DICTATION_REQUESTED = 'speech.dictation.requested';
-const TRANSCRIPTION_SOURCE_PREFIX = 'transcriptions/';
-const MANAGED_OBJECT_PREFIX = 'argws-connect-api/';
-const MODEL_BOOTSTRAP_RETRY_MS = 125_000;
-const RETRY_DELAYS_MS = [30_000, 120_000, 600_000];
+import { SpeechDurableService } from './speech-durable.service';
+import {
+  publishSpeechConfirmed,
+  SPEECH_ACTIVE_STATUSES,
+  SPEECH_CONTROL_ROUTING_KEY,
+  SPEECH_PROTOCOL_VERSION,
+  speechDeadLetterArguments,
+  speechDictationRetentionMs,
+  speechHash,
+  speechInteger,
+  speechPoolId,
+  speechQueue,
+  speechQueueArguments,
+  speechRequestRoutingKey,
+  speechScopeKey,
+  TranscriptionServiceError,
+} from './speech-policy';
+import { SpeechSourceStorage } from './speech-source-storage';
 
-type EnqueueInput = {
-  messageId?: string;
-  instanceId?: string;
-  language?: string;
-  model?: string;
-  idempotencyKey?: string;
-};
+export { TranscriptionServiceError } from './speech-policy';
 
-type UploadInput = {
-  buffer: Buffer;
-  fileName?: string;
-  mimeType?: string;
-  instanceId?: string;
-  language?: string;
-  model?: string;
-  idempotencyKey?: string;
-};
-
-type DictationInput = UploadInput & { durationMs?: number };
-
-type WorkerResult = {
-  jobId?: string;
-  workerId?: string;
-  attempts?: number;
-  status?: string;
-  stage?: string | null;
-  progressPercent?: number;
-  processedDurationMs?: number | null;
-  heartbeatAt?: string;
-  partialText?: string;
-  mode?: string;
-  text?: string;
-  language?: string | null;
-  durationMs?: number | null;
-  segments?: unknown[] | null;
-  provider?: string;
-  model?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  updatedAt?: string;
-};
-
+const SOURCE_PREFIX = 'transcriptions/';
 const truthy = new Set(['1', 'true', 'yes', 'on']);
-const supportedAudio = new Set([
-  'audio/ogg',
-  'audio/opus',
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/mp4',
-  'audio/x-m4a',
-  'audio/aac',
-  'audio/wav',
-  'audio/wave',
-  'audio/x-wav',
-  'audio/webm',
-  'audio/amr',
-]);
-
-const audioMimeByExtension: Record<string, string> = {
-  '.ogg': 'audio/ogg',
-  '.oga': 'audio/ogg',
-  '.opus': 'audio/opus',
-  '.mp3': 'audio/mpeg',
-  '.m4a': 'audio/mp4',
-  '.mp4': 'audio/mp4',
-  '.aac': 'audio/aac',
-  '.wav': 'audio/wav',
-  '.webm': 'audio/webm',
-  '.amr': 'audio/amr',
-};
-
 const audioMimeAliases: Record<string, string> = {
   'audio/ogg': 'audio/ogg',
   'audio/opus': 'audio/opus',
@@ -106,197 +51,131 @@ const audioMimeAliases: Record<string, string> = {
   'video/webm': 'audio/webm',
   'audio/amr': 'audio/amr',
 };
+const audioMimeByExtension: Record<string, string> = {
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.wav': 'audio/wav',
+  '.webm': 'audio/webm',
+  '.amr': 'audio/amr',
+};
 
-/**
- * Browsers are inconsistent about recordings created with MediaRecorder.
- * Chrome/ChatGPT can report `audio/webm;codecs=opus`, `video/webm` or even an
- * empty MIME while the filename is still `.webm`. Store one canonical audio
- * MIME and let ffmpeg validate the actual stream in the worker.
- */
+/** Browser MIME normalization; the worker still probes the actual stream. */
 export function normalizeTranscriptionAudioMime(value: unknown, fileName?: string): string {
   const declared = String(value || '')
     .split(';', 1)[0]
     .trim()
     .toLowerCase();
-  const alias = audioMimeAliases[declared];
-  if (alias && supportedAudio.has(alias)) return alias;
-
-  const extension = path.extname(String(fileName || '')).toLowerCase();
-  const byExtension = audioMimeByExtension[extension];
-  if (byExtension && (declared === '' || declared === 'application/octet-stream' || declared === 'video/webm')) {
-    return byExtension;
-  }
-  return '';
+  if (audioMimeAliases[declared]) return audioMimeAliases[declared];
+  return ['', 'application/octet-stream', 'video/webm'].includes(declared)
+    ? audioMimeByExtension[path.extname(String(fileName || '')).toLowerCase()] || ''
+    : '';
 }
-
 function enabledValue(value: unknown, fallback = false): boolean {
-  if (value === undefined || value === null) return fallback;
-  return truthy.has(String(value).trim().toLowerCase());
+  return value === undefined || value === null ? fallback : truthy.has(String(value).trim().toLowerCase());
 }
-
-function normalizedQueue(value: unknown): string {
-  const queue = String(value || 'speech.transcription').trim();
-  return queue || 'speech.transcription';
-}
-
-function dictationQueue(): string {
-  const queue = String(process.env.SPEECH_DICTATION_QUEUE || 'speech.dictation').trim();
-  return queue || 'speech.dictation';
-}
-
-function queueFor(mode: string): string {
-  return mode === 'dictation'
-    ? dictationQueue()
-    : normalizedQueue(process.env.SPEECH_TRANSCRIPTION_QUEUE || process.env.TRANSCRIPTION_QUEUE);
-}
-
-function requestRoutingKey(mode: string): string {
-  return mode === 'dictation' ? DICTATION_REQUESTED : REQUESTED;
-}
-
-function resultRoutingPrefix(mode: string): string {
-  return mode === 'dictation' ? 'speech.dictation.' : 'transcription.';
-}
-
-function cancelRoutingKey(mode: string): string {
-  return mode === 'dictation' ? 'speech.cancel.dictation' : 'speech.cancel.transcription';
-}
-
-function providerValue(): string {
-  const provider = String(
-    process.env.SPEECH_PROVIDER || process.env.TRANSCRIPTION_PROVIDER || process.env.TRANSCRIPTION_ENGINE || 'local',
-  )
-    .trim()
-    .toLowerCase();
-  return provider === 'openai' ? 'local' : provider;
-}
-
 function safeLanguage(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null;
-  const language = String(value).trim();
-  if (!/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(language)) {
-    throw new TranscriptionServiceError('language inválido. Use, por exemplo, pt ou pt-BR.', 400);
-  }
-  return language;
+  if (!/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(String(value).trim()))
+    throw new TranscriptionServiceError('language inválido. Use pt ou pt-BR.', 400);
+  return String(value).trim();
 }
-
 function safeModel(value: unknown): string {
-  const model = String(
-    value || process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small',
-  ).trim();
-  if (!/^[A-Za-z0-9._:/@-]{1,100}$/.test(model)) {
-    throw new TranscriptionServiceError('model inválido.', 400);
-  }
-  return model;
+  const configured = getConfiguredSpeechModel();
+  if (!configured)
+    throw new TranscriptionServiceError('O motor e o modelo configurados não constam do catálogo permitido.', 409);
+  const requested = String(value || configured.id).trim();
+  if (requested !== configured.id)
+    throw new TranscriptionServiceError('O modelo solicitado não está provisionado neste pool.', 409);
+  return requested;
 }
-
-function maxUploadBytes(): number {
-  const value = Number.parseInt(process.env.TRANSCRIPTION_MAX_AUDIO_BYTES || '', 10);
-  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 250 * 1024 * 1024) : 25 * 1024 * 1024;
+function providerValue(): string {
+  const provider = String(process.env.SPEECH_PROVIDER || process.env.TRANSCRIPTION_PROVIDER || 'local')
+    .trim()
+    .toLowerCase();
+  if (!['local', 'transformers', 'whisper.cpp'].includes(provider))
+    throw new TranscriptionServiceError('Provider de fala não suportado. Configure um adaptador explicitamente.', 409);
+  return provider;
 }
-
-function maxDictationBytes(): number {
-  const value = Number.parseInt(process.env.DICTATION_MAX_AUDIO_BYTES || '', 10);
-  return Number.isFinite(value) ? Math.min(Math.max(value, 1), 25 * 1024 * 1024) : 5 * 1024 * 1024;
-}
-
-function dictationAudioRetentionMs(): number {
-  const minutes = Number.parseInt(process.env.DICTATION_AUDIO_RETENTION_MINUTES || '5', 10);
-  return Math.min(Math.max(Number.isFinite(minutes) ? minutes : 5, 1), 60) * 60_000;
-}
-
 function safeIdempotencyKey(value: unknown): string | null {
   if (value === undefined || value === null || String(value).trim() === '') return null;
   const key = String(value).trim();
-  const hasControlCharacter = [...key].some((character) => {
-    const code = character.charCodeAt(0);
-    return code <= 0x1f || code === 0x7f;
-  });
-  if (key.length > 128 || hasControlCharacter) {
+  if (key.length > 128 || [...key].some((c) => c.charCodeAt(0) <= 0x1f || c.charCodeAt(0) === 0x7f))
     throw new TranscriptionServiceError('Idempotency-Key inválida.', 400);
-  }
   return key;
 }
-
-function sha256(value: Buffer): string {
-  return createHash('sha256').update(value).digest('hex');
+export function speechUploadLimit(mode: string): number {
+  return mode === 'dictation'
+    ? speechInteger('DICTATION_MAX_AUDIO_BYTES', 5_242_880, 1, 26_214_400)
+    : speechInteger('TRANSCRIPTION_MAX_AUDIO_BYTES', 26_214_400, 1, 262_144_000);
 }
+type EnqueueInput = {
+  messageId?: string;
+  instanceId?: string;
+  language?: string;
+  model?: string;
+  idempotencyKey?: string;
+};
+type UploadInput = {
+  filePath?: string;
+  buffer?: Buffer;
+  fileName?: string;
+  mimeType?: string;
+  instanceId?: string;
+  language?: string;
+  model?: string;
+  idempotencyKey?: string;
+  reservationId?: string;
+  durationMs?: number;
+};
 
-function uploadExtension(fileName: string, mimeType: string): string {
-  const extension = path
-    .extname(String(fileName || ''))
-    .toLowerCase()
-    .replace(/[^a-z0-9.]/g, '');
-  if (/^\.[a-z0-9]{1,8}$/.test(extension)) return extension;
-  const byMime: Record<string, string> = {
-    'audio/ogg': '.ogg',
-    'audio/opus': '.opus',
-    'audio/mpeg': '.mp3',
-    'audio/mp3': '.mp3',
-    'audio/mp4': '.m4a',
-    'audio/x-m4a': '.m4a',
-    'audio/aac': '.aac',
-    'audio/wav': '.wav',
-    'audio/wave': '.wav',
-    'audio/webm': '.webm',
-    'audio/amr': '.amr',
-  };
-  return byMime[mimeType] || '.audio';
-}
-
-export class TranscriptionServiceError extends Error {
-  constructor(
-    message: string,
-    public readonly status = 503,
-  ) {
-    super(message);
-    this.name = 'TranscriptionServiceError';
-  }
-}
-
-/**
- * The API owns durable job state. The dedicated worker only reads private
- * MinIO objects and publishes status/results through RabbitMQ.
- */
+/** HTTP and SQL orchestrate metadata. Audio bytes never enter an AMQP message. */
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
   private readonly modelDownloadService = new SpeechModelDownloadService();
-  private modelBootstrapStarted = false;
-  private modelBootstrapRetryTimer: NodeJS.Timeout | null = null;
+  private readonly durable: SpeechDurableService;
+  private readonly sourceStorage = new SpeechSourceStorage();
   private connection: any = null;
   private channel: any = null;
   private resultChannel: any = null;
-  private readonly settledResultMessages = new WeakSet<object>();
   private initializing: Promise<void> | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private outboxTimer: NodeJS.Timeout | null = null;
+  private outboxInFlight = false;
   private sourceCleanupTimer: NodeJS.Timeout | null = null;
   private sourceCleanupInFlight = false;
+  private sourceCleanupCursor: string | undefined;
+  private reservationCleanupCursor: string | undefined;
   private staleRecoveryTimer: NodeJS.Timeout | null = null;
   private staleRecoveryInFlight = false;
+  private staleRecoveryCursor: string | undefined;
+  private modelBootstrapStarted = false;
 
-  constructor(private readonly prismaRepository: PrismaRepository) {}
-
+  constructor(private readonly prismaRepository: PrismaRepository) {
+    this.durable = new SpeechDurableService(prismaRepository, (job) => this.jobPayload(job));
+  }
   public isEnabled(): boolean {
     return enabledValue(process.env.SPEECH_ENABLED, enabledValue(process.env.TRANSCRIPTION_ENABLED, false));
   }
-
   public isDictationEnabled(): boolean {
     return this.isEnabled() && enabledValue(process.env.DICTATION_ENABLED, true);
   }
-
   public async init(): Promise<void> {
+    // Disabling new speech submissions does not suspend retention of existing audio.
+    if (this.sourceStorage.enabled()) this.startSourceCleanup();
     if (!this.isEnabled()) return;
     this.startDefaultModelDownload();
-    this.startSourceCleanup();
     this.startStaleRecovery();
     if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return;
-    // Health polling calls init on every request. Replacing a live connection
-    // strands deliveries on its old result consumer and leaks AMQP connections.
     if (this.initializing) return this.initializing;
     if (this.connection && this.channel && this.resultChannel) return;
     this.initializing = this.connect()
       .catch((error) => {
-        this.logger.warn('Transcription queue indisponível; nova tentativa em 5s: ' + (error?.message || error));
+        this.logger.warn('Fila de voz indisponível: ' + (error?.message || error));
         this.scheduleReconnect();
       })
       .finally(() => {
@@ -304,598 +183,571 @@ export class TranscriptionService {
       });
     return this.initializing;
   }
-
-  /**
-   * Provision the pinned model at API startup. The download runs in the
-   * background so normal API startup does not wait for the model host.
-   */
-  private startDefaultModelDownload(): void {
-    if (this.modelBootstrapStarted) return;
+  private startDefaultModelDownload() {
+    if (this.modelBootstrapStarted || !enabledValue(process.env.SPEECH_MODEL_AUTO_PROVISION)) return;
     this.modelBootstrapStarted = true;
-
     void this.modelDownloadService
       .status()
       .then(async (status) => {
-        if (!status.available || status.installed) return;
-        if (status.status === 'downloading') {
-          this.scheduleModelBootstrapRetry();
-          return;
-        }
-        const started = await this.modelDownloadService.start(status.id);
-        if (started.status === 'downloading' || started.installed) {
-          this.logger.info(`Modelo de voz ${started.id}: download iniciado ou já disponível no volume persistente.`);
-        }
+        if (status.available && !status.installed) await this.modelDownloadService.start(status.id);
       })
-      .catch((error) => {
-        this.logger.warn('Não foi possível iniciar o provisionamento do modelo de voz: ' + (error?.message || error));
+      .catch((error) => this.logger.warn('Provisionamento de voz indisponível: ' + (error?.message || error)));
+  }
+  public async resolveInstanceName(instanceName: string): Promise<string> {
+    const instance = await (this.prismaRepository.instance as any).findUnique({
+      where: { name: instanceName },
+      select: { id: true },
+    });
+    if (!instance) throw new TranscriptionServiceError('Instância não encontrada.', 404);
+    return instance.id;
+  }
+  private async validateInstanceId(instanceId?: string) {
+    if (!instanceId) return;
+    if (typeof instanceId !== 'string' || instanceId.length > 128)
+      throw new TranscriptionServiceError('Instância inválida.', 400);
+    if (
+      !(await (this.prismaRepository.instance as any).findUnique({ where: { id: instanceId }, select: { id: true } }))
+    )
+      throw new TranscriptionServiceError('Instância não encontrada.', 404);
+  }
+  public async reserveUpload(mode: string, instanceId?: string) {
+    await this.ready(mode);
+    if (!this.sourceStorage.enabled())
+      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
+    await this.validateInstanceId(instanceId);
+    await this.sourceStorage.ensurePrivate();
+    return this.durable.reserveUpload(instanceId, speechUploadLimit(mode));
+  }
+  public async releaseUpload(reservationId?: string) {
+    if (reservationId)
+      await (this.prismaRepository as any).speechUploadReservation.deleteMany({
+        where: { id: reservationId, sourceKey: null },
       });
   }
-
-  private scheduleModelBootstrapRetry(): void {
-    if (this.modelBootstrapRetryTimer) return;
-    this.modelBootstrapRetryTimer = setTimeout(() => {
-      this.modelBootstrapRetryTimer = null;
-      this.modelBootstrapStarted = false;
-      this.startDefaultModelDownload();
-    }, MODEL_BOOTSTRAP_RETRY_MS);
-    this.modelBootstrapRetryTimer.unref?.();
+  public async reassignAdministrativeUpload(reservationId: string, instanceId: string) {
+    await this.validateInstanceId(instanceId);
+    return this.durable.reassignAdministrativeUpload(reservationId, instanceId);
   }
-
-  public async list(limit = 30, mode = 'transcription') {
+  public async list(limit = 30, mode = 'transcription', instanceId?: string) {
     if (!this.isEnabled()) return [];
-    const take = Number.isFinite(Number(limit)) ? Math.min(Math.max(Number(limit), 1), 100) : 30;
+    const take = Number.isFinite(Number(limit)) ? Math.min(Math.max(Math.floor(Number(limit)), 1), 100) : 30;
     const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
-      where: { mode: mode === 'dictation' ? 'dictation' : 'transcription' },
+      where: {
+        mode: mode === 'dictation' ? 'dictation' : 'transcription',
+        ...(instanceId ? { instanceId } : {}),
+      },
       take,
       orderBy: { createdAt: 'desc' },
     });
     return jobs.map((job: any) => this.publicJob(job));
   }
-
-  /**
-   * Read-only queue diagnostics for the Manager and operators. This endpoint
-   * deliberately never publishes, retries or deletes a job.
-   */
-  public async health() {
-    const queue = queueFor('transcription');
+  public async health(instanceId?: string) {
+    const poolId = speechPoolId();
+    const configured = getConfiguredSpeechModel();
     const result: any = {
       enabled: this.isEnabled(),
-      queue,
+      poolId,
+      queue: speechQueue('transcription'),
+      dictationQueue: speechQueue('dictation'),
       connected: false,
       consumerCount: 0,
-      workerReady: false,
-      dictationQueue: dictationQueue(),
       dictationConsumerCount: 0,
+      workerReady: false,
       dictationWorkerReady: false,
+      processAlive: false,
+      brokerConnected: false,
+      modelVerified: false,
+      engineReady: false,
+      acceptingJobs: false,
+      lastSuccessfulInferenceAt: null,
+      state: this.isEnabled() ? 'offline' : 'disabled',
+      capabilities: { transcription: false, dictation: false },
+      legacyProtocolPolicy: 'reject',
+      protocolVersion: SPEECH_PROTOCOL_VERSION,
+      globalConcurrency: speechInteger('SPEECH_GLOBAL_CONCURRENCY', 1, 1, 8),
       staleJobSeconds: this.staleJobSeconds(),
-      globalConcurrency: Math.min(
-        8,
-        Math.max(1, Number.parseInt(process.env.SPEECH_GLOBAL_CONCURRENCY || '1', 10) || 1),
-      ),
-      maxUploadBytes: maxUploadBytes(),
-      maxDictationBytes: maxDictationBytes(),
-      dictationAudioRetentionMinutes: Math.floor(dictationAudioRetentionMs() / 60_000),
+      maxUploadBytes: speechUploadLimit('transcription'),
+      maxDictationBytes: speechUploadLimit('dictation'),
+      pendingLimit: speechInteger('SPEECH_MAX_PENDING_JOBS', 50),
+      instancePendingLimit: speechInteger('SPEECH_MAX_PENDING_JOBS_PER_INSTANCE', 5),
+      uploadLimit: speechInteger('SPEECH_MAX_UPLOADS', 2),
+      uploadBytesLimit: speechInteger('SPEECH_MAX_UPLOAD_BYTES', 52_428_800, 1024, 1_073_741_824),
+      dictationAudioRetentionMinutes: Math.floor(speechDictationRetentionMs() / 60_000),
       queuedJobs: 0,
       processingJobs: 0,
       dictationQueuedJobs: 0,
       dictationProcessingJobs: 0,
-      oldestQueuedSeconds: null as number | null,
-      model: String(process.env.SPEECH_MODEL || process.env.TRANSCRIPTION_LOCAL_MODEL || 'Xenova/whisper-small'),
-      provider: providerValue(),
+      oldestQueuedSeconds: null,
+      model: configured?.id || null,
+      engine: configured?.engine || null,
+      provider: String(process.env.SPEECH_PROVIDER || 'local'),
       allowRemoteModels: false,
-      modelDownload: null as SpeechModelDownloadStatus | null,
+      modelDownload: await this.modelDownloadStatus(),
     };
-    result.modelDownload = await this.modelDownloadStatus();
     if (!this.isEnabled()) return result;
-
-    try {
-      const jobs = this.prismaRepository.transcriptionJob as any;
-      const [queuedJobs, processingJobs, oldestQueued, dictationQueuedJobs, dictationProcessingJobs] =
-        await Promise.all([
-          jobs.count({ where: { mode: 'transcription', status: 'queued' } }),
-          jobs.count({ where: { mode: 'transcription', status: 'processing' } }),
-          jobs.findFirst({
-            where: { mode: 'transcription', status: 'queued' },
-            orderBy: { createdAt: 'asc' },
-            select: { createdAt: true },
-          }),
-          jobs.count({ where: { mode: 'dictation', status: 'queued' } }),
-          jobs.count({ where: { mode: 'dictation', status: 'processing' } }),
-        ]);
-      result.queuedJobs = Number(queuedJobs || 0);
-      result.processingJobs = Number(processingJobs || 0);
-      result.dictationQueuedJobs = Number(dictationQueuedJobs || 0);
-      result.dictationProcessingJobs = Number(dictationProcessingJobs || 0);
-      if (oldestQueued?.createdAt) {
-        const oldestQueuedAt = new Date(oldestQueued.createdAt).getTime();
-        if (Number.isFinite(oldestQueuedAt)) {
-          result.oldestQueuedSeconds = Math.max(0, Math.floor((Date.now() - oldestQueuedAt) / 1000));
+    await this.init();
+    result.connected = Boolean(this.connection && this.channel && this.resultChannel);
+    const jobs = this.prismaRepository.transcriptionJob as any;
+    const where = { poolId, ...(instanceId ? { instanceId } : {}) };
+    const [queued, processing, dictationQueued, dictationProcessing, oldest, workers] = await Promise.all([
+      jobs.count({ where: { ...where, mode: 'transcription', status: 'queued' } }),
+      jobs.count({ where: { ...where, mode: 'transcription', status: 'processing' } }),
+      jobs.count({ where: { ...where, mode: 'dictation', status: 'queued' } }),
+      jobs.count({ where: { ...where, mode: 'dictation', status: 'processing' } }),
+      jobs.findFirst({
+        where: { ...where, status: 'queued' },
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      (this.prismaRepository as any).speechWorker.findMany({
+        where: { poolId, heartbeatAt: { gt: new Date(Date.now() - 35_000) } },
+        take: 32,
+      }),
+    ]);
+    Object.assign(result, {
+      queuedJobs: queued,
+      processingJobs: processing,
+      dictationQueuedJobs: dictationQueued,
+      dictationProcessingJobs: dictationProcessing,
+      oldestQueuedSeconds: oldest
+        ? Math.max(0, Math.floor((Date.now() - new Date(oldest.createdAt).getTime()) / 1000))
+        : null,
+    });
+    for (const worker of workers) {
+      const health = worker.health || {};
+      if (
+        health.effectiveModel !== configured?.id ||
+        health.engine !== configured?.engine ||
+        health.modelRevision !== configured?.revision
+      )
+        continue;
+      result.processAlive ||= health.processAlive === true;
+      result.brokerConnected ||= health.brokerConnected === true;
+      result.modelVerified ||= health.modelVerified === true;
+      result.engineReady ||= health.engineReady === true;
+      result.acceptingJobs ||=
+        health.acceptingJobs === true && health.processAlive === true && health.brokerConnected === true;
+      const available = health.processAlive && health.brokerConnected && health.modelVerified && health.acceptingJobs;
+      for (const mode of Array.isArray(worker.modes) ? worker.modes : []) {
+        if (!['dictation', 'transcription'].includes(mode)) continue;
+        result.capabilities[mode] ||= Boolean(available);
+        if (mode === 'dictation') {
+          result.dictationConsumerCount += 1;
+          result.dictationWorkerReady ||= Boolean(available && health.engineReady);
+        } else {
+          result.consumerCount += 1;
+          result.workerReady ||= Boolean(available && health.engineReady);
         }
       }
-    } catch (error) {
-      this.logger.debug('Transcrição: resumo persistido da fila indisponível: ' + (error?.message || error));
+      if (
+        health.lastSuccessfulInferenceAt &&
+        (!result.lastSuccessfulInferenceAt || health.lastSuccessfulInferenceAt > result.lastSuccessfulInferenceAt)
+      )
+        result.lastSuccessfulInferenceAt = health.lastSuccessfulInferenceAt;
     }
-    if (!enabledValue(process.env.RABBITMQ_ENABLED, true)) return result;
-
-    await this.init();
-    if (!this.channel || !this.resultChannel) return result;
-    result.connected = true;
-    try {
-      const state = await this.channel.checkQueue(queue);
-      result.consumerCount = Number(state?.consumerCount || 0);
-      result.workerReady = result.consumerCount > 0;
-      result.messageCount = Number(state?.messageCount || 0);
-      const dictationState = await this.channel.checkQueue(dictationQueue());
-      result.dictationConsumerCount = Number(dictationState?.consumerCount || 0);
-      result.dictationWorkerReady = result.dictationConsumerCount > 0;
-      result.dictationMessageCount = Number(dictationState?.messageCount || 0);
-    } catch (error) {
-      this.logger.debug('Transcrição: diagnóstico da fila indisponível: ' + (error?.message || error));
+    if (!this.isDictationEnabled()) {
+      result.dictationWorkerReady = false;
+      result.capabilities.dictation = false;
     }
+    if (!result.connected || !result.processAlive) result.state = 'offline';
+    else if (!result.modelVerified) result.state = 'degraded';
+    else if (queued + processing + dictationQueued + dictationProcessing >= result.pendingLimit) {
+      result.state = 'capacity_exhausted';
+      result.acceptingJobs = false;
+    } else if (processing + dictationProcessing > 0) result.state = 'busy';
+    else result.state = result.engineReady ? 'ready' : 'warming';
     return result;
   }
-
   public async modelDownloadStatus(): Promise<SpeechModelDownloadStatus> {
     const status = await this.modelDownloadService.status();
     return { ...status, available: status.available && this.isEnabled() };
   }
-
-  public async downloadModel(modelId: string): Promise<SpeechModelDownloadStatus> {
-    if (!this.isEnabled()) {
-      throw new TranscriptionServiceError('A transcrição local está desabilitada nesta instalação.', 409);
-    }
+  public async downloadModel(modelId: string, force = false): Promise<SpeechModelDownloadStatus> {
+    if (!this.isEnabled()) throw new TranscriptionServiceError('A transcrição local está desabilitada.', 409);
     try {
-      return await this.modelDownloadService.start(String(modelId || '').trim());
+      return await this.modelDownloadService.start(String(modelId || '').trim(), { force });
     } catch (error: any) {
       throw new TranscriptionServiceError(String(error?.message || error), 409);
     }
   }
-
   public async enqueue(input: EnqueueInput) {
-    if (!this.isEnabled()) {
-      throw new TranscriptionServiceError('A transcrição local está desabilitada nesta instalação.', 409);
-    }
-
-    const messageId = String(input?.messageId || '').trim();
-    if (!messageId || messageId.length > 128) {
-      throw new TranscriptionServiceError('Informe um messageId válido.', 400);
-    }
-
+    if (!this.isEnabled()) throw new TranscriptionServiceError('A transcrição local está desabilitada.', 409);
+    const messageId = String(input.messageId || '').trim();
+    if (!messageId || messageId.length > 128) throw new TranscriptionServiceError('Informe um messageId válido.', 400);
     const media = await (this.prismaRepository.media as any).findUnique({
       where: { messageId },
       select: { fileName: true, mimetype: true, instanceId: true },
     });
-    if (!media) throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
-    if (input.instanceId && String(media.instanceId || '') !== String(input.instanceId)) {
-      throw new TranscriptionServiceError('A mídia não pertence à instância autenticada.', 404);
-    }
-    const mimetype = normalizeTranscriptionAudioMime(media.mimetype, media.fileName);
-    if (!mimetype.startsWith('audio/')) {
-      throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
-    }
-
-    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
-    const model = safeModel(input.model);
-    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
-
-    const pending = await (this.prismaRepository.transcriptionJob as any).findFirst({
-      where: {
-        messageId,
-        mode: 'transcription',
-        model,
-        language,
-        status: { in: ['queued', 'processing', 'completed'] },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (pending) return this.publicJob(pending);
-
-    const duplicate = await this.findDuplicate({ mode: 'transcription', instanceId: media.instanceId, idempotencyKey });
-    if (duplicate) return this.publicJob(duplicate);
-
-    await this.ready('transcription');
-    return this.createAndPublish({
-      instanceId: media.instanceId,
+    if (!media || (input.instanceId && media.instanceId !== input.instanceId))
+      throw new TranscriptionServiceError('A mídia da mensagem não foi encontrada.', 404);
+    const mimeType = normalizeTranscriptionAudioMime(media.mimetype, media.fileName);
+    if (!mimeType) throw new TranscriptionServiceError('A mensagem informada não contém áudio.', 400);
+    const data = this.jobData(input, 'transcription', media.instanceId);
+    Object.assign(data, {
       messageId,
-      mode: 'transcription',
       sourceType: 'message',
+      sourceBucket: this.sourceStorage.mediaBucket(),
       sourceKey: String(media.fileName),
-      sourceMimeType: mimetype,
-      idempotencyKey,
-      language,
-      model,
+      sourceMimeType: mimeType,
+      dedupKey: speechHash(
+        data.scopeKey,
+        data.mode,
+        'message',
+        messageId,
+        data.model,
+        data.language || '',
+        data.requestedEngine,
+        data.requestedRevision,
+      ),
     });
-  }
-
-  public async enqueueUpload(input: UploadInput) {
-    if (!this.isEnabled()) {
-      throw new TranscriptionServiceError('A transcrição local está desabilitada nesta instalação.', 409);
-    }
-    if (!minioEnabled()) {
-      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
-    }
-    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
-      throw new TranscriptionServiceError(
-        'O arquivo de áudio não contém dados. Grave novamente ou selecione outro áudio.',
-        400,
-      );
-    }
-    if (input.buffer.length > maxUploadBytes()) {
-      throw new TranscriptionServiceError('O áudio excede o limite configurado para transcrição.', 413);
-    }
-    const mimeType = normalizeTranscriptionAudioMime(input.mimeType, input.fileName);
-    if (!supportedAudio.has(mimeType)) {
-      throw new TranscriptionServiceError(
-        'Formato de áudio não suportado. Use OGG, Opus, MP3, M4A, WAV, WEBM ou AMR.',
-        415,
-      );
-    }
-
-    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
-    const model = safeModel(input.model);
-    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
-    const audioHash = sha256(input.buffer);
-    const duplicate = await this.findDuplicate({
-      mode: 'transcription',
-      instanceId: input.instanceId || null,
-      idempotencyKey,
-      audioHash,
-      model,
-      language,
-    });
+    const duplicate = await this.findDuplicate(data);
     if (duplicate) return this.publicJob(duplicate);
-
     await this.ready('transcription');
-    const sourceKey = `transcriptions/${randomUUID()}/audio${uploadExtension(String(input.fileName || ''), mimeType)}`;
-    try {
-      const stored = await uploadFile(sourceKey, input.buffer, input.buffer.length, {
-        'Content-Type': mimeType,
-      } as any);
-      if (stored instanceof Error) {
-        throw stored;
-      }
-    } catch {
-      await deleteStoredFile(sourceKey).catch(() => false);
-      throw new TranscriptionServiceError('Não foi possível armazenar o áudio para transcrição.', 503);
-    }
-
-    try {
-      return await this.createAndPublish({
-        instanceId: input.instanceId || null,
-        messageId: null,
-        mode: 'transcription',
-        sourceType: 'upload',
-        sourceKey,
-        sourceMimeType: mimeType,
-        originalFilename: path.basename(String(input.fileName || '')).slice(0, 255) || null,
-        sizeBytes: input.buffer.length,
-        audioHash,
-        idempotencyKey,
-        language,
-        model,
-      });
-    } catch (error) {
-      await deleteStoredFile(sourceKey).catch(() => false);
-      throw error;
-    }
-  }
-
-  /**
-   * Dictation keeps short recordings in the durable queue payload. This avoids
-   * the object-store round trip while leaving long, persistent transcription
-   * uploads on their existing MinIO path.
-   */
-  public async enqueueDictation(input: DictationInput) {
-    if (!this.isDictationEnabled()) {
-      throw new TranscriptionServiceError('O ditado está desabilitado nesta instalação.', 409);
-    }
-    if (!Buffer.isBuffer(input?.buffer) || input.buffer.length === 0) {
-      throw new TranscriptionServiceError(
-        'O áudio do ditado não contém dados. Confira o microfone e grave novamente.',
-        400,
-      );
-    }
-    if (input.buffer.length > maxDictationBytes()) {
-      throw new TranscriptionServiceError('O áudio do ditado excede o limite configurado.', 413);
-    }
-    const mimeType = normalizeTranscriptionAudioMime(input.mimeType, input.fileName);
-    if (!supportedAudio.has(mimeType)) {
-      throw new TranscriptionServiceError('Formato de áudio não suportado pelo ditado.', 415);
-    }
-    const durationMs = Number(input.durationMs);
-    const maxDuration =
-      Math.min(Math.max(Number.parseInt(process.env.DICTATION_MAX_DURATION_SECONDS || '300', 10) || 300, 1), 1800) *
-      1000;
-    if (Number.isFinite(durationMs) && durationMs > maxDuration) {
-      throw new TranscriptionServiceError('O ditado excede a duração máxima configurada.', 413);
-    }
-
-    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
-    const model = safeModel(input.model);
-    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
-    const audioHash = sha256(input.buffer);
-    const duplicate = await this.findDuplicate({
-      mode: 'dictation',
-      instanceId: input.instanceId || null,
-      idempotencyKey,
-      audioHash,
-      model,
-      language,
-    });
-    if (duplicate) return this.publicJob(duplicate);
-
-    await this.ready('dictation');
-    const id = randomUUID();
-    const job = await this.createAndPublish(
-      {
-        id,
-        instanceId: input.instanceId || null,
-        messageId: null,
-        mode: 'dictation',
-        sourceType: 'microphone',
-        sourceKey: `dictation/${id}${uploadExtension(String(input.fileName || ''), mimeType)}`,
-        sourceMimeType: mimeType,
-        originalFilename: path.basename(String(input.fileName || '')).slice(0, 255) || null,
-        sizeBytes: input.buffer.length,
-        audioHash,
-        idempotencyKey,
-        provider: providerValue(),
-        language,
-        model,
-      },
-      input.buffer,
-    );
-    return job;
-  }
-
-  public async get(jobId: string, instanceId?: string) {
-    const id = String(jobId || '').trim();
-    if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
-    const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-    if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
-    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
-      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
-    }
+    const job = await this.durable.createJob(data);
+    void this.dispatchOutbox();
     return this.publicJob(job);
   }
-
-  public async cancel(jobId: string, instanceId?: string) {
-    const id = String(jobId || '').trim();
-    if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
-    const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-    if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
-    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
-      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
-    }
-    if (!['queued', 'processing'].includes(String(job.status))) {
-      throw new TranscriptionServiceError('O job já foi concluído e não pode ser cancelado.', 409);
-    }
-
-    const changed = await (this.prismaRepository.transcriptionJob as any).updateMany({
-      where: { id, status: { in: ['queued', 'processing'] }, attempts: job.attempts },
-      data: { status: 'cancelled', stage: 'cancelled', completedAt: new Date(), updatedAt: new Date() },
-    });
-    if (!Number(changed?.count)) {
-      const latest = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-      if (!latest || latest.status !== 'cancelled') {
-        throw new TranscriptionServiceError('O job mudou antes de o cancelamento ser aplicado.', 409);
-      }
-      return this.publicJob(latest);
-    }
-
-    try {
-      await this.publish(cancelRoutingKey(String(job.mode || 'transcription')), {
-        jobId: id,
-        attempts: job.attempts,
-        mode: job.mode || 'transcription',
-      });
-    } catch (error) {
-      // The durable state remains cancelled; workers also ignore late results
-      // because the API only accepts results for active jobs.
-      this.logger.warn('Transcrição: aviso de cancelamento não chegou ao worker: ' + (error?.message || error));
-    }
-    const cancelled = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-    return this.publicJob(cancelled || { ...job, status: 'cancelled', stage: 'cancelled' });
+  public async enqueueUpload(input: UploadInput) {
+    return this.enqueueStoredAudio(input, 'transcription');
   }
-
-  public async retry(jobId: string, instanceId?: string) {
+  public async enqueueDictation(input: UploadInput) {
+    return this.enqueueStoredAudio(input, 'dictation');
+  }
+  private jobData(input: EnqueueInput, mode: string, instanceId?: string) {
+    const model = safeModel(input.model);
+    const language = safeLanguage(input.language || process.env.SPEECH_LANGUAGE || 'pt-BR');
+    const idempotencyKey = safeIdempotencyKey(input.idempotencyKey);
+    const scopeKey = speechScopeKey(instanceId);
+    return {
+      instanceId: instanceId || null,
+      mode,
+      scopeKey,
+      idempotencyKey,
+      language,
+      model,
+      requestedModel: model,
+      requestedEngine: getConfiguredSpeechModel()?.engine,
+      requestedRevision: getConfiguredSpeechModel()?.revision,
+      provider: providerValue(),
+      reservedBytes: speechUploadLimit(mode),
+      idempotencyHash: idempotencyKey ? speechHash(scopeKey, mode, idempotencyKey) : null,
+      reservedDurationMs:
+        (mode === 'dictation'
+          ? speechInteger('DICTATION_MAX_DURATION_SECONDS', 60, 1, 1800)
+          : speechInteger('TRANSCRIPTION_MAX_DURATION_SECONDS', 3600, 1, 14_400)) * 1000,
+    } as any;
+  }
+  private async enqueueStoredAudio(input: UploadInput, mode: string) {
+    if (!this.isEnabled() || (mode === 'dictation' && !this.isDictationEnabled()))
+      throw new TranscriptionServiceError('O recurso de voz está desabilitado.', 409);
+    if (!this.sourceStorage.enabled())
+      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
+    await this.validateInstanceId(input.instanceId);
+    const size = input.filePath
+      ? (await stat(input.filePath)).size
+      : Buffer.isBuffer(input.buffer)
+        ? input.buffer.length
+        : 0;
+    if (!size) throw new TranscriptionServiceError('O arquivo de áudio não contém dados.', 400);
+    if (size > speechUploadLimit(mode))
+      throw new TranscriptionServiceError('O áudio excede o limite configurado.', 413);
+    const mimeType = normalizeTranscriptionAudioMime(input.mimeType, input.fileName);
+    if (!mimeType) throw new TranscriptionServiceError('Formato de áudio não suportado.', 415);
+    const data = this.jobData(input, mode, input.instanceId);
+    if (Number(input.durationMs) > data.reservedDurationMs)
+      throw new TranscriptionServiceError('O áudio excede a duração máxima configurada.', 413);
+    const hash = createHash('sha256');
+    if (input.filePath) {
+      for await (const chunk of createReadStream(input.filePath)) hash.update(chunk);
+    } else hash.update(input.buffer!);
+    data.reservedBytes = size;
+    data.audioHash = hash.digest('hex');
+    data.dedupKey = speechHash(
+      data.scopeKey,
+      mode,
+      'audio',
+      data.audioHash,
+      data.model,
+      data.language || '',
+      data.requestedEngine,
+      data.requestedRevision,
+    );
+    const duplicate = await this.findDuplicate(data);
+    if (duplicate) return this.publicJob(duplicate);
+    if (!input.reservationId) await this.ready(mode);
+    const reservation =
+      input.reservationId || (await this.durable.reserveUpload(input.instanceId, speechUploadLimit(mode))).id;
+    const extension = Object.entries(audioMimeByExtension).find(([, type]) => type === mimeType)?.[0] || '.audio';
+    const sourceKey = `${SOURCE_PREFIX}${randomUUID()}/audio${extension}`;
+    const reservedUpload = await (this.prismaRepository as any).speechUploadReservation.update({
+      where: { id: reservation },
+      data: { sourceKey, sourceBucket: this.sourceStorage.privateBucket() },
+    });
+    const transferBudget = Math.min(60_000, new Date(reservedUpload.expiresAt).getTime() - Date.now() - 5000);
+    if (transferBudget <= 0)
+      throw new TranscriptionServiceError('A reserva de upload expirou antes do armazenamento.', 408);
+    const stream = input.filePath ? createReadStream(input.filePath) : Readable.from(input.buffer!);
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+      const transfer = this.sourceStorage.upload(sourceKey, stream, size, mimeType, data.audioHash);
+      const stored = await Promise.race([
+        transfer,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            stream.destroy(new Error('SPEECH_UPLOAD_TIMEOUT'));
+            reject(new TranscriptionServiceError('O armazenamento do áudio excedeu o prazo.', 504));
+          }, transferBudget);
+          timeout.unref?.();
+        }),
+      ]);
+      if (stored instanceof Error || !stored)
+        throw new TranscriptionServiceError('Não foi possível armazenar o áudio.', 503);
+      const job = await this.durable.createJob(
+        {
+          ...data,
+          sourceKey,
+          sourceBucket: stored.bucket,
+          sourceMimeType: mimeType,
+          sourceType: mode === 'dictation' ? 'microphone' : 'upload',
+          originalFilename: path.basename(String(input.fileName || '')).slice(0, 255) || null,
+          sizeBytes: size,
+          sourceExpiresAt: mode === 'dictation' ? new Date(Date.now() + speechDictationRetentionMs()) : null,
+        },
+        reservation,
+      );
+      if (job.sourceKey !== sourceKey) {
+        const removed = await this.sourceStorage
+          .remove(this.sourceStorage.privateBucket(), sourceKey)
+          .catch(() => false);
+        if (removed)
+          await (this.prismaRepository as any).speechUploadReservation.deleteMany({ where: { id: reservation } });
+      }
+      void this.dispatchOutbox();
+      return this.publicJob(job);
+    } catch (error) {
+      await this.sourceStorage.remove(this.sourceStorage.privateBucket(), sourceKey).catch(() => false);
+      throw error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      stream.destroy();
+    }
+    // A failed transfer keeps its expiring ledger, covering a late S3 completion.
+  }
+  private async findDuplicate(data: any) {
+    const duplicate = await (this.prismaRepository.transcriptionJob as any).findFirst({
+      where: {
+        OR: [{ dedupKey: data.dedupKey }, ...(data.idempotencyHash ? [{ idempotencyHash: data.idempotencyHash }] : [])],
+      },
+    });
+    if (
+      duplicate &&
+      data.idempotencyHash &&
+      duplicate.idempotencyHash === data.idempotencyHash &&
+      duplicate.dedupKey !== data.dedupKey
+    ) {
+      throw new TranscriptionServiceError('Idempotency-Key já utilizada com outro áudio ou configuração.', 409);
+    }
+    return duplicate;
+  }
+  private async findJob(jobId: string, instanceId?: string) {
     const id = String(jobId || '').trim();
     if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
-    const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-    if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
-    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
-      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
-    }
-    if (String(job.mode) === 'dictation') {
+    const job = await (this.prismaRepository.transcriptionJob as any).findFirst({
+      where: { id, ...(instanceId ? { instanceId } : {}) },
+    });
+    if (!job) throw new TranscriptionServiceError('Job de voz não encontrado.', 404);
+    return job;
+  }
+  public async get(jobId: string, instanceId?: string) {
+    return this.publicJob(await this.findJob(jobId, instanceId));
+  }
+  public async cancel(jobId: string, instanceId?: string) {
+    return this.publicJob(await this.durable.cancel(jobId, instanceId));
+  }
+  public async retry(jobId: string, instanceId?: string) {
+    const job = await this.findJob(jobId, instanceId);
+    if (
+      job.sourceDeletedAt ||
+      (job.sourceExpiresAt && job.sourceExpiresAt <= new Date()) ||
+      (job.sourceType !== 'message' &&
+        (!this.isOwnedUploadKey(job.sourceKey) || !(await this.sourceStorage.exists(job.sourceBucket, job.sourceKey))))
+    ) {
       throw new TranscriptionServiceError(
-        'O áudio do ditado não é mantido após o processamento. Grave novamente.',
+        'O áudio expirou ou não foi persistido pelo protocolo anterior. Envie-o novamente.',
         410,
       );
     }
-    if (job.status !== 'failed') {
-      throw new TranscriptionServiceError(
-        'A entrega original ainda pode estar na fila. Aguarde o estado final antes de repetir.',
-        409,
-      );
-    }
-    if (job.errorCode === 'WORKER_HEARTBEAT_EXPIRED') {
-      throw new TranscriptionServiceError(
-        'A entrega original pode permanecer na fila. Verifique e resolva essa entrega antes de enviar o áudio novamente.',
-        409,
-      );
-    }
-    if (!job.messageId && this.isOwnedUploadKey(job.sourceKey) && !(await storedFileExists(String(job.sourceKey)))) {
-      throw new TranscriptionServiceError('O áudio temporário deste job já expirou e não pode ser reenfileirado.', 410);
-    }
-
-    await this.ready(String(job.mode || 'transcription'));
-    const updateWhere: any = { id, status: 'failed' };
-    const updatedCount = await (this.prismaRepository.transcriptionJob as any).updateMany({
-      where: updateWhere,
-      data: {
-        status: 'queued',
-        stage: 'queued',
-        progressPercent: 0,
-        processedDurationMs: 0,
-        heartbeatAt: null,
-        errorCode: null,
-        errorMessage: null,
-        startedAt: null,
-        completedAt: null,
-        attempts: { increment: 1 },
-      },
-    });
-    if (!Number(updatedCount?.count)) {
-      throw new TranscriptionServiceError(
-        'O job mudou enquanto era reenfileirado. Atualize a lista e tente novamente.',
-        409,
-      );
-    }
-    const updated = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-    if (!updated) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
-
-    try {
-      await this.publish(requestRoutingKey(String(updated.mode || 'transcription')), this.jobPayload(updated));
-    } catch (error) {
-      await (this.prismaRepository.transcriptionJob as any).updateMany({
-        where: { id, attempts: updated.attempts, status: 'queued' },
-        data: {
-          status: 'failed',
-          stage: 'failed',
-          errorCode: 'QUEUE_UNAVAILABLE',
-          errorMessage: String(error?.message || error).slice(0, 2000),
-          completedAt: new Date(),
-        },
-      });
-      throw new TranscriptionServiceError('Não foi possível reenfileirar o job.', 503);
-    }
-    return this.publicJob(updated);
+    await this.ready(job.mode);
+    if (job.protocolVersion < SPEECH_PROTOCOL_VERSION) await this.prepareLegacyRetry(job);
+    const retried = await this.durable.retry(jobId, instanceId);
+    void this.dispatchOutbox();
+    return this.publicJob(retried);
   }
-
-  /**
-   * Remove an individual transcription job.
-   *
-   * Direct uploads own a temporary MinIO object, so that object is removed as
-   * part of the operation. A transcription requested for a persisted message
-   * never owns the message media; only its transcription result row is
-   * removed. Active jobs are cancelled by deleting their durable row; a late
-   * worker result is acknowledged and ignored by consumeResult.
-   */
   public async delete(jobId: string, instanceId?: string) {
-    const id = String(jobId || '').trim();
-    if (!id || id.length > 128) throw new TranscriptionServiceError('ID de job inválido.', 400);
-
-    const job = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id } });
-    if (!job) throw new TranscriptionServiceError('Job de transcrição não encontrado.', 404);
-    if (instanceId && String(job.instanceId || '') !== String(instanceId)) {
-      throw new TranscriptionServiceError('Job de transcrição não pertence à instância autenticada.', 404);
+    let job = await this.findJob(jobId, instanceId);
+    const wasActive = SPEECH_ACTIVE_STATUSES.includes(job.status);
+    if (wasActive) {
+      await this.durable.cancel(jobId, instanceId);
+      job = await this.findJob(jobId, instanceId);
     }
-    const ownsTemporarySource = !job.messageId && this.isOwnedUploadKey(job.sourceKey);
-    if (['queued', 'processing'].includes(String(job.status))) {
-      try {
-        await this.publish(cancelRoutingKey(String(job.mode || 'transcription')), {
-          jobId: id,
-          attempts: job.attempts,
-          mode: job.mode || 'transcription',
-        });
-      } catch (error) {
-        this.logger.warn(
-          'Transcrição: não foi possível avisar o worker antes da exclusão: ' + (error?.message || error),
+    if (job.leaseExpiresAt && job.leaseExpiresAt > new Date(Date.now() - 5000))
+      throw new TranscriptionServiceError(
+        'Cancelamento registrado. Aguarde o encerramento do motor antes de excluir o áudio.',
+        409,
+        5,
+      );
+    const ownsSource = !job.messageId && this.isOwnedUploadKey(job.sourceKey);
+    if (ownsSource && !(await this.removeSourceWithFence(job.id)))
+      throw new TranscriptionServiceError(
+        'Não foi possível remover o áudio temporário ou a fonte voltou a ser utilizada.',
+        409,
+      );
+    await this.durable.transaction(async (tx) => {
+      const current = await tx.transcriptionJob.findFirst({
+        where: { id: jobId, ...(instanceId ? { instanceId } : {}) },
+      });
+      if (
+        !current ||
+        SPEECH_ACTIVE_STATUSES.includes(current.status) ||
+        (current.leaseExpiresAt && current.leaseExpiresAt > new Date(Date.now() - 5000))
+      ) {
+        throw new TranscriptionServiceError(
+          'O job mudou durante a exclusão. Atualize o estado e tente novamente.',
+          409,
         );
       }
-    }
-    if (ownsTemporarySource) {
-      // S3/MinIO removeObject is idempotent: an object already removed by its
-      // lifecycle rule is considered successfully removed here.
-      if (!minioEnabled() || !(await deleteStoredFile(String(job.sourceKey)))) {
-        throw new TranscriptionServiceError('Não foi possível remover o áudio temporário do MinIO.', 503);
+      await tx.speechOutbox.deleteMany({ where: { jobId } });
+      await tx.transcriptionJob.deleteMany({
+        where: { id: jobId, ...(instanceId ? { instanceId } : {}), status: { notIn: SPEECH_ACTIVE_STATUSES } },
+      });
+    });
+    return { id: jobId, deleted: true, cancelled: wasActive, sourceRemoved: ownsSource, sourceRetained: !ownsSource };
+  }
+  private async prepareLegacyRetry(job: any) {
+    safeModel(job.model);
+    if (!this.connection)
+      throw new TranscriptionServiceError('O broker precisa estar disponível para verificar a migração.', 503);
+    const legacyQueues = [
+      String(process.env.SPEECH_TRANSCRIPTION_QUEUE || process.env.TRANSCRIPTION_QUEUE || 'speech.transcription'),
+      String(process.env.SPEECH_DICTATION_QUEUE || 'speech.dictation'),
+    ].map((queue) => queue.replace(/\.v2$/, ''));
+    for (const queue of legacyQueues) {
+      const check = await this.connection.createChannel();
+      check.on('error', () => {});
+      try {
+        const status = await check.checkQueue(queue);
+        if (status.consumerCount > 0)
+          throw new TranscriptionServiceError(
+            'Pare os workers legados antes de migrar o job para o protocolo v2.',
+            409,
+          );
+      } catch (error) {
+        if (Number(error?.code) !== 404) throw error;
+      } finally {
+        await check.close().catch(() => {});
       }
     }
-
+    const source = await this.sourceStorage.open(job.sourceBucket, job.sourceKey);
+    if (!source) throw new TranscriptionServiceError('A fonte do job legado não está disponível.', 410);
+    const hash = createHash('sha256');
+    let size = 0;
+    const deadline = setTimeout(() => source.destroy(new Error('LEGACY_SOURCE_TIMEOUT')), 30_000);
+    deadline.unref?.();
     try {
-      await (this.prismaRepository.transcriptionJob as any).delete({ where: { id } });
-    } catch (error) {
-      this.logger.warn('Transcrição: não foi possível remover o resultado: ' + (error?.message || error));
-      throw new TranscriptionServiceError('Não foi possível remover o resultado da transcrição.', 503);
-    }
-
-    return {
-      id,
-      deleted: true,
-      cancelled: ['queued', 'processing'].includes(String(job.status)),
-      sourceRemoved: ownsTemporarySource,
-      sourceRetained: !ownsTemporarySource,
-    };
-  }
-
-  private async createAndPublish(data: any, inlineAudio?: Buffer) {
-    const mode = data.mode === 'dictation' ? 'dictation' : 'transcription';
-    let job: any;
-    try {
-      job = await (this.prismaRepository.transcriptionJob as any).create({
-        data: {
-          ...data,
-          provider: providerValue(),
-          mode,
-          status: 'queued',
-          stage: 'queued',
-          progressPercent: 0,
-          processedDurationMs: 0,
-          attempts: 1,
-        },
-      });
-    } catch (error: any) {
-      if (error?.code === 'P2002' && (data.audioHash || data.idempotencyKey)) {
-        const duplicate = await this.findDuplicate({
-          mode,
-          instanceId: data.instanceId || null,
-          idempotencyKey: data.idempotencyKey,
-          audioHash: data.audioHash,
-          model: data.model,
-          language: data.language,
-        });
-        if (duplicate) {
-          if (data.sourceKey && data.sourceKey !== duplicate.sourceKey) {
-            await deleteStoredFile(String(data.sourceKey)).catch(() => false);
-          }
-          return this.publicJob(duplicate);
-        }
+      for await (const chunk of source) {
+        size += chunk.length;
+        if (size > speechUploadLimit(job.mode))
+          throw new TranscriptionServiceError('A fonte legada excede o limite atual.', 413);
+        hash.update(chunk);
       }
-      throw error;
+    } finally {
+      clearTimeout(deadline);
+      source.destroy();
     }
-    try {
-      await this.publish(requestRoutingKey(mode), this.jobPayload(job, inlineAudio));
-    } catch (error) {
-      await (this.prismaRepository.transcriptionJob as any).update({
-        where: { id: job.id },
-        data: {
-          status: 'failed',
-          stage: 'failed',
-          errorCode: 'QUEUE_UNAVAILABLE',
-          errorMessage: String(error?.message || error).slice(0, 2000),
-          completedAt: new Date(),
-        },
-      });
-      throw new TranscriptionServiceError('Não foi possível publicar o job para o worker.', 503);
-    }
-    return this.publicJob(job);
+    const sha256 = hash.digest('hex');
+    if (!size || (job.audioHash && sha256 !== job.audioHash))
+      throw new TranscriptionServiceError('A fonte legada não passou na verificação de integridade.', 409);
+    await (this.prismaRepository.transcriptionJob as any).updateMany({
+      where: { id: job.id, status: 'failed', protocolVersion: job.protocolVersion },
+      data: {
+        audioHash: sha256,
+        sizeBytes: size,
+        reservedBytes: size,
+        requestedModel: job.model,
+        requestedEngine: getConfiguredSpeechModel()?.engine,
+        requestedRevision: getConfiguredSpeechModel()?.revision,
+        reservedDurationMs: this.jobData({}, job.mode, job.instanceId).reservedDurationMs,
+      },
+    });
   }
 
-  private jobPayload(job: any, inlineAudio?: Buffer) {
+  private async removeSourceWithFence(jobId: string): Promise<boolean> {
+    const reserved = await this.durable.transaction(async (tx) => {
+      const job = await tx.transcriptionJob.findUnique({ where: { id: jobId } });
+      if (!job || job.messageId || !this.isOwnedUploadKey(job.sourceKey) || SPEECH_ACTIVE_STATUSES.includes(job.status))
+        return null;
+      const active = await tx.transcriptionJob.count({
+        where: {
+          sourceKey: job.sourceKey,
+          sourceBucket: job.sourceBucket || null,
+          OR: [{ status: { in: SPEECH_ACTIVE_STATUSES } }, { leaseExpiresAt: { gt: new Date(Date.now() - 5000) } }],
+        },
+      });
+      if (active) return null;
+      if (job.sourceDeletionStartedAt && job.sourceDeletionStartedAt > new Date(Date.now() - 60_000)) return null;
+      const token = randomUUID();
+      await tx.transcriptionJob.updateMany({
+        where: { sourceKey: job.sourceKey, sourceBucket: job.sourceBucket || null },
+        data: { sourceDeletionStartedAt: new Date(), sourceDeletionToken: token },
+      });
+      return { sourceKey: job.sourceKey, sourceBucket: job.sourceBucket, token };
+    });
+    if (!reserved) return false;
+    if (await this.sourceStorage.remove(reserved.sourceBucket, reserved.sourceKey)) {
+      await (this.prismaRepository.transcriptionJob as any).updateMany({
+        where: {
+          sourceKey: reserved.sourceKey,
+          sourceBucket: reserved.sourceBucket || null,
+          sourceDeletionToken: reserved.token,
+        },
+        data: { sourceDeletedAt: new Date(), sourceDeletionStartedAt: null, sourceDeletionToken: null },
+      });
+      return true;
+    }
+    // Keep the deletion fence on an uncertain network outcome. A late S3 delete
+    // must never race a manual retry; bounded cleanup retries the tombstone.
+
+    return false;
+  }
+  private jobPayload(job: any) {
     return {
+      version: SPEECH_PROTOCOL_VERSION,
       jobId: job.id,
-      mode: job.mode || 'transcription',
+      mode: job.mode,
       messageId: job.messageId,
       instanceId: job.instanceId,
-      source: { key: job.sourceKey, mimeType: job.sourceMimeType },
+      scopeKey: job.scopeKey,
+      poolId: job.poolId,
+      generation: job.generation,
+      source: {
+        bucket: job.sourceBucket || this.sourceStorage.mediaBucket(),
+        key: job.sourceKey,
+        mimeType: job.sourceMimeType,
+        bytes: job.sizeBytes || null,
+        sha256: job.audioHash || null,
+      },
       language: job.language,
-      model: job.model,
+      model: job.requestedModel || job.model,
+      engine: job.requestedEngine,
+      modelRevision: job.requestedRevision,
       attempts: job.attempts,
-      queuedAt: job.createdAt instanceof Date ? job.createdAt.toISOString() : new Date().toISOString(),
-      ...(inlineAudio ? { inlineAudio: inlineAudio.toString('base64') } : {}),
+      queuedAt: new Date(job.createdAt).toISOString(),
+      deadlineAt: job.deadlineAt ? new Date(job.deadlineAt).toISOString() : null,
+      maxDurationMs: job.reservedDurationMs,
+      maxAudioBytes: job.reservedBytes,
+      controlRoutingKey: SPEECH_CONTROL_ROUTING_KEY,
     };
   }
-
   private publicJob(job: any) {
     return {
       id: job.id,
@@ -908,13 +760,25 @@ export class TranscriptionService {
       sizeBytes: job.sizeBytes ?? null,
       audioHash: job.audioHash || null,
       provider: job.provider,
-      model: job.model,
+      model: job.effectiveModel || job.model,
+      requestedModel: job.requestedModel || job.model,
+      effectiveModel: job.effectiveModel || null,
+      engine: job.engine || null,
+      modelRevision: job.modelRevision || null,
       language: job.language,
       status: job.status,
       stage: job.stage || job.status,
-      progressPercent: Number.isFinite(Number(job.progressPercent)) ? Number(job.progressPercent) : 0,
-      processedDurationMs: job.processedDurationMs,
+      progressPercent: Number(job.progressPercent) || 0,
+      processedDurationMs: job.processedDurationMs || 0,
+      durationKnown: job.checkpoint?.durationKnown === true || job.status === 'completed',
       heartbeatAt: job.heartbeatAt || null,
+      controlHeartbeatAt: job.controlHeartbeatAt || null,
+      engineProgressAt: job.engineProgressAt || null,
+      generation: job.generation,
+      leaseExpiresAt: job.leaseExpiresAt || null,
+      deadlineAt: job.deadlineAt || null,
+      cancelRequestedAt: job.cancelRequestedAt || null,
+      queueWaitMs: Math.max(0, new Date(job.startedAt || Date.now()).getTime() - new Date(job.createdAt).getTime()),
       text: job.text,
       detectedLanguage: job.detectedLanguage,
       durationMs: job.durationMs,
@@ -928,88 +792,20 @@ export class TranscriptionService {
       updatedAt: job.updatedAt,
     };
   }
-
-  private async findDuplicate(input: {
-    mode: string;
-    instanceId?: string | null;
-    idempotencyKey?: string | null;
-    audioHash?: string;
-    model?: string;
-    language?: string | null;
-  }) {
-    const jobs = this.prismaRepository.transcriptionJob as any;
-    const reusableStatuses = { in: ['queued', 'processing', 'completed'] };
-    if (input.idempotencyKey) {
-      const byKey = await jobs.findFirst({
-        where: {
-          mode: input.mode,
-          instanceId: input.instanceId || null,
-          idempotencyKey: input.idempotencyKey,
-          status: reusableStatuses,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (byKey) return byKey;
-    }
-    if (input.audioHash) {
-      return jobs.findFirst({
-        where: {
-          mode: input.mode,
-          instanceId: input.instanceId || null,
-          audioHash: input.audioHash,
-          model: input.model,
-          language: input.language || null,
-          status: reusableStatuses,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-    return null;
-  }
-
-  private async ready(mode = 'transcription') {
-    await this.init();
-    if (!this.channel || !this.resultChannel) {
-      throw new TranscriptionServiceError('A fila de transcrição está temporariamente indisponível.', 503);
-    }
-
-    let modelStatus = await this.modelDownloadStatus();
-    if (!modelStatus.installed && modelStatus.available) {
-      try {
-        modelStatus = await this.downloadModel(modelStatus.id);
-      } catch (error: any) {
-        this.logger.warn(
-          'Não foi possível iniciar o download persistente do modelo de voz: ' + (error?.message || error),
-        );
-        throw new TranscriptionServiceError(
-          'O modelo de voz ainda não está instalado e o download automático não pôde ser iniciado. Verifique o volume persistente de modelos no Compose.',
-          503,
-        );
-      }
-      if (!modelStatus.installed) {
-        throw new TranscriptionServiceError(
-          'O download do modelo de voz foi iniciado. Acompanhe o progresso em Gerenciador > Transcrição de áudio e envie o áudio novamente quando o modelo estiver pronto.',
-          503,
-        );
-      }
-    }
-
-    const queue = queueFor(mode);
-    try {
-      const state = await this.channel.checkQueue(queue);
-      if (!Number(state?.consumerCount)) {
-        throw new TranscriptionServiceError(
-          mode === 'dictation'
-            ? 'O worker de ditado não está ativo. Verifique o serviço speech-dictation-worker no Compose.'
-            : 'O worker local de transcrição não está ativo. Verifique o serviço transcription-worker no Compose.',
-          503,
-        );
-      }
-    } catch (error) {
-      if (error instanceof TranscriptionServiceError) throw error;
-      this.logger.warn('Não foi possível confirmar o consumidor da fila de transcrição: ' + (error?.message || error));
-      throw new TranscriptionServiceError('O worker local de transcrição está temporariamente indisponível.', 503);
-    }
+  private async ready(mode: string) {
+    if (!this.isEnabled() || (mode === 'dictation' && !this.isDictationEnabled()))
+      throw new TranscriptionServiceError('O recurso de voz está desabilitado.', 409);
+    safeModel(undefined);
+    providerValue();
+    const health = await this.health();
+    if (!health.connected || !health.capabilities[mode])
+      throw new TranscriptionServiceError(
+        'O pool de voz está indisponível ou está preparando o motor. Consulte /v1/speech/health.',
+        503,
+        10,
+      );
+    if (!health.acceptingJobs)
+      throw new TranscriptionServiceError('O pool de voz atingiu sua capacidade de admissão.', 429, 15);
   }
 
   private async connect() {
@@ -1017,549 +813,409 @@ export class TranscriptionService {
     if (!uri) throw new Error('RABBITMQ_URI não configurado.');
     await this.prismaRepository.$connect();
     const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
-    const queues = [
-      { mode: 'transcription', queue: queueFor('transcription') },
-      { mode: 'dictation', queue: queueFor('dictation') },
-    ];
-
-    const connection = await amqp.connect(uri);
+    const connection = await amqp.connect(uri, { timeout: 5000, keepAlive: true });
     this.connection = connection;
-    connection.on('error', (error) => this.logger.warn('RabbitMQ transcription: ' + (error?.message || error)));
+    connection.on('error', (error) => this.logger.warn('RabbitMQ speech: ' + (error?.message || error)));
     connection.on('close', () => {
-      if (this.connection !== connection) return;
-      this.channel = null;
-      this.resultChannel = null;
-      this.connection = null;
-      this.scheduleReconnect();
+      if (this.connection === connection) this.closeConnection(connection);
     });
-
     const channel = await connection.createConfirmChannel();
-    if (this.connection !== connection) {
-      await channel.close().catch(() => {});
-      return;
-    }
     this.channel = channel;
-    channel.on('error', (error) => this.logger.warn('RabbitMQ transcription channel: ' + (error?.message || error)));
-    channel.on('close', () => {
-      this.handleChannelClose(channel, connection);
-    });
-
+    channel.setMaxListeners(64);
+    channel.on('error', (error) => this.logger.warn('RabbitMQ speech publisher: ' + (error?.message || error)));
+    channel.on('close', () => this.closeConnection(connection));
     try {
       await channel.assertExchange(exchange, 'topic', { durable: true });
-      for (const item of queues) {
-        const resultQueue = item.queue + '.results';
-        const prefix = resultRoutingPrefix(item.mode);
-        await channel.assertQueue(item.queue, {
-          durable: true,
-          arguments: {
-            'x-queue-type': 'quorum',
-            ...(item.mode === 'dictation' ? { 'x-message-ttl': dictationAudioRetentionMs() } : {}),
-          },
-        });
-        await channel.bindQueue(item.queue, exchange, requestRoutingKey(item.mode));
-        await channel.assertQueue(resultQueue, { durable: true, arguments: { 'x-queue-type': 'quorum' } });
-        for (const status of ['processing', 'completed', 'failed', 'cancelled']) {
-          await channel.bindQueue(resultQueue, exchange, prefix + status);
-        }
+      for (const mode of ['transcription', 'dictation']) {
+        const queue = speechQueue(mode);
+        await channel.assertQueue(queue + '.dead-letter', { durable: true, arguments: speechDeadLetterArguments() });
+        await channel.assertQueue(queue, { durable: true, arguments: speechQueueArguments(mode) });
+        await channel.bindQueue(queue, exchange, speechRequestRoutingKey(mode));
       }
-
-      // Keep consumer delivery tags on a dedicated channel. This prevents
-      // publishing confirmations and result ACKs from sharing channel state.
-      const resultChannel = await connection.createChannel();
-      if (this.connection !== connection || this.channel !== channel) {
-        await resultChannel.close().catch(() => {});
-        return;
-      }
-      this.resultChannel = resultChannel;
-      resultChannel.on('error', (error) =>
-        this.logger.warn('RabbitMQ transcription result channel: ' + (error?.message || error)),
+      const controlQueue = speechPoolId() + '.speech.control.v2';
+      await channel.assertQueue(controlQueue, {
+        durable: true,
+        arguments: {
+          'x-queue-type': 'quorum',
+          'x-max-length': 1000,
+          'x-max-length-bytes': 8_388_608,
+          'x-message-ttl': 15_000,
+          'x-overflow': 'reject-publish',
+        },
+      });
+      await channel.bindQueue(controlQueue, exchange, SPEECH_CONTROL_ROUTING_KEY);
+      const consumer = await connection.createChannel();
+      this.resultChannel = consumer;
+      consumer.on('error', (error) => this.logger.warn('RabbitMQ speech control: ' + (error?.message || error)));
+      consumer.on('close', () => this.closeConnection(connection));
+      await consumer.prefetch(16);
+      await consumer.consume(
+        controlQueue,
+        (message) => {
+          if (message) void this.consumeControl(message, consumer);
+        },
+        { noAck: false },
       );
-      resultChannel.on('close', () => this.handleChannelClose(resultChannel, connection));
-      await resultChannel.prefetch(20);
-      for (const item of queues) {
-        const resultQueue = item.queue + '.results';
-        await resultChannel.consume(
-          resultQueue,
-          (message) => {
-            if (message) void this.consumeResult(message, resultChannel);
-          },
-          { noAck: false },
-        );
+      if (!this.outboxTimer) {
+        this.outboxTimer = setInterval(() => void this.dispatchOutbox(), 1000);
+        this.outboxTimer.unref?.();
       }
-      if (this.channel !== channel || this.resultChannel !== resultChannel) return;
-      this.logger.info('Speech queues - ON (' + queues.map((item) => item.queue).join(', ') + ')');
-      // Recover abandoned jobs as soon as a real worker consumer is present;
-      // waiting for the periodic timer would leave old `processing` rows visible
-      // in the Manager for another full interval after a deploy.
+      void this.dispatchOutbox();
       void this.recoverStaleJobs();
     } catch (error) {
-      if (this.channel === channel) this.channel = null;
-      const resultChannel = this.resultChannel;
-      this.resultChannel = null;
-      if (this.connection === connection) this.connection = null;
-      try {
-        await resultChannel?.close();
-      } catch {
-        // Connection teardown below also releases this channel.
-      }
-      try {
-        await channel.close();
-      } catch {
-        // Connection teardown below also releases this channel.
-      }
-      try {
-        await connection.close();
-      } catch {
-        // Preserve the setup error while best-effort cleanup completes.
-      }
+      this.closeConnection(connection);
       throw error;
     }
   }
-
-  private handleChannelClose(channel: any, connection: any) {
-    if (this.connection !== connection || (this.channel !== channel && this.resultChannel !== channel)) return;
+  private closeConnection(connection: any) {
+    if (!connection || connection !== this.connection) return;
+    this.connection = null;
     this.channel = null;
     this.resultChannel = null;
-    this.connection = null;
     void connection.close().catch(() => {});
     this.scheduleReconnect();
   }
-
   private scheduleReconnect() {
-    if (!this.isEnabled() || this.reconnectTimer) return;
+    if (this.reconnectTimer || !this.isEnabled()) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.init();
     }, 5000);
+    this.reconnectTimer.unref?.();
   }
-
-  private async publish(routingKey: string, payload: Record<string, unknown>) {
-    if (!this.channel) throw new Error('RabbitMQ channel indisponível.');
-    const channel = this.channel;
-    const exchange = String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim();
-    await new Promise<void>((resolve, reject) => {
+  private async consumeControl(message: any, consumer: any) {
+    if (consumer !== this.resultChannel) return;
+    let input: any;
+    if (message.content.length > 300_000) {
+      consumer.nack(message, false, false);
+      return;
+    }
+    try {
+      input = JSON.parse(message.content.toString('utf8'));
+    } catch {
+      consumer.nack(message, false, false);
+      return;
+    }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      consumer.nack(message, false, false);
+      return;
+    }
+    const replyTo = String(message.properties?.replyTo || '');
+    if (!replyTo || replyTo.length > 255) {
+      consumer.nack(message, false, false);
+      return;
+    }
+    try {
+      let result: Record<string, any>;
       try {
-        channel.publish(
-          exchange,
-          routingKey,
-          Buffer.from(JSON.stringify(payload)),
-          {
-            persistent: true,
-            contentType: 'application/json',
-            messageId: String(payload.jobId || ''),
-            priority: routingKey === DICTATION_REQUESTED ? 10 : 1,
-          },
-          (error: Error | null) => (error ? reject(error) : resolve()),
-        );
+        result = await this.durable.control(input);
       } catch (error) {
-        reject(error);
+        if (!(error instanceof TranscriptionServiceError)) throw error;
+        result = {
+          ok: false,
+          granted: false,
+          applied: false,
+          reason: error.message,
+          terminal: true,
+          cancelRequested: true,
+        };
       }
-    });
-  }
-
-  private acknowledgeResult(channel: any, message: any): boolean {
-    if (!channel || channel !== this.resultChannel || !message || typeof message !== 'object') return false;
-    if (this.settledResultMessages.has(message)) return false;
-    try {
-      channel.ack(message);
-      this.settledResultMessages.add(message);
-      return true;
-    } catch (error) {
-      this.logger.warn('Não foi possível confirmar resultado de voz: ' + (error?.message || error));
-      void channel.close().catch(() => {});
-      return false;
-    }
-  }
-
-  private rejectResult(channel: any, message: any, requeue: boolean): boolean {
-    if (!channel || channel !== this.resultChannel || !message || typeof message !== 'object') return false;
-    if (this.settledResultMessages.has(message)) return false;
-    try {
-      channel.nack(message, false, requeue);
-      this.settledResultMessages.add(message);
-      return true;
-    } catch (error) {
-      this.logger.warn('Não foi possível devolver resultado de voz à fila: ' + (error?.message || error));
-      void channel.close().catch(() => {});
-      return false;
-    }
-  }
-
-  private async consumeResult(message: any, channel: any) {
-    if (!channel || channel !== this.resultChannel) return;
-    let payload: WorkerResult;
-    try {
-      payload = JSON.parse(message.content.toString('utf8')) as WorkerResult;
-    } catch (error) {
-      this.logger.error('Resultado de transcrição malformado: ' + (error?.message || error));
-      this.rejectResult(channel, message, false);
-      return;
-    }
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      this.logger.error('Resultado de transcrição malformado: payload não é um objeto.');
-      this.rejectResult(channel, message, false);
-      return;
-    }
-    try {
-      const jobId = String(payload.jobId || '').trim();
-      if (!jobId) {
-        this.acknowledgeResult(channel, message);
-        return;
-      }
-      const status = ['processing', 'completed', 'failed', 'cancelled'].includes(String(payload.status))
-        ? String(payload.status)
-        : 'failed';
-      const data: any = { status, updatedAt: new Date() };
-      if (typeof payload.workerId === 'string') data.workerId = payload.workerId.slice(0, 128);
-      data.stage =
-        status === 'completed' || status === 'failed'
-          ? status
-          : String(payload.stage || status)
-              .trim()
-              .slice(0, 32);
-      if (Number.isFinite(Number(payload.progressPercent))) {
-        data.progressPercent = Math.max(
-          0,
-          Math.min(status === 'completed' ? 100 : 99, Math.floor(Number(payload.progressPercent))),
-        );
-      }
-      if (Number.isFinite(Number(payload.processedDurationMs))) {
-        data.processedDurationMs = Math.max(0, Math.floor(Number(payload.processedDurationMs)));
-      }
-      data.heartbeatAt = payload.heartbeatAt ? new Date(payload.heartbeatAt) : new Date();
-      if (typeof payload.partialText === 'string') data.text = payload.partialText.slice(0, 100_000);
-      if (status === 'processing') {
-        data.errorCode = typeof payload.errorCode === 'string' ? payload.errorCode.slice(0, 64) : null;
-        data.errorMessage = null;
-        const current = await (this.prismaRepository.transcriptionJob as any).findUnique({
-          where: { id: jobId },
-          select: { startedAt: true },
+      if (consumer !== this.resultChannel || !this.channel) return;
+      try {
+        await publishSpeechConfirmed(this.channel, '', replyTo, result, {
+          correlationId: message.properties.correlationId,
+          messageId: randomUUID(),
+          expiration: '15000',
         });
-        if (!current) {
-          this.acknowledgeResult(channel, message);
-          return;
-        }
-        if (!current.startedAt) data.startedAt = new Date();
-      } else if (status === 'completed') {
-        data.text = String(payload.text || '');
-        data.detectedLanguage = payload.language ? String(payload.language) : null;
-        data.durationMs = Number.isFinite(Number(payload.durationMs)) ? Math.round(Number(payload.durationMs)) : null;
-        data.segments = payload.segments ?? null;
-        data.provider = payload.provider || undefined;
-        data.model = payload.model || undefined;
-        data.errorCode = null;
-        data.errorMessage = null;
-        data.completedAt = new Date();
-        data.progressPercent = 100;
-      } else if (status === 'cancelled') {
-        data.stage = 'cancelled';
-        data.completedAt = new Date();
-      } else {
-        data.errorCode = String(payload.errorCode || 'TRANSCRIPTION_FAILED').slice(0, 64);
-        data.errorMessage = String(payload.errorMessage || 'Falha no worker.').slice(0, 2000);
-        data.completedAt = new Date();
+      } catch (error) {
+        if (!String(error?.message || error).startsWith('SPEECH_UNROUTABLE')) throw error;
+        // A disappeared worker cannot consume a reply; committed SQL remains authoritative.
       }
-      const attempts = Number.isFinite(Number(payload.attempts))
-        ? Math.max(1, Math.floor(Number(payload.attempts)))
-        : null;
-      let updateWhere: any;
-      if (attempts === null) {
-        // Older workers did not include the attempt number. Accept one of
-        // their results only for an active first-attempt job; once a retry
-        // has advanced the durable counter, a late legacy result cannot
-        // overwrite the newer execution.
-        const current = await (this.prismaRepository.transcriptionJob as any).findUnique({ where: { id: jobId } });
-        const currentAttempts = Number(current?.attempts || 0);
-        if (!current || !['queued', 'processing'].includes(String(current.status)) || currentAttempts > 1) {
-          this.logger.debug(
-            'Resultado legado de transcrição ignorado para job ausente, terminal ou repetido: ' + jobId,
-          );
-          this.acknowledgeResult(channel, message);
-          return;
-        }
-        updateWhere = { id: jobId, status: { in: ['queued', 'processing'] }, attempts: currentAttempts };
-      } else {
-        updateWhere = { id: jobId, attempts, status: { in: ['queued', 'processing'] } };
-      }
-      const jobs = this.prismaRepository.transcriptionJob as any;
-      const updated = await jobs.updateMany({ where: updateWhere, data });
-      let updatedCount = Number(updated?.count || 0);
-      if (!updatedCount && attempts !== null && attempts > 1) {
-        // The delayed retry carries the next attempt. Advance the durable
-        // counter only when its first event arrives, with a compare-and-swap
-        // against the preceding retrying state.
-        const resumed = await jobs.updateMany({
-          where: { id: jobId, attempts: attempts - 1, status: 'processing', stage: 'retrying' },
-          data: { ...data, attempts },
-        });
-        updatedCount = Number(resumed?.count || 0);
-      }
-      if (!updatedCount) {
-        // The job may have been deliberately removed, or this is a late result
-        // from an older retry attempt. It must not poison the durable queue.
-        this.logger.debug('Resultado de transcrição ignorado para job ausente ou tentativa antiga: ' + jobId);
-      }
-      this.acknowledgeResult(channel, message);
+      consumer.ack(message);
+      if (['release', 'finish'].includes(input.action)) void this.dispatchOutbox();
     } catch (error) {
-      if (channel !== this.resultChannel) return;
-      this.logger.error('Falha ao persistir resultado de transcrição: ' + (error?.message || error));
-      // A database outage is transient: closing the consumer channel returns
-      // the unacknowledged result to RabbitMQ after the reconnect backoff.
-      this.handleChannelClose(channel, this.connection);
+      this.logger.warn('Falha transitória no controle durável de voz: ' + (error?.message || error));
+      this.closeConnection(this.connection);
     }
   }
-
-  public async cleanupExpiredUploads(input: { olderThanSeconds?: number; limit?: number } = {}) {
-    if (!minioEnabled()) {
-      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
-    }
-
-    const configuredRetention = this.sourceRetentionSeconds();
-    const requestedRetention =
-      input.olderThanSeconds === undefined ? configuredRetention : Number(input.olderThanSeconds);
-    if (!Number.isFinite(requestedRetention) || requestedRetention <= 0) {
-      throw new TranscriptionServiceError('Informe uma retenção positiva para limpar os áudios temporários.', 400);
-    }
-    const retentionSeconds = Math.min(Math.floor(requestedRetention), 31_536_000);
-    const limitValue = Number(input.limit);
-    const limit = Number.isFinite(limitValue) ? Math.min(Math.max(Math.floor(limitValue), 1), 1000) : 250;
-    const cutoff = Date.now() - retentionSeconds * 1000;
-
-    const jobs = (await (this.prismaRepository.transcriptionJob as any).findMany({
-      where: { sourceKey: { startsWith: TRANSCRIPTION_SOURCE_PREFIX } },
-      select: {
-        id: true,
-        sourceKey: true,
-        messageId: true,
-        status: true,
-        completedAt: true,
-        updatedAt: true,
-        createdAt: true,
-      },
-    })) as Array<{
-      id: string;
-      sourceKey: string;
-      messageId: string | null;
-      status: string;
-      completedAt: Date | null;
-      updatedAt: Date;
-      createdAt: Date;
-    }>;
-
-    const protectedKeys = new Set<string>();
-    const expiredKeys = new Set<string>();
-    const expiredJobIdsBySource = new Map<string, string[]>();
-    for (const job of jobs) {
-      const sourceKey = String(job.sourceKey || '');
-      if (job.messageId || !this.isOwnedUploadKey(sourceKey)) continue;
-      if (job.status === 'queued' || job.status === 'processing') {
-        protectedKeys.add(sourceKey);
-        continue;
-      }
-      if (!['completed', 'failed', 'cancelled'].includes(String(job.status))) continue;
-      const terminalDate = job.completedAt || job.updatedAt || job.createdAt;
-      if (terminalDate && terminalDate.getTime() <= cutoff) {
-        expiredKeys.add(sourceKey);
-        const ids = expiredJobIdsBySource.get(sourceKey) || [];
-        ids.push(job.id);
-        expiredJobIdsBySource.set(sourceKey, ids);
-      }
-    }
-    for (const protectedKey of protectedKeys) {
-      expiredKeys.delete(protectedKey);
-      expiredJobIdsBySource.delete(protectedKey);
-    }
-
-    const bucketListing = await listBucketObjects(MANAGED_OBJECT_PREFIX + TRANSCRIPTION_SOURCE_PREFIX);
-    const objects = bucketListing.objects;
-    const objectBySourceKey = new Map<string, { size: number; lastModified: string | null }>();
-    for (const object of objects) {
-      if (!object.key.startsWith(MANAGED_OBJECT_PREFIX + TRANSCRIPTION_SOURCE_PREFIX)) continue;
-      const sourceKey = object.key.slice(MANAGED_OBJECT_PREFIX.length);
-      objectBySourceKey.set(sourceKey, object);
-      if (!bucketListing.truncated && !protectedKeys.has(sourceKey) && !expiredKeys.has(sourceKey)) {
-        const lastModified = object.lastModified ? Date.parse(object.lastModified) : NaN;
-        if (Number.isFinite(lastModified) && lastModified <= cutoff) expiredKeys.add(sourceKey);
-      }
-    }
-
-    const candidates = [...expiredKeys].slice(0, limit);
-    let removed = 0;
-    let failed = 0;
-    let freedBytes = 0;
-    let jobsRetained = 0;
-    for (const sourceKey of candidates) {
-      if (await deleteStoredFile(sourceKey)) {
-        removed += 1;
-        freedBytes += objectBySourceKey.get(sourceKey)?.size || 0;
-        jobsRetained += (expiredJobIdsBySource.get(sourceKey) || []).length;
-      } else {
-        failed += 1;
-      }
-    }
-
-    return {
-      status: failed ? 'partial' : 'completed',
-      retentionSeconds,
-      cutoff: new Date(cutoff).toISOString(),
-      candidates: candidates.length,
-      removed,
-      failed,
-      freedBytes,
-      jobsRemoved: 0,
-      jobsRetained,
-    };
-  }
-
-  private isOwnedUploadKey(value: unknown): boolean {
-    const key = String(value || '').trim();
-    return key.startsWith(TRANSCRIPTION_SOURCE_PREFIX) && !key.includes('..');
-  }
-
-  private sourceRetentionSeconds(): number {
-    const value = Number.parseInt(process.env.TRANSCRIPTION_SOURCE_RETENTION_SECONDS || '', 10);
-    if (!Number.isFinite(value)) {
-      const days = Number.parseInt(process.env.TRANSCRIPTION_AUDIO_RETENTION_DAYS || '30', 10);
-      return Math.min(Math.max(Number.isFinite(days) ? days : 30, 0), 365) * 86_400;
-    }
-    return Math.min(Math.max(value, 0), 31_536_000);
-  }
-
-  private sourceCleanupIntervalSeconds(): number {
-    const value = Number.parseInt(process.env.TRANSCRIPTION_SOURCE_CLEANUP_INTERVAL_SECONDS || '', 10);
-    if (!Number.isFinite(value)) return 900;
-    return Math.min(Math.max(value, 60), 86_400);
-  }
-
-  private staleJobSeconds(): number {
-    const value = Number.parseInt(
-      process.env.SPEECH_JOB_STALE_AFTER || process.env.TRANSCRIPTION_STALE_JOB_SECONDS || '',
-      10,
-    );
-    if (!Number.isFinite(value)) return 120;
-    return Math.min(Math.max(value, 60), 86_400);
-  }
-
-  private staleRecoveryIntervalSeconds(): number {
-    const value = Number.parseInt(process.env.TRANSCRIPTION_STALE_RECOVERY_INTERVAL_SECONDS || '', 10);
-    if (!Number.isFinite(value)) return 60;
-    return Math.min(Math.max(value, 30), 3600);
-  }
-
-  private maxAttempts(): number {
-    const value = Number.parseInt(process.env.SPEECH_MAX_ATTEMPTS || '', 10);
-    return Number.isFinite(value) ? Math.min(Math.max(value, 1), 10) : 3;
-  }
-
-  private isStaleJob(job: any): boolean {
-    if (String(job?.status) !== 'processing') return false;
-    const updatedAt = new Date(job?.updatedAt || job?.heartbeatAt || job?.createdAt || 0).getTime();
-    const retryDelay =
-      String(job?.stage) === 'retrying'
-        ? RETRY_DELAYS_MS[Math.min(RETRY_DELAYS_MS.length - 1, Math.max(0, Number(job?.attempts || 1) - 1))]
-        : 0;
-    return Number.isFinite(updatedAt) && Date.now() - updatedAt >= retryDelay + this.staleJobSeconds() * 1000;
-  }
-
-  private startStaleRecovery() {
-    if (this.staleRecoveryTimer || this.staleJobSeconds() <= 0) return;
-    const interval = this.staleRecoveryIntervalSeconds();
-    this.staleRecoveryTimer = setInterval(() => void this.recoverStaleJobs(), interval * 1000);
-    this.staleRecoveryTimer.unref?.();
-    void this.recoverStaleJobs();
-  }
-
-  private async recoverStaleJobs() {
-    if (this.staleRecoveryInFlight || !this.channel) return;
-    this.staleRecoveryInFlight = true;
+  private async dispatchOutbox() {
+    if (this.outboxInFlight || !this.channel) return;
+    this.outboxInFlight = true;
+    const repository = this.prismaRepository as any;
     try {
-      const cutoff = new Date(Date.now() - this.staleJobSeconds() * 1000);
-      for (const mode of ['transcription', 'dictation']) {
-        const state = await this.channel.checkQueue(queueFor(mode));
-        if (mode === 'dictation' && Number(state?.messageCount || 0) === 0) {
-          const expiredCutoff = new Date(Date.now() - dictationAudioRetentionMs() - 60_000);
-          const expired = await (this.prismaRepository.transcriptionJob as any).findMany({
-            where: { mode, status: 'queued', createdAt: { lt: expiredCutoff } },
-            select: { id: true, attempts: true, createdAt: true },
-            take: 100,
-          });
-          for (const job of expired) {
-            await (this.prismaRepository.transcriptionJob as any).updateMany({
-              where: { id: job.id, mode, status: 'queued', attempts: job.attempts, createdAt: job.createdAt },
-              data: {
-                status: 'failed',
-                stage: 'failed',
-                errorCode: 'DICTATION_AUDIO_EXPIRED',
-                errorMessage: 'O áudio do ditado expirou antes de ser processado.',
-                completedAt: new Date(),
-              },
-            });
+      const now = new Date();
+      const entries = await repository.speechOutbox.findMany({
+        where: {
+          poolId: speechPoolId(),
+          availableAt: { lte: now },
+          OR: [{ status: 'pending' }, { status: 'publishing', lockedUntil: { lt: now } }],
+        },
+        orderBy: { availableAt: 'asc' },
+        take: 20,
+      });
+      for (const entry of entries) {
+        if (!this.channel) break;
+        const token = randomUUID();
+        const claimed = await repository.speechOutbox.updateMany({
+          where: {
+            id: entry.id,
+            status: entry.status,
+            ...(entry.status === 'publishing' ? { lockedUntil: { lt: now } } : {}),
+          },
+          data: {
+            status: 'publishing',
+            dispatchToken: token,
+            lockedUntil: new Date(Date.now() + 30_000),
+            attempts: { increment: 1 },
+          },
+        });
+        if (!claimed.count) continue;
+        try {
+          const job = await repository.transcriptionJob.findUnique({ where: { id: entry.jobId } });
+          if (
+            job?.status === 'queued' &&
+            job.generation === entry.generation &&
+            (!job.deadlineAt || job.deadlineAt > new Date())
+          ) {
+            await publishSpeechConfirmed(
+              this.channel,
+              String(process.env.RABBITMQ_EXCHANGE_NAME || 'argws_connect').trim(),
+              speechRequestRoutingKey(entry.mode),
+              entry.payload,
+              { messageId: entry.id },
+            );
           }
-        }
-        // Queue messageCount excludes unacknowledged deliveries. A stale
-        // heartbeat never proves the original delivery has disappeared. The
-        // broker redelivers it after a channel/connection closes; publishing
-        // a second copy here can run the same job in parallel. Dictation's
-        // inline audio is also unavailable in the database for republication.
-        const jobs = await (this.prismaRepository.transcriptionJob as any).findMany({
-          where: { mode, status: 'processing', updatedAt: { lt: cutoff } },
-          orderBy: { updatedAt: 'asc' },
-          take: 100,
-        });
-        for (const job of jobs) {
-          if (!this.isStaleJob(job)) continue;
-          if (String(job.stage) === 'awaiting_redelivery' || String(job.stage) === 'retrying') {
-            await (this.prismaRepository.transcriptionJob as any).updateMany({
-              where: { id: job.id, status: 'processing', updatedAt: job.updatedAt },
-              data: {
-                status: 'failed',
-                stage: 'failed',
-                errorCode: 'WORKER_HEARTBEAT_EXPIRED',
-                errorMessage: 'O trabalho não retomou após o prazo de recuperação da fila.',
-                completedAt: new Date(),
-              },
-            });
-            continue;
-          }
-          await (this.prismaRepository.transcriptionJob as any).updateMany({
-            where: { id: job.id, status: job.status, updatedAt: job.updatedAt },
+          await repository.speechOutbox.updateMany({
+            where: { id: entry.id, dispatchToken: token },
             data: {
-              stage: 'awaiting_redelivery',
-              errorCode: 'WORKER_HEARTBEAT_EXPIRED',
-              errorMessage: 'Aguardando a entrega original retornar à fila.',
+              status: 'published',
+              publishedAt: new Date(),
+              lockedUntil: null,
+              dispatchToken: null,
+              lastError: null,
+            },
+          });
+        } catch (error) {
+          await repository.speechOutbox.updateMany({
+            where: { id: entry.id, dispatchToken: token },
+            data: {
+              status: 'pending',
+              lockedUntil: null,
+              dispatchToken: null,
+              lastError: String(error?.message || error).slice(0, 500),
+              availableAt: new Date(Date.now() + Math.min(60_000, 1000 * 2 ** Math.min(entry.attempts || 0, 6))),
             },
           });
         }
       }
     } catch (error) {
-      this.logger.warn('Transcrição: recuperação de jobs abandonados indisponível: ' + (error?.message || error));
+      this.logger.warn('Publicador outbox de voz indisponível: ' + (error?.message || error));
+    } finally {
+      this.outboxInFlight = false;
+    }
+  }
+  private staleJobSeconds() {
+    return speechInteger('SPEECH_LEASE_SECONDS', 30, 10, 120) + 5;
+  }
+  private startStaleRecovery() {
+    if (this.staleRecoveryTimer) return;
+    this.staleRecoveryTimer = setInterval(() => void this.recoverStaleJobs(), 15_000);
+    this.staleRecoveryTimer.unref?.();
+  }
+  private async recoverStaleJobs() {
+    if (this.staleRecoveryInFlight) return;
+    this.staleRecoveryInFlight = true;
+    const repository = this.prismaRepository as any;
+    try {
+      const now = new Date();
+      const cutoff = new Date(Date.now() - 5000);
+      const jobs = await repository.transcriptionJob.findMany({
+        where: {
+          ...(this.staleRecoveryCursor ? { id: { gt: this.staleRecoveryCursor } } : {}),
+          status: { in: SPEECH_ACTIVE_STATUSES },
+          OR: [
+            { protocolVersion: { lt: SPEECH_PROTOCOL_VERSION } },
+            { poolId: speechPoolId(), deadlineAt: { lt: now } },
+            { poolId: speechPoolId(), status: 'processing', leaseExpiresAt: { lt: cutoff } },
+            { poolId: speechPoolId(), status: 'queued', updatedAt: { lt: new Date(Date.now() - 30_000) } },
+          ],
+        },
+        orderBy: { id: 'asc' },
+        take: 100,
+      });
+      this.staleRecoveryCursor = jobs.length === 100 ? jobs[jobs.length - 1].id : undefined;
+      for (const observed of jobs) {
+        await this.durable.transaction(async (tx) => {
+          const job = await tx.transcriptionJob.findUnique({ where: { id: observed.id } });
+          if (!job || !SPEECH_ACTIVE_STATUSES.includes(job.status) || job.generation !== observed.generation) return;
+          const legacy = job.protocolVersion < SPEECH_PROTOCOL_VERSION;
+          const deadline = job.deadlineAt && job.deadlineAt <= now;
+          const expired = job.status === 'processing' && job.leaseExpiresAt && job.leaseExpiresAt < cutoff;
+          if (legacy || deadline || (expired && job.attempts >= speechInteger('SPEECH_MAX_ATTEMPTS', 3, 1, 10))) {
+            await tx.transcriptionJob.update({
+              where: { id: job.id },
+              data: {
+                status: 'failed',
+                stage: 'failed',
+                completedAt: now,
+                errorCode: legacy
+                  ? 'LEGACY_PROTOCOL_REQUIRES_RETRY'
+                  : deadline
+                    ? 'JOB_DEADLINE_EXCEEDED'
+                    : 'WORKER_LEASE_EXPIRED',
+                errorMessage: legacy
+                  ? 'O protocolo de fala mudou. Reenvie o ditado ou repita a transcrição persistida após atualizar o worker.'
+                  : 'O prazo de execução de voz expirou.',
+              },
+            });
+            return;
+          }
+          if (expired) {
+            const next = await tx.transcriptionJob.update({
+              where: { id: job.id },
+              data: {
+                status: 'queued',
+                stage: 'retrying',
+                executionId: null,
+                leaseExpiresAt: null,
+                generation: { increment: 1 },
+                attempts: { increment: 1 },
+              },
+            });
+            await this.durable.writeOutbox(tx, next, 1000);
+            return;
+          }
+          if (job.status === 'queued') {
+            const outbox = await tx.speechOutbox.findUnique({
+              where: { jobId_generation: { jobId: job.id, generation: job.generation } },
+            });
+            // Confirmed, routed durable requests do not need periodic duplicate publication.
+            // Missing outbox rows are repaired; expired leases and absolute deadlines close
+            // loss windows without filling a bounded broker queue with repeated copies.
+            if (!outbox) {
+              await this.durable.writeOutbox(tx, job);
+            }
+          }
+        });
+      }
+      void this.dispatchOutbox();
+    } catch (error) {
+      this.logger.warn('Reconciliação durável de voz indisponível: ' + (error?.message || error));
     } finally {
       this.staleRecoveryInFlight = false;
     }
   }
-
-  private startSourceCleanup() {
-    if (this.sourceCleanupTimer || this.sourceRetentionSeconds() <= 0) return;
-    const interval = this.sourceCleanupIntervalSeconds();
-    this.sourceCleanupTimer = setInterval(() => void this.runSourceCleanup(), interval * 1000);
-    this.sourceCleanupTimer.unref?.();
-    void this.runSourceCleanup();
+  public async cleanupExpiredUploads(input: { olderThanSeconds?: number; limit?: number; cursor?: string } = {}) {
+    if (!this.sourceStorage.enabled())
+      throw new TranscriptionServiceError('O armazenamento privado de áudio não está disponível.', 503);
+    const retention =
+      input.olderThanSeconds === undefined ? this.sourceRetentionSeconds() : Number(input.olderThanSeconds);
+    if (!Number.isFinite(retention) || retention <= 0)
+      throw new TranscriptionServiceError('Informe uma retenção positiva.', 400);
+    const limit = Math.min(Math.max(Math.floor(Number(input.limit) || 100), 1), 1000);
+    const cutoff = new Date(Date.now() - Math.min(retention, 31_536_000) * 1000);
+    const now = new Date();
+    const repository = this.prismaRepository as any;
+    const jobs = await repository.transcriptionJob.findMany({
+      where: {
+        ...(input.cursor ? { id: { gt: String(input.cursor).slice(0, 191) } } : {}),
+        poolId: speechPoolId(),
+        messageId: null,
+        sourceKey: { startsWith: SOURCE_PREFIX },
+        sourceDeletedAt: null,
+        status: { in: ['completed', 'failed', 'cancelled'] },
+        AND: [
+          { OR: [{ sourceExpiresAt: { lte: now } }, { completedAt: { lte: cutoff } }] },
+          { OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: new Date(Date.now() - 5000) } }] },
+        ],
+      },
+      orderBy: { id: 'asc' },
+      take: limit,
+      select: { id: true, sourceKey: true, sizeBytes: true },
+    });
+    let removed = 0;
+    let failed = 0;
+    let freedBytes = 0;
+    for (const job of jobs) {
+      if (await this.removeSourceWithFence(job.id)) {
+        removed += 1;
+        freedBytes += Number(job.sizeBytes) || 0;
+      } else failed += 1;
+    }
+    const abandoned = await repository.speechUploadReservation.findMany({
+      where: {
+        poolId: speechPoolId(),
+        expiresAt: { lt: new Date(Date.now() - 60_000) },
+        ...(this.reservationCleanupCursor ? { id: { gt: this.reservationCleanupCursor } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+    this.reservationCleanupCursor = abandoned.length === limit ? abandoned[abandoned.length - 1].id : undefined;
+    for (const reservation of abandoned) {
+      const used = reservation.sourceKey
+        ? await repository.transcriptionJob.count({
+            where: { sourceKey: reservation.sourceKey, sourceBucket: reservation.sourceBucket || null },
+          })
+        : 0;
+      if (
+        reservation.sourceKey &&
+        !used &&
+        !(await this.sourceStorage.remove(reservation.sourceBucket, reservation.sourceKey))
+      ) {
+        failed += 1;
+        continue;
+      }
+      await repository.speechUploadReservation.deleteMany({
+        where: { id: reservation.id, expiresAt: reservation.expiresAt },
+      });
+    }
+    const oldOutbox = await repository.speechOutbox.findMany({
+      where: { poolId: speechPoolId(), status: 'published', publishedAt: { lt: new Date(Date.now() - 86_400_000) } },
+      select: { id: true },
+      take: limit,
+    });
+    if (oldOutbox.length)
+      await repository.speechOutbox.deleteMany({ where: { id: { in: oldOutbox.map((entry: any) => entry.id) } } });
+    return {
+      status: failed ? 'partial' : 'completed',
+      retentionSeconds: retention,
+      cutoff: cutoff.toISOString(),
+      candidates: jobs.length,
+      removed,
+      failed,
+      freedBytes,
+      jobsRemoved: 0,
+      jobsRetained: removed,
+      hasMore: jobs.length === limit,
+      nextCursor: jobs.length === limit ? jobs[jobs.length - 1].id : null,
+    };
   }
-
+  private isOwnedUploadKey(value: unknown): boolean {
+    const key = String(value || '');
+    return key.startsWith(SOURCE_PREFIX) && !key.includes('..');
+  }
+  private sourceRetentionSeconds() {
+    return speechInteger(
+      'TRANSCRIPTION_SOURCE_RETENTION_SECONDS',
+      speechInteger('TRANSCRIPTION_AUDIO_RETENTION_DAYS', 30, 1, 365) * 86_400,
+      1,
+      31_536_000,
+    );
+  }
+  private startSourceCleanup() {
+    if (this.sourceCleanupTimer) return;
+    this.sourceCleanupTimer = setInterval(() => void this.runSourceCleanup(), 60_000);
+    this.sourceCleanupTimer.unref?.();
+  }
   private async runSourceCleanup() {
-    if (this.sourceCleanupInFlight || this.sourceRetentionSeconds() <= 0) return;
+    if (this.sourceCleanupInFlight) return;
     this.sourceCleanupInFlight = true;
     try {
-      const result = await this.cleanupExpiredUploads({
-        olderThanSeconds: this.sourceRetentionSeconds(),
-      });
-      if (result.removed || result.failed) {
-        this.logger.info(
-          `Transcrição: limpeza removeu ${result.removed} objeto(s) e ${result.jobsRemoved} resultado(s); falhas=${result.failed}.`,
-        );
-      }
+      const result = await this.cleanupExpiredUploads({ cursor: this.sourceCleanupCursor });
+      this.sourceCleanupCursor = result.nextCursor || undefined;
     } catch (error) {
-      this.logger.warn('Transcrição: limpeza de áudios temporários indisponível: ' + (error?.message || error));
+      this.logger.warn('Limpeza de fontes de voz indisponível: ' + (error?.message || error));
     } finally {
       this.sourceCleanupInFlight = false;
     }

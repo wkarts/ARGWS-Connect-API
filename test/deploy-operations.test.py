@@ -129,5 +129,19 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertIn('# BEGIN COMPOSE VOLUME INIT', text)
                 self.assertIn('service_healthy', text)
 
+    def test_generator_keeps_speech_opt_in_without_changing_operations(self):
+        for path, content in sync.generate(ROOT).items():
+            if not path.endswith('env.example'):
+                continue
+            with self.subTest(template=path):
+                env = prepare.values(content)
+                enabled = False
+                profiles = env['COMPOSE_PROFILES'].split(',')
+                self.assertEqual('transcription' in profiles, enabled)
+                self.assertIn('operations', profiles)
+                self.assertEqual(env['OPERATIONS_ENABLED'], 'true')
+                for flag in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+                    self.assertEqual(env[flag], str(enabled).lower())
+
 if __name__ == '__main__':
     unittest.main()

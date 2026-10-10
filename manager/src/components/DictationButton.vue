@@ -3,9 +3,12 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
+import { errorRetryAfterSeconds } from '@/services/retry-after'
+import { reportedSpeechProgress, speechDeadline, speechPollDelay, speechPoolLabel, speechProgressToken, speechStageLabel } from '@/services/speech-status'
+import type { SpeechHealth } from '@/types/domain'
 
 type InsertMode = 'append' | 'replace' | 'insert-at-cursor'
-type DictationState = 'idle' | 'requesting_permission' | 'listening' | 'processing' | 'completed' | 'error'
+type DictationState = 'idle' | 'checking_service' | 'requesting_permission' | 'listening' | 'processing' | 'completed' | 'error'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -23,7 +26,7 @@ const props = withDefaults(defineProps<{
   language: 'pt-BR',
   autoStop: true,
   silenceTimeoutMs: 1500,
-  maxDurationSeconds: 300,
+  maxDurationSeconds: 60,
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -35,14 +38,20 @@ const retryDurationMs = ref(0)
 const retryIdempotencyKey = ref('')
 const elapsedSeconds = ref(0)
 const stage = ref('')
-const progress = ref(0)
+const progress = ref<number | null>(null)
+const remainingSeconds = ref(120)
+const queueWaitSeconds = ref(0)
+const connectionIssue = ref('')
+const speechHealth = ref<SpeechHealth | null>(null)
+const recordingLimit = computed(() => Math.min(props.maxDurationSeconds, speechHealth.value?.dictationMaxDurationSeconds || 60))
 const disposed = ref(false)
 const isSecure = typeof window !== 'undefined' && (window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
 const label = computed(() => ({
   idle: 'Iniciar ditado',
+  checking_service: 'Consultando serviço de voz',
   requesting_permission: 'Aguardando microfone',
   listening: 'Parar ditado',
-  processing: 'Ditando…',
+  processing: 'Acompanhando ditado',
   completed: 'Ditado inserido',
   error: 'Tentar ditado novamente',
 } as Record<DictationState, string>)[state.value])
@@ -158,11 +167,27 @@ async function startRecording() {
   rememberSelection()
   error.value = ''
   stage.value = ''
+  state.value = 'checking_service'
+  try {
+    speechHealth.value = await connect.speechHealth()
+    if (disposed.value) return
+    if (speechHealth.value.enabled === false || speechHealth.value.dictationEnabled === false || speechHealth.value.capabilities?.dictation === false) {
+      throw new Error('O ditado está desativado nesta instalação.')
+    }
+    if (speechHealth.value.acceptingJobs === false) throw new Error(speechPoolLabel(speechHealth.value))
+  } catch (cause) {
+    if (!disposed.value) {
+      state.value = 'error'
+      error.value = friendlyError(cause, 'Não foi possível consultar a disponibilidade do ditado.')
+    }
+    return
+  }
   state.value = 'requesting_permission'
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
+    if (disposed.value) { stopAudioResources(); return }
     const mimeType = mediaType()
     recorder = new MediaRecorder(stream, {
       audioBitsPerSecond: 32000,
@@ -183,7 +208,7 @@ async function startRecording() {
     elapsedSeconds.value = 0
     timer = window.setInterval(() => {
       elapsedSeconds.value += 1
-      if (elapsedSeconds.value >= props.maxDurationSeconds) stopRecording()
+      if (elapsedSeconds.value >= recordingLimit.value) stopRecording()
     }, 1000)
     monitorSilence()
   } catch (cause) {
@@ -229,13 +254,38 @@ function pause(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-async function waitForResult(id: string) {
-  const timeout = Date.now() + 30 * 60 * 1000
+async function waitForResult(id: string, deadlineAt?: string | null) {
+  const acceptedAt = Date.now()
+  let timeout = speechDeadline(deadlineAt, acceptedAt)
+  let unchangedPolls = 0
+  let lastProgress = ''
+  let failures = 0
   while (!disposed.value && activeJob === id && Date.now() < timeout) {
-    const job = await connect.dictationJob(id)
+    let job
+    try {
+      job = await connect.dictationJob(id, Math.max(1, Math.min(10000, timeout - Date.now())))
+      failures = 0
+      connectionIssue.value = ''
+    } catch (cause) {
+      if (disposed.value || activeJob !== id) return
+      failures += 1
+      connectionIssue.value = 'Sem atualização do servidor. Tentando reconectar…'
+      const backoff = Math.max(1000 * 2 ** Math.min(failures, 3),
+        speechPollDelay('processing', failures, document.hidden, errorRetryAfterSeconds(cause)))
+      await pause(Math.min(backoff, Math.max(0, timeout - Date.now())))
+      continue
+    }
     if (disposed.value || activeJob !== id) return
+    timeout = Math.min(timeout, speechDeadline(job.deadlineAt, acceptedAt))
+    remainingSeconds.value = Math.max(0, Math.ceil((timeout - Date.now()) / 1000))
     stage.value = String(job.stage || job.status || '')
-    progress.value = Number(job.progressPercent || 0)
+    progress.value = reportedSpeechProgress(job)
+    queueWaitSeconds.value = job.status === 'queued'
+      ? Math.max(0, Math.floor((Date.now() - Date.parse(job.createdAt || new Date(acceptedAt).toISOString())) / 1000))
+      : Math.max(0, Math.floor(Number(job.queueWaitMs || 0) / 1000))
+    const token = speechProgressToken(job)
+    unchangedPolls = token === lastProgress ? unchangedPolls + 1 : 0
+    lastProgress = token
     if (job.status === 'completed') {
       activeJob = ''
       const text = String(job.text || '').trim()
@@ -252,11 +302,18 @@ async function waitForResult(id: string) {
       activeJob = ''
       throw new Error('O ditado foi cancelado.')
     }
-    await pause(1000)
+    await pause(Math.min(speechPollDelay(job.status, unchangedPolls, document.hidden), Math.max(0, timeout - Date.now())))
   }
   if (!disposed.value && activeJob === id) {
+    let cancelled = false
+    try {
+      await connect.cancelDictation(id)
+      cancelled = true
+    } catch { /* The UI must not announce cancellation without server acknowledgement. */ }
     activeJob = ''
-    throw new Error('O ditado excedeu o tempo de espera. O job continua disponível na fila de voz.')
+    throw new Error(cancelled
+      ? 'O ditado excedeu o prazo de 2 minutos e foi cancelado. Tente um trecho menor quando houver capacidade.'
+      : 'O ditado excedeu o prazo de 2 minutos. Não foi possível confirmar o cancelamento; confira o trabalho na tela de voz.')
   }
 }
 
@@ -287,7 +344,10 @@ async function finishRecording() {
 async function submitAudio(audio: File, durationMs: number, idempotencyKey: string = crypto.randomUUID()) {
   state.value = 'processing'
   stage.value = 'queued'
-  progress.value = 0
+  progress.value = null
+  remainingSeconds.value = 120
+  queueWaitSeconds.value = 0
+  connectionIssue.value = ''
   error.value = ''
   let accepted = false
   try {
@@ -305,7 +365,7 @@ async function submitAudio(audio: File, durationMs: number, idempotencyKey: stri
       return
     }
     activeJob = job.id
-    await waitForResult(job.id)
+    await waitForResult(job.id, job.deadlineAt)
   } catch (cause) {
     if (!disposed.value && state.value === 'processing') {
       if (!accepted) {
@@ -328,7 +388,7 @@ async function toggle() {
     stopRecording()
     return
   }
-  if (state.value === 'requesting_permission' || state.value === 'processing') return
+  if (state.value === 'checking_service' || state.value === 'requesting_permission' || state.value === 'processing') return
   state.value = 'idle'
   retryAudio.value = null
   await startRecording()
@@ -345,23 +405,15 @@ async function cancel() {
     return
   }
   const id = activeJob
+  if (id) {
+    try { await connect.cancelDictation(id) } catch (cause) {
+      error.value = friendlyError(cause, 'Não foi possível confirmar o cancelamento. O ditado continua sendo acompanhado.')
+      return
+    }
+  }
   activeJob = ''
-  if (id) await connect.cancelDictation(id).catch(() => undefined)
   state.value = 'idle'
   error.value = ''
-}
-
-function stageLabel(value: string) {
-  return ({
-    queued: 'Na fila prioritária',
-    preparing: 'Preparando áudio',
-    downloading: 'Carregando áudio',
-    normalizing: 'Normalizando áudio',
-    voice_activity_detection: 'Localizando trechos de fala',
-    transcribing: 'Transcrevendo',
-    retrying: 'Recuperando o processamento',
-    finalizing: 'Finalizando texto',
-  } as Record<string, string>)[value] || 'Processando voz'
 }
 
 onBeforeUnmount(() => {
@@ -379,7 +431,7 @@ onBeforeUnmount(() => {
     <button
       class="dictation-button"
       type="button"
-      :disabled="state === 'requesting_permission' || state === 'processing'"
+      :disabled="state === 'checking_service' || state === 'requesting_permission' || state === 'processing'"
       :aria-label="label"
       :title="label"
       @pointerdown="rememberSelection"
@@ -391,11 +443,12 @@ onBeforeUnmount(() => {
       <span v-else class="dictation-spinner" aria-hidden="true"></span>
     </button>
     <span v-if="state === 'listening'" class="dictation-feedback" role="status">
-      <span class="dictation-dot"></span>Ouvindo {{ String(Math.floor(elapsedSeconds / 60)).padStart(2, '0') }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }}
+      <span class="dictation-dot"></span>Ouvindo {{ String(Math.floor(elapsedSeconds / 60)).padStart(2, '0') }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · até {{ recordingLimit }} s
     </span>
+    <span v-else-if="state === 'checking_service'" class="dictation-feedback" role="status">Consultando serviço de voz…</span>
     <span v-else-if="state === 'requesting_permission'" class="dictation-feedback" role="status">Solicitando microfone…</span>
     <span v-else-if="state === 'processing'" class="dictation-feedback" role="status" aria-live="polite">
-      {{ stageLabel(stage) }}<template v-if="progress > 0"> · {{ progress }}%</template>
+      {{ connectionIssue || speechStageLabel(stage) }}<template v-if="progress !== null"> · {{ progress }}%</template><template v-if="stage === 'queued'"> · {{ queueWaitSeconds }} s na fila</template> · prazo restante {{ remainingSeconds }} s
     </span>
     <button v-if="state === 'listening' || state === 'processing'" class="dictation-cancel" type="button" aria-label="Cancelar ditado" @click="cancel">Cancelar</button>
     <span v-else-if="state === 'completed'" class="dictation-feedback success" role="status">Texto inserido</span>

@@ -6,21 +6,26 @@ import PanelCard from '@/components/PanelCard.vue'
 import ManagerEmbeddingSettings from '@/components/ManagerEmbeddingSettings.vue'
 import { connect } from '@/services/connect'
 import { friendlyError } from '@/services/errors'
+import { speechWorkerLabel } from '@/services/speech-status'
 import { useSessionStore } from '@/stores/session'
 import { useUiStore } from '@/stores/ui'
 import { useRouter } from 'vue-router'
 import { featureEnabled, runtime } from '@/config/runtime'
 
 const current=ref(''),next=ref(''),confirm=ref(''),message=ref(''),error=ref(''),busy=ref(false)
-const speechHealth=ref<any>(null),speechError=ref('')
+const speechHealth=ref<any>(null),speechError=ref(''),speechLoading=ref(false)
 const session=useSessionStore(),ui=useUiStore(),router=useRouter()
 const accountMode = computed(() => runtime.authMode === 'account')
 const speechAvailable = computed(() => featureEnabled('transcription', false))
 
 async function loadSpeechHealth() {
+  if (speechLoading.value) return
+  speechLoading.value=true
+  speechHealth.value=null
   speechError.value=''
   try { speechHealth.value=await connect.speechHealth() }
   catch(e) { speechError.value=friendlyError(e) }
+  finally { speechLoading.value=false }
 }
 
 async function change(){
@@ -49,17 +54,18 @@ onMounted(() => { if (speechAvailable.value) void loadSpeechHealth() })
       </PanelCard>
       <ManagerEmbeddingSettings />
       <PanelCard v-if="speechAvailable" title="Voz" description="Ditado nos campos e transcrição de áudio com processamento local.">
+        <template #actions><button type="button" class="btn ghost compact" :disabled="speechLoading" @click="loadSpeechHealth">{{ speechLoading ? 'Atualizando…' : 'Atualizar estado' }}</button></template>
         <div v-if="speechError" class="alert error">{{ speechError }}</div>
         <div v-else-if="!speechHealth" class="muted-block">Consultando o serviço de voz...</div>
         <div v-else class="speech-settings">
           <div><span>Serviço</span><strong :class="speechHealth.enabled ? 'speech-ready' : 'speech-unavailable'">{{ speechHealth.enabled ? 'Habilitado' : 'Desabilitado' }}</strong></div>
           <div><span>Modelo local</span><strong>{{ speechHealth.model || 'Não configurado' }}</strong></div>
-          <div><span>Worker de transcrição</span><strong>{{ speechHealth.workerReady ? 'Pronto' : 'Indisponível' }}</strong></div>
-          <div><span>Worker de ditado</span><strong>{{ speechHealth.dictationWorkerReady ? 'Pronto' : 'Indisponível' }}</strong></div>
+          <div><span>Worker de transcrição</span><strong>{{ speechWorkerLabel(speechHealth, 'transcription') }}</strong></div>
+          <div><span>Worker de ditado</span><strong>{{ speechWorkerLabel(speechHealth, 'dictation') }}</strong></div>
           <div><span>Áudios simultâneos</span><strong>{{ Number(speechHealth.globalConcurrency || 1) }}</strong></div>
           <div><span>Fila de transcrição</span><strong>{{ Number(speechHealth.queuedJobs || 0) }}</strong></div>
           <div><span>Fila de ditado</span><strong>{{ Number(speechHealth.dictationQueuedJobs || 0) }}</strong></div>
-          <small>A API instala o modelo em ./models e os workers reutilizam os arquivos desse volume após reinícios e atualizações.</small>
+          <small>O modelo instalado é reutilizado. Quando o worker está disponível sob demanda, ele carrega o motor ao receber um áudio.</small>
         </div>
       </PanelCard>
       <PanelCard v-if="accountMode" title="Alterar senha">

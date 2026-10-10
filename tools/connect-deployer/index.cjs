@@ -251,10 +251,15 @@ function build(options) {
   updates.MYSQL_SERVICE_ENABLED = modules.includes('mysql') ? 'true' : 'false';
   updates.TRACCAR_ENABLED = modules.includes('traccar') ? 'true' : 'false';
   updates.TRACCAR_MODE = modules.includes('traccar') ? 'internal' : 'disabled';
-  updates.TRANSCRIPTION_ENABLED = modules.includes('transcription') ? 'true' : 'false';
-  updates.SPEECH_ENABLED = updates.TRANSCRIPTION_ENABLED;
-  updates.MANAGER_FEATURE_TRANSCRIPTION = updates.TRANSCRIPTION_ENABLED;
-  if (!modules.includes('transcription')) updates.DICTATION_ENABLED = 'false';
+  for (const key of ['TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION', 'DICTATION_ENABLED']) {
+    updates[key] = modules.includes('transcription')
+      ? (options.fromEnv && values.has(key) ? values.get(key) : 'true')
+      : 'false';
+  }
+  // A single native service owns both modes; remove obsolete executor settings.
+  for (const key of ["SPEECH_WORKER_MODE", "SPEECH_WORKER_CONCURRENCY", "TRANSCRIPTION_WORKER_CONCURRENCY", "SPEECH_TRANSCRIPTION_REPLICAS", "SPEECH_DICTATION_REPLICAS", "DICTATION_WORKER_CONCURRENCY", "ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE", "SPEECH_WORKER_MEMORY", "SPEECH_WORKER_CPUS", "TRANSCRIPTION_WORKER_MEMORY", "TRANSCRIPTION_WORKER_CPUS", "TRANSCRIPTION_WORKER_TMPFS_SIZE", "SPEECH_SYNC_MODEL_CACHE", "TRANSCRIPTION_MODEL_STORAGE_PREFIX", "TRANSCRIPTION_MODEL_CACHE_DIR"]) values.delete(key);
+  // The runtime derives a private bucket from this installation's media bucket.
+  updates.SPEECH_S3_BUCKET_NAME = values.get('SPEECH_S3_BUCKET_NAME') || '';
 
   if (options.serverUrl) updates.SERVER_URL = options.serverUrl;
   if (options.docsUrl) updates.ARGWS_CONNECT_DOCS_PUBLIC_URL = options.docsUrl;
@@ -326,7 +331,10 @@ function build(options) {
   if (modules.includes('traccar') && traccarAuth === 'token' && !envValue(values, 'TRACCAR_TOKEN')) {
     fail('modo token exige um TRACCAR_TOKEN valido');
   }
-  const finalEnv = setEnv(base.env, Object.fromEntries(values));
+  const retiredSpeechKeys = new Set(["SPEECH_WORKER_MODE", "SPEECH_WORKER_CONCURRENCY", "TRANSCRIPTION_WORKER_CONCURRENCY", "SPEECH_TRANSCRIPTION_REPLICAS", "SPEECH_DICTATION_REPLICAS", "DICTATION_WORKER_CONCURRENCY", "ARGWS_CONNECT_TRANSCRIPTION_WORKER_IMAGE", "SPEECH_WORKER_MEMORY", "SPEECH_WORKER_CPUS", "TRANSCRIPTION_WORKER_MEMORY", "TRANSCRIPTION_WORKER_CPUS", "TRANSCRIPTION_WORKER_TMPFS_SIZE", "SPEECH_SYNC_MODEL_CACHE", "TRANSCRIPTION_MODEL_STORAGE_PREFIX", "TRANSCRIPTION_MODEL_CACHE_DIR"]);
+  for (const key of retiredSpeechKeys) values.delete(key);
+  const cleanBaseEnv = base.env.split('\n').filter((line) => !retiredSpeechKeys.has(line.trim().split('=', 1)[0])).join('\n');
+  const finalEnv = setEnv(cleanBaseEnv, Object.fromEntries(values));
   const report = validate({ compose: base.compose, env: finalEnv, modules, flavor: base.flavor });
   return {
     ...base,

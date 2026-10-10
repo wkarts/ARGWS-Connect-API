@@ -48,13 +48,13 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
 
     def test_fersoft_production_is_full_stack_selected_by_env(self):
         environment = env_values(ROOT / 'deploy/fersoft/production/env.example')
-        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar,transcription')
+        self.assertEqual(environment['COMPOSE_PROFILES'], 'operations,nats,kafka,mysql,traccar')
         for key in ('OPERATIONS_ENABLED', 'NATS_ENABLED', 'KAFKA_ENABLED', 'MYSQL_SERVICE_ENABLED', 'TRACCAR_ENABLED'):
             self.assertEqual(environment[key], 'true', key)
         for key in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
-            self.assertEqual(environment[key], 'true', key)
+            self.assertEqual(environment[key], 'false', key)
         self.assertEqual(environment['DICTATION_ENABLED'], 'false')
-        self.assertEqual(environment['SPEECH_TRANSCRIPTION_REPLICAS'], '1')
+        self.assertNotIn('SPEECH_TRANSCRIPTION_REPLICAS', environment)
         self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
         self.assertEqual(environment['TRACCAR_MODE'], 'internal')
         self.assertNotIn('TRACCAR_PUBLIC_URL', environment)
@@ -71,7 +71,7 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
             'traccar-postgres-fersoft-connect-production',
             'traccar-bootstrap-fersoft-connect-production', 'volume-init-fersoft-connect-production',
             'mysql-volume-init-fersoft-connect-production',
-            'transcription-worker-fersoft-connect-production',
+            'transcription-service-fersoft-connect-production',
         }
         self.assertEqual(set(services), expected)
         self.assertNotIn('ports', services['docs-fersoft-connect-production'])
@@ -128,27 +128,28 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         self.assertEqual(bootstrap['restart'], 'unless-stopped')
         self.assertIn('traccar-bootstrap-ready', command_text(bootstrap))
 
-    def test_develop_transcription_is_enabled_with_its_compose_profile(self):
+    def test_develop_transcription_is_opt_in_with_its_compose_profile(self):
         environment = env_values(ROOT / 'deploy/develop/env.example')
         profiles = [item.strip() for item in environment['COMPOSE_PROFILES'].split(',') if item.strip()]
-        self.assertIn('transcription', profiles)
-        self.assertEqual(environment['TRANSCRIPTION_ENABLED'], 'true')
+        self.assertNotIn('transcription', profiles)
+        self.assertEqual(environment['TRANSCRIPTION_ENABLED'], 'false')
         self.assertEqual(environment['TRANSCRIPTION_PROVIDER'], 'local')
-        self.assertEqual(environment['SPEECH_ENABLED'], 'true')
-        self.assertEqual(environment['MANAGER_FEATURE_TRANSCRIPTION'], 'true')
+        self.assertEqual(environment['SPEECH_ENABLED'], 'false')
+        self.assertEqual(environment['MANAGER_FEATURE_TRANSCRIPTION'], 'false')
 
         develop = yaml.safe_load((ROOT / 'deploy/develop/compose.yaml').read_text(encoding='utf-8'))
-        worker = develop['services']['transcription-worker-argws-connect-develop']
+        worker = develop['services']['transcription-service-argws-connect-develop']
         self.assertEqual(worker['profiles'], ['transcription'])
 
-        dictation = develop['services']['speech-dictation-worker-argws-connect-develop']
-        self.assertEqual(dictation['profiles'], ['transcription'])
+        self.assertNotIn('SPEECH_WORKER_MODE', worker['environment'])
+        self.assertFalse([name for name in develop['services'] if 'dictation-worker' in name])
 
     def test_transcription_is_available_in_every_application_deployment(self):
         layouts = {
             'docker-compose.yaml': '.env.example',
             'docker-compose.dev.yaml': '.env.example',
             'deploy/production/compose.yaml': 'deploy/production/env.example',
+            'deploy/develop/compose.yaml': 'deploy/develop/env.example',
             'deploy/canonical/compose.yaml': 'deploy/canonical/env.example',
             'deploy/cloudpanel/docker-compose.yml': 'deploy/cloudpanel/env.example',
             'deploy/dockge/compose.yaml': 'deploy/dockge/env.example',
@@ -159,28 +160,69 @@ class ComposeEnvOnlyDeploymentTests(unittest.TestCase):
         for compose_file, environment_file in layouts.items():
             with self.subTest(compose=compose_file):
                 services = yaml.safe_load((ROOT / compose_file).read_text(encoding='utf-8'))['services']
-                workers = [value for name, value in services.items() if name.startswith('transcription-worker')]
+                workers = [value for name, value in services.items() if name.startswith('transcription-service')]
                 self.assertEqual(len(workers), 1)
                 self.assertEqual(workers[0]['profiles'], ['transcription'])
-                self.assertEqual(workers[0]['environment']['SPEECH_WORKER_MODE'], 'transcription')
+                self.assertNotIn('SPEECH_WORKER_MODE', workers[0]['environment'])
                 self.assertEqual(workers[0]['environment']['SPEECH_GLOBAL_CONCURRENCY'], '${SPEECH_GLOBAL_CONCURRENCY:-1}')
-                self.assertEqual(workers[0]['scale'], '${SPEECH_TRANSCRIPTION_REPLICAS:-1}')
+                self.assertEqual(workers[0]['scale'], 1, 'old replica settings cannot multiply resident models')
+                self.assertEqual(workers[0]['memswap_limit'], workers[0]['mem_limit'])
+                self.assertEqual(workers[0]['cgroup_parent'], '${SPEECH_CGROUP_PARENT:-}')
+                self.assertTrue(workers[0]['init'])
+                self.assertEqual(workers[0]['restart'], 'on-failure:3')
+                self.assertFalse(workers[0].get('ports'), 'the native engine must stay inside the worker cgroup')
+                self.assertIn('noexec,nosuid,nodev', workers[0]['tmpfs'][0])
+                self.assertEqual(workers[0]['environment']['SPEECH_INFERENCE_THREADS'], '${SPEECH_INFERENCE_THREADS:-1}')
+                self.assertEqual(workers[0]['environment']['SPEECH_ENGINE'], '${SPEECH_ENGINE:-whisper.cpp}')
                 self.assertTrue(any('/models:ro' in str(volume) for volume in workers[0]['volumes']))
                 self.assertFalse([name for name in services if 'dictation-worker' in name])
                 api = next(value for name, value in services.items() if name == 'api' or name.startswith('api-'))
                 for flag in ('SPEECH_ENABLED', 'TRANSCRIPTION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
                     self.assertIn('${', api['environment'][flag], (compose_file, flag))
-                self.assertEqual(api['environment']['DICTATION_ENABLED'], 'false')
+                self.assertEqual(api['environment']['DICTATION_ENABLED'], '${DICTATION_ENABLED:-false}')
+                self.assertEqual(workers[0]['environment']['DICTATION_ENABLED'], api['environment']['DICTATION_ENABLED'])
+                self.assertEqual(api['environment']['SPEECH_S3_BUCKET_NAME'], '${SPEECH_S3_BUCKET_NAME:-}')
+                self.assertEqual(workers[0]['environment']['SPEECH_S3_BUCKET_NAME'], api['environment']['SPEECH_S3_BUCKET_NAME'])
                 self.assertTrue(any('/models' in str(volume) for volume in api.get('volumes', [])))
                 env = env_values(ROOT / environment_file)
-                self.assertIn('transcription', env.get('COMPOSE_PROFILES', '').split(','))
-                self.assertEqual(env['TRANSCRIPTION_ENABLED'], 'true')
-                self.assertEqual(env['SPEECH_ENABLED'], 'true')
-                self.assertEqual(env['DICTATION_ENABLED'], 'false')
-                self.assertEqual(env['MANAGER_FEATURE_TRANSCRIPTION'], 'true')
-                self.assertEqual(env['SPEECH_TRANSCRIPTION_REPLICAS'], '1')
+                enabled = False
+                self.assertEqual('transcription' in env.get('COMPOSE_PROFILES', '').split(','), enabled)
+                for flag in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+                    self.assertEqual(env[flag], str(enabled).lower())
+                self.assertNotIn('SPEECH_TRANSCRIPTION_REPLICAS', env)
+                self.assertEqual(env['SPEECH_S3_BUCKET_NAME'], '', 'derive the private bucket from each installation at runtime')
                 self.assertEqual(env['SPEECH_GLOBAL_CONCURRENCY'], '1')
-                self.assertEqual(env['TRANSCRIPTION_WORKER_TMPFS_SIZE'], '1g')
+                self.assertEqual(env['SPEECH_SERVICE_TMPFS_SIZE'], '128m')
+                self.assertEqual(env['SPEECH_MAX_PENDING_JOBS'], '50')
+                self.assertEqual(env['SPEECH_MAX_PENDING_JOBS_PER_INSTANCE'], '5')
+                self.assertEqual(env['DICTATION_MAX_DURATION_SECONDS'], '60')
+                self.assertEqual(env['DICTATION_JOB_DEADLINE_SECONDS'], '120')
+
+    def test_whisper_canary_is_explicit_and_uses_one_total_cgroup_budget(self):
+        env = env_values(ROOT / 'deploy/speech/canary-whisper-cpp.env.example')
+        self.assertEqual(env['SPEECH_ENGINE'], 'whisper.cpp')
+        self.assertEqual(env['SPEECH_S3_BUCKET_NAME'], '')
+        self.assertEqual(env['SPEECH_MODEL'], 'whisper-base-q5_1')
+        self.assertNotIn('SPEECH_WORKER_MODE', env)
+        self.assertEqual(env['SPEECH_SERVICE_MEMORY'], '1280m')
+        self.assertEqual(env['SPEECH_SERVICE_CPUS'], '1.00')
+        self.assertEqual(env['SPEECH_SERVICE_TMPFS_SIZE'], '128m')
+        self.assertEqual(len(env['SPEECH_WHISPER_MODEL_SHA256']), 64)
+        self.assertNotIn('COMPOSE_PROFILES', env, 'a canary overlay cannot replace the selected installation profiles')
+
+    def test_host_budget_is_opt_in_and_shared_above_container_limits(self):
+        override = yaml.safe_load((ROOT / 'deploy/speech/host-budget.compose.yaml').read_text())
+        parent = override['services']['transcription-service']['cgroup_parent']
+        self.assertTrue(parent.startswith('${SPEECH_CGROUP_PARENT:?'))
+        unit = (ROOT / 'deploy/speech/connect-speech.slice.example').read_text()
+        self.assertIn('[Slice]', unit)
+        self.assertIn('MemoryMax=2560M', unit)
+        self.assertIn('MemorySwapMax=0', unit)
+        self.assertIn('CPUQuota=200%', unit)
+        self.assertIn('TasksMax=256', unit)
+        for template in ('deploy/develop/env.example', 'deploy/production/env.example',
+                         'deploy/fersoft/develop/env.example', 'deploy/fersoft/production/env.example'):
+            self.assertEqual(env_values(ROOT / template)['SPEECH_CGROUP_PARENT'], '')
 
     def test_bootstraps_are_inside_images_or_compose_not_host_mounts(self):
         raw = (ROOT / 'deploy/fersoft/production/compose.yaml').read_text(encoding='utf-8')

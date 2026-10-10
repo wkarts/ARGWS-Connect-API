@@ -74,7 +74,7 @@ export const connect = {
   async storageCleanup(data: any) { return request<any>('/storage/cleanup', { method: 'POST', data }) },
   async transcriptionList(limit = 100): Promise<TranscriptionJob[]> { return request<TranscriptionJob[]>('/transcriptions', { params: { limit } }) },
   async transcriptionHealth(): Promise<any> { return request<any>('/transcriptions/health') },
-  async downloadSpeechModel(modelId: string): Promise<any> { return request<any>(`/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', timeout: 60000 }) },
+  async downloadSpeechModel(modelId: string, force = false): Promise<any> { return request<any>(`/speech/models/${encodeURIComponent(modelId)}/download`, { method: 'POST', data: { force }, timeout: 60000 }) },
   async uploadTranscription(file: File, language = ''): Promise<TranscriptionJob> {
     const data = new FormData()
     data.append('audio', file, file.name)
@@ -91,10 +91,13 @@ export const connect = {
     data.append('durationMs', String(input.durationMs))
     data.append('idempotencyKey', input.idempotencyKey)
     if (input.instanceId) data.append('instanceId', input.instanceId)
-    return request('/speech/dictation', { method: 'POST', data, timeout: 60000 })
+    return request('/speech/dictation', {
+      method: 'POST', data, timeout: 60000,
+      headers: input.instanceId ? { 'X-Speech-Instance-Id': input.instanceId } : undefined,
+    })
   },
-  async dictationJob(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/dictation/${encodeURIComponent(jobId)}`) },
-  async cancelDictation(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }) },
+  async dictationJob(jobId: string, timeout?: number): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/dictation/${encodeURIComponent(jobId)}`, { timeout }) },
+  async cancelDictation(jobId: string): Promise<TranscriptionJob> { return request<TranscriptionJob>(`/speech/dictation/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', timeout: 10000 }) },
   async speechHealth(): Promise<any> { return request<any>('/speech/health') },
   async transcribeMessage(messageId: string, instanceId: string, language = 'pt-BR', idempotencyKey = crypto.randomUUID()): Promise<TranscriptionJob> {
     return request<TranscriptionJob>('/speech/transcriptions', { method: 'POST', data: { messageId, instanceId, language, idempotencyKey }, timeout: 60000 })

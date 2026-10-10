@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_KEYS = {
-    'COMPOSE_PROFILES': 'operations,transcription',
+    'COMPOSE_PROFILES': 'operations',
     'OPERATIONS_ENABLED': 'true',
     'NATS_ENABLED': 'false',
     'KAFKA_ENABLED': 'false',
@@ -245,7 +245,11 @@ def generate(root):
             envs.append(directory + '/.env.example')
     for path in envs:
         template = env_text((root / path).read_text())
-        template = set_env_value(template, 'TRANSCRIPTION_ENABLED', 'true')
+        # Speech remains opt-in in every template, including principal develop.
+        # Do not let the operations generator implicitly start the optional ASR.
+        speech_enabled = False
+        for flag in ('TRANSCRIPTION_ENABLED', 'SPEECH_ENABLED', 'DICTATION_ENABLED', 'MANAGER_FEATURE_TRANSCRIPTION'):
+            template = set_env_value(template, flag, str(speech_enabled).lower())
         template = set_env_value(template, 'TRANSCRIPTION_PROVIDER', 'local')
         visible = 'true' if path.startswith(('deploy/develop/', 'deploy/homologation/')) else 'false'
         settings = {

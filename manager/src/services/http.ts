@@ -1,13 +1,16 @@
 import { runtime } from '@/config/runtime'
+import { parseRetryAfterSeconds } from './retry-after'
 
 export class ServiceError extends Error {
   status: number
   data: unknown
-  constructor(message: string, status = 0, data: unknown = null) {
+  retryAfterSeconds: number
+  constructor(message: string, status = 0, data: unknown = null, retryAfterSeconds = 0) {
     super(message)
     this.name = 'ServiceError'
     this.status = status
     this.data = data
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -52,7 +55,8 @@ export async function request<T>(path: string, options: {
     const raw = await response.text()
     let payload: any = null
     try { payload = raw ? JSON.parse(raw) : null } catch { payload = raw }
-    if (!response.ok) throw new ServiceError(extractMessage(payload, response.statusText), response.status, payload)
+    if (!response.ok) throw new ServiceError(extractMessage(payload, response.statusText), response.status, payload,
+      parseRetryAfterSeconds(response.headers.get('Retry-After')))
     return payload as T
   } finally {
     clearTimeout(timer)
