@@ -3,7 +3,7 @@ on:
   push:
     branches: [work/speech-promotion-review-20261010]
 permissions:
-  contents: write
+  contents: read
 jobs:
   resolve:
     runs-on: ubuntu-24.04
@@ -75,4 +75,26 @@ jobs:
           git status --short
           git commit -m "chore(release): reconcile main guards with native speech develop"
           test "$(git show -s --format=%P HEAD | wc -w)" = 2
-          git push origin HEAD:fix/sync-main-to-develop-for-release-20261010
+          mkdir -p /tmp/merged-artifact
+          git diff --name-only HEAD^1 HEAD > /tmp/merged-artifact/files.txt
+          git diff --binary HEAD^1 HEAD > /tmp/merged-artifact/merge.patch
+          git show --format='' --name-only HEAD | head -n 100
+          git show -s --format='%H%n%P%n%T' HEAD > /tmp/merged-artifact/commit-data.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, hashlib, subprocess
+          paths=Path('/tmp/merged-artifact/files.txt').read_text().splitlines()
+          payload=[]
+          for path in paths:
+              p=Path(path)
+              if not p.is_file():raise RuntimeError('No regular file for: '+path)
+              data=p.read_bytes()
+              payload.append({'path':path,'sha256':hashlib.sha256(data).hexdigest(),'content':data.decode('utf8')})
+          Path('/tmp/merged-artifact/files.json').write_text(json.dumps(payload))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-merged-main-protections
+          path: /tmp/merged-artifact/
+          retention-days: 2
+          if-no-files-found: error
