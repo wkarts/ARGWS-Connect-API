@@ -5,6 +5,7 @@ import sys, re, shutil, json, hashlib, subprocess, yaml
 ROOT,DEV = map(lambda s: Path(s).resolve(),sys.argv[1:3])
 COPY = """
 Dockerfile
+RELEASE-MANIFEST.json
 prisma/mysql-schema.prisma
 prisma/postgresql-schema.prisma
 prisma/psql_bouncer-schema.prisma
@@ -32,6 +33,7 @@ deploy/README.md
 deploy/fersoft/README.md
 .github/actions/speech-native-smoke/action.yml
 .github/scripts/preserve-speech-evidence.cjs
+.github/scripts/test-rabbitmq-startup.cjs
 .github/workflows/speech-integrity.yml
 .github/workflows/transcription-service.yml
 .github/workflows/ghcr-publish-application.yml
@@ -204,4 +206,20 @@ old="  const current = load('current')"
 assert t.count(old)==1
 t=t.replace(old,"  dependencies['./retry-after'] = load('retry-after')\n"+old)
 diagnostics.write_text(t)
+# Keep unrelated startup and group-specific dev regressions out of this speech-only backport.
+integrity=ROOT/'.github/workflows/speech-integrity.yml'
+text=integrity.read_text()
+for command in ('          node --test test/event-manager-startup.test.cjs\\n',
+                '          python3 test/rabbitmq-startup-deployments.test.py\\n',
+                '          python3 test/connect-startup-diagnose.test.py\\n'):
+    command=command.replace('\\n','\n')
+    assert text.count(command)==1,command
+    text=text.replace(command,'')
+integrity.write_text(text)
+operations=ROOT/'.github/workflows/operations-integrity.yml'
+text=operations.read_text()
+remove='      - run: node --test test/zapo-group-persistence.test.cjs\n'
+assert text.count(remove)==1
+operations.write_text(text.replace(remove,''))
+assert 'connect-transcription-service' in (ROOT/'RELEASE-MANIFEST.json').read_text()
 print('Speech promotion prepared; all 10 Compose and environment contracts retain opt-in.')
