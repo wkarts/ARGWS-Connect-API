@@ -69,6 +69,8 @@ jobs:
       - name: Stage reviewed candidate and protect current main
         working-directory: candidate
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git add -u
@@ -78,7 +80,7 @@ jobs:
           prefixes=('transcription-service/','deploy/speech/','test/helpers/','test/fixtures/speech-protected-deployments.json',
             'prisma/mysql-migrations/20261007193000_speech_durable_pool/','prisma/postgresql-migrations/20261007193000_speech_durable_pool/',
             'src/api/routes/speech-upload.middleware.ts','src/api/services/speech-','docs/guides/optional-transcription-service.md',
-            'scripts/speech-model','.github/actions/speech-native-smoke/','.github/scripts/preserve-speech-evidence.cjs',
+            'scripts/speech-model','.github/actions/speech-native-smoke/','.github/scripts/preserve-speech-evidence.cjs','.github/scripts/test-rabbitmq-startup.cjs',
             '.github/workflows/speech-integrity.yml','.github/workflows/transcription-service.yml',
             'manager/src/services/retry-after.ts','manager/src/services/speech-status.ts','test/speech')
           safe=[p for p in candidates if p.startswith(prefixes) and
@@ -102,9 +104,48 @@ jobs:
           assert 'argws-connect-transcription-worker' not in text
           PY
           git status --short
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(speech): align main with optional native transcription service'
-          git fetch origin main
-          test "$(git rev-parse origin/main)" = cc9ffbd2663d2f23ec21e4d853b2788fa703b249
-          git push origin HEAD:fix/native-transcription-main-20261010
+          python3 - <<'PY'
+          import json,os,subprocess,urllib.request
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git',*args],text=True).strip()
+          base=git('rev-parse','HEAD')
+          assert base=='cc9ffbd2663d2f23ec21e4d853b2788fa703b249'
+          local_tree=git('write-tree')
+          base_tree=git('rev-parse','HEAD^{tree}')
+          changes=[x for x in subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\\0') if x]
+          entries=[]
+          for p in changes:
+              line=git('ls-files','-s','--',p)
+              if not line:
+                  entries.append({'path':p,'mode':'100644','type':'blob','sha':None})
+                  continue
+              mode,sha,stage_path=line.split(None,2)
+              assert stage_path.startswith('0\\t'),(p,stage_path)
+              dev=subprocess.run(['git','-C','../develop','rev-parse','HEAD:'+p],capture_output=True,text=True)
+              if dev.returncode==0 and dev.stdout.strip()==sha:
+                  entries.append({'path':p,'mode':mode,'type':'blob','sha':sha})
+              else:
+                  content=subprocess.check_output(['git','show',':'+p]).decode('utf-8')
+                  entries.append({'path':p,'mode':mode,'type':'blob','content':content})
+          assert len(entries)>80 and any(x['path']=='transcription-service/src/service.js' for x in entries),len(entries)
+          payload=json.dumps({'base_tree':base_tree,'tree':entries},ensure_ascii=False).encode('utf-8')
+          print('Reviewed tree entries:',len(entries),'payload bytes:',len(payload))
+          req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',
+              data=payload,method='POST',headers={
+              'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json',
+              'Content-Type':'application/json'})
+          with urllib.request.urlopen(req,timeout=90) as response:
+              remote=json.load(response)
+          assert remote['sha']==local_tree,(remote['sha'],local_tree)
+          print('CANDIDATE_REMOTE_TREE',remote['sha'])
+          out=Path(os.environ['RUNNER_TEMP'])/'speech-candidate';out.mkdir(exist_ok=True)
+          (out/'reviewed-tree.json').write_text(json.dumps({'main':base,'develop':'d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5',
+              'tree':remote['sha'],'files':len(entries),'paths':changes},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-speech-reviewed-main-tree
+          path: ${{ runner.temp }}/speech-candidate/reviewed-tree.json
+          retention-days: 2
+          if-no-files-found: error
