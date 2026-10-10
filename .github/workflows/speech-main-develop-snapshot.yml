@@ -3,7 +3,7 @@ on:
   push:
     branches: [work/speech-promotion-review-20261010]
 permissions:
-  contents: read
+  contents: write
 jobs:
   resolve:
     runs-on: ubuntu-24.04
@@ -91,6 +91,35 @@ jobs:
               data=p.read_bytes()
               payload.append({'path':path,'sha256':hashlib.sha256(data).hexdigest(),'content':data.decode('utf8')})
           Path('/tmp/merged-artifact/files.json').write_text(json.dumps(payload))
+          PY
+      - name: Record exactly reviewed Git tree object without updating refs
+        env:
+          OBJECT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess, json, urllib.request
+          from pathlib import Path
+          changes=json.loads(Path('/tmp/merged-artifact/files.json').read_text())
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          base=git('rev-parse','HEAD^1^{tree}')
+          expected=git('rev-parse','HEAD^{tree}')
+          objects=[]
+          for obj in changes:
+              mode=git('ls-files','-s','--',obj['path']).split()[0]
+              objects.append({'path':obj['path'],'mode':mode,'type':'blob','content':obj['content']})
+          payload=json.dumps({'base_tree':base,'tree':objects},ensure_ascii=False).encode()
+          request=urllib.request.Request(
+            'https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',
+            data=payload,method='POST',
+            headers={'Authorization':'Bearer '+os.environ['OBJECT_TOKEN'],
+                     'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urllib.request.urlopen(request,timeout=55) as response:
+              result=json.load(response)
+          assert result['sha']==expected,(result['sha'],expected)
+          print('Verified remote merge tree:', result['sha'])
+          print('Parents:',git('rev-parse','HEAD^1'),git('rev-parse','HEAD^2'))
           PY
       - uses: actions/upload-artifact@v4
         with:
