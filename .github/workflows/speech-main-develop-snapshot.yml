@@ -71,8 +71,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add -A
-          git add -f test/speech-service-deployment.test.py test/speech-ci-evidence.test.cjs test/speech-durable.integration.test.ts test/speech-source-storage.test.ts test/speech-storage.integration.test.ts test/helpers/speech-fixture.ts test/fixtures/speech-protected-deployments.json
+          git add -u
+          python3 - <<'PY'
+          import subprocess
+          candidates=subprocess.check_output(['git','ls-files','--others','--exclude-standard','-z']).decode().split('\\0')
+          prefixes=('transcription-service/','deploy/speech/','test/helpers/','test/fixtures/speech-protected-deployments.json',
+            'prisma/mysql-migrations/20261007193000_speech_durable_pool/','prisma/postgresql-migrations/20261007193000_speech_durable_pool/',
+            'src/api/routes/speech-upload.middleware.ts','src/api/services/speech-','docs/guides/optional-transcription-service.md',
+            'scripts/speech-model','.github/actions/speech-native-smoke/','.github/scripts/preserve-speech-evidence.cjs',
+            '.github/workflows/speech-integrity.yml','.github/workflows/transcription-service.yml',
+            'manager/src/services/retry-after.ts','manager/src/services/speech-status.ts','test/speech')
+          safe=[p for p in candidates if p.startswith(prefixes) and
+                not any(part in ('node_modules','dist','.cache','build') for part in p.split('/'))]
+          explicit=['test/speech-service-deployment.test.py','test/speech-ci-evidence.test.cjs',
+            'test/speech-durable.integration.test.ts','test/speech-source-storage.test.ts',
+            'test/speech-storage.integration.test.ts','test/helpers/speech-fixture.ts','test/fixtures/speech-protected-deployments.json']
+          required=sorted(set(safe+explicit))
+          subprocess.run(['git','add','-f','--',*required],check=True)
+          print('Staged reviewed new sources:',len(required))
+          PY
           git diff --cached --check
           git diff --quiet -- .github/RELEASE_HOLD.md
           git diff --quiet -- .github/scripts/release-publication-policy.py
