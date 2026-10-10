@@ -1,0 +1,36 @@
+name: Prepare read-only speech promotion review
+on:
+  push:
+    branches: [work/speech-promotion-review-20261010]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: cc9ffbd2663d2f23ec21e4d853b2788fa703b249
+          path: main-source
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: d3c1ab00e5316976a34636f0dd1b6d0828b6d1b5
+          path: develop-source
+          persist-credentials: false
+      - name: Package exact reviewed snapshots, excluding Git metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          tar --exclude='./.git' -czf output/main-source.tar.gz -C main-source .
+          tar --exclude='./.git' -czf output/develop-source.tar.gz -C develop-source .
+          printf 'main=%s\ndevelop=%s\n' 'cc9ffbd2663d2f23ec21e4d853b2788fa703b249' 'd3c1ab00e5316976a34636f0dd1b6d0828b6d1b5' > output/refs.txt
+          sha256sum output/*.tar.gz > output/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speech-main-develop-reviewed-sources
+          path: output/
+          retention-days: 1
+          if-no-files-found: error
